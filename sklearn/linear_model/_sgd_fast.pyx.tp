@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Tempita template generating _sgd_fast.pyx: the plain stochastic gradient descent solver
+# behind SGDClassifier, SGDRegressor, SGDOneClassSVM and the Passive-Aggressive estimators
+# (sklearn/linear_model/_stochastic_gradient.py and _passive_aggressive.py). Contents:
+# - loss extension types deriving from sklearn._loss CyLossFunction: base classes Regression
+# and Classification (with Python test wrappers), and ModifiedHuber, Hinge, SquaredHinge,
+# EpsilonInsensitive, SquaredEpsilonInsensitive (other losses such as log or squared error come
+# from sklearn._loss directly);
+# - _plain_sgd64 / _plain_sgd32, the SGD loop, instantiated per dtype, operating on a
+# WeightVector (scaled weight vector with optional averaging) and a SequentialDataset;
+# - helpers any_nonfinite, sqnorm and l1penalty64/32 (cumulative L1 penalty).
+# Penalty and learning-rate codes are C macros defined in the extern block.
 {{py:
 
 """
@@ -67,9 +79,15 @@ cdef extern from *:
 # ----------------------------------------
 
 cdef class Regression(CyLossFunction):
+    # [CLASS DOC]
+    # Abstract base for regression losses; adds Python-callable wrappers py_loss and py_dloss used
+    # by the tests. Concrete subclasses implement cy_loss and cy_gradient. No state.
     """Base class for loss functions for regression"""
 
     def py_loss(self, double p, double y):
+        # [FUNCTION DOC]
+        # Test wrapper: returns cy_loss(y, p). Note the argument order (p, y) is swapped relative to cy_loss.
+        # Inputs: p, prediction; y, target. Outputs: float loss. Exceptions: none. Side effects: none.
         """Python version of `loss` for testing only.
 
         Pytest needs a python function and can't use cdef functions.
@@ -89,6 +107,9 @@ cdef class Regression(CyLossFunction):
         return self.cy_loss(y, p)
 
     def py_dloss(self, double p, double y):
+        # [FUNCTION DOC]
+        # Test wrapper: returns cy_gradient(y, p), the derivative with respect to p (argument order swapped).
+        # Inputs: p, prediction; y, target. Outputs: float derivative. Exceptions: none. Side effects: none.
         """Python version of `dloss` for testing only.
 
         Pytest needs a python function and can't use cdef functions.
@@ -109,18 +130,30 @@ cdef class Regression(CyLossFunction):
 
 
 cdef class Classification(CyLossFunction):
+    # [CLASS DOC]
+    # Abstract base for binary classification losses with labels y in {-1, 1}; same Python test
+    # wrappers as Regression. No state.
     """Base class for loss functions for classification"""
 
     def py_loss(self, double p, double y):
+        # [FUNCTION DOC]
+        # Test wrapper: returns cy_loss(y, p) (argument order swapped).
+        # Inputs: p, prediction; y, label. Outputs: float loss. Exceptions: none. Side effects: none.
         """Python version of `loss` for testing only."""
         return self.cy_loss(y, p)
 
     def py_dloss(self, double p, double y):
+        # [FUNCTION DOC]
+        # Test wrapper: returns cy_gradient(y, p) (argument order swapped).
+        # Inputs: p, prediction; y, label. Outputs: float derivative. Exceptions: none. Side effects: none.
         """Python version of `dloss` for testing only."""
         return self.cy_gradient(y, p)
 
 
 cdef class ModifiedHuber(Classification):
+    # [CLASS DOC]
+    # Modified Huber classification loss of the margin z = p y: 0 if z >= 1, (1 - z)^2 if
+    # -1 <= z < 1, -4 z otherwise (linear tail). Stateless.
     """Modified Huber loss for binary classification with y in {-1, 1}
 
     This is equivalent to quadratically smoothed SVM with gamma = 2.
@@ -129,6 +162,10 @@ cdef class ModifiedHuber(Classification):
     Stochastic Gradient Descent', ICML'04.
     """
     cdef double cy_loss(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: computes the modified Huber loss of the margin z = p y as described for the class.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: the loss value. Exceptions: none (nogil). Side effects: none.
         cdef double z = p * y
         if z >= 1.0:
             return 0.0
@@ -138,6 +175,10 @@ cdef class ModifiedHuber(Classification):
             return -4.0 * z
 
     cdef double cy_gradient(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: 0 if z >= 1, -2 y (1 - z) if z >= -1, else -4 y, with z = p y.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: derivative of the loss with respect to p. Exceptions: none (nogil). Side effects: none.
         cdef double z = p * y
         if z >= 1.0:
             return 0.0
@@ -147,10 +188,16 @@ cdef class ModifiedHuber(Classification):
             return -4.0 * y
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickling support: returns the class and empty arguments so the loss can be reconstructed.
+        # Inputs: none. Outputs: a (callable, args) tuple. Exceptions: none. Side effects: none.
         return ModifiedHuber, ()
 
 
 cdef class Hinge(Classification):
+    # [CLASS DOC]
+    # Hinge loss max(0, threshold - p y) for labels in {-1, 1}. Attribute threshold (double): margin,
+    # 1 for SVM, 0 for the perceptron. Used with is_hinge detection in _plain_sgd for PA classifiers.
     """Hinge loss for binary classification tasks with y in {-1,1}
 
     Parameters
@@ -164,25 +211,41 @@ cdef class Hinge(Classification):
     cdef double threshold
 
     def __init__(self, double threshold=1.0):
+        # [FUNCTION DOC]
+        # Constructor: stores the margin threshold (default 1.0). Inputs: threshold. Outputs: none.
+        # Exceptions: TypeError if not convertible to double. Side effects: sets self.threshold.
         self.threshold = threshold
 
     cdef double cy_loss(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: threshold - p y if p y <= threshold, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: the loss value. Exceptions: none (nogil). Side effects: none.
         cdef double z = p * y
         if z <= self.threshold:
             return self.threshold - z
         return 0.0
 
     cdef double cy_gradient(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: -y if p y <= threshold, else 0 (subgradient at the kink is -y).
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: derivative of the loss with respect to p. Exceptions: none (nogil). Side effects: none.
         cdef double z = p * y
         if z <= self.threshold:
             return -y
         return 0.0
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickling support: returns the class and (threshold,) so the loss can be reconstructed.
+        # Inputs: none. Outputs: a (callable, args) tuple. Exceptions: none. Side effects: none.
         return Hinge, (self.threshold,)
 
 
 cdef class SquaredHinge(Classification):
+    # [CLASS DOC]
+    # Squared hinge loss max(0, threshold - p y)^2 for labels in {-1, 1}. Attribute threshold (double).
     """Squared Hinge loss for binary classification tasks with y in {-1,1}
 
     Parameters
@@ -196,25 +259,42 @@ cdef class SquaredHinge(Classification):
     cdef double threshold
 
     def __init__(self, double threshold=1.0):
+        # [FUNCTION DOC]
+        # Constructor: stores the margin threshold (default 1.0). Inputs: threshold. Outputs: none.
+        # Exceptions: TypeError if not convertible to double. Side effects: sets self.threshold.
         self.threshold = threshold
 
     cdef double cy_loss(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: with z = threshold - p y, returns z^2 if z > 0, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: the loss value. Exceptions: none (nogil). Side effects: none.
         cdef double z = self.threshold - p * y
         if z > 0:
             return z * z
         return 0.0
 
     cdef double cy_gradient(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: with z = threshold - p y, returns -2 y z if z > 0, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: derivative of the loss with respect to p. Exceptions: none (nogil). Side effects: none.
         cdef double z = self.threshold - p * y
         if z > 0:
             return -2 * y * z
         return 0.0
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickling support: returns the class and (threshold,) so the loss can be reconstructed.
+        # Inputs: none. Outputs: a (callable, args) tuple. Exceptions: none. Side effects: none.
         return SquaredHinge, (self.threshold,)
 
 
 cdef class EpsilonInsensitive(Regression):
+    # [CLASS DOC]
+    # Epsilon-insensitive regression loss max(0, |y - p| - epsilon) (SVR / PA regression).
+    # Attribute epsilon (double): width of the insensitive zone.
     """Epsilon-Insensitive loss (used by SVR).
 
     loss = max(0, |y - p| - epsilon)
@@ -223,13 +303,24 @@ cdef class EpsilonInsensitive(Regression):
     cdef double epsilon
 
     def __init__(self, double epsilon):
+        # [FUNCTION DOC]
+        # Constructor: stores epsilon (required). Inputs: epsilon. Outputs: none.
+        # Exceptions: TypeError if not convertible to double. Side effects: sets self.epsilon.
         self.epsilon = epsilon
 
     cdef double cy_loss(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: |y - p| - epsilon if positive, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: the loss value. Exceptions: none (nogil). Side effects: none.
         cdef double ret = fabs(y - p) - self.epsilon
         return ret if ret > 0 else 0
 
     cdef double cy_gradient(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: -1 if y - p > epsilon, 1 if p - y > epsilon, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: derivative of the loss with respect to p. Exceptions: none (nogil). Side effects: none.
         if y - p > self.epsilon:
             return -1
         elif p - y > self.epsilon:
@@ -238,10 +329,16 @@ cdef class EpsilonInsensitive(Regression):
             return 0
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickling support: returns the class and (epsilon,) so the loss can be reconstructed.
+        # Inputs: none. Outputs: a (callable, args) tuple. Exceptions: none. Side effects: none.
         return EpsilonInsensitive, (self.epsilon,)
 
 
 cdef class SquaredEpsilonInsensitive(Regression):
+    # [CLASS DOC]
+    # Squared epsilon-insensitive regression loss max(0, |y - p| - epsilon)^2.
+    # Attribute epsilon (double).
     """Epsilon-Insensitive loss.
 
     loss = max(0, |y - p| - epsilon)^2
@@ -250,13 +347,24 @@ cdef class SquaredEpsilonInsensitive(Regression):
     cdef double epsilon
 
     def __init__(self, double epsilon):
+        # [FUNCTION DOC]
+        # Constructor: stores epsilon (required). Inputs: epsilon. Outputs: none.
+        # Exceptions: TypeError if not convertible to double. Side effects: sets self.epsilon.
         self.epsilon = epsilon
 
     cdef double cy_loss(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: (|y - p| - epsilon)^2 if |y - p| > epsilon, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: the loss value. Exceptions: none (nogil). Side effects: none.
         cdef double ret = fabs(y - p) - self.epsilon
         return ret * ret if ret > 0 else 0
 
     cdef double cy_gradient(self, double y, double p) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: with z = y - p, -2 (z - epsilon) if z > epsilon, 2 (-z - epsilon) if z < -epsilon, else 0.
+        # Inputs: y, true target; p, raw prediction.
+        # Outputs: derivative of the loss with respect to p. Exceptions: none (nogil). Side effects: none.
         cdef double z
         z = y - p
         if z > self.epsilon:
@@ -267,6 +375,9 @@ cdef class SquaredEpsilonInsensitive(Regression):
             return 0
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickling support: returns the class and (epsilon,) so the loss can be reconstructed.
+        # Inputs: none. Outputs: a (callable, args) tuple. Exceptions: none. Side effects: none.
         return SquaredEpsilonInsensitive, (self.epsilon,)
 
 {{for name_suffix, c_type, np_type in dtypes}}
@@ -301,6 +412,39 @@ def _plain_sgd{{name_suffix}}(
     double intercept_decay=1.0,
     int average=0,
 ):
+    # [FUNCTION DOC]
+    # Template instantiated per dtype suffix (_plain_sgd64 / _plain_sgd32).
+    # Behavior: wraps weights (and average_weights) in a WeightVector, allocates the cumulative L1
+    # vector q for L1/elasticnet, forces l1_ratio to 0 for L2 and 1 for L1, and for the 'optimal'
+    # schedule derives an initial offset so the first eta equals a heuristic eta0. Each epoch
+    # (optionally shuffling the dataset with seed) iterates samples, skipping validation-mask rows:
+    # p = w.x + intercept; eta from the schedule (constant, optimal 1/(alpha(t0 + t - 1)),
+    # invscaling eta0 / t^power_t; adaptive keeps eta until stagnation); accumulates loss and
+    # objective (loss plus penalty, plus intercept*alpha for one-class) when verbose or not early
+    # stopping. The step is -eta * clipped dloss (|dloss| <= 1e12), or the PA-I / PA-II closed form
+    # from the loss and squared sample norm (PA-I skips samples with zero norm), with sign fixed by y
+    # for hinge or by the residual sign for regression; it is multiplied by class weight (weight_pos
+    # if y > 0 else weight_neg) and sample weight. Then L2 shrinkage by max(0, 1 - (1 - l1_ratio)
+    # eta alpha), the sparse weight update, the intercept update (minus eta alpha for one-class,
+    # times intercept_decay), the running average once t >= average, and the cumulative L1 penalty.
+    # After each epoch weights and intercept are checked for finiteness; early stopping compares the
+    # validation score from validation_score_cb with the best score plus tol, otherwise the mean
+    # training objective with the best objective minus tol; after n_iter_no_change bad epochs it
+    # stops, or for 'adaptive' divides eta by 5 while eta > 1e-6.
+    # Inputs: see the docstring (weights, intercept, average_weights, average_intercept, loss,
+    # penalty_type, alpha, l1_ratio, dataset, validation_mask, early_stopping, validation_score_cb,
+    # n_iter_no_change, max_iter, tol, fit_intercept, verbose, shuffle, seed, weight_pos, weight_neg,
+    # learning_rate, eta0, power_t, one_class, t, intercept_decay, average).
+    # Outputs: (weights array, intercept, average weights array or None, average intercept, number
+    # of epochs run); weights and average_weights are the input buffers, modified in place.
+    # Exceptions: ValueError if a weight or the intercept becomes non-finite; exceptions raised by
+    # validation_score_cb propagate.
+    # Side effects: mutates the weight buffers and the dataset's shuffle order; releases the GIL for
+    # the main loop (reacquired for printing and the validation callback); prints when verbose.
+    # KNOWN ISSUE: weights and average_weights are declared as read-only memoryviews but are
+    # mutated in place through WeightVector.
+    # KNOWN ISSUE: with PA-I a zero-norm sample skips the rest of the iteration, so t and count are
+    # not incremented for it (count feeds only verbose output).
     """SGD for generic loss functions and penalties with optional averaging
 
     Parameters
@@ -646,6 +790,10 @@ def _plain_sgd{{name_suffix}}(
 
 
 cdef inline bint any_nonfinite(const floating[::1] w) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: overflow check for _plain_sgd.
+    # Behavior: returns True if any entry of w is NaN or infinite. Inputs: w, contiguous vector.
+    # Outputs: boolean. Exceptions: none. Side effects: none.
     for i in range(w.shape[0]):
         if not isfinite(w[i]):
             return True
@@ -657,6 +805,11 @@ cdef inline double sqnorm(
     int * x_ind_ptr,
     int xnnz,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: squared L2 norm of a sparse sample, used by the Passive-Aggressive step sizes.
+    # Behavior: sums the squares of the xnnz stored values (indices are not needed).
+    # Inputs: x_data_ptr, values; x_ind_ptr, indices (unused); xnnz, count.
+    # Outputs: the squared norm as double. Exceptions: none. Side effects: none.
     cdef double x_norm = 0.0
     cdef int j
     cdef double z
@@ -675,6 +828,15 @@ cdef void l1penalty{{name_suffix}}(
     int xnnz,
     double u,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: cumulative L1 penalty (Tsuruoka et al. 2009) for _plain_sgd, instantiated per dtype.
+    # Behavior: for each feature of the current sample, with z the stored weight and wscale the
+    # weight vector scale: if the effective weight is positive, clip it toward zero by
+    # (u + q[idx]) / wscale without crossing zero; if negative, by (u - q[idx]) / wscale. Then
+    # q[idx] accumulates the actual penalty applied, wscale * (new - old).
+    # Inputs: w, WeightVector; q_data_ptr, cumulative applied penalty per feature; x_ind_ptr, xnnz,
+    # the sample's feature indices; u, total L1 penalty that could have been applied so far.
+    # Outputs: none. Exceptions: none (nogil). Side effects: mutates w's data and q.
     """Apply the L1 penalty to each updated feature
 
     This implements the truncated gradient approach by

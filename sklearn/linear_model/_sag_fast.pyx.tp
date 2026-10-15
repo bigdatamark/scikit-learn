@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Tempita template generating _sag_fast.pyx: the SAG and SAGA stochastic average gradient
+# solvers used by sklearn/linear_model/_sag.py (Ridge and LogisticRegression with
+# solver='sag'/'saga'). Every function is instantiated twice, with suffix 64 (double) and 32
+# (float). sag64/sag32 is the Python entry point; scale_weights, lagged_update and
+# predict_sample are nogil helpers. Weights are stored as weights = wscale * stored values so
+# the L2 shrinkage is a scalar update, and sparse samples only touch their nonzero features
+# thanks to just-in-time (lazy) updates driven by cumulative step sums. Losses come from
+# sklearn._loss (half squared error, half binomial, half multinomial) and samples are drawn
+# from a SequentialDataset.
 {{py:
 
 """
@@ -38,6 +48,10 @@ from sklearn.utils._seq_dataset cimport SequentialDataset32, SequentialDataset64
 {{for name_suffix, c_type, np_type in dtypes}}
 
 cdef inline {{c_type}} fmax{{name_suffix}}({{c_type}} x, {{c_type}} y) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: scalar maximum for the SAG code (instantiated per dtype suffix).
+    # Behavior: returns x if x > y, else y. Inputs: two scalars. Outputs: the larger one.
+    # Exceptions: none. Side effects: none.
     if x > y:
         return x
     return y
@@ -47,6 +61,12 @@ cdef inline {{c_type}} fmax{{name_suffix}}({{c_type}} x, {{c_type}} y) noexcept 
 {{for name_suffix, c_type, np_type in dtypes}}
 
 cdef inline {{c_type}} _soft_thresholding{{name_suffix}}({{c_type}} x, {{c_type}} shrinkage) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: proximal operator of the L1 norm used by SAGA (instantiated per dtype suffix).
+    # Behavior: soft thresholding, returns x - shrinkage if x > shrinkage, x + shrinkage if
+    # x < -shrinkage, else 0.
+    # Inputs: x, value; shrinkage, threshold >= 0. Outputs: thresholded value.
+    # Exceptions: none. Side effects: none.
     return fmax{{name_suffix}}(x - shrinkage, 0) - fmax{{name_suffix}}(- x - shrinkage, 0)
 
 {{endfor}}
@@ -77,6 +97,38 @@ def sag{{name_suffix}}(
     bint saga,
     bint verbose
 ):
+    # [FUNCTION DOC]
+    # Template instantiated per dtype suffix (sag64 / sag32).
+    # Behavior: runs up to max_iter epochs of n_samples random draws (with replacement, via
+    # dataset.random). For each draw: apply pending lazy updates to the sample's nonzero features
+    # (lagged_update, skipped for the first draw of the epoch), predict with the scaled weights,
+    # compute the loss gradient times sample weight (one value, or n_classes values for
+    # multinomial), shrink wscale by (1 - step_size alpha) for the L2 term, then for every nonzero
+    # feature add val * (new gradient - remembered gradient) to sum_gradient; in SAGA also apply
+    # the unbiasing correction step directly to the weights. The intercept, if fitted, is updated
+    # eagerly from intercept_sum_gradient (times intercept_decay) plus, for SAGA, the correction
+    # term, and is checked for finiteness. The gradient memory is overwritten and the cumulative
+    # step sums (step_size / (wscale num_seen), plus step_size beta / wscale for the L1 prox) are
+    # extended. If wscale < 1e-9 all weights are rescaled (scale_weights). At the end of each epoch
+    # all lazy updates are flushed and wscale reset, then convergence is tested: max |change| /
+    # max |weight| <= tol (or both zero).
+    # Inputs: dataset, SequentialDataset of matching dtype; weights_array, (n_features, n_classes)
+    # C-ordered coefficients, updated in place; intercept_array, (n_classes,), updated in place;
+    # n_samples, n_features, n_classes; tol; max_iter, max epochs; loss_function, one of 'log',
+    # 'squared', 'multinomial'; step_size; alpha, L2 strength; beta, L1 strength (used only when
+    # saga); sum_gradient_init and gradient_memory_init, persistent SAG state (n_features, n_classes)
+    # and (n_samples, n_classes), updated in place; seen_init, per-sample seen flags, updated;
+    # num_seen, number of samples seen so far; fit_intercept; intercept_sum_gradient_init,
+    # (n_classes,), updated; intercept_decay, scale of intercept updates for sparse data; saga,
+    # use SAGA instead of SAG; verbose, print progress.
+    # Outputs: (num_seen, n_iter) where n_iter is the number of epochs run; all state arrays above
+    # are mutated so a warm start can resume.
+    # Exceptions: ValueError for an unknown loss_function; ValueError after the loop when a weight
+    # or intercept became non-finite (signalled via status = -1 to avoid taking the GIL).
+    # Side effects: mutates weights, intercept and all *_init state; allocates work arrays; releases
+    # the GIL; prints to stdout when verbose (printf from nogil code); reads the wall clock.
+    # KNOWN ISSUE: the verbose per-epoch printf divides max_change by max_weight, which is inf or
+    # NaN when all weights are zero.
     """Stochastic Average Gradient (SAG) and SAGA solvers.
 
     Used in Ridge and LogisticRegression.
@@ -447,6 +499,18 @@ cdef int scale_weights{{name_suffix}}(
     {{c_type}}* sum_gradient,
     int n_iter
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: flushes the lazy update system for sag (instantiated per dtype suffix).
+    # Behavior: calls lagged_update in reset mode on all n_features features with sample index
+    # sample_itr + 1, which applies every pending gradient/prox step and multiplies the stored
+    # weights by wscale; on success sets wscale to 1.
+    # Inputs: weights, pointer to (n_features * n_classes) stored weights; wscale, pointer to the
+    # scale; n_features, n_samples, n_classes; sample_itr, index of the last processed draw in the
+    # epoch; cumulative_sums, cumulative_sums_prox (NULL if no prox), feature_hist; prox flag;
+    # sum_gradient; n_iter, current epoch (unused by the callee's logic).
+    # Outputs: status 0 on success, -1 if a weight became non-finite (wscale is then left unchanged).
+    # Exceptions: none (nogil, error code). Side effects: mutates weights, wscale, feature_hist and
+    # resets the last cumulative sum entries.
     """Scale the weights and reset wscale to 1.0 for numerical stability, and
     reset the just-in-time (JIT) update system.
 
@@ -502,6 +566,25 @@ cdef int lagged_update{{name_suffix}}(
     bint reset,
     int n_iter
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: just-in-time weight update for sag (instantiated per dtype suffix).
+    # Behavior: for each target feature (the sample's nonzero indices, or features 0..xnnz-1 when
+    # reset) computes the total step accumulated since its last update as
+    # cumulative_sums[sample_itr - 1] minus cumulative_sums[feature_hist - 1] (no subtraction if
+    # feature_hist is 0), same for the prox sums. Without prox, subtracts cum_sum * sum_gradient
+    # from each class weight. With prox, if |sum_gradient * cum_sum| < cum_sum_prox it applies one
+    # gradient step then one soft threshold with the total prox step (a shortcut taken from
+    # lightning that is treated as equivalent to replaying the steps); otherwise it replays every lagged step individually, from the most recent
+    # index down to feature_hist. In reset mode each weight is multiplied by wscale and checked for
+    # finiteness. feature_hist is set to sample_itr (modulo n_samples when reset). In reset mode
+    # the last cumulative sum entries are zeroed.
+    # Inputs: weights; wscale; xnnz, number of features to process; n_samples, n_classes;
+    # sample_itr, current draw index within the epoch (>= 1); cumulative_sums,
+    # cumulative_sums_prox (may be NULL if prox is False); feature_hist, per-feature last update
+    # index; prox, whether L1 prox is active; sum_gradient; x_ind_ptr, sample feature indices
+    # (ignored and may be NULL when reset); reset; n_iter (unused).
+    # Outputs: 0 on success, -1 on non-finite weight (only checked in reset mode).
+    # Exceptions: none (nogil). Side effects: mutates weights, feature_hist, cumulative sums.
     """Hard perform the JIT updates for non-zero features of present sample.
 
     See `sag{{name_suffix}}`'s docstring about the JIT update system.
@@ -596,6 +679,14 @@ cdef void predict_sample{{name_suffix}}(
     {{c_type}}* prediction,
     int n_classes
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: linear prediction of one sparse sample for sag (instantiated per dtype suffix).
+    # Behavior: for each class, sums stored weight times value over the sample's nonzero
+    # features, multiplies by wscale and adds the class intercept.
+    # Inputs: x_data_ptr, x_ind_ptr, xnnz, the sparse sample; w_data_ptr, stored weights laid out
+    # (n_features, n_classes); wscale; intercept, (n_classes,); prediction, output buffer;
+    # n_classes. Outputs: prediction[0:n_classes] written. Exceptions: none. Side effects: writes
+    # prediction only.
     """Compute the prediction given sparse sample x and dense weight w.
 
     Parameters
