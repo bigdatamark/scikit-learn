@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# ArgKminClassMode: a k-nearest-neighbors reduction that, instead of returning
+# neighbor indices, directly accumulates per-class scores for each row of X
+# from the labels of its k nearest rows of Y and returns normalized class
+# probabilities (used by KNeighborsClassifier.predict_proba for brute force
+# with uniform weights). It subclasses ArgKmin and replaces the final sorting
+# by a histogram pass over each row's heap. Only the generic (DatasetsPair)
+# distance path is used, no Euclidean GEMM specialization. Tempita template
+# instantiated for suffixes 32 and 64 (input dtype).
 from cython cimport floating, integral
 from cython.parallel cimport parallel, prange
 from libcpp.map cimport map as cpp_map, pair as cpp_pair
@@ -15,6 +24,10 @@ from sklearn.metrics._pairwise_distances_reduction._argkmin cimport ArgKmin{{nam
 from sklearn.metrics._pairwise_distances_reduction._datasets_pair cimport DatasetsPair{{name_suffix}}
 
 cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
+    # [CLASS DOC]
+    # ArgKmin subclass holding encoded labels of Y rows, the unique labels, a
+    # float64 score matrix of shape (n_samples_X, n_classes) and the weighting
+    # strategy. The declared label-to-index map is never used.
     """
     {{name_suffix}}bit implementation of ArgKminClassMode.
     """
@@ -39,6 +52,18 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
         dict metric_kwargs=None,
         str strategy=None,
     ):
+        # [FUNCTION DOC]
+        # Entry point class method.
+        # Behavior: builds the instance on DatasetsPair.get_for(X, Y, metric,
+        # metric_kwargs), runs the chosen strategy under a one-thread BLAS limit and
+        # returns the class probabilities.
+        # Inputs: X, Y (dense or CSR, suffix dtype); k; weights ("uniform" or
+        # "distance"); Y_labels, intp label codes of Y rows in [0, n_classes);
+        # unique_Y_labels (its length gives n_classes); metric; chunk_size;
+        # metric_kwargs; strategy.
+        # Outputs: float64 array of shape (n_samples_X, n_classes), rows summing to 1.
+        # Exceptions: those of the constructors and input conversion.
+        # Side effects: temporary threadpool limit; OpenMP parallelism.
         """Compute the argkmin reduction with Y_labels.
 
         This classmethod is responsible for introspecting the arguments
@@ -84,6 +109,11 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t k=1,
         weights=None,
     ):
+        # [FUNCTION DOC]
+        # Behavior: ArgKmin initialization, maps weights to the enum ("uniform",
+        # "distance", anything else becomes callable), stores labels and allocates a
+        # zero score matrix of shape (n_samples_X, number of unique labels).
+        # Exceptions: ArgKmin errors; buffer errors if labels are not intp arrays.
         super().__init__(
             datasets_pair=datasets_pair,
             chunk_size=chunk_size,
@@ -109,6 +139,10 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
         )
 
     def _finalize_results(self):
+        # [FUNCTION DOC]
+        # Normalizes each row of the score matrix by its sum, in place, and returns it
+        # as a numpy array (a view on the internal buffer). Rows with all-zero scores
+        # would produce NaN, but every row receives k positive votes in uniform mode.
         probabilities = np.asarray(self.class_scores)
         probabilities /= probabilities.sum(axis=1, keepdims=True)
         return probabilities
@@ -119,6 +153,18 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t* indices,
         float64_t* distances,
    ) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: per-row vote accumulation used by both strategy finalizers.
+        # Behavior: for each of the k neighbors of X row sample_index, adds an increment
+        # to the score of the neighbor's label code: 1, or the inverse of the stored
+        # distance in distance mode.
+        # Inputs: sample_index; indices and distances, pointers to that row's k heap
+        # entries.
+        # Outputs: class_scores row updated in place. Exceptions: none (nogil).
+        # KNOWN ISSUE: distance weighting uses the stored surrogate distances (for
+        # example squared euclidean distances) rather than exact distances, and a
+        # zero distance gives an infinite score; estimators only call this reduction
+        # with uniform weights, so the issue is latent.
         cdef:
             intp_t neighbor_idx, neighbor_class_idx, label_index, multi_output_index
             float64_t score_incr = 1
@@ -146,6 +192,10 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X override (no sorting): after all Y chunks for X rows [X_start,
+        # X_end), accumulates the votes of each row from the heap block of thread
+        # thread_num (which points into the main ArgKmin results). nogil, noexcept.
         cdef:
             intp_t idx, sample_index
         for idx in range(X_end - X_start):
@@ -162,6 +212,10 @@ cdef class ArgKminClassMode{{name_suffix}}(ArgKmin{{name_suffix}}):
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y override (no sorting): frees each thread's private heaps, then
+        # accumulates the votes of every X row from the merged main heaps, both in
+        # parallel OpenMP loops. nogil, noexcept. Side effects: frees memory.
         cdef:
             intp_t sample_index, thread_num
 

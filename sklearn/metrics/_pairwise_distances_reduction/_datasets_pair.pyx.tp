@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Implementation of DatasetsPair, the lowest layer of the pairwise-distances
+# reductions: given row indices i (in X) and j (in Y) it returns the exact or
+# surrogate (rank-preserving, cheaper) distance between the two rows using a
+# DistanceMetric. Four final subclasses cover the dense/sparse combinations of
+# X and Y; the get_for factory picks one. Reductions (ArgKmin, RadiusNeighbors)
+# call these per pair inside their nogil loops when the Euclidean GEMM-based
+# specialization is not used.
+# Tempita template instantiated for suffix 64 (float64 data, DistanceMetric64)
+# and suffix 32 (float32 data, DistanceMetric32); distances are float64.
 import copy
 
 {{py:
@@ -58,6 +68,20 @@ cdef class DatasetsPair{{name_suffix}}:
         metric="euclidean",
         dict metric_kwargs=None,
     ) -> DatasetsPair{{name_suffix}}:
+        # [FUNCTION DOC]
+        # Factory class method (per dtype suffix).
+        # Behavior: copies metric_kwargs (if given) and drops "X_norm_squared" and
+        # "Y_norm_squared" so they are not forwarded to the metric constructor; builds
+        # the DistanceMetric for the metric name/object and the suffix dtype; lets the
+        # metric validate X and Y; then returns DenseDense, SparseSparse, SparseDense
+        # or DenseSparse pair depending on which of X and Y are scipy sparse.
+        # Inputs: X, Y, C-contiguous arrays or CSR matrices with the same number of
+        # columns; metric, string or DistanceMetric; metric_kwargs, optional dict.
+        # Outputs: a new DatasetsPair subclass instance.
+        # Exceptions: errors from DistanceMetric.get_metric (unknown metric, bad
+        # kwargs) and from metric-specific data validation; buffer errors if dense data
+        # does not have the expected dtype/contiguity.
+        # Side effects: none on the caller's metric_kwargs (a shallow copy is mutated).
         """Return the DatasetsPair implementation for the given arguments.
 
         Parameters
@@ -125,6 +149,14 @@ cdef class DatasetsPair{{name_suffix}}:
 
     @classmethod
     def unpack_csr(cls, X: csr_matrix | csr_array):
+        # [FUNCTION DOC]
+        # HELPER: used by the sparse pair constructors.
+        # Behavior: returns the data of a CSR matrix converted to the suffix dtype and
+        # its indices and indptr converted to int32 (copies only when needed).
+        # Inputs: X, CSR matrix or array. Outputs: tuple (data, indices, indptr).
+        # Exceptions: overflow is not checked when int64 indices are cast to int32.
+        # KNOWN ISSUE: CSR matrices whose indices or indptr exceed the int32 range are
+        # silently truncated by the cast instead of being rejected.
         """Ensure that the CSR sparse is indexed with np.int32."""
         X_data = np.asarray(X.data, dtype={{INPUT_DTYPE}})
         X_indices = np.asarray(X.indices, dtype=np.int32)
@@ -132,10 +164,16 @@ cdef class DatasetsPair{{name_suffix}}:
         return X_data, X_indices, X_indptr
 
     def __init__(self, {{DistanceMetric}} distance_metric, intp_t n_features):
+        # [FUNCTION DOC]
+        # Stores the distance metric and number of features. No validation, no
+        # exceptions besides type checking of distance_metric.
         self.distance_metric = distance_metric
         self.n_features = n_features
 
     cdef intp_t n_samples_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Abstract: subclasses override. Base version returns the sentinel -999 (it
+        # cannot raise in nogil code). nogil, noexcept.
         """Number of samples in X."""
         # This is an abstract method.
         # This _must_ always be overwritten in subclasses.
@@ -143,6 +181,9 @@ cdef class DatasetsPair{{name_suffix}}:
         return -999
 
     cdef intp_t n_samples_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Abstract: subclasses override. Base version returns the sentinel -999.
+        # nogil, noexcept.
         """Number of samples in Y."""
         # This is an abstract method.
         # This _must_ always be overwritten in subclasses.
@@ -150,9 +191,15 @@ cdef class DatasetsPair{{name_suffix}}:
         return -999
 
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Default surrogate distance: simply the exact distance of the same pair.
+        # Inputs: i, row of X; j, row of Y. Output: float64. nogil, noexcept.
         return self.dist(i, j)
 
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Abstract: subclasses override. Base version returns the sentinel -1.
+        # nogil, noexcept.
         # This is an abstract method.
         # This _must_ always be overwritten in subclasses.
         # TODO: add "with gil: raise" here when supporting Cython 3.0
@@ -160,6 +207,10 @@ cdef class DatasetsPair{{name_suffix}}:
 
 @final
 cdef class DenseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Final pair for two dense C-contiguous arrays X (n_samples_X, n_features) and
+    # Y (n_samples_Y, n_features) of the suffix dtype; distances are computed by the
+    # metric's dist/rdist on pointers to the two rows.
     """Compute distances between row vectors of two arrays.
 
     Parameters
@@ -181,6 +232,10 @@ cdef class DenseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
         const {{INPUT_DTYPE_t}}[:, ::1] Y,
         {{DistanceMetric}} distance_metric,
     ):
+        # [FUNCTION DOC]
+        # Stores X and Y (already validated by the caller) and n_features = number of
+        # columns of X. Exceptions: buffer errors if X or Y are not C-contiguous arrays
+        # of the suffix dtype. Y's column count is not checked against X's.
         super().__init__(distance_metric, n_features=X.shape[1])
         # Arrays have already been checked
         self.X = X
@@ -188,23 +243,36 @@ cdef class DenseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
     @final
     cdef intp_t n_samples_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of X. nogil, noexcept.
         return self.X.shape[0]
 
     @final
     cdef intp_t n_samples_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of Y. nogil, noexcept.
         return self.Y.shape[0]
 
     @final
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the metric's reduced (rank-preserving) distance between row i of X
+        # and row j of Y over n_features values. nogil, noexcept, no bounds checking.
         return self.distance_metric.rdist(&self.X[i, 0], &self.Y[j, 0], self.n_features)
 
     @final
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the metric's exact distance between row i of X and row j of Y.
+        # nogil, noexcept, no bounds checking.
         return self.distance_metric.dist(&self.X[i, 0], &self.Y[j, 0], self.n_features)
 
 
 @final
 cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Final pair for two CSR matrices; uses the metric's CSR-CSR routines with the
+    # row extents given by the indptr arrays.
     """Compute distances between vectors of two CSR matrices.
 
     Parameters
@@ -221,6 +289,9 @@ cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
     """
 
     def __init__(self, X, Y, {{DistanceMetric}} distance_metric):
+        # [FUNCTION DOC]
+        # Stores n_features (columns of X) and the unpacked data/int32 indices/int32
+        # indptr of X and Y. Exceptions: conversion errors from unpacking.
         super().__init__(distance_metric, n_features=X.shape[1])
 
         self.X_data, self.X_indices, self.X_indptr = self.unpack_csr(X)
@@ -228,14 +299,22 @@ cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
     @final
     cdef intp_t n_samples_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of X (indptr length minus one). nogil, noexcept.
         return self.X_indptr.shape[0] - 1
 
     @final
     cdef intp_t n_samples_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of Y (indptr length minus one). nogil, noexcept.
         return self.Y_indptr.shape[0] - 1
 
     @final
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the metric's reduced distance between CSR row i of X (stored entries
+        # X_indptr[i] up to X_indptr[i+1]) and CSR row j of Y (likewise), with
+        # n_features as the full dimension. nogil, noexcept.
         return self.distance_metric.rdist_csr(
             x1_data=&self.X_data[0],
             x1_indices=&self.X_indices[0],
@@ -250,6 +329,9 @@ cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
     @final
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Same as surrogate_dist but returns the metric's exact CSR distance.
+        # nogil, noexcept.
         return self.distance_metric.dist_csr(
             x1_data=&self.X_data[0],
             x1_indices=&self.X_indices[0],
@@ -265,6 +347,12 @@ cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
 @final
 cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Final pair for CSR X and dense Y. Dense Y is fed to the CSR-CSR metric
+    # routines without materializing a full CSR copy: its data is the flattened
+    # row-major array, the shared indices are 0..n_features-1, and each row j is
+    # addressed by offsetting the data pointer by j * n_features and using a
+    # constant [0, n_features) extent.
     """Compute distances between vectors of a CSR matrix and a dense array.
 
     Parameters
@@ -281,6 +369,12 @@ cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
     """
 
     def __init__(self, X, Y, {{DistanceMetric}} distance_metric):
+        # [FUNCTION DOC]
+        # Stores n_features (columns of X), the unpacked CSR arrays of X, the row count
+        # of Y, a flattened view (or copy) of Y as data and an int32 range of length
+        # n_features as indices. Exceptions: conversion errors.
+        # Side effects: allocates the index range (and a copy of Y if it is not
+        # contiguous).
         super().__init__(distance_metric, n_features=X.shape[1])
 
         self.X_data, self.X_indices, self.X_indptr = self.unpack_csr(X)
@@ -321,14 +415,21 @@ cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
     @final
     cdef intp_t n_samples_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of X. nogil, noexcept.
         return self.X_indptr.shape[0] - 1
 
     @final
     cdef intp_t n_samples_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the number of rows of dense Y. nogil, noexcept.
         return self.n_Y
 
     @final
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the metric's reduced CSR distance between CSR row i of X and dense
+        # row j of Y (treated as a fully populated sparse row). nogil, noexcept.
         return self.distance_metric.rdist_csr(
             x1_data=&self.X_data[0],
             x1_indices=&self.X_indices[0],
@@ -345,6 +446,8 @@ cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
     @final
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Same as surrogate_dist but returns the exact distance. nogil, noexcept.
 
         return self.distance_metric.dist_csr(
             x1_data=&self.X_data[0],
@@ -363,6 +466,9 @@ cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
 @final
 cdef class DenseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Final pair for dense X and CSR Y. Relies on the symmetry of distance metrics:
+    # wraps a SparseDenseDatasetsPair built on (Y, X) and swaps roles and indices.
     """Compute distances between vectors of a dense array and a CSR matrix.
 
     Parameters
@@ -379,27 +485,40 @@ cdef class DenseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
     """
 
     def __init__(self, X, Y, {{DistanceMetric}} distance_metric):
+        # [FUNCTION DOC]
+        # Stores n_features (columns of X) and builds the swapped SparseDense pair.
+        # Exceptions: those of the SparseDense constructor.
         super().__init__(distance_metric, n_features=X.shape[1])
         # Swapping arguments on the constructor
         self.datasets_pair = SparseDenseDatasetsPair{{name_suffix}}(Y, X, distance_metric)
 
     @final
     cdef intp_t n_samples_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Rows of X, i.e. the rows of the wrapped pair's Y. nogil, noexcept.
         # Swapping interface
         return self.datasets_pair.n_samples_Y()
 
     @final
     cdef intp_t n_samples_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Rows of Y, i.e. the rows of the wrapped pair's X. nogil, noexcept.
         # Swapping interface
         return self.datasets_pair.n_samples_X()
 
     @final
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Surrogate distance of (i, j) computed as the wrapped pair's (j, i); valid
+        # because the metrics are symmetric. nogil, noexcept.
         # Swapping arguments on the same interface
         return self.datasets_pair.surrogate_dist(j, i)
 
     @final
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil:
+        # [FUNCTION DOC]
+        # Exact distance of (i, j) computed as the wrapped pair's (j, i).
+        # nogil, noexcept.
         # Swapping arguments on the same interface
         return self.datasets_pair.dist(j, i)
 

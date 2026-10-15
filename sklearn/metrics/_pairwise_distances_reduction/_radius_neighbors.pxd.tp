@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Cython declarations of the RadiusNeighbors reduction (all rows of Y within a
+# radius of each row of X) and its Euclidean specialization, plus the helper
+# converting C++ vectors of vectors into numpy object arrays. Tempita template
+# instantiated for suffixes 64 and 32 (input dtype). See _radius_neighbors.pyx.tp.
 cimport numpy as cnp
 
 from libcpp.memory cimport shared_ptr
@@ -24,6 +29,10 @@ ctypedef fused vector_vector_double_intp_t:
 cdef cnp.ndarray[object, ndim=1] coerce_vectors_to_nd_arrays(
     shared_ptr[vector_vector_double_intp_t] vecs
 )
+# [FUNCTION DOC]
+# HELPER: converts a shared pointer to a vector of n vectors (of intp or float64)
+# into a 1D numpy object array of n numpy arrays that take ownership of the
+# inner buffers. See the .pyx for details.
 
 #####################
 {{for name_suffix in ['64', '32']}}
@@ -32,6 +41,10 @@ from sklearn.metrics._pairwise_distances_reduction._base cimport BaseDistancesRe
 from sklearn.metrics._pairwise_distances_reduction._middle_term_computer cimport MiddleTermComputer{{name_suffix}}
 
 cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
+    # [CLASS DOC]
+    # Generic RadiusNeighbors: radius and its surrogate-distance equivalent, the
+    # main per-X-row result vectors (indices and distances) held by shared
+    # pointers, per-thread pointers to result vectors, and the sort flag.
     """float{{name_suffix}} implementation of the RadiusNeighbors."""
 
     cdef:
@@ -76,9 +89,15 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         intp_t idx,
         intp_t num_threads,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Concatenates per-thread results of X row idx from num_threads threads into the
+    # main results. nogil, noexcept.
 
 
 cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}}):
+    # [CLASS DOC]
+    # Euclidean RadiusNeighbors: adds the middle term computer, float64 squared row
+    # norms of X and Y, and whether squared distances are used.
     """EuclideanDistance-specialisation of RadiusNeighbors{{name_suffix}}."""
     cdef:
         MiddleTermComputer{{name_suffix}} middle_term_computer

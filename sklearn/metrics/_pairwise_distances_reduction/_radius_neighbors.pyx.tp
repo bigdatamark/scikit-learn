@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# RadiusNeighbors reduction: for every row of X, collect the indices (and
+# optionally distances) of all rows of Y whose distance is at most radius,
+# without materializing the full distance matrix. Built on
+# BaseDistancesReduction's chunked parallel loops. Results have a variable
+# length per row, so they are accumulated in C++ vectors (one vector per X row)
+# and finally handed to numpy without copy, giving object arrays of arrays.
+# RadiusNeighbors is the generic version using DatasetsPair surrogate distances
+# compared against the surrogate radius; EuclideanRadiusNeighbors uses
+# precomputed squared row norms plus a chunked middle term (MiddleTermComputer).
+# Tempita template instantiated for suffixes 64 and 32 (input dtype); the
+# vector-to-array helper is shared.
 cimport numpy as cnp
 import numpy as np
 import warnings
@@ -26,6 +38,16 @@ cnp.import_array()
 cdef cnp.ndarray[object, ndim=1] coerce_vectors_to_nd_arrays(
     shared_ptr[vector_vector_double_intp_t] vecs
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _finalize_results to build the returned arrays.
+    # Behavior: creates an empty object array of length n (number of inner vectors)
+    # and stores at each position a numpy array wrapping the inner vector's buffer
+    # (via vector_to_nd_array, which moves the vector into a sentinel owned by the
+    # array, so no data copy is made).
+    # Inputs: vecs, shared pointer to a vector of vectors of intp or float64 (fused).
+    # Outputs: 1D object array of 1D numpy arrays (intp or float64).
+    # Exceptions: memory errors. Side effects: the inner vectors are emptied
+    # (their contents are moved into the returned arrays).
     """Coerce a std::vector of std::vector to an ndarray of ndarray."""
     cdef:
         intp_t n = deref(vecs).size()
@@ -50,6 +72,14 @@ from sklearn.metrics._pairwise_distances_reduction._middle_term_computer cimport
 
 
 cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
+    # [CLASS DOC]
+    # Generic RadiusNeighbors reduction (per dtype suffix). Each thread appends
+    # (surrogate distance, Y index) pairs within the surrogate radius to vectors
+    # indexed by the X row. Parallel on X: threads write directly into the main
+    # vectors, since X rows are disjoint between threads. Parallel on Y: each
+    # thread owns a full set of n_samples_X vectors which are concatenated into the
+    # main ones at the end. Optional sorting by distance and surrogate-to-exact
+    # conversion happen at the end.
     """float{{name_suffix}} implementation of the RadiusNeighbors."""
 
     @classmethod
@@ -65,6 +95,20 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         bint return_distance=False,
         bint sort_results=False,
     ):
+        # [FUNCTION DOC]
+        # Entry point class method.
+        # Behavior: builds an EuclideanRadiusNeighbors for metric "euclidean" or
+        # "sqeuclidean" (radius and distances squared for the latter), otherwise a
+        # generic RadiusNeighbors over DatasetsPair.get_for; runs the selected strategy
+        # while limiting BLAS to one thread; returns the finalized results.
+        # Inputs: X, Y (dense C-contiguous or CSR, suffix dtype, same column count);
+        # radius (non-negative float); metric (string); chunk_size; metric_kwargs;
+        # strategy; return_distance; sort_results.
+        # Outputs: object array of per-row index arrays, or (distances, indices) when
+        # return_distance is true.
+        # Exceptions: those of the constructors and input validation.
+        # Side effects: temporary threadpool limit; OpenMP parallelism; may remove norm
+        # keys from the caller's metric_kwargs (Euclidean case).
         """Compute the radius-neighbors reduction.
 
         This classmethod is responsible for introspecting the arguments
@@ -127,6 +171,14 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         strategy=None,
         sort_results=False,
     ):
+        # [FUNCTION DOC]
+        # Behavior: base initialization; validates radius (real, at least 0); computes
+        # the surrogate radius with the metric's exact-to-surrogate transformation;
+        # stores sort_results; creates chunks_n_threads empty per-thread result
+        # pointers; allocates the main results as n_samples_X empty vectors for indices
+        # and for distances.
+        # Exceptions: ValueError/TypeError for invalid radius, plus base-class errors.
+        # Side effects: C++ allocations owned by shared pointers.
         super().__init__(
             datasets_pair=datasets_pair,
             chunk_size=chunk_size,
@@ -166,6 +218,14 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: for each X row i in [X_start, X_end) and Y row j in [Y_start,
+        # Y_end), computes the surrogate distance; when it is at most the surrogate
+        # radius, appends it and j to the vectors of row i in thread thread_num's
+        # results (the main results in parallel on X).
+        # Exceptions: none reported (nogil, noexcept); a C++ allocation failure while
+        # appending would terminate the process.
+        # Side effects: grows result vectors.
         cdef:
             intp_t i, j
             float64_t r_dist_i_j
@@ -178,6 +238,11 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
                     deref(self.neigh_indices_chunks[thread_num])[i].push_back(j)
 
     def _finalize_results(self, bint return_distance=False):
+        # [FUNCTION DOC]
+        # Builds Python results: if return_distance, converts surrogate distances to
+        # exact ones first and returns (distances, indices) object arrays; otherwise
+        # only the indices. Side effects: moves vector contents into numpy arrays, so
+        # it must be called once.
         if return_distance:
             # We need to recompute distances because we relied on
             # surrogate distances for the reduction.
@@ -195,6 +260,10 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X: makes thread thread_num's result pointers share the main
+        # result vectors (safe since each X row belongs to a single thread).
+        # nogil, noexcept.
 
         # As this strategy is embarrassingly parallel, we can set the
         # thread vectors' pointers to the main vectors'.
@@ -208,6 +277,10 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X: if sort_results, sorts each X row's (distance, index) pairs of
+        # the chunk [X_start, X_end) jointly by ascending distance, in place.
+        # nogil, noexcept.
         cdef:
             intp_t idx
 
@@ -223,6 +296,10 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: allocates for each chunk thread its own n_samples_X empty
+        # index and distance vectors, sequentially. Side effects: allocation in nogil
+        # code (failures cannot be reported). nogil, noexcept.
         cdef:
             intp_t thread_num
         # As chunks of X are shared across threads, so must datastructures to avoid race
@@ -238,6 +315,17 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         intp_t idx,
         intp_t num_threads,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: used by the parallel-on-Y finalize hooks (also in the classmode
+        # subclass).
+        # Behavior: for X row idx, sums the per-thread result sizes of threads
+        # 0..num_threads-1, resizes the main vectors once to their current size plus
+        # that total, then moves each thread's elements in thread order after the
+        # existing ones. Per-thread vectors keep their size (moved doubles/ints are
+        # unchanged) but are no longer used.
+        # Inputs: idx, X row; num_threads, number of per-thread result sets.
+        # Outputs: main vectors of row idx extended in place.
+        # Exceptions: none (nogil, noexcept). Side effects: memory reallocation.
         cdef:
             intp_t thread_num
             intp_t idx_n_elements = 0
@@ -268,6 +356,12 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: in an OpenMP region with effective_n_threads threads, merges
+        # per-thread results into the main vectors row by row (rows split across
+        # threads, no locking), then, if sort_results, sorts each row by ascending
+        # distance. Per-thread vectors are freed later when their shared pointers die.
+        # nogil, noexcept.
         cdef:
             intp_t idx
 
@@ -294,6 +388,10 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
         return
 
     cdef void compute_exact_distances(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Replaces every stored surrogate distance by the exact distance via the
+        # metric's transformation, after clamping negatives to 0. Parallel over X rows
+        # with effective_n_threads threads. nogil, noexcept.
         """Convert rank-preserving distances to pairwise distances in parallel."""
         cdef:
             intp_t i
@@ -311,10 +409,21 @@ cdef class RadiusNeighbors{{name_suffix}}(BaseDistancesReduction{{name_suffix}})
 
 
 cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}}):
+    # [CLASS DOC]
+    # Euclidean specialization of RadiusNeighbors: squared distance of a pair is
+    # X row squared norm + middle term + Y row squared norm, with the middle term
+    # computed per chunk pair by a MiddleTermComputer. The surrogate radius is the
+    # squared radius, or radius itself when squared distances are requested. Hooks
+    # run the RadiusNeighbors behavior then forward to the middle term computer.
     """EuclideanDistance-specialisation of RadiusNeighbors{{name_suffix}}."""
 
     @classmethod
     def is_usable_for(cls, X, Y, metric) -> bool:
+        # [FUNCTION DOC]
+        # Class method meant to report whether this specialization is usable (generic
+        # usability and no unstable OpenBLAS configuration).
+        # KNOWN ISSUE: calls is_usable_for on the Cython RadiusNeighbors class, which does
+        # not define it, so calling it would raise AttributeError; it appears unused.
         return (RadiusNeighbors{{name_suffix}}.is_usable_for(X, Y, metric)
                 and not _in_unstable_openblas_configuration())
 
@@ -329,6 +438,21 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         sort_results=False,
         metric_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Behavior: warns (UserWarning) if metric_kwargs contains keys other than the
+        # two norm keys; initializes RadiusNeighbors with a euclidean DatasetsPair
+        # (surrogate radius becomes radius squared); builds the MiddleTermComputer with
+        # per-thread buffers of X_n_samples_chunk * Y_n_samples_chunk values; takes
+        # Y_norm_squared from metric_kwargs (validated float64 1D) or computes it, same
+        # for X_norm_squared (reusing Y's when X is Y); if use_squared_distances, sets
+        # the surrogate radius to radius itself (radius is then a squared radius).
+        # Inputs: X, Y; radius; use_squared_distances; chunk_size; strategy;
+        # sort_results; metric_kwargs.
+        # Exceptions: those of the base init, check_array on provided norms, input
+        # conversion. Provided norm lengths are not checked.
+        # Side effects: removes norm keys from the caller's metric_kwargs dict.
+        # KNOWN ISSUE: the warning text always says EuclideanRadiusNeighbors64, also in
+        # the float32 instantiation.
         if (
             isinstance(metric_kwargs, dict) and
             (metric_kwargs.keys() - {"X_norm_squared", "Y_norm_squared"})
@@ -403,6 +527,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         self,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook then allocates thread thread_num's middle term
+        # buffer. nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_X_parallel_init(self, thread_num)
         self.middle_term_computer._parallel_on_X_parallel_init(thread_num)
 
@@ -413,6 +540,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook (share main vectors) then lets the middle term
+        # computer prepare the X chunk. nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_X_init_chunk(self, thread_num, X_start, X_end)
         self.middle_term_computer._parallel_on_X_init_chunk(thread_num, X_start, X_end)
 
@@ -425,6 +555,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook then lets the middle term computer prepare the Y
+        # chunk (upcast or zeroing). nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_X_pre_compute_and_reduce_distances_on_chunks(
             self,
             X_start, X_end,
@@ -439,6 +572,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook (per-thread vectors) then allocates the middle
+        # term buffers of all chunk threads. nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_Y_init(self)
         self.middle_term_computer._parallel_on_Y_init()
 
@@ -449,6 +585,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook then lets the middle term computer prepare the X
+        # chunk for thread thread_num. nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_Y_parallel_init(self, thread_num, X_start, X_end)
         self.middle_term_computer._parallel_on_Y_parallel_init(thread_num, X_start, X_end)
 
@@ -461,6 +600,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the RadiusNeighbors hook then lets the middle term computer prepare the Y
+        # chunk for thread thread_num. nogil, noexcept.
         RadiusNeighbors{{name_suffix}}._parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
             self,
             X_start, X_end,
@@ -473,6 +615,9 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
 
     @final
     cdef void compute_exact_distances(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Takes square roots of the stored squared distances (generic conversion)
+        # unless squared distances were requested. nogil, noexcept.
         if not self.use_squared_distances:
             RadiusNeighbors{{name_suffix}}.compute_exact_distances(self)
 
@@ -485,6 +630,12 @@ cdef class EuclideanRadiusNeighbors{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: gets the chunk's row-major middle term matrix, then for each pair
+        # computes squared distance = X norm + middle term + Y norm, clamped at 0, and
+        # if it is at most the surrogate radius appends it and the Y index to the
+        # vectors of X row X_start + i in thread thread_num's results.
+        # Exceptions: none reported (nogil, noexcept). Side effects: grows vectors.
         cdef:
             intp_t i, j
             float64_t sqeuclidean_dist_i_j
