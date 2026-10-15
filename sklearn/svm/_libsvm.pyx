@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Cython bindings for sklearn's dense-input libsvm fork, used by SVC, NuSVC, SVR,
+# NuSVR and OneClassSVM on dense data. Each public function builds libsvm
+# svm_problem/svm_parameter structs from numpy buffers (helpers declared in
+# _libsvm.pxi), calls libsvm with the GIL released, and copies results into new
+# numpy arrays. Prediction functions rebuild a temporary svm_model from the
+# fitted arrays stored on the Python estimator. svm_type codes: 0 C-SVC,
+# 1 nu-SVC, 2 one-class, 3 epsilon-SVR, 4 nu-SVR; kernel codes are indices into
+# LIBSVM_KERNEL_TYPES.
 """
 Binding for libsvm_skl
 ----------------------
@@ -36,6 +45,10 @@ include "_libsvm.pxi"
 
 cdef extern from *:
     ctypedef struct svm_parameter:
+        # [CLASS DOC]
+        # Re-declaration of svm_parameter as a plain ctypedef struct so the name can be
+        # used as a type in function signatures in this module; fields come from the
+        # declaration in _libsvm.pxi.
         pass
 
 
@@ -67,6 +80,27 @@ def fit(
     int max_iter=-1,
     int random_seed=0,
 ):
+    # [FUNCTION DOC]
+    # Behavior: fills sample_weight with ones if empty, wraps X into a libsvm problem,
+    # sets parameters (class weights labelled 0..k-1), validates them, trains with
+    # the GIL released, then copies out support indices, support vectors (empty
+    # (0, 0) for precomputed kernels), per-class SV counts (for SVR/one-class reported
+    # as [n_SV, n_SV]), dual coefficients, intercepts (negated rho), Platt
+    # probabilities (probA of length 1 and empty probB for regression/one-class) and
+    # iteration counts; finally frees the model and problem nodes.
+    # Inputs: X float64 C-contiguous (n_samples, n_features) (or Gram matrix for
+    # precomputed); Y float64 targets; svm_type; kernel name; degree, gamma, coef0;
+    # tol (libsvm eps); C; nu; epsilon (libsvm p); class_weight; sample_weight;
+    # shrinking; probability; cache_size in MB; max_iter (-1 unlimited); random_seed.
+    # Outputs: tuple (support, support_vectors, n_class_SV, sv_coef, intercept,
+    # probA, probB, fit_status, n_iter); fit_status is nonzero when max_iter was hit.
+    # Exceptions: AssertionError on sample_weight length mismatch; ValueError for an
+    # unknown kernel or libsvm parameter errors ("p < 0" renamed to "epsilon < 0");
+    # MemoryError if node allocation fails; IndexError for empty X or Y.
+    # Side effects: allocates/frees C memory; releases the GIL during training; uses
+    # libsvm's global RNG and print function.
+    # KNOWN ISSUE: when svm_check_parameter fails, problem.x is not freed (leak).
+    # KNOWN ISSUE: the model returned by svm_train is not checked for NULL.
     """
     Train the model using libsvm (low-level method)
 
@@ -306,6 +340,17 @@ cdef void set_predict_params(
     char *weight_label,
     char *weight,
 ) except *:
+    # [FUNCTION DOC]
+    # HELPER: shared by predict, predict_proba and decision_function to fill an
+    # svm_parameter for prediction.
+    # Behavior: maps the kernel name to its index and calls set_parameter with the
+    # prediction-relevant values given and dummy training-only values (C=0,
+    # epsilon=0.1, max_iter=0, nu=0.5, shrinking=0, tol=0.1, random_seed=-1).
+    # Inputs: param (output, caller-owned), svm_type, kernel name, degree, gamma,
+    # coef0, cache_size, probability flag, number of class weights and borrowed
+    # pointers to weight labels and weights.
+    # Outputs: param filled in place. Exceptions: ValueError for unknown kernel
+    # (propagated thanks to except *). Side effects: none besides writing param.
     """Fill param with prediction time-only parameters."""
 
     # training-time only parameters
@@ -359,6 +404,20 @@ def predict(
     const float64_t[::1] sample_weight=np.empty(0),
     double cache_size=100.0,
 ):
+    # [FUNCTION DOC]
+    # Behavior: rebuilds an svm_model from the fitted arrays with set_model, then
+    # with the GIL released calls copy_predict to evaluate the decision rule for each
+    # row of X (class index for classifiers, value for regression, +1/-1 for
+    # one-class); the model is always freed afterwards.
+    # Inputs: X float64 C-contiguous test data (or test-vs-SV Gram matrix for
+    # precomputed); support, SV, nSV, sv_coef, intercept, probA, probB as returned
+    # by fit; svm_type, kernel, degree, gamma, coef0, class_weight, cache_size.
+    # sample_weight is accepted but unused.
+    # Outputs: float64 array of shape (n_samples,).
+    # Exceptions: ValueError for an unknown kernel; MemoryError if the temporary node
+    # array cannot be allocated; IndexError for empty X or intercept.
+    # Side effects: allocates/frees C memory; releases the GIL.
+    # KNOWN ISSUE: a NULL model from set_model (allocation failure) is not checked.
     """
     Predict target values of X given a model (low-level method)
 
@@ -483,6 +542,19 @@ def predict_proba(
     float64_t[::1] sample_weight=np.empty(0),
     double cache_size=100.0,
 ):
+    # [FUNCTION DOC]
+    # Behavior: like predict but with probability enabled, calls copy_predict_proba
+    # to compute Platt-scaled pairwise-coupled class probabilities for each sample.
+    # Inputs: same as predict; probA/probB must be non-empty for meaningful output;
+    # support, sv_coef must be non-empty (indexed without size checks).
+    # Outputs: float64 array of shape (n_samples, n_class).
+    # Exceptions: ValueError for unknown kernel; MemoryError on allocation failure;
+    # IndexError for empty support/sv_coef/intercept/X.
+    # Side effects: allocates/frees C memory; releases the GIL.
+    # KNOWN ISSUE: the docstring says the work is done in copy_predict, but this
+    # function calls copy_predict_proba.
+    # KNOWN ISSUE: unlike predict/decision_function, sv_coef, intercept, probA, probB
+    # and class_weight are non-const memoryviews, so read-only arrays are rejected.
     """
     Predict probabilities
 
@@ -617,6 +689,14 @@ def decision_function(
     const float64_t[::1] sample_weight=np.empty(0),
     double cache_size=100.0,
 ):
+    # [FUNCTION DOC]
+    # Behavior: like predict but calls copy_predict_values to output raw decision
+    # values: n_class*(n_class-1)/2 one-vs-one values per sample for classifiers,
+    # one value for one-class and regression (svm_type > 1).
+    # Inputs: same as predict; support and sv_coef must be non-empty.
+    # Outputs: float64 array of shape (n_samples, n_pairs or 1).
+    # Exceptions: ValueError for unknown kernel; MemoryError on allocation failure.
+    # Side effects: allocates/frees C memory; releases the GIL.
     """
     Predict margin (libsvm name for this is predict_values)
 
@@ -756,6 +836,22 @@ def cross_validation(
     int max_iter=-1,
     int random_seed=0,
 ):
+    # [FUNCTION DOC]
+    # Behavior: fills default sample weights, checks n_fold <= n_samples, builds
+    # the problem and parameters as in fit, validates them, and runs libsvm's
+    # n_fold cross-validation with the GIL released, returning the out-of-fold
+    # prediction for every sample; problem nodes are freed afterwards.
+    # Inputs: X, Y, n_fold and the same hyper-parameters as fit.
+    # Outputs: float64 array of shape (n_samples,).
+    # Exceptions: AssertionError on sample_weight length mismatch; ValueError if
+    # n_samples < n_fold, unknown kernel or invalid parameters (raised with the raw
+    # bytes message); MemoryError if node allocation fails.
+    # Side effects: allocation; GIL release; consumes libsvm's global RNG.
+    # KNOWN ISSUE: tol is passed for both eps and p, so the epsilon argument is
+    # ignored and epsilon-SVR uses tol as its insensitivity width.
+    # KNOWN ISSUE: problem.x leaks if svm_check_parameter fails.
+    # KNOWN ISSUE: the docstring says shrinking defaults to 1 but the signature
+    # default is 0.
     """
     Binding of the cross-validation routine (low-level routine)
 
@@ -911,6 +1007,9 @@ def cross_validation(
 
 
 def set_verbosity_wrap(int verbosity):
+    # [FUNCTION DOC]
+    # Turns libsvm's progress printing on (stdout) or off. Input: verbosity flag.
+    # No return value or exceptions; mutates process-global libsvm state.
     """
     Control verbosity of libsvm library
     """

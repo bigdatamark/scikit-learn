@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Cython wrapper around the bundled liblinear library, used by LinearSVC,
+# LinearSVR and LogisticRegression(solver="liblinear"). It converts dense or CSR
+# numpy/scipy input into liblinear problem/parameter structs (via the helpers
+# declared in _liblinear.pxi), runs training without the GIL, and copies the
+# learned weights and iteration counts back into numpy arrays.
 """
 Wrapper for liblinear
 """
@@ -27,6 +33,31 @@ def train_wrap(
     double epsilon,
     const float64_t[::1] sample_weight
 ):
+    # [FUNCTION DOC]
+    # Behavior: builds a liblinear problem from X (CSR path uses data/indices/indptr;
+    # dense path flattens X in C order and counts nonzeros), builds a parameter
+    # struct with class weights labelled 0..n_weights-1, validates it, fills a BLAS
+    # pointer table, trains with the GIL released, frees the problem and parameter,
+    # then copies the weights out. For binary problems with any solver except
+    # Crammer-Singer (solver_type 4) a single weight row is copied, otherwise one row
+    # per class; one extra column holds the intercept when bias > 0.
+    # Inputs: X, 2D float32/float64 ndarray (C-contiguous) or CSR matrix with int32
+    # indices; Y, float64 labels per sample (class indices or regression targets);
+    # is_sparse, whether X is CSR; solver_type, liblinear solver id; eps, stopping
+    # tolerance; bias, intercept feature value (<= 0 disables it); C, regularization;
+    # class_weight, float64 per-class weights (may be empty); max_iter; random_seed,
+    # seed for the global newrand RNG; epsilon, SVR insensitivity; sample_weight,
+    # float64 per-sample weights (must be non-empty).
+    # Outputs: tuple (w, n_iter): w float64 Fortran-ordered array of shape
+    # (1 or n_classes, n_features [+1]); n_iter int32 array of length 1 for binary
+    # or n_classes otherwise (for Crammer-Singer only the first entry is filled,
+    # the rest stay 0).
+    # Exceptions: ValueError with liblinear's message if check_parameter fails;
+    # IndexError if X, Y or sample_weight is empty.
+    # Side effects: allocates and frees C memory; releases the GIL during training;
+    # reseeds the process-global RNG; may print if verbosity is on.
+    # KNOWN ISSUE: NULL returns from set_problem/csr_set_problem/set_parameter on
+    # allocation failure are not checked and would be dereferenced.
     cdef parameter *param
     cdef problem *problem
     cdef model *model
@@ -142,6 +173,12 @@ def train_wrap(
 
 
 def set_verbosity_wrap(int verbosity):
+    # [FUNCTION DOC]
+    # Behavior: turns liblinear's progress printing on (stdout) or off.
+    # Inputs: verbosity, treated as a boolean. Outputs: none. Exceptions: none.
+    # Side effects: mutates process-global liblinear print function.
+    # KNOWN ISSUE: the docstring says it controls libsvm, but this wrapper controls
+    # liblinear.
     """
     Control verbosity of libsvm library
     """
