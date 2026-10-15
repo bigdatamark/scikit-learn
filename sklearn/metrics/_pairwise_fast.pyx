@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Compiled kernels backing sklearn.metrics.pairwise: the dense additive chi-squared
+# kernel loop (used by additive_chi2_kernel) and pairwise L1 (manhattan) distances
+# between two CSR sparse matrices (used by manhattan_distances for sparse input).
+# Both functions write into a caller-allocated output array and return nothing.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +18,21 @@ from sklearn.utils._openmp_helpers import _openmp_effective_n_threads
 def _chi2_kernel_fast(floating[:, :] X,
                       floating[:, :] Y,
                       floating[:, :] result):
+    # [FUNCTION DOC]
+    # HELPER: inner loop of additive_chi2_kernel in sklearn.metrics.pairwise.
+    # Behavior: for every pair (row i of X, row j of Y) computes
+    #   negative sum over features k of (X[i,k]-Y[j,k])^2 / (X[i,k]+Y[j,k]),
+    # skipping features where the denominator X[i,k]+Y[j,k] is exactly zero.
+    # Accumulation is done in double precision, then cast to the output dtype.
+    # Inputs: X (n_samples_X, n_features), Y (n_samples_Y, n_features), both of the
+    #   same floating dtype (float32 or float64 fused type); features are expected
+    #   to be non-negative (not checked here). result: (n_samples_X, n_samples_Y)
+    #   output array of the same dtype.
+    # Outputs: result[i, j] is overwritten; returns None.
+    # Exceptions: none beyond argument type/buffer errors at call time; the loop
+    #   runs without the GIL and performs no bounds checks of its own beyond the
+    #   module defaults (shape mismatches between X/Y features are not validated).
+    # Side effects: writes result in place; releases the GIL; single-threaded.
     cdef intp_t i, j, k
     cdef intp_t n_samples_X = X.shape[0]
     cdef intp_t n_samples_Y = Y.shape[0]
@@ -40,6 +60,25 @@ def _sparse_manhattan(
     const int[:] Y_indptr,
     double[:, ::1] D,
 ):
+    # [FUNCTION DOC]
+    # HELPER: sparse branch of manhattan_distances in sklearn.metrics.pairwise.
+    # Behavior: for each row px of X and row py of Y (CSR), merges the two sorted
+    #   column-index lists like a merge step of merge sort: matching columns add
+    #   |x - y|, a column present in only one row adds the absolute value of that
+    #   entry; once one row is exhausted the remaining entries of the other row
+    #   are added. Sum is accumulated in double and stored in D[px, py].
+    # Inputs: X_data/X_indices/X_indptr and Y_data/Y_indices/Y_indptr are the CSR
+    #   arrays of X and Y (same floating dtype); column indices within each row must
+    #   be sorted and without duplicates (caller must call sort_indices /
+    #   sum_duplicates), otherwise results are wrong. D: C-contiguous float64 array
+    #   of shape (n_rows_X, n_rows_Y), preallocated.
+    # Outputs: D overwritten in place; returns None.
+    # Exceptions: none raised inside the parallel nogil loop.
+    # Side effects: writes D; releases the GIL and parallelizes over rows of X with
+    #   OpenMP using _openmp_effective_n_threads() threads.
+    # KNOWN ISSUE: the docstring usage example calls np.zeros(X.shape[0], Y.shape[0])
+    #   (shape passed as two arguments instead of a tuple), which would not create a
+    #   2-D float64 array; D must be np.zeros((n_X, n_Y)).
     """Pairwise L1 distances for CSR matrices.
 
     Usage:
