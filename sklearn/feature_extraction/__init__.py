@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.feature_extraction
 # Cython component: _hashing_fast.transform, the hashing loop behind
 # FeatureHasher (MurmurHash3 of feature names into n_features columns, optional
 # alternating sign), returning CSR indices/indptr/data arrays. HashingVectorizer

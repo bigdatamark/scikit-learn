@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.tree
 # Compiled (Cython) components of sklearn.tree, layered bottom-up:
 # - _utils: low-level helpers shared by the others: safe_realloc (checked
 #   malloc growth), random integer/uniform draws from a caller-held RNG state,

@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.manifold
 # Cython components, both used by TSNE:
 # - _utils._binary_search_perplexity: per-sample binary search of Gaussian
 #   precisions giving conditional affinities with a target perplexity.

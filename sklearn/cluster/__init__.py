@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.cluster
 # Cython components of sklearn.cluster:
 # - _k_means_common: shared k-means kernels (dense/sparse Euclidean distances,
 #   inertia, empty-cluster relocation, center averaging and shift, CHUNK_SIZE).

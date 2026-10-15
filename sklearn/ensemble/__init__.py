@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.ensemble
 # Cython components of sklearn.ensemble:
 # - _gradient_boosting.pyx: compiled helpers for the classic GradientBoosting*
 #   estimators. predict_stages / predict_stage add learning-rate-scaled

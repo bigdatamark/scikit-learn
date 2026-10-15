@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.utils
 # Compiled (Cython) components of sklearn.utils, shared by many estimators:
 # - _typedefs: C aliases for NumPy dtypes (intp_t, float64_t, int32_t, ...)
 #   cimported by almost every Cython module in scikit-learn.

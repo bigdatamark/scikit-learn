@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.preprocessing
 # Cython components:
 # - _csr_polynomial_expansion: degree-2/3 polynomial/interaction expansion of
 #   CSR input for PolynomialFeatures; computes output nnz then fills output CSR

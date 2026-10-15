@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.metrics
 # Cython components of sklearn.metrics:
 # - _dist_metrics (generated from _dist_metrics.pyx.tp / .pxd.tp): the DistanceMetric
 #   hierarchy (public as sklearn.metrics.DistanceMetric), with float64 and float32

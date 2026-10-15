@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.cluster._hdbscan
 # Cython components of the HDBSCAN implementation (driven by hdbscan.py):
 # - _reachability: in-place mutual reachability transform of dense or CSR
 #   distance matrices.

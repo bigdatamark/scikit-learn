@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.linear_model
 # Cython components of sklearn.linear_model (all compiled via meson.build):
 # - _cd_fast.pyx: coordinate descent solvers with duality-gap stopping and Gap Safe
 #   screening for Lasso/ElasticNet (dense, sparse CSC with implicit centering and sample

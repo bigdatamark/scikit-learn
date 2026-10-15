@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn
 # Cython components directly in this top-level package directory:
 # - _isotonic (_isotonic.pyx): weighted pool-adjacent-violators solver and a
 #   duplicate-X merging routine, both used by sklearn.isotonic.

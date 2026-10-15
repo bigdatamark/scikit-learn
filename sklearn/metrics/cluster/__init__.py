@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.metrics.cluster
 # Cython component of sklearn.metrics.cluster:
 # - _expected_mutual_info_fast: expected_mutual_information(contingency, n_samples)
 #   computes the expected mutual information of two labelings under the hypergeometric

@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.svm
 # Cython components of sklearn.svm:
 # - _libsvm.pyx (+ _libsvm.pxi declarations): bindings to sklearn's fork of
 #   libsvm for dense input: fit, predict, predict_proba, decision_function,

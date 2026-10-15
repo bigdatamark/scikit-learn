@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.ensemble._hist_gradient_boosting
 # Cython components of the histogram gradient boosting package. Shared types:
 # common.pxd declares the C typedefs (float64 raw X and targets, uint8 bin codes,
 # float32 gradients/hessians), the packed hist_struct / node_struct records and

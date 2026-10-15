@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.decomposition
 # Cython components:
 # - _cdnmf_fast: one coordinate-descent sweep (Newton step with projection onto
 #   non-negativity) used by the NMF "cd" solver for both W and H.

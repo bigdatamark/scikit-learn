@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.metrics._pairwise_distances_reduction
 # Cython components of the pairwise distances reductions package. All are
 # Tempita templates (.tp) generating float64 ("64") and float32 ("32") variants;
 # float32 inputs are always reduced with float64 accumulators.

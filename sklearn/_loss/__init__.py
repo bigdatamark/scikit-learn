@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn._loss
 # Cython components of sklearn._loss:
 # - _loss.pyx.tp: Tempita template generating _loss.pyx, which implements nogil
 #   single-sample loss/gradient/hessian kernels (link folded in) and the Cy*

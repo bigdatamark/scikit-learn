@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.datasets
 # Cython component: _svmlight_format_fast, used by _svmlight_format_io.
 # _load_svmlight_file parses svmlight/libsvm text (labels, optional qid,
 # sorted idx:value pairs, optional byte-range chunks) into CSR arrays;

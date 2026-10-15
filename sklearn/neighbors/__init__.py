@@ -1,4 +1,5 @@
 # [PACKAGE DOC]
+# Package: sklearn.neighbors
 # Cython components of sklearn.neighbors:
 # - _binary_tree.pxi.tp: Tempita template for the generic BinaryTree
 #   (complete binary tree over a permuted index array) with k-NN, radius,
