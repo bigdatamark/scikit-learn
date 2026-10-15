@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Partial sorting of node index arrays for building BinaryTree subclasses
+# (KDTree, BallTree). An inline C++ block defines IndexComparator (orders
+# point indices by their value in one feature column, ties broken by index so
+# the partition is deterministic) and partition_node_indices_inner (calls
+# std::nth_element with that comparator, linear expected time). The Cython
+# function partition_node_indices is the fused-type (float32/float64) entry
+# point used by the trees.
 # BinaryTrees rely on partial sorts to partition their nodes during their
 # initialisation.
 #
@@ -62,6 +70,16 @@ cdef extern from *:
                 I split_index,
                 I n_features,
                 I n_points) except +
+    # [FUNCTION DOC]
+    # HELPER: C++ template wrapping std::nth_element, used by
+    # partition_node_indices.
+    # Behavior: reorders node_indices[0:n_points] so position split_index holds
+    # the index that would be there if sorted by (data value in column split_dim,
+    # index), with all earlier entries not greater and later ones not smaller.
+    # Inputs: data (row-major n_features columns), node_indices, split_dim,
+    # split_index, n_features, n_points. Outputs: node_indices permuted in place.
+    # Exceptions: C++ exceptions are translated to Python errors.
+    # Side effects: in-place permutation only.
 
 
 cdef int partition_node_indices(
@@ -71,6 +89,21 @@ cdef int partition_node_indices(
         intp_t split_index,
         intp_t n_features,
         intp_t n_points) except -1:
+    # [FUNCTION DOC]
+    # Behavior: forwards all arguments to the C++ nth_element wrapper and
+    # returns 0. Rearranges node_indices so that data values (column split_dim)
+    # of indices before split_index are <= that at split_index, which is <=
+    # those after, ties ordered by index.
+    # Inputs: data, pointer to C-contiguous float32/float64 matrix with n_features
+    # columns (row count larger than any index); node_indices, pointer to
+    # n_points indices of the node; split_dim, column used for comparison;
+    # split_index, target position (0 <= split_index < n_points); n_features;
+    # n_points, length of node_indices.
+    # Outputs: returns 0; node_indices permuted in place.
+    # Exceptions: C++ exceptions converted, returning -1.
+    # Side effects: mutates node_indices; requires the GIL as declared.
+    # KNOWN ISSUE: the docstring says n_points is also the number of points in
+    # the original dataset; it is only the length of node_indices for this node.
     """Partition points in the node into two equal-sized groups.
 
     Upon return, the values in node_indices will be rearranged such that
