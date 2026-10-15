@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled helpers for sklearn.decomposition.LatentDirichletAllocation (online
+# variational Bayes): mean absolute change for convergence checks, Dirichlet
+# expectations of log variables, and a fast approximate digamma (psi).
 import numpy as np
 
 
@@ -8,6 +12,12 @@ from sklearn.utils._typedefs cimport float64_t, intp_t
 
 
 def mean_change(const floating[:] arr_1, const floating[:] arr_2):
+    # [FUNCTION DOC]
+    # HELPER: convergence check in LDA's E-step.
+    # Behavior: mean of |arr_1[i] - arr_2[i]| computed in double precision.
+    # Inputs: two 1D read-only float arrays of equal length (arr_2 at least as long).
+    # Outputs: the mean as a Python float.
+    # Exceptions: none; empty input yields NaN (C division). Side effects: none.
     """Calculate the mean difference between two arrays.
 
     Equivalent to np.abs(arr_1 - arr2).mean().
@@ -30,6 +40,14 @@ def _dirichlet_expectation_1d(
     floating doc_topic_prior,
     floating[:] out
 ):
+    # [FUNCTION DOC]
+    # HELPER: per-document update in LDA's E-step.
+    # Behavior: adds doc_topic_prior to each doc_topic entry in place, then writes
+    # exp(psi(doc_topic[i]) - psi(sum of doc_topic)) to out.
+    # Inputs: doc_topic 1D float array (unnormalized topic counts); doc_topic_prior
+    # scalar; out 1D float array of the same length.
+    # Outputs: none returned; out filled. Exceptions: none.
+    # Side effects: mutates doc_topic and out in place.
     """Dirichlet expectation for a single sample:
         exp(E[log(theta)]) for theta ~ Dir(doc_topic)
     after adding doc_topic_prior to doc_topic, in-place.
@@ -56,6 +74,12 @@ def _dirichlet_expectation_1d(
 
 
 def _dirichlet_expectation_2d(const floating[:, :] arr):
+    # [FUNCTION DOC]
+    # HELPER: used by LDA to compute E[log theta] per row (no prior, no exp).
+    # Behavior: for each row, psi(arr[i,j]) - psi(row sum).
+    # Inputs: arr 2D read-only float array of positive values.
+    # Outputs: new ndarray with the same shape/dtype. Exceptions: none.
+    # Side effects: allocates the output.
     """Dirichlet expectation for multiple samples:
     E[log(theta)] for theta ~ Dir(arr).
 
@@ -89,6 +113,14 @@ def _dirichlet_expectation_2d(const floating[:, :] arr):
 # After: J. Bernardo (1976). Algorithm AS 103: Psi (Digamma) Function.
 # https://www.uv.es/~bernardo/1976AppStatist.pdf
 cdef floating psi(floating x) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: digamma used by the Dirichlet expectation functions.
+    # Behavior: for x <= 1e-6 returns the asymptote -EulerGamma - 1/x; otherwise uses
+    # the recurrence psi(x) = psi(x+1) - 1/x to shift x to >= 6, then the asymptotic
+    # series log(x) - 1/(2x) - 1/(12x^2) + 1/(120x^4) - 1/(252x^6).
+    # Inputs: x, float (intended positive). Outputs: approximate psi(x).
+    # Exceptions: none (noexcept, nogil). Side effects: none.
+    # Note: non-positive x silently falls into the small-x branch (inaccurate).
     cdef double EULER = 0.577215664901532860606512090082402431
     if x <= 1e-6:
         # psi(x) = -EULER - 1/x + O(x)

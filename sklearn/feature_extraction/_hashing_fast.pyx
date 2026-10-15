@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled core of sklearn.feature_extraction.FeatureHasher: hashes (feature,
+# value) pairs with signed 32-bit MurmurHash3 into a fixed number of columns and
+# builds the CSR components (indices, indptr, data) of the output matrix.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -15,6 +19,28 @@ cnp.import_array()
 
 def transform(raw_X, Py_ssize_t n_features, dtype,
               bint alternate_sign=1, unsigned int seed=0):
+    # [FUNCTION DOC]
+    # HELPER: implementation of FeatureHasher.transform.
+    # Behavior: for each sample (an iterable of (name, value) pairs) and each pair:
+    # string values turn into the feature name "name=value" with value 1; zero values
+    # are skipped; names are UTF-8 encoded; the bytes are hashed with MurmurHash3
+    # (seed) to a signed 32-bit h. Column index is abs(h) mod n_features (with the
+    # -2**31 case handled explicitly to avoid undefined abs). If alternate_sign, the
+    # value is negated when h < 0. Indices/indptr are accumulated in growable C++
+    # vectors; values in a numpy array of the requested dtype that doubles in size
+    # when full. indptr gets the running count after each sample. Finally, if the
+    # total nnz exceeds int32 max, indices are widened to int64, otherwise indptr is
+    # narrowed to int32, so both share a dtype.
+    # Inputs: raw_X, iterable of iterables of (str|bytes name, str or number value);
+    # n_features, number of output columns (> 0); dtype, numpy dtype for values;
+    # alternate_sign, flag; seed, hash seed.
+    # Outputs: tuple (indices, indptr, values) of numpy arrays for a CSR matrix with
+    # len(indptr)-1 rows.
+    # Exceptions: TypeError if a feature name is not str/bytes; errors from
+    # converting non-numeric values to double.
+    # Side effects: allocates arrays; none else.
+    # KNOWN ISSUE: docstring says it returns n_samples plus indices, indptr, values as
+    # lists; it actually returns three numpy arrays and no n_samples.
     """Guts of FeatureHasher.transform.
 
     Returns

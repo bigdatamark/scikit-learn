@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Barnes-Hut t-SNE gradient for sklearn.manifold.TSNE (method="barnes_hut").
+# Builds a quad/oct tree (sklearn.neighbors._quad_tree._QuadTree) over the
+# current embedding, computes attractive (positive) forces exactly over the
+# sparse neighbor affinities and repulsive (negative) forces approximately via
+# tree summaries controlled by theta, optionally computing the KL divergence.
+# Uses OpenMP (prange) for per-sample loops.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -45,6 +52,19 @@ cdef float compute_gradient(float[:] val_P,
                             long start,
                             bint compute_error,
                             int num_threads) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: combines positive and negative gradient terms for gradient().
+    # Behavior: allocates flat neg_f/pos_f buffers (n_samples*n_dimensions), calls
+    # compute_gradient_negative (returns normalization sum_Q) and
+    # compute_gradient_positive (returns KL error), then in parallel sets
+    # tot_force[i] = pos_f[i] - neg_f[i]/sum_Q for i >= start; optional timing prints.
+    # Inputs: val_P (CSR data of symmetric P), pos_reference (n_samples, n_dim)
+    # embedding, neighbors/indptr (CSR structure of P), tot_force output array, qt
+    # built tree, theta, dof (Student-t degrees of freedom), start (skip first rows),
+    # compute_error flag, num_threads.
+    # Outputs: KL error (0 if not computed); writes tot_force rows >= start.
+    # Exceptions: none (noexcept nogil). Side effects: malloc/free, OpenMP, stdout.
+    # KNOWN ISSUE: malloc results are not checked for NULL.
     # Having created the tree, calculate the gradient
     # in two components, the positive and negative forces
     cdef:
@@ -103,6 +123,19 @@ cdef float compute_gradient_positive(float[:] val_P,
                                      int verbose,
                                      bint compute_error,
                                      int num_threads) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: attractive forces for compute_gradient.
+    # Behavior: for each i >= start (parallel), zero pos_f[i] then for each stored
+    # neighbor j with affinity p_ij: q = dof/(dof + ||y_i - y_j||^2), raised to
+    # (dof+1)/2 when dof != 1; add p_ij*q*(y_i - y_j) to pos_f[i]. If compute_error,
+    # accumulate p_ij * log(max(p_ij,tiny)/max(q/sum_Q,tiny)) into the KL error
+    # (OpenMP reduction).
+    # Inputs: val_P, pos_reference, neighbors, indptr as in compute_gradient; pos_f
+    # output flat buffer; n_dimensions; dof; sum_Q normalization; start; verbose;
+    # compute_error; num_threads.
+    # Outputs: KL divergence value; pos_f filled for rows >= start.
+    # Exceptions: none. Side effects: per-thread malloc/free scratch, OpenMP, prints
+    # timing if verbose > 10.
     # Sum over the following expression for i not equal to j
     # grad_i = p_ij (1 + ||y_i - y_j||^2)^-1 (y_i - y_j)
     # This is equivalent to compute_edge_forces in the authors' code
@@ -166,6 +199,22 @@ cdef double compute_gradient_negative(float[:, :] pos_reference,
                                       float theta,
                                       long start,
                                       int num_threads) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: repulsive forces for compute_gradient via Barnes-Hut.
+    # Behavior: per thread allocates scratch buffers; for each i >= start (parallel)
+    # calls qt.summarize(point, summary, theta^2) which returns, for tree nodes
+    # small/far enough, records of (delta to center of mass per dim, squared
+    # distance, node size). For each record q = dof/(dof + dist2) (^ (dof+1)/2 if
+    # dof != 1); sum_Q += size*q (reduction); neg_force += size*q^2*delta. Stores
+    # neg_force (unnormalized) in neg_f[i]. Returns max(sum_Q, float64 eps).
+    # Inputs: pos_reference embedding; neg_f flat output buffer; qt tree; dof; theta;
+    # start; num_threads.
+    # Outputs: normalization sum_Q; neg_f filled for rows >= start.
+    # Exceptions: none. Side effects: malloc/free, OpenMP, timing prints if
+    # qt.verbose > 20.
+    # KNOWN ISSUE: the force buffer is allocated and zeroed but never used; the
+    # summary buffer is sized n*(n_dimensions+2) per thread, more than needed in
+    # practice; malloc results are not checked for NULL.
     cdef:
         int ax
         int n_dimensions = qt.n_dimensions
@@ -254,6 +303,18 @@ def gradient(float[:] val_P,
              long skip_num_points=0,
              bint compute_error=1,
              int num_threads=1):
+    # [FUNCTION DOC]
+    # Public entry point called from sklearn.manifold._t_sne._kl_divergence_bh.
+    # Behavior: validates float32 itemsizes and shapes with asserts, builds a
+    # _QuadTree over pos_output, computes the gradient into forces, checks the tree
+    # holds all points, and returns the KL error (NaN if compute_error is false).
+    # Inputs: val_P, neighbors, indptr (CSR P, int64 structure); pos_output
+    # (n_samples, n_components) float32; forces output (n_samples, n_components)
+    # float32; theta; n_dimensions (only used for a verbose message); verbose; dof;
+    # skip_num_points (rows to leave untouched); compute_error; num_threads.
+    # Outputs: float error; forces written in place.
+    # Exceptions: AssertionError on dtype/shape mismatch or tree inconsistency.
+    # Side effects: mutates forces; OpenMP threads; prints to stdout when verbose.
     # This function is designed to be called from external Python
     # it passes the 'forces' array by reference and fills that's array
     # up in-place

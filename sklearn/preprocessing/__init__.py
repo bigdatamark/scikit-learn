@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Cython components:
+# - _csr_polynomial_expansion: degree-2/3 polynomial/interaction expansion of
+#   CSR input for PolynomialFeatures; computes output nnz then fills output CSR
+#   arrays using closed-form column indices over non-zero products only.
+# - _target_encoder_fast: per-category smoothed target means (fixed or "auto"
+#   empirical-Bayes smoothing) for TargetEncoder.fit.
+# The two modules are independent.
 """Methods for scaling, centering, normalization, binarization, and more."""
 
 # Authors: The scikit-learn developers

@@ -1,3 +1,8 @@
+# [PACKAGE DOC]
+# Cython component: _hashing_fast.transform, the hashing loop behind
+# FeatureHasher (MurmurHash3 of feature names into n_features columns, optional
+# alternating sign), returning CSR indices/indptr/data arrays. HashingVectorizer
+# in feature_extraction.text uses it via FeatureHasher.
 """Feature extraction from raw data."""
 
 # Authors: The scikit-learn developers

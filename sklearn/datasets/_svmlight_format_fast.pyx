@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled helpers for sklearn.datasets svmlight/libsvm I/O: a line parser used by
+# load_svmlight_file(s) that builds CSR arrays, and writers used by
+# dump_svmlight_file that format dense or CSR rows as "idx:value" text.
 # Optimized inner loop of load_svmlight_file.
 #
 # Authors: The scikit-learn developers
@@ -17,6 +21,25 @@ cdef bytes COLON = u':'.encode('ascii')
 
 def _load_svmlight_file(f, dtype, bint multilabel, bint zero_based,
                         bint query_id, long long offset, long long length):
+    # [FUNCTION DOC]
+    # HELPER: parsing loop for sklearn.datasets._svmlight_format_io._load_svmlight_file.
+    # Behavior: optionally seeks to byte offset and drops the (possibly partial)
+    # current line. For each line: strips anything after '#', skips blank lines,
+    # first token is the target (float, or for multilabel a comma-separated sorted
+    # tuple of floats; a first token containing ':' means no labels). An optional
+    # leading "qid:N" token is consumed (appended to query if query_id). Remaining
+    # "idx:value" tokens are parsed; indices must be >= 0 (>= 1 unless zero_based)
+    # and strictly increasing within the line. Appends to growable typed arrays and
+    # records the running nnz in indptr. Stops after the line that passes
+    # offset+length bytes when length > 0.
+    # Inputs: f, binary file object; dtype (float32 kept, anything else -> float64);
+    # multilabel, zero_based, query_id flags; offset, length in bytes (length <= 0
+    # means read to end).
+    # Outputs: tuple (dtype, data, indices(int64), indptr(int64), labels (array of
+    # double or list of tuples), query (int64 ndarray)).
+    # Exceptions: ValueError for invalid/unsorted/duplicate indices or unparsable
+    # numbers.
+    # Side effects: reads and seeks the file.
     cdef array.array data, indices, indptr
     cdef bytes line
     cdef char *hash_ptr
@@ -135,6 +158,16 @@ def get_dense_row_string(
     str value_pattern,
     bint one_based,
 ):
+    # [FUNCTION DOC]
+    # HELPER: formats one dense row for _dump_svmlight_file.
+    # Behavior: collects the non-zero entries of X[row] into the scratch buffers
+    # x_inds/x_vals (cast to double or long long), then formats each as
+    # value_pattern % (index + one_based, value) and joins with spaces.
+    # Inputs: X 2D read-only numeric array; x_inds, x_vals scratch arrays of length
+    # >= n_columns; row index; value_pattern format string; one_based flag.
+    # Outputs: the formatted string.
+    # Exceptions: none expected beyond formatting errors.
+    # Side effects: overwrites the scratch buffers.
     cdef:
         Py_ssize_t row_length = X.shape[1]
         Py_ssize_t x_nz_used = 0
@@ -165,6 +198,13 @@ def get_sparse_row_string(
     str value_pattern,
     bint one_based,
 ):
+    # [FUNCTION DOC]
+    # HELPER: formats one CSR row for _dump_svmlight_file.
+    # Behavior: formats every stored entry of row (including explicit zeros) as
+    # value_pattern % (column + one_based, value), joined with spaces.
+    # Inputs: CSR data, indptr, indices (int32 views); row; value_pattern; one_based.
+    # Outputs: the formatted string. Exceptions: buffer dtype mismatch errors if
+    # indptr/indices are not int32. Side effects: none.
     cdef:
         Py_ssize_t row_start = X_indptr[row]
         Py_ssize_t row_end = X_indptr[row+1]
@@ -187,6 +227,21 @@ def _dump_svmlight_file(
     bint X_is_sp,
     bint y_is_sp,
 ):
+    # [FUNCTION DOC]
+    # HELPER: writing loop of sklearn.datasets dump_svmlight_file.
+    # Behavior: chooses "%d" or "%.16g" patterns for features and labels from the
+    # dtype kinds; for each sample builds "labels [qid:N] features\n" where features
+    # come from the dense or sparse row formatter and labels are either a
+    # comma-separated list of the column indices with non-zero y (multilabel, dense
+    # or CSR) or the single label value; writes the UTF-8 line to f.
+    # Inputs: X dense 2D or CSR; y 2D dense (n,1)/(n,n_labels) or CSR; f, binary
+    # writable file; multilabel, one_based flags; query_id, integer array (empty
+    # means no qid); X_is_sp, y_is_sp flags.
+    # Outputs: none. Exceptions: errors from formatting/file writes.
+    # Side effects: writes to f; allocates scratch buffers.
+    # KNOWN ISSUE: for non-multilabel sparse y it uses y.data[i] as row i's label,
+    # which is only correct if every row has exactly one stored entry; a CSR y with
+    # zero labels (not stored) misaligns or overruns the labels.
     cdef bint X_is_integral
     cdef bint query_id_is_not_empty = query_id.size > 0
     X_is_integral = X.dtype.kind == "i"
