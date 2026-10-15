@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Compiled prediction routines for a single fitted histogram GBDT tree stored as
+# an array of node_struct records (TreePredictor.nodes). Provides parallel
+# prediction from raw (unbinned float64) data, which handles numerical thresholds,
+# categorical bitsets and NaN routing; parallel prediction from binned (uint8)
+# data, used for early-stopping/validation on the training bins; and the
+# weighted-traversal partial dependence computation (the "recursion" method).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +29,18 @@ def _predict_from_raw_data(  # raw data = non-binned data
         const unsigned int [::1] f_idx_map,
         int n_threads,
         Y_DTYPE_C [:] out):
+    # [FUNCTION DOC]
+    # Behavior: for each row i (OpenMP prange, static schedule, GIL released) writes
+    # the tree prediction of numeric_data[i] into out[i] using the per-row helper.
+    # Inputs: nodes node_struct array (root at index 0); numeric_data float64
+    # (n_samples, n_features), NaN means missing; raw_left_cat_bitsets uint32
+    # (n_categorical_splits, 8) bitsets of raw categories going left, indexed by
+    # node.bitset_idx; known_cat_bitsets uint32 (n_categorical_features, 8) bitsets of
+    # categories seen at fit time; f_idx_map uint32 (n_features,) mapping a feature
+    # index to its row in known_cat_bitsets; n_threads; out float64 (n_samples,).
+    # Outputs: out overwritten in place (not accumulated).
+    # Exceptions: none raised from the parallel loop.
+    # Side effects: mutates out; OpenMP parallelism.
 
     cdef:
         int i
@@ -41,6 +60,25 @@ cdef inline Y_DTYPE_C _predict_one_from_raw_data(
         const BITSET_INNER_DTYPE_C [:, ::1] known_cat_bitsets,
         const unsigned int [::1] f_idx_map,
         const int row) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: single-row raw-data traversal used by _predict_from_raw_data.
+    # Behavior: starting from nodes[0], until a leaf is reached: read the row's value
+    # of the node's feature. If NaN, go left iff missing_go_to_left. Else if the node
+    # is categorical: a negative value is treated as missing; a category present in
+    # the node's raw_left_cat_bitsets row goes left; a category known at fit time
+    # (present in known_cat_bitsets row f_idx_map[feature]) but not in the left bitset
+    # goes right; an unknown category is treated as missing. Else numerical: go left
+    # iff value <= num_threshold. Returns the leaf's value.
+    # Inputs: as in _predict_from_raw_data plus row, the row index (the full arrays
+    # are passed rather than a row slice to work around a Cython prange issue).
+    # Outputs: returns the leaf value (float64).
+    # Exceptions: none (noexcept nogil).
+    # Side effects: none.
+    # KNOWN ISSUE: categorical values are cast to uint8 without an upper-range check,
+    # so a raw category >= 256 (or a non-integer value) is converted by C float to
+    # unsigned char conversion, which is undefined for out-of-range values and may
+    # alias a valid category; this function relies on callers never passing such
+    # values.
     # Need to pass the whole array and the row index, else prange won't work.
     # See issue Cython #2798
 
@@ -92,6 +130,16 @@ def _predict_from_binned_data(
         const uint8_t missing_values_bin_idx,
         int n_threads,
         Y_DTYPE_C [:] out):
+    # [FUNCTION DOC]
+    # Behavior: parallel (OpenMP prange, GIL released) prediction from binned data:
+    # out[i] is set to the tree prediction of binned_data[i] via the per-row helper.
+    # Inputs: nodes node_struct array; binned_data uint8 (n_samples, n_features);
+    # binned_left_cat_bitsets uint32 (n_categorical_splits, 8) bitsets of bin codes
+    # going left; missing_values_bin_idx the bin code reserved for missing values;
+    # n_threads; out float64 (n_samples,).
+    # Outputs: out overwritten in place.
+    # Exceptions: none from the parallel loop.
+    # Side effects: mutates out; OpenMP parallelism.
 
     cdef:
         int i
@@ -110,6 +158,17 @@ cdef inline Y_DTYPE_C _predict_one_from_binned_data(
         const BITSET_INNER_DTYPE_C [:, :] binned_left_cat_bitsets,
         const int row,
         const uint8_t missing_values_bin_idx) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: single-row binned-data traversal used by _predict_from_binned_data.
+    # Behavior: from nodes[0] until a leaf: if the row's bin equals
+    # missing_values_bin_idx, go left iff missing_go_to_left; else if categorical go
+    # left iff the bin is in the node's binned_left_cat_bitsets row; else go left iff
+    # bin <= bin_threshold. Returns the leaf value.
+    # Inputs: nodes, binned_data, binned_left_cat_bitsets, row index,
+    # missing_values_bin_idx.
+    # Outputs: returns the leaf value.
+    # Exceptions: none (noexcept nogil).
+    # Side effects: none.
     # Need to pass the whole array and the row index, else prange won't work.
     # See issue Cython #2798
 
@@ -151,6 +210,26 @@ def _compute_partial_dependence(
     const intp_t [:] target_features,
     Y_DTYPE_C [:] out
 ):
+    # [FUNCTION DOC]
+    # Behavior: computes the tree's partial dependence on target_features at each grid
+    # point using an explicit stack (depth-first). Each row starts with the root at
+    # weight 1. At an internal node splitting on a target feature, only the child
+    # selected by comparing the grid value against num_threshold is pushed, with
+    # unchanged weight. At a node splitting on another feature both children are
+    # pushed, the left weighted by count(left)/count(node) and the right by the
+    # remainder. At a leaf, weight times leaf value is added to out[row]. After each
+    # row the accumulated leaf weights are checked to sum to about 1.
+    # Inputs: nodes node_struct array; X float64 C-contiguous (n_grid_points,
+    # n_target_features), column j corresponds to target_features[j];
+    # target_features intp (n_target_features,) feature indices; out float64
+    # (n_grid_points,) that must be zero-initialized by the caller.
+    # Outputs: out accumulated in place; returns None.
+    # Exceptions: ValueError if the accumulated weight is not within (0.999, 1.001).
+    # Side effects: allocates two stack arrays of size n_nodes; holds the GIL.
+    # KNOWN ISSUE: target-feature splits always use the numerical threshold and
+    # ignore is_categorical and missing_go_to_left, so categorical splits and NaN grid
+    # values are not handled; this relies on the Python callers not requesting the
+    # recursion method for such cases.
     """Partial dependence of the response on the ``target_features`` set.
 
     For each sample in ``X`` a tree traversal is performed.
