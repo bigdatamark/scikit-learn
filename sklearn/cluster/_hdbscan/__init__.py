@@ -10,3 +10,5 @@
 #   max size, labels and probabilities.
 # Pipeline: distances -> mutual reachability -> MST -> single linkage -> condensed
 # tree -> flat labels.
+# Authors: The scikit-learn developers
+# SPDX-License-Identifier: BSD-3-Clause
