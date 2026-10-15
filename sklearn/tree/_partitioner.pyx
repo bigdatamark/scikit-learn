@@ -1,3 +1,19 @@
+# [MODULE DOC]
+# Partitioners: the data-layout-specific half of split finding. A Splitter
+# (in _splitter.pyx) owns the array samples of row indices; the samples of a
+# tree node are the contiguous slice samples[start:end]. For each candidate
+# feature, the partitioner copies that feature's values into the parallel
+# buffer feature_values and either sorts the slice by value (best splitter)
+# or computes the min/max (random splitter); it then enumerates candidate
+# split positions or partitions by a threshold, and finally reorders the
+# slice so that left-child samples come first. DensePartitioner reads a 2-D
+# float32 array and supports NaN as missing values; SparsePartitioner reads a
+# CSC matrix, handles only explicit non-zeros and treats the rest as zeros
+# (no missing-value support). Module-level helpers implement sparse non-zero
+# extraction (index map or binary search, chosen by an estimated cost), swaps
+# that keep the row-to-position map consistent, and an order-preserving
+# rotation of two adjacent array slices. All hot methods are nogil and cannot
+# raise.
 """Partition samples in the construction of a tree.
 
 This module contains the algorithms for moving sample indices to
@@ -30,6 +46,12 @@ cdef float32_t EXTRACT_NNZ_SWITCH = 0.1
 
 @final
 cdef class DensePartitioner:
+    # [CLASS DOC]
+    # Partitioner for dense float32 X with optional NaN missing values. Holds
+    # views on the splitter's samples and feature_values buffers (mutated in
+    # place) plus a byte swap_buffer large enough for a full copy of either
+    # array. State per node: start, end, and n_missing for the last feature
+    # examined. Declared final so calls are resolved statically.
     """Partitioner specialized for dense data.
 
     Note that this partitioner is agnostic to the splitting strategy (best vs. random).
@@ -41,6 +63,13 @@ cdef class DensePartitioner:
         float32_t[::1] feature_values,
         const uint8_t[::1] missing_values_in_feature_mask,
     ):
+        # [FUNCTION DOC]
+        # Stores X, samples, feature_values and the missing-value mask (may be None)
+        # and allocates swap_buffer of samples.size times the larger item size.
+        # Inputs: X, 2-D float32 view; samples, intp buffer shared with the splitter;
+        # feature_values, float32 buffer of the same length; missing mask, uint8 per
+        # feature or None. Outputs: none. Exceptions: MemoryError from numpy.
+        # Side effects: allocation.
         self.X = X
         self.samples = samples
         self.feature_values = feature_values
@@ -51,6 +80,10 @@ cdef class DensePartitioner:
         # to get copied in the buffer, which would allow to use a buffer twice smaller.
 
     cdef inline void init_node_split(self, intp_t start, intp_t end) noexcept nogil:
+        # [FUNCTION DOC]
+        # Sets start and end for the node about to be split and resets n_missing.
+        # Inputs: start, end positions in samples. Outputs: none.
+        # Exceptions: none (nogil). Side effects: mutates fields.
         """Initialize splitter at the beginning of node_split."""
         self.start = start
         self.end = end
@@ -59,6 +92,19 @@ cdef class DensePartitioner:
     cdef inline void sort_samples_and_feature_values(
         self, intp_t current_feature
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: if the feature may contain NaNs, a two-pointer pass over
+        # samples[start:end] swaps samples whose value is NaN to the right end
+        # (counting them) while copying non-missing values into feature_values at
+        # the left; otherwise simply copies X[samples[i], feature] for every i. Then
+        # sorts the non-missing prefix of feature_values together with samples
+        # (introsort with three-way partitioning) and stores the NaN count in
+        # n_missing. Values for the trailing NaN positions in feature_values are not
+        # written (they hold stale data); callers rely on n_missing instead.
+        # Inputs: current_feature, column index. Outputs: none.
+        # Exceptions: none (nogil, noexcept).
+        # Side effects: reorders samples[start:end], writes feature_values, sets
+        # n_missing.
         """Simultaneously sort based on the feature_values.
 
         Missing values are stored at the end of feature_values.
@@ -109,6 +155,15 @@ cdef class DensePartitioner:
         self.n_missing = n_missing
 
     cdef void shift_missing_to_the_left(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: assuming the n_missing NaN entries sit at the right end of the
+        # node slice, rotates both samples and feature_values so the NaN block comes
+        # first and the non-missing block (order preserved) follows; uses
+        # swap_array_slices with swap_buffer. Called before the second search pass
+        # of the best splitter (missing values going left).
+        # Inputs: none (uses start, end, n_missing). Outputs: none.
+        # Exceptions: none (nogil). Side effects: reorders samples and
+        # feature_values in place.
         """Moves missing values from the right to the left.
 
         All missing values are expected to be grouped at the right hand side of the
@@ -132,6 +187,18 @@ cdef class DensePartitioner:
         float32_t* min_feature_value_out,
         float32_t* max_feature_value_out,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: single pass over the node copying X values of the feature into
+        # feature_values in current sample order, counting NaNs, and tracking min and
+        # max over non-NaN values. If all values are NaN, min stays +inf and max -inf.
+        # Samples are not reordered.
+        # Inputs: current_feature; two output pointers.
+        # Outputs: min and max written to the pointers; n_missing set.
+        # Exceptions: none (nogil). Side effects: writes feature_values.
+        # KNOWN ISSUE: the docstring says missing values are stored at the end of
+        # feature_values, but this method does not move them; NaNs stay at their
+        # original positions (partition_samples handles them with an explicit NaN
+        # test, so behavior is still correct).
         """Find the minimum and maximum value for current_feature.
 
         Missing values are stored at the end of feature_values. The number of missing
@@ -172,6 +239,18 @@ cdef class DensePartitioner:
         intp_t* p,
         bint missing_go_to_left,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: iterator step for the best-split scan. With missing values going
+        # right, the scan stops at end - n_missing; when p already equals that bound
+        # it jumps p and p_prev to end (terminating the caller's loop) after the
+        # caller has evaluated the "all missing on the right" split. With missing
+        # going left, the first step jumps p past the NaN block at the left. In the
+        # general case, increments p and keeps incrementing while the value at p is
+        # within FEATURE_THRESHOLD of the value at p - 1 (so splits never separate
+        # near-equal values), then sets p_prev = p - 1.
+        # Inputs: p_prev, p, in/out positions (p starts at start); missing_go_to_left.
+        # Outputs: updated p and p_prev. Exceptions: none (nogil).
+        # Side effects: none beyond the two pointers.
         """
         Compute the next p_prev and p for iterating over feature values.
 
@@ -219,6 +298,14 @@ cdef class DensePartitioner:
         float64_t threshold,
         bint missing_go_to_left
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: in-place two-pointer partition of the node slice using the
+        # values already in feature_values (from find_min_max): a sample goes left if
+        # its value is <= threshold, or if it is NaN and missing_go_to_left; right
+        # samples are swapped to the end (both feature_values and samples swapped).
+        # Inputs: threshold; missing_go_to_left. Outputs: returns the first position
+        # of the right child (number of left samples plus start).
+        # Exceptions: none (nogil). Side effects: reorders samples and feature_values.
         """Partition self.samples and self.feature_values
         on current self.feature_values for a given threshold.
 
@@ -249,6 +336,12 @@ cdef class DensePartitioner:
         self,
         const SplitRecord* best_split,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: two-pointer partition of samples[start:end] reading values
+        # directly from X for best_split.feature: left if value <= threshold, or if
+        # NaN and best_split.missing_go_to_left. feature_values is not updated.
+        # Inputs: pointer to the chosen SplitRecord. Outputs: none.
+        # Exceptions: none (nogil). Side effects: reorders samples in place.
         """Partition self.samples according to the split described by best_split.
 
         If missing values are present, this method partitions them accordingly
@@ -281,6 +374,14 @@ cdef class DensePartitioner:
 
 @final
 cdef class SparsePartitioner:
+    # [CLASS DOC]
+    # Partitioner for CSC sparse float32 X. Only explicit non-zeros are read;
+    # implicit zeros are represented by the gap between end_negative and
+    # start_positive in the node slice. index_to_samples maps each row of X to its
+    # current position in samples (or -1 for rows not used, e.g. zero weight) and
+    # is kept consistent by sparse_swap. sorted_samples caches a sorted copy of
+    # the node's rows for the binary-search extraction. Missing values are not
+    # supported. Declared final.
     """Partitioner specialized for sparse CSC data.
 
     Note that this partitioner is agnostic to the splitting strategy (best vs. random).
@@ -293,6 +394,17 @@ cdef class SparsePartitioner:
         float32_t[::1] feature_values,
         const uint8_t[::1] missing_values_in_feature_mask,
     ):
+        # [FUNCTION DOC]
+        # Behavior: validates that X is a scipy CSC matrix, keeps views on its data,
+        # indices and indptr, allocates index_to_samples (n_rows, filled with -1) and
+        # sorted_samples (n_samples), and records the initial position of each used
+        # row.
+        # Inputs: X, CSC matrix with float32 data and int32 indices/indptr; samples,
+        # shared intp buffer whose first n_samples entries are used rows;
+        # n_samples, number of used rows; feature_values buffer; missing mask
+        # (stored but unused). Outputs: none.
+        # Exceptions: ValueError if X is not CSC; buffer dtype errors if X has other
+        # dtypes; MemoryError from numpy. Side effects: allocation.
         if not (issparse(X) and X.format == "csc"):
             raise ValueError("X should be in csc format")
 
@@ -318,6 +430,10 @@ cdef class SparsePartitioner:
         self.missing_values_in_feature_mask = missing_values_in_feature_mask
 
     cdef inline void init_node_split(self, intp_t start, intp_t end) noexcept nogil:
+        # [FUNCTION DOC]
+        # Sets start and end, marks sorted_samples as stale and resets n_missing.
+        # Inputs: start, end. Outputs: none. Exceptions: none (nogil).
+        # Side effects: mutates fields.
         """Initialize splitter at the beginning of node_split."""
         self.start = start
         self.end = end
@@ -328,6 +444,18 @@ cdef class SparsePartitioner:
         self,
         intp_t current_feature
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: calls extract_nnz to place negative values in
+        # [start, end_negative) and positive values in [start_positive, end); sorts
+        # each block with its samples; refreshes index_to_samples for both blocks;
+        # then, if zeros exist, writes a 0 into feature_values just before
+        # start_positive (and, if more than one zero, also at end_negative) and
+        # moves the boundaries to include them, so that next_p can step from the last
+        # negative to a zero, and from a zero to the first positive, while skipping
+        # the interior of the zero block. Sets n_missing to 0.
+        # Inputs: current_feature. Outputs: none. Exceptions: none (nogil).
+        # Side effects: reorders samples, writes feature_values and
+        # index_to_samples, updates end_negative / start_positive.
         """Simultaneously sort based on the feature_values."""
         cdef:
             float32_t[::1] feature_values = self.feature_values
@@ -370,6 +498,9 @@ cdef class SparsePartitioner:
         self.n_missing = 0
 
     cdef void shift_missing_to_the_left(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # No-op: sparse data cannot contain missing values here. No inputs,
+        # outputs, exceptions or side effects.
         pass  # Missing values are not supported for sparse data.
 
     cdef inline void find_min_max(
@@ -378,6 +509,13 @@ cdef class SparsePartitioner:
         float32_t* min_feature_value_out,
         float32_t* max_feature_value_out,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: calls extract_nnz, then starts min/max at 0 if the node has any
+        # implicit zero (else at the first extracted value) and scans the negative
+        # and positive blocks of feature_values to update them.
+        # Inputs: current_feature; two output pointers. Outputs: min and max written.
+        # Exceptions: none (nogil). Side effects: those of extract_nnz (reorders
+        # samples, writes feature_values and index_to_samples).
         """Find the minimum and maximum value for current_feature."""
         cdef:
             intp_t p
@@ -421,6 +559,15 @@ cdef class SparsePartitioner:
         intp_t* p,
         bint missing_go_to_left,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: from position p, the next position is p + 1 unless that equals
+        # end_negative, in which case it is start_positive (skipping the zero block).
+        # Keeps advancing while the next value is within FEATURE_THRESHOLD of the
+        # current one and the next position is below end; finally p_prev = last
+        # position of the tie run and p = the next position (may equal end).
+        # missing_go_to_left is ignored.
+        # Inputs: p_prev, p in/out. Outputs: updated pointers.
+        # Exceptions: none (nogil). Side effects: none.
         """Compute the next p_prev and p for iterating over feature values.
 
         The missing_go_to_left argument is ignored for sparse data because
@@ -449,6 +596,10 @@ cdef class SparsePartitioner:
         float64_t current_threshold,
         bint missing_go_to_left
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Delegates to _partition with the threshold; missing_go_to_left is ignored.
+        # Outputs: start of the right child. Exceptions: none (nogil).
+        # Side effects: reorders samples, feature_values and index_to_samples.
         """Partition samples for feature_values at the current_threshold."""
         return self._partition(current_threshold)
 
@@ -456,11 +607,30 @@ cdef class SparsePartitioner:
         self,
         const SplitRecord* best_split,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: re-extracts the non-zeros of best_split.feature (so the slice is
+        # in negative / zero / positive layout) and partitions with its threshold.
+        # Inputs: pointer to the chosen SplitRecord. Outputs: none.
+        # Exceptions: none (nogil). Side effects: reorders samples, feature_values,
+        # index_to_samples.
         """Partition samples for X according to the split described by best_split."""
         self.extract_nnz(best_split[0].feature)
         self._partition(best_split[0].threshold)
 
     cdef inline intp_t _partition(self, float64_t threshold) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: threshold partition used by partition_samples and
+        # partition_samples_final.
+        # Behavior: requires the layout produced by extract_nnz. A negative threshold
+        # partitions only the negative block (zeros and positives are already right),
+        # a positive threshold partitions only the positive block, and a zero
+        # threshold returns start_positive directly. Partitioning is the usual
+        # two-pointer swap on feature_values and samples (using sparse_swap).
+        # Inputs: threshold. Outputs: first position of the right child.
+        # Exceptions: none (nogil). Side effects: reorders samples, feature_values,
+        # index_to_samples.
+        # KNOWN ISSUE: the docstring lists samples[end_negative:start_positive] twice;
+        # the positive block is actually samples[start_positive:end].
         """
         Partition samples[start:end] based on threshold.
         Assume extract_nnz was called beforehand, and partitioned samples in:
@@ -499,6 +669,19 @@ cdef class SparsePartitioner:
         return partition_end
 
     cdef inline void extract_nnz(self, intp_t feature) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: chooses between the binary-search extraction and the
+        # index_to_samples extraction using estimated costs: binary search if
+        # (sort cost if sorted_samples is stale) n log2 n + n log2 nnz is below
+        # EXTRACT_NNZ_SWITCH (0.1) times nnz, where n is the node size and nnz the
+        # number of stored entries of the feature column. Either way, afterwards
+        # samples[start:end_negative] hold rows with negative values,
+        # samples[start_positive:end] rows with positive values (values copied into
+        # feature_values at the same positions) and the rows in between are zeros.
+        # Inputs: feature, column index. Outputs: end_negative, start_positive.
+        # Exceptions: none (nogil). Side effects: reorders samples, updates
+        # index_to_samples, feature_values, and possibly sorted_samples /
+        # is_samples_sorted.
         """Extract and partition values for a given feature.
 
         The extracted values are partitioned between negative values
@@ -555,6 +738,12 @@ cdef class SparsePartitioner:
 
 
 cdef int compare_SIZE_t(const void* a, const void* b) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: qsort comparator for intp values used in extract_nnz_binary_search.
+    # Returns the difference of the two pointed-to values cast to int.
+    # Exceptions: none (nogil). Side effects: none.
+    # KNOWN ISSUE: casting the intp difference to int can overflow (wrong sign)
+    # when the two row indices differ by more than 2^31 - 1.
     """Comparison function for sort.
 
     This must return an `int` as it is used by stdlib's qsort, which expects
@@ -567,6 +756,15 @@ cdef inline void binary_search(const int32_t[::1] sorted_array,
                                int32_t start, int32_t end,
                                intp_t value, intp_t* index,
                                int32_t* new_start) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: binary search in a sorted int32 array slice, used for sparse
+    # extraction.
+    # Behavior: searches value in sorted_array[start:end]; stores the found
+    # position (or -1) in index and the next search start in new_start (pivot + 1
+    # when found, else the final lower bound), letting the caller shrink the
+    # range for successive increasing queries.
+    # Inputs: sorted_array, start, end, value. Outputs: index, new_start.
+    # Exceptions: none (nogil). Side effects: none beyond the outputs.
     """Return the index of value in the sorted array.
 
     If not found, return -1. new_start is the last pivot + 1
@@ -599,6 +797,18 @@ cdef inline void extract_nnz_index_to_samples(const int32_t[::1] X_indices,
                                               float32_t[::1] feature_values,
                                               intp_t* end_negative,
                                               intp_t* start_positive) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: O(nnz) extraction of a feature's non-zeros for the node.
+    # Behavior: scans the column's stored entries; for each row whose current
+    # position (index_to_samples) is in [start, end), positive values are packed
+    # from the right end downward and negative values from the left end upward,
+    # copying the value into feature_values and swapping the sample into place
+    # with sparse_swap. Explicit zeros are treated like implicit ones.
+    # Inputs: CSC column arrays and range indptr_start..indptr_end, samples,
+    # start, end, index_to_samples, feature_values.
+    # Outputs: end_negative and start_positive pointers.
+    # Exceptions: none (nogil). Side effects: reorders samples, updates
+    # index_to_samples and feature_values.
     """Extract and partition values for a feature using index_to_samples.
 
     Complexity is O(indptr_end - indptr_start).
@@ -640,6 +850,19 @@ cdef inline void extract_nnz_binary_search(const int32_t[::1] X_indices,
                                            intp_t* start_positive,
                                            intp_t[::1] sorted_samples,
                                            bint* is_samples_sorted) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: O(n log nnz) extraction of a feature's non-zeros for the node.
+    # Behavior: if needed, copies samples[start:end] into sorted_samples and
+    # sorts it (qsort), marking it valid for the rest of the node. Trims the
+    # column's index range to the span of node rows, then for each node row in
+    # increasing order binary-searches it in the remaining index range; found
+    # non-zeros are placed into the negative/positive blocks exactly as in
+    # extract_nnz_index_to_samples.
+    # Inputs: as extract_nnz_index_to_samples plus sorted_samples and the
+    # is_samples_sorted flag pointer.
+    # Outputs: end_negative, start_positive; is_samples_sorted set to true.
+    # Exceptions: none (nogil). Side effects: reorders samples, updates
+    # index_to_samples, feature_values, sorted_samples.
     """Extract and partition values for a given feature using binary search.
 
     If n_samples = end - start and n_indices = indptr_end - indptr_start,
@@ -700,6 +923,11 @@ cdef inline void extract_nnz_binary_search(const int32_t[::1] X_indices,
 
 cdef inline void sparse_swap(intp_t[::1] index_to_samples, intp_t[::1] samples,
                              intp_t pos_1, intp_t pos_2) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: swaps two positions of samples and updates index_to_samples for
+    # both moved rows so the row-to-position map stays valid.
+    # Inputs: index_to_samples, samples, pos_1, pos_2. Outputs: none.
+    # Exceptions: none (nogil). Side effects: in-place mutation.
     """Swap sample pos_1 and pos_2 preserving sparse invariant."""
     samples[pos_1], samples[pos_2] = samples[pos_2], samples[pos_1]
     index_to_samples[samples[pos_1]] = pos_1
@@ -708,6 +936,9 @@ cdef inline void sparse_swap(intp_t[::1] index_to_samples, intp_t[::1] samples,
 
 cdef inline void swap(float32_t* feature_values, intp_t* samples,
                       intp_t i, intp_t j) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: swaps positions i and j in both feature_values and samples (dense
+    # partitioning). Exceptions: none (nogil). Side effects: in-place mutation.
     feature_values[i], feature_values[j] = feature_values[j], feature_values[i]
     samples[i], samples[j] = samples[j], samples[i]
 
@@ -716,6 +947,16 @@ cdef void swap_array_slices(
     array_data_type[::1] array, intp_t start, intp_t end, intp_t n,
     char[::1] buffer
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: order-preserving rotation used by shift_missing_to_the_left.
+    # Behavior: exchanges the slices array[start:start+n] and array[start+n:end]
+    # keeping order inside each: copies the second slice to buffer, moves the
+    # first slice right with an overlap-safe move, then copies the buffer to the
+    # front. Instantiated for intp and float32 (fused type). No-op if start >= end.
+    # Inputs: contiguous array, start, end, n (length of the first slice), byte
+    # buffer of at least (end - start - n) items.
+    # Outputs: none. Exceptions: none (nogil). Side effects: mutates array and
+    # buffer.
     """Swaps the order of the slices array[start:start + n] and array[start + n:end].
 
     Preserves the order within the slices. Works for any itemsize.
@@ -736,6 +977,13 @@ cdef void swap_array_slices(
 
 
 def _py_swap_array_slices(cnp.ndarray array, intp_t start, intp_t end, intp_t n):
+    # [FUNCTION DOC]
+    # HELPER: Python test wrapper for swap_array_slices.
+    # Behavior: allocates a byte buffer the size of the array and dispatches to
+    # the intp or float32 specialization by dtype.
+    # Inputs: contiguous 1-D ndarray, start, end, n. Outputs: none (array
+    # modified in place).
+    # Exceptions: ValueError for other dtypes; buffer errors if not contiguous.
     """
     Python wrapper for swap_array_slices for testing.
     `array` must be contiguous.
