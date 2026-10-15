@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Project-wide fixed-width C type aliases (uint8/32/64, int8/32/64, float32/64
+# and intp = Py_ssize_t) matching NumPy dtypes, so Cython modules can declare
+# typed variables and memoryviews without including NumPy headers. Declarations
+# only; see _typedefs.pyx for a testing helper.
 # Commonly used types
 # These are redefinitions of the ones defined by numpy in
 # https://github.com/numpy/numpy/blob/main/numpy/__init__.pxd.

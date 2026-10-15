@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Declarations for a tiny, platform-independent pseudo-random generator used
+# in nogil Cython code (trees, SGD, k-means init, etc.): DEFAULT_SEED,
+# RAND_R_MAX (2^31 - 1) and the inline xorshift generator our_rand_r. The
+# sampling-without-replacement functions live in _random.pyx.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +23,15 @@ cdef enum:
 # rand_r replacement using a 32bit XorShift generator
 # See http://www.jstatsoft.org/v08/i14/paper for details
 cdef inline uint32_t our_rand_r(uint32_t* seed) nogil:
+    # [FUNCTION DOC]
+    # Behavior: 32-bit xorshift step (shifts 13 left, 17 right, 5 left, each XORed
+    # into the state). A zero state is first replaced by DEFAULT_SEED since zero
+    # is a fixed point. Returns the new state reduced modulo 2^31, i.e. a value in
+    # [0, RAND_R_MAX].
+    # Inputs: seed, pointer to the uint32 generator state.
+    # Outputs: random uint32 in [0, 2^31 - 1]. Side effects: updates seed in place.
+    # Exceptions: none (declared nogil without noexcept, so callers may perform an
+    # exception check after each call, but nothing is ever raised).
     """Generate a pseudo-random np.uint32 from an np.uint32 seed"""
     # seed shouldn't ever be 0.
     if (seed[0] == 0):

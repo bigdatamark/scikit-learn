@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Random utilities complementing numpy.random: several algorithms for sampling
+# integers without replacement from range(n_population) (tracking selection
+# with a set, pool/partial Fisher-Yates, reservoir sampling, or a full
+# permutation), the public dispatcher sample_without_replacement (exposed via
+# sklearn.utils.random), and a Python test hook for the xorshift generator
+# declared in _random.pxd. The fused type default_int lets the samplers work
+# with NumPy's default integer type (intp or C long on old Windows NumPy).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -27,6 +35,13 @@ ctypedef fused default_int:
 
 cpdef _sample_without_replacement_check_input(default_int n_population,
                                               default_int n_samples):
+    # [FUNCTION DOC]
+    # HELPER: validates arguments for all samplers.
+    # Behavior: raise if n_population < 0 or n_samples > n_population.
+    # Inputs: n_population, n_samples (default_int). Outputs: None.
+    # Exceptions: ValueError. Negative n_samples is not rejected here.
+    # KNOWN ISSUE: the message says n_population should be "greater than 0" while
+    # 0 is accepted; only negative values are rejected.
     """ Check that input are consistent for sample_without_replacement"""
     if n_population < 0:
         raise ValueError('n_population should be greater than 0, got %s.'
@@ -42,6 +57,15 @@ cpdef _sample_without_replacement_with_tracking_selection(
         default_int n_population,
         default_int n_samples,
         random_state=None):
+    # [FUNCTION DOC]
+    # Behavior: for each of n_samples outputs draw rng.randint(n_population)
+    # repeatedly until a value not yet in a Python set of selected values is
+    # found; record it. Efficient when n_samples is much smaller than n_population.
+    # Inputs: n_population, n_samples, random_state (seed, RandomState or None).
+    # Outputs: ndarray (NumPy default int) of n_samples distinct values in
+    # [0, n_population), in random order.
+    # Exceptions: ValueError from input check / check_random_state.
+    # Side effects: advances the RNG state; allocates the output and a set.
     r"""Sample integers without replacement.
 
     Select n_samples integers from the set [0, n_population) without
@@ -106,6 +130,14 @@ cpdef _sample_without_replacement_with_tracking_selection(
 cpdef _sample_without_replacement_with_pool(default_int n_population,
                                             default_int n_samples,
                                             random_state=None):
+    # [FUNCTION DOC]
+    # Behavior: partial Fisher-Yates: fill pool with 0..n_population-1; for step i
+    # draw j uniformly in [0, n_population - i), output pool[j], then move the last
+    # still-unselected element pool[n_population - i - 1] into slot j.
+    # Inputs: n_population, n_samples, random_state.
+    # Outputs: ndarray of n_samples distinct values in random order.
+    # Exceptions: ValueError from validation. Side effects: allocates an array of
+    # size n_population; advances RNG state.
     """Sample integers without replacement.
 
     Select n_samples integers from the set [0, n_population) without
@@ -164,6 +196,14 @@ cpdef _sample_without_replacement_with_reservoir_sampling(
     default_int n_samples,
     random_state=None
 ):
+    # [FUNCTION DOC]
+    # Behavior: reservoir sampling (Algorithm R): start with out = 0..n_samples-1;
+    # for each i from n_samples to n_population-1 draw j in [0, i] and, if
+    # j < n_samples, replace out[j] by i. Each subset is equally likely but the
+    # output order is not uniformly random.
+    # Inputs: n_population, n_samples, random_state.
+    # Outputs: ndarray of n_samples distinct values. Exceptions: ValueError from
+    # validation. Side effects: advances RNG state.
     """Sample integers without replacement.
 
     Select n_samples integers from the set [0, n_population) without
@@ -223,6 +263,20 @@ cdef _sample_without_replacement(default_int n_population,
                                  default_int n_samples,
                                  method="auto",
                                  random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: implementation behind sample_without_replacement.
+    # Behavior: validate inputs; ratio = n_samples / n_population (1.0 when the
+    # population is 0). With method "auto" and 0.01 < ratio < 0.99, return the
+    # first n_samples of rng.permutation(n_population). Otherwise "auto" or
+    # "tracking_selection" use tracking selection if ratio < 0.2, else reservoir
+    # sampling (so an explicit "tracking_selection" may silently use reservoir
+    # sampling); "reservoir_sampling" and "pool" select those algorithms.
+    # Inputs: n_population, n_samples (default_int), method string, random_state.
+    # Outputs: ndarray of n_samples distinct integers.
+    # Exceptions: ValueError for invalid sizes or unknown method.
+    # Side effects: consumes RNG state.
+    # KNOWN ISSUE: method "tracking_selection" is not honoured when ratio >= 0.2
+    # (reservoir sampling is used instead), contrary to the public docstring.
     """Sample integers without replacement.
 
     Private function for the implementation, see sample_without_replacement
@@ -266,6 +320,14 @@ cdef _sample_without_replacement(default_int n_population,
 
 def sample_without_replacement(
         object n_population, object n_samples, method="auto", random_state=None):
+    # [FUNCTION DOC]
+    # Behavior: public entry point. Converts n_population and n_samples to intp if
+    # NumPy's default int is intp (always on NumPy >= 2), else to C long (64-bit
+    # Windows with NumPy < 2), then calls _sample_without_replacement.
+    # Inputs: n_population, n_samples (int-like), method, random_state.
+    # Outputs: ndarray of n_samples distinct integers from [0, n_population).
+    # Exceptions: ValueError (invalid values/method), TypeError/OverflowError
+    # from integer conversion. Side effects: consumes RNG state.
     """Sample integers without replacement.
 
     Select n_samples integers from the set [0, n_population) without
@@ -347,6 +409,12 @@ def sample_without_replacement(
 
 
 def _our_rand_r_py(seed):
+    # [FUNCTION DOC]
+    # HELPER: test hook exposing our_rand_r to Python.
+    # Behavior: copy seed into a local uint32 state, call our_rand_r once and
+    # return the result (the updated state is discarded).
+    # Inputs: seed (int convertible to uint32). Outputs: int in [0, 2^31 - 1].
+    # Exceptions: OverflowError for negative or too-large seeds.
     """Python utils to test the our_rand_r function"""
     cdef uint32_t my_seed = seed
     return our_rand_r(&my_seed)

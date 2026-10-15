@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tempita template generating _seq_dataset.pxd: declarations of
+# SequentialDataset and its ArrayDataset (dense C-contiguous X) and CSRDataset
+# (sparse CSR X) subclasses, instantiated once per dtype suffix 64 (float64)
+# and 32 (float32). They provide nogil sequential or random row access, used by
+# SGD, SAG and other stochastic solvers. Implementations in _seq_dataset.pyx.tp.
 {{py:
 
 """
@@ -29,6 +35,9 @@ from sklearn.utils._typedefs cimport float32_t, float64_t, intp_t, uint32_t
 #------------------------------------------------------------------------------
 
 cdef class SequentialDataset{{name_suffix}}:
+    # [CLASS DOC]
+    # Template (instantiated per dtype suffix): base dataset holding a permutation
+    # index of sample ids, the current position, n_samples and an RNG seed.
     cdef int current_index
     cdef int[::1] index
     cdef int *index_data_ptr
@@ -36,19 +45,35 @@ cdef class SequentialDataset{{name_suffix}}:
     cdef uint32_t seed
 
     cdef void shuffle(self, uint32_t seed) noexcept nogil
+    # [FUNCTION DOC]
+    # Shuffle the sample index in place with a Fisher-Yates pass seeded by seed.
     cdef int _get_next_index(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Advance the current position cyclically and return it.
     cdef int _get_random_index(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Pick a uniformly random position, store it as current and return it.
 
     cdef void _sample(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                       int *nnz, {{c_type}} *y, {{c_type}} *sample_weight,
                       int current_index) noexcept nogil
+    # [FUNCTION DOC]
+    # Abstract: fetch the row at a given position into the output pointers.
     cdef void next(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                    int *nnz, {{c_type}} *y, {{c_type}} *sample_weight) noexcept nogil
+    # [FUNCTION DOC]
+    # Fetch the next row in (possibly shuffled) order into the output pointers.
     cdef int random(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                     int *nnz, {{c_type}} *y, {{c_type}} *sample_weight) noexcept nogil
+    # [FUNCTION DOC]
+    # Fetch a uniformly random row (with replacement) into the output pointers
+    # and return its position in the index array (not the dataset row id).
 
 
 cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
+    # [CLASS DOC]
+    # Template (instantiated per dtype suffix): dataset over a dense C-contiguous
+    # X with targets Y, sample weights and a shared feature-index array 0..n-1.
     cdef const {{c_type}}[:, ::1] X
     cdef const {{c_type}}[::1] Y
     cdef const {{c_type}}[::1] sample_weights
@@ -62,6 +87,9 @@ cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
 
 
 cdef class CSRDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
+    # [CLASS DOC]
+    # Template (instantiated per dtype suffix): dataset over a CSR matrix given by
+    # data, indptr and indices arrays, with targets and sample weights.
     cdef const {{c_type}}[::1] X_data
     cdef const int[::1] X_indptr
     cdef const int[::1] X_indices

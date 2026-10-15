@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Meson-configured include file (becomes _blas_int.pxi, included by
+# _cython_blas.pyx). The placeholder is replaced at build time by a ctypedef
+# or cimport defining blas_int: SciPy's blas_int when scipy.linalg.cython_blas
+# provides it (e.g. ILP64 builds), otherwise plain int. The BLAS wrappers
+# convert their int size and stride arguments to blas_int before calling SciPy.
 # This will be a plain `int` if scipy.linalg.cython_blas doesn't have `blas_int`, and
 # `blas_int` if it does. See `meson.build` in this directory for the compile-time check.
 @BLAS_INT_DEF@

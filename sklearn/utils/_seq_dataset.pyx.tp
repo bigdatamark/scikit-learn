@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tempita template generating _seq_dataset.pyx, instantiated once per dtype
+# suffix 64 (float64) and 32 (float32). SequentialDataset gives stochastic
+# solvers (SGD, SAG/SAGA, etc. via sklearn.linear_model._base.make_dataset)
+# nogil access to one sample at a time as a sparse-like row: pointers to the
+# feature values and feature indices, the number of entries, the target and
+# the sample weight. Samples are addressed through an int index array (a
+# permutation of 0..n_samples-1) which can be shuffled with the xorshift RNG
+# from _random. ArrayDataset serves dense C-contiguous rows (indices are the
+# shared array 0..n_features-1); CSRDataset serves rows of a CSR matrix
+# without copying. Python-level *_py methods exist for testing.
 {{py:
 
 """
@@ -34,6 +45,11 @@ from sklearn.utils._typedefs cimport float32_t, float64_t, uint32_t
 #------------------------------------------------------------------------------
 
 cdef class SequentialDataset{{name_suffix}}:
+    # [CLASS DOC]
+    # Template (one class per dtype suffix): abstract base class. State:
+    # index (int permutation of sample ids) and its raw pointer, current_index
+    # (position into index, -1 before the first call), n_samples, and seed (RNG
+    # state advanced by random). Subclasses implement _sample.
     """Base class for datasets with sequential data access.
 
     SequentialDataset is used to iterate over the rows of a matrix X and
@@ -65,6 +81,13 @@ cdef class SequentialDataset{{name_suffix}}:
 
     cdef void next(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                    int *nnz, {{c_type}} *y, {{c_type}} *sample_weight) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: advance current_index cyclically (wrapping to 0 after the last
+        # position) and fill the outputs with that sample via _sample.
+        # Inputs: output pointers x_data_ptr, x_ind_ptr (receive pointers into the
+        # dataset's own buffers, not copies), nnz, y, sample_weight.
+        # Outputs: all five written. Side effects: updates current_index.
+        # Exceptions: none (nogil, noexcept).
         """Get the next example ``x`` from the dataset.
 
         This method gets the next sample looping sequentially over all samples.
@@ -98,6 +121,16 @@ cdef class SequentialDataset{{name_suffix}}:
 
     cdef int random(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                     int *nnz, {{c_type}} *y, {{c_type}} *sample_weight) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: draw a position uniformly (our_rand_r modulo n_samples, slight
+        # modulo bias) with replacement, fill the outputs via _sample and return the
+        # position.
+        # Inputs/Outputs: same output pointers as next. Returns the position in the
+        # index array. Side effects: advances self.seed, updates current_index.
+        # Exceptions: none; n_samples == 0 would be a division by zero.
+        # KNOWN ISSUE: the docstring says it returns the "index of current sample"
+        # but it returns the position in index, which equals the dataset row only if
+        # the index array has not been shuffled (callers such as SAG rely on this).
         """Get a random example ``x`` from the dataset.
 
         This method gets next sample chosen randomly over a uniform
@@ -135,6 +168,12 @@ cdef class SequentialDataset{{name_suffix}}:
         return current_index
 
     cdef void shuffle(self, uint32_t seed) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: Fisher-Yates shuffle of the index array: for i in 0..n-2 swap
+        # ind[i] with ind[j], j = i + rand mod (n - i), using a local copy of seed
+        # (self.seed is not changed). Inputs: seed (should be non-zero; zero is
+        # replaced by DEFAULT_SEED in our_rand_r). Outputs: index permuted in place.
+        # Exceptions: none.
         """Permutes the ordering of examples."""
         # Fisher-Yates shuffle
         cdef int *ind = self.index_data_ptr
@@ -145,6 +184,10 @@ cdef class SequentialDataset{{name_suffix}}:
             ind[i], ind[j] = ind[j], ind[i]
 
     cdef int _get_next_index(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: cyclic position counter for next / _next_py.
+        # Behavior: increment current_index, wrapping to 0 when it reaches
+        # n_samples - 1 or beyond; store and return it. Exceptions: none.
         cdef int current_index = self.current_index
         if current_index >= (self.n_samples - 1):
             current_index = -1
@@ -154,6 +197,11 @@ cdef class SequentialDataset{{name_suffix}}:
         return self.current_index
 
     cdef int _get_random_index(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: random position for random / _random_py.
+        # Behavior: our_rand_r(self.seed) modulo n_samples; stored as current_index
+        # and returned. Side effects: advances self.seed. Exceptions: none (undefined
+        # for n_samples == 0).
         cdef int n = self.n_samples
         cdef int current_index = our_rand_r(&self.seed) % n
         self.current_index = current_index
@@ -162,23 +210,40 @@ cdef class SequentialDataset{{name_suffix}}:
     cdef void _sample(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                       int *nnz, {{c_type}} *y, {{c_type}} *sample_weight,
                       int current_index) noexcept nogil:
+        # [FUNCTION DOC]
+        # Abstract: subclasses fill the outputs for the sample at position
+        # current_index (index[current_index] gives the row). Base does nothing.
         pass
 
     def _shuffle_py(self, uint32_t seed):
+        # [FUNCTION DOC]
+        # HELPER: test wrapper; shuffles the index array with the given seed.
         """python function used for easy testing"""
         self.shuffle(seed)
 
     def _next_py(self):
+        # [FUNCTION DOC]
+        # HELPER: test wrapper; advance like next and return the sample as from
+        # _sample_py.
         """python function used for easy testing"""
         cdef int current_index = self._get_next_index()
         return self._sample_py(current_index)
 
     def _random_py(self):
+        # [FUNCTION DOC]
+        # HELPER: test wrapper; draw like random and return the sample as from
+        # _sample_py.
         """python function used for easy testing"""
         cdef int current_index = self._get_random_index()
         return self._sample_py(current_index)
 
     def _sample_py(self, int current_index):
+        # [FUNCTION DOC]
+        # HELPER: test wrapper. Behavior: call _sample at position current_index and
+        # copy the returned row into new arrays.
+        # Inputs: current_index (position in index; not bounds checked).
+        # Outputs: ((data, indices, indptr=[0, nnz]), y, sample_weight, sample_idx)
+        # where sample_idx = index[current_index]. Exceptions: none beyond allocation.
         """python function used for easy testing"""
         cdef {{c_type}}* x_data_ptr
         cdef int* x_indices_ptr
@@ -209,6 +274,10 @@ cdef class SequentialDataset{{name_suffix}}:
 
 
 cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
+    # [CLASS DOC]
+    # Template (one class per dtype suffix): dataset over a dense C-contiguous X
+    # of shape (n_samples, n_features), targets Y and sample_weights; every row is
+    # returned as all n_features values with indices 0..n_features-1.
     """Dataset backed by a two-dimensional numpy array.
 
     The dtype of the numpy array is expected to be ``{{np_type}}`` ({{c_type}})
@@ -222,6 +291,16 @@ cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
         const {{c_type}}[::1] sample_weights,
         uint32_t seed=1,
     ):
+        # [FUNCTION DOC]
+        # Behavior: check dimensions fit in a C int, keep references to the arrays,
+        # cache raw pointers and the row stride, build feature_indices 0..n_features-1
+        # and the identity index array, set current_index = -1 and seed = max(seed, 1).
+        # Inputs: X (C-contiguous 2d), Y and sample_weights (contiguous, length
+        # n_samples), seed (uint32, default 1).
+        # Outputs: none. Exceptions: ValueError if more than INT_MAX samples or
+        # features; buffer dtype/contiguity errors. Empty X/Y is undefined behavior
+        # (element 0 addresses taken without bounds checks).
+        # Side effects: allocates index and feature_indices arrays.
         """A ``SequentialDataset`` backed by a two-dimensional numpy array.
 
         Parameters
@@ -266,6 +345,10 @@ cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
     cdef void _sample(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                       int *nnz, {{c_type}} *y, {{c_type}} *sample_weight,
                       int current_index) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: row r = index[current_index]; write y = Y[r], x_data_ptr = start
+        # of row r in X, x_ind_ptr = feature index array, nnz = n_features,
+        # sample_weight = sample_weights[r]. No copy. Exceptions: none.
         cdef long long sample_idx = self.index_data_ptr[current_index]
         cdef long long offset = sample_idx * self.X_stride
 
@@ -277,6 +360,9 @@ cdef class ArrayDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
 
 
 cdef class CSRDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
+    # [CLASS DOC]
+    # Template (one class per dtype suffix): dataset over a CSR matrix given as
+    # data/indptr/indices arrays (int32 indices), with targets and sample weights.
     """A ``SequentialDataset`` backed by a scipy sparse CSR matrix. """
 
     def __cinit__(
@@ -288,6 +374,13 @@ cdef class CSRDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
         const {{c_type}}[::1] sample_weights,
         uint32_t seed=1,
     ):
+        # [FUNCTION DOC]
+        # Behavior: keep references to all arrays, cache raw pointers, set n_samples
+        # from len(Y), current_index = -1, identity index array, seed = max(seed, 1).
+        # Inputs: X_data, X_indptr (length n_samples + 1), X_indices, Y,
+        # sample_weights (contiguous), seed. Consistency between arrays is not checked.
+        # Outputs: none. Exceptions: buffer dtype/contiguity errors; empty arrays are
+        # undefined behavior. Side effects: allocates the index array.
         """Dataset backed by a scipy sparse CSR matrix.
 
         The feature indices of ``x`` are given by x_ind_ptr[0:nnz].
@@ -336,6 +429,11 @@ cdef class CSRDataset{{name_suffix}}(SequentialDataset{{name_suffix}}):
     cdef void _sample(self, {{c_type}} **x_data_ptr, int **x_ind_ptr,
                       int *nnz, {{c_type}} *y, {{c_type}} *sample_weight,
                       int current_index) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: row r = index[current_index]; offset = indptr[r]; write
+        # y = Y[r], x_data_ptr and x_ind_ptr pointing at offset in data/indices,
+        # nnz = indptr[r + 1] - offset, sample_weight = sample_weights[r]. No copy.
+        # Exceptions: none.
         cdef long long sample_idx = self.index_data_ptr[current_index]
         cdef long long offset = self.X_indptr_ptr[sample_idx]
         y[0] = self.Y_data_ptr[sample_idx]

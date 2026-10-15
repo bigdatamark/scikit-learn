@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implementation of heap_push: fixed-size max-heap insertion over a
+# structure-of-arrays (values, indices), fused over float32/float64. Used to
+# track the k nearest candidates (k smallest distances) in neighbors code.
 from cython cimport floating
 
 from sklearn.utils._typedefs cimport intp_t
@@ -10,6 +14,19 @@ cdef inline int heap_push(
     floating val,
     intp_t val_idx,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # Behavior: the heap holds the `size` smallest values seen so far with the
+    # largest at the root (values[0]). If val >= values[0] nothing happens.
+    # Otherwise the root is replaced by (val, val_idx) and sifted down: at each
+    # step choose the larger child (left on ties); if val is smaller than it,
+    # move that child up and continue from its position; stop when no child is
+    # larger or there are no children; then write (val, val_idx) at the final
+    # position.
+    # Inputs: values (pointer to size floating), indices (pointer to size intp),
+    # size (heap capacity, > 0; heap is assumed full, typically initialised with
+    # +inf), val, val_idx.
+    # Outputs: returns 0 always; values and indices modified in place.
+    # Exceptions: none (nogil, noexcept). Side effects: in-place mutation only.
     """Push a tuple (val, val_idx) onto a fixed-size max-heap.
 
     The max-heap is represented as a Structure of Arrays where:
