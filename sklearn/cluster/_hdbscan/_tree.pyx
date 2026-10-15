@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# HDBSCAN tree post-processing (hdbscan.py): condenses a single linkage hierarchy
+# by a minimum cluster size, computes cluster stabilities, selects flat clusters by
+# excess of mass ("eom") or leaves ("leaf") with optional epsilon merging and
+# maximum cluster size, labels samples, and computes membership probabilities.
+# Also provides labelling_at_cut (DBSCAN-like flat cut of a single linkage tree)
+# and a rank-based union-find (TreeUnionFind). Lambda values are 1/distance.
 # Tree handling (condensing, finding stable clusters) for hdbscan
 
 # Authors: The scikit-learn developers
@@ -40,6 +47,8 @@ cnp.import_array()
 
 cdef extern from "numpy/arrayobject.h":
     intp_t * PyArray_SHAPE(cnp.PyArrayObject *)
+    # [FUNCTION DOC]
+    # External NumPy C-API declaration: pointer to an ndarray's shape array. Cannot raise.
 
 cdef cnp.float64_t INFTY = np.inf
 cdef cnp.intp_t NOISE = -1
@@ -66,6 +75,17 @@ cpdef tuple tree_to_labels(
     cnp.float64_t cluster_selection_epsilon=0.0,
     max_cluster_size=None,
 ):
+    # [FUNCTION DOC]
+    # Behavior: full pipeline from single linkage tree to flat clustering: condenses
+    # the tree, computes stabilities, then selects clusters and labels samples via
+    # _get_clusters.
+    # Inputs: single_linkage_tree (n_samples-1,) HIERARCHY_t rows; min_cluster_size;
+    # cluster_selection_method "eom" or "leaf"; allow_single_cluster;
+    # cluster_selection_epsilon (distance threshold, 0 disables); max_cluster_size
+    # (None for no limit, only honored by "eom").
+    # Outputs: tuple (labels intp array with -1 for noise, probabilities float64 array).
+    # Exceptions: propagated from helpers (e.g. KeyError/ValueError on malformed trees).
+    # Side effects: allocations only.
     cdef:
         cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] condensed_tree
         cnp.ndarray[cnp.intp_t, ndim=1, mode='c'] labels
@@ -87,6 +107,14 @@ cdef list bfs_from_hierarchy(
     const HIERARCHY_t[::1] hierarchy,
     cnp.intp_t bfs_root
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _condense_tree to enumerate subtrees of the hierarchy.
+    # Behavior: level-order traversal starting at bfs_root; returns every visited node
+    # id (samples and internal nodes). Internal node x maps to row x - n_samples whose
+    # left/right nodes form the next level.
+    # Inputs: hierarchy (n_samples-1,) HIERARCHY_t; bfs_root node id.
+    # Outputs: Python list of node ids in BFS order.
+    # Exceptions: IndexError for invalid ids. Side effects: none.
     """
     Perform a breadth first search on a tree in scipy hclust format.
     """
@@ -123,6 +151,20 @@ cpdef cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] _condense_tree(
     const HIERARCHY_t[::1] hierarchy,
     cnp.intp_t min_cluster_size=10
 ):
+    # [FUNCTION DOC]
+    # Behavior: walks the hierarchy top-down (BFS from root 2*(n_samples-1)), keeping a
+    # relabel map from hierarchy nodes to condensed cluster ids (root -> n_samples, new
+    # ids from n_samples + 1). For each unignored internal node with merge distance d
+    # (lambda = 1/d, or infinity for d == 0) and child sizes: if both children have at
+    # least min_cluster_size points, each becomes a new cluster and an edge is
+    # emitted for each; if both are too small, every sample under them is emitted as a
+    # point leaving the node's cluster at lambda and their subtrees are ignored; if
+    # only one is small, the large child inherits the node's cluster id and the small
+    # child's samples are emitted as leaving points.
+    # Inputs: hierarchy (n_samples-1,) HIERARCHY_t sorted as produced by
+    # make_single_linkage; min_cluster_size >= 1.
+    # Outputs: CONDENSED_dtype array of (parent, child, lambda, child size) edges.
+    # Exceptions: errors for malformed hierarchies. Side effects: allocations only.
     """Condense a tree according to a minimum cluster size. This is akin
     to the runt pruning procedure of Stuetzle. The result is a much simpler
     tree that is easier to visualize. We include extra information on the
@@ -240,6 +282,14 @@ cpdef cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] _condense_tree(
 cdef dict _compute_stability(
     cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] condensed_tree
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by tree_to_labels to score clusters.
+    # Behavior: birth lambda of each cluster is the value of the edge where it appears
+    # as child (0 for the root). The stability of a cluster is the sum over its child
+    # edges of (edge lambda - birth lambda of the cluster) * child size.
+    # Inputs: condensed_tree CONDENSED_dtype array.
+    # Outputs: dict cluster id -> stability for every id between the smallest and largest parent.
+    # Exceptions: errors on an empty tree (max of empty array). Side effects: allocations.
 
     cdef:
         cnp.float64_t[::1] result, births
@@ -282,6 +332,12 @@ cdef list bfs_from_cluster_tree(
     cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] condensed_tree,
     cnp.intp_t bfs_root
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _get_clusters and epsilon_search to list a cluster's descendants.
+    # Behavior: level-order traversal of the condensed tree from bfs_root, each level
+    # being all children whose parent is in the previous level.
+    # Inputs: condensed_tree (usually filtered to cluster rows); bfs_root id.
+    # Outputs: list of ids including bfs_root. Exceptions: none expected. Side effects: none.
 
     cdef:
         list result = []
@@ -299,6 +355,16 @@ cdef list bfs_from_cluster_tree(
 
 
 cdef cnp.float64_t[::1] max_lambdas(cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] condensed_tree):
+    # [FUNCTION DOC]
+    # HELPER: used by get_probabilities.
+    # Behavior: for each parent cluster computes the maximum lambda among its child
+    # edges (the "death" lambda), scanning rows and assuming rows of the same parent
+    # are mostly grouped; when a parent reappears later, its value is overwritten by
+    # the later group's max (later rows have larger lambdas in condensed trees built
+    # by _condense_tree, so this still yields the maximum).
+    # Inputs: non-empty condensed_tree.
+    # Outputs: float64 array indexed by cluster id (0 for ids that are not parents).
+    # Exceptions: IndexError on an empty tree. Side effects: allocation.
 
     cdef:
         cnp.intp_t parent, current_parent, idx
@@ -327,11 +393,19 @@ cdef cnp.float64_t[::1] max_lambdas(cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] c
 
 @cython.final
 cdef class TreeUnionFind:
+    # [CLASS DOC]
+    # Union-find with union by rank and recursive path compression over ids
+    # 0..size-1. data[:, 0] holds parent links, data[:, 1] ranks; is_component is
+    # cleared for nodes found to be non-roots during find (not used elsewhere in this
+    # module). Used by labelling_at_cut and _do_labelling.
 
     cdef cnp.intp_t[:, ::1] data
     cdef cnp.uint8_t[::1] is_component
 
     def __init__(self, size):
+        # [FUNCTION DOC]
+        # Initializes every id as its own root with rank 0 and is_component set.
+        # Inputs: size number of ids. Exceptions: numpy errors for invalid size. Side effects: allocation.
         cdef cnp.intp_t idx
         self.data = np.zeros((size, 2), dtype=np.intp)
         for idx in range(size):
@@ -339,6 +413,11 @@ cdef class TreeUnionFind:
         self.is_component = np.ones(size, dtype=np.uint8)
 
     cdef void union(self, cnp.intp_t x, cnp.intp_t y):
+        # [FUNCTION DOC]
+        # Behavior: finds the roots of x and y and links the lower-rank root under the
+        # higher-rank one; on equal ranks y's root goes under x's root and x's rank grows.
+        # Inputs: x, y ids. Outputs: none. Exceptions: errors in find are printed and
+        # ignored (void cdef without except clause). Side effects: mutates data/is_component.
         cdef cnp.intp_t x_root = self.find(x)
         cdef cnp.intp_t y_root = self.find(y)
 
@@ -352,6 +431,11 @@ cdef class TreeUnionFind:
         return
 
     cdef cnp.intp_t find(self, cnp.intp_t x):
+        # [FUNCTION DOC]
+        # Behavior: returns the root of x, recursively compressing the path so each visited
+        # node points directly at the root, and marks non-root nodes as not components.
+        # Inputs: x id. Outputs: root id. Exceptions: RecursionError possible on very deep
+        # uncompressed chains. Side effects: mutates data and is_component.
         if self.data[x, 0] != x:
             self.data[x, 0] = self.find(self.data[x, 0])
             self.is_component[x] = False
@@ -363,6 +447,15 @@ cpdef cnp.ndarray[cnp.intp_t, ndim=1, mode='c'] labelling_at_cut(
         cnp.float64_t cut,
         cnp.intp_t min_cluster_size
 ):
+    # [FUNCTION DOC]
+    # Behavior: unions every hierarchy row whose merge distance is below cut with both
+    # of its children (row k is node n_samples + k), assigns each sample to its root,
+    # counts samples per root, and relabels roots with fewer than min_cluster_size
+    # samples as noise (-1) and the others with consecutive labels 0, 1, ... in
+    # increasing root id order.
+    # Inputs: linkage (n_samples-1,) HIERARCHY_t; cut distance; min_cluster_size.
+    # Outputs: intp array of n_samples labels.
+    # Exceptions: none expected. Side effects: allocations.
     """Given a single linkage tree and a cut value, return the
     vector of cluster labels at that cut value. This is useful
     for Robust Single Linkage, and extracting DBSCAN results
@@ -437,6 +530,20 @@ cpdef cnp.ndarray[cnp.intp_t, ndim=1, mode='c'] _do_labelling(
         cnp.intp_t allow_single_cluster,
         cnp.float64_t cluster_selection_epsilon
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _get_clusters to produce sample labels.
+    # Behavior: unions every condensed-tree edge whose child is not a selected
+    # cluster, so each sample ends up in the union-find set of its nearest selected
+    # ancestor (or of the root). Samples whose root is not the root cluster get
+    # cluster_label_map[root]. Samples under the root are noise unless exactly one
+    # cluster is selected and allow_single_cluster is set; then a sample keeps the root
+    # label if its leaving lambda is at least 1/cluster_selection_epsilon (when epsilon
+    # is nonzero) or at least the maximum lambda of any root child edge.
+    # Inputs: condensed_tree; clusters set of selected cluster ids; cluster_label_map
+    # cluster id -> label; allow_single_cluster; cluster_selection_epsilon.
+    # Outputs: intp labels for samples 0..root_cluster-1 (root id equals n_samples).
+    # Exceptions: KeyError if a selected cluster is missing from the map.
+    # Side effects: allocations only.
     """Given a condensed tree, clusters and a labeling map for the clusters,
     return an array containing the labels of each point based on cluster
     membership. Note that this is where points may be marked as noisy
@@ -517,6 +624,15 @@ cdef cnp.ndarray[cnp.float64_t, ndim=1, mode='c'] get_probabilities(
     dict cluster_map,
     cnp.intp_t[::1] labels
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _get_clusters.
+    # Behavior: for each sample edge (child < root id) with a non-noise label, looks up
+    # the selected cluster id via cluster_map (label -> cluster id) and sets the
+    # probability to min(lambda, death lambda of cluster) / death lambda, or 1.0 if the
+    # death lambda is 0 or the sample's lambda is infinite. Noise points keep 0.
+    # Inputs: condensed_tree; cluster_map label -> cluster id; labels (n_samples,).
+    # Outputs: float64 probabilities (n_samples,).
+    # Exceptions: KeyError for labels missing from cluster_map. Side effects: allocations.
 
     cdef:
         cnp.ndarray[cnp.float64_t, ndim=1, mode='c'] result
@@ -558,6 +674,13 @@ cpdef list recurse_leaf_dfs(
     cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] cluster_tree,
     cnp.intp_t current_node
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by get_cluster_tree_leaves.
+    # Behavior: recursive depth-first search returning all leaf clusters (ids with no
+    # children) below current_node, in DFS order.
+    # Inputs: cluster_tree (condensed tree restricted to cluster rows); current_node id.
+    # Outputs: list of leaf cluster ids.
+    # Exceptions: RecursionError on extremely deep trees. Side effects: none.
     cdef cnp.intp_t[:] children
     cdef cnp.intp_t child
 
@@ -569,6 +692,11 @@ cpdef list recurse_leaf_dfs(
 
 
 cpdef list get_cluster_tree_leaves(cnp.ndarray[CONDENSED_t, ndim=1, mode='c'] cluster_tree):
+    # [FUNCTION DOC]
+    # HELPER: used by _get_clusters for the "leaf" selection method.
+    # Behavior: returns [] for an empty cluster tree, otherwise the leaves below the
+    # root (smallest parent id).
+    # Inputs: cluster_tree. Outputs: list of leaf ids. Exceptions/side effects: none.
     cdef cnp.intp_t root
     if PyArray_SHAPE(<cnp.PyArrayObject*> cluster_tree)[0] == 0:
         return []
@@ -581,6 +709,15 @@ cdef cnp.intp_t traverse_upwards(
     cnp.intp_t leaf,
     cnp.intp_t allow_single_cluster
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by epsilon_search.
+    # Behavior: climbs from leaf toward the root. If the parent is the root, returns the
+    # root when allow_single_cluster else the leaf itself. Otherwise, if the parent's
+    # birth distance (1 / lambda of its own edge) exceeds cluster_selection_epsilon,
+    # returns the parent; else recurses from the parent.
+    # Inputs: cluster_tree; cluster_selection_epsilon; leaf id; allow_single_cluster.
+    # Outputs: selected cluster id.
+    # Exceptions: errors if leaf is not a child in the tree. Side effects: none.
     cdef cnp.intp_t root, parent
     cdef cnp.float64_t parent_eps
 
@@ -609,6 +746,17 @@ cdef set epsilon_search(
     cnp.float64_t cluster_selection_epsilon,
     cnp.intp_t allow_single_cluster
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by _get_clusters to apply cluster_selection_epsilon.
+    # Behavior: for each candidate cluster, if its birth distance (1 / its edge lambda)
+    # is below epsilon and it was not already covered, replaces it by the ancestor
+    # found by traverse_upwards and marks that ancestor's descendants as processed;
+    # otherwise keeps the cluster.
+    # Inputs: leaves set of candidate cluster ids; cluster_tree; epsilon;
+    # allow_single_cluster.
+    # Outputs: set of selected cluster ids.
+    # Exceptions: IndexError if a candidate has no parent edge (e.g. the root).
+    # Side effects: none.
     cdef:
         list selected_clusters = list()
         list processed = list()
@@ -649,6 +797,26 @@ cdef tuple _get_clusters(
     cnp.float64_t cluster_selection_epsilon=0.0,
     max_cluster_size=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: cluster selection step used by tree_to_labels.
+    # Behavior: candidate clusters are the stability keys in decreasing id order
+    # (children before parents), excluding the root unless allow_single_cluster.
+    # "eom": bottom-up, a cluster is deselected and given its children's summed
+    # stability when that sum exceeds its own stability or its size exceeds
+    # max_cluster_size; otherwise it is selected and all its descendants deselected.
+    # Then, if epsilon is nonzero, the selection is refined with epsilon_search (a sole
+    # root selection is kept only with allow_single_cluster). "leaf": selects the leaf
+    # clusters, refined by epsilon_search if epsilon is nonzero. Finally maps selected
+    # clusters to labels 0..k-1 in increasing id order, labels samples with
+    # _do_labelling and computes probabilities.
+    # Inputs: condensed_tree; stability dict (modified); cluster_selection_method;
+    # allow_single_cluster; cluster_selection_epsilon; max_cluster_size or None.
+    # Outputs: tuple (labels, probabilities).
+    # Exceptions: none for an unknown method (all candidates simply stay selected).
+    # Side effects: mutates the stability dict.
+    # KNOWN ISSUE: in "leaf" mode, when there are no leaves the root is marked as a
+    # cluster, but the following loop resets every entry to False because
+    # selected_clusters is the empty leaf set, so that branch has no effect.
     """Given a tree and stability dict, produce the cluster labels
     (and probabilities) for a flat clustering based on the chosen
     cluster selection method.

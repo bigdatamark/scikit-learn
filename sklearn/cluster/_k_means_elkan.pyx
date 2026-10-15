@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Elkan's accelerated k-means (KMeans(algorithm="elkan") in _kmeans.py) for dense
+# and CSR sparse input. Uses the triangle inequality to skip distance computations:
+# per sample an upper bound on the distance to its assigned center and per
+# (sample, center) lower bounds, plus half inter-center distances and the distance
+# from each center to its nearest other center (computed by the caller). Provides
+# bound initialization and one full iteration; iterations are chunked and
+# parallelized with OpenMP like the Lloyd module, with thread-local accumulation
+# and a locked reduction, and share the post-processing helpers of _k_means_common.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -29,6 +38,20 @@ def init_bounds_dense(
         floating[::1] upper_bounds,                    # OUT
         floating[:, ::1] lower_bounds,                 # OUT
         int n_threads):
+    # [FUNCTION DOC]
+    # Behavior: for each sample (OpenMP prange, static schedule, GIL released) computes
+    # the distance to center 0, then for each further center j computes the distance
+    # only if the current best distance exceeds half the distance between the current
+    # best center and j; every computed distance is stored as the lower bound for that
+    # center and the best center/distance is updated. Stores the best center as the
+    # label and its distance as the upper bound.
+    # Inputs: X (n_samples, n_features); centers (n_clusters, n_features);
+    # center_half_distances (n_clusters, n_clusters) half pairwise center distances;
+    # n_threads.
+    # Outputs (in place): labels, upper_bounds (n_samples,), lower_bounds
+    # (n_samples, n_clusters); entries for skipped centers are left untouched, so the
+    # caller must pre-initialize lower_bounds (zeros).
+    # Exceptions: none from the parallel loop. Side effects: GIL release, OpenMP threads.
     """Initialize upper and lower bounds for each sample for dense input data.
 
     Given X, centers and the pairwise distances divided by 2.0 between the
@@ -105,6 +128,14 @@ def init_bounds_sparse(
         floating[::1] upper_bounds,                    # OUT
         floating[:, ::1] lower_bounds,                 # OUT
         int n_threads):
+    # [FUNCTION DOC]
+    # Behavior: identical to init_bounds_dense for a CSR matrix; distances are computed
+    # with _euclidean_sparse_dense using precomputed squared center norms.
+    # Inputs: X scipy CSR matrix (int32 indices/indptr, matching float dtype); others as
+    # in init_bounds_dense.
+    # Outputs (in place): labels, upper_bounds, lower_bounds (skipped entries untouched).
+    # Exceptions: errors converting X buffers. Side effects: allocates center norms;
+    # GIL release, OpenMP threads.
     """Initialize upper and lower bounds for each sample for sparse input data.
 
     Given X, centers and the pairwise distances divided by 2.0 between the
@@ -197,6 +228,25 @@ def elkan_iter_chunked_dense(
         floating[::1] center_shift,                    # OUT
         int n_threads,
         bint update_centers=True):
+    # [FUNCTION DOC]
+    # Behavior: returns immediately for 0 samples. Chunks samples (CHUNK_SIZE), caps
+    # threads at the number of chunks, zeroes the outputs if update_centers, then in a
+    # nogil OpenMP region each thread allocates private center-sum/weight buffers,
+    # processes its chunks with _update_chunk_dense (bound checks, relabeling and
+    # accumulation), reduces into the shared outputs under a lock and frees its
+    # buffers. If update_centers it then relocates empty clusters, averages centers,
+    # computes center_shift, and loosens the bounds for the next iteration: each upper
+    # bound grows by the shift of the sample's center and every lower bound shrinks by
+    # the shift of the corresponding center (clipped at 0).
+    # Inputs: X (n_samples, n_features); sample_weight; centers_old; center_half_distances
+    # (n_clusters, n_clusters); distance_next_center (n_clusters,) distance from each
+    # center to its closest other center; n_threads; update_centers.
+    # Outputs (in place): labels, upper_bounds, lower_bounds; if update_centers also
+    # centers_new, weight_in_clusters, center_shift.
+    # Exceptions: none from the nogil region. Side effects: GIL release, OpenMP,
+    # calloc/free of thread-local buffers, OpenMP lock init/destroy.
+    # KNOWN ISSUE: n_clusters is read from centers_new, so centers_new must be a real
+    # array even when update_centers is False; calloc results are not checked for NULL.
     """Single iteration of K-means Elkan algorithm with dense input.
 
     Update labels and centers (inplace), for one iteration, distributed
@@ -361,6 +411,23 @@ cdef void _update_chunk_dense(
         floating *centers_new,                         # OUT
         floating *weight_in_clusters,                  # OUT
         bint update_centers) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: per-chunk worker for elkan_iter_chunked_dense.
+    # Behavior: for each sample, if the distance from its current center to the
+    # nearest other center is not >= the upper bound, scans every other center j that
+    # passes both pruning tests (upper bound > lower bound for j and > half distance
+    # between current center and j). On the first such j the upper bound is tightened
+    # to the exact distance to the current center (also stored as that center's lower
+    # bound). If after tightening either test still passes (an "or", as in Elkan's
+    # paper), the exact distance to j is computed, stored as its lower bound, and the
+    # sample is reassigned if closer. Writes back label and upper bound. Then, if
+    # update_centers, accumulates weight and weighted coordinates for the final label.
+    # Inputs: X chunk; sample_weight chunk; centers_old; center_half_distances;
+    # distance_next_center; update_centers flag.
+    # Outputs: labels, upper_bounds, lower_bounds chunk slices updated in place;
+    # centers_new (n_clusters*n_features) and weight_in_clusters thread-local buffers
+    # accumulated.
+    # Exceptions: none (noexcept nogil). Side effects: writes only the given buffers.
     """K-means combined EM step for one dense data chunk.
 
     Compute the partial contribution of a single data chunk to the labels and
@@ -440,6 +507,19 @@ def elkan_iter_chunked_sparse(
         floating[::1] center_shift,                    # OUT
         int n_threads,
         bint update_centers=True):
+    # [FUNCTION DOC]
+    # Behavior: sparse counterpart of elkan_iter_chunked_dense: same chunking,
+    # thread-local reduction, post-processing and bound updates; chunks are passed as
+    # CSR data/indices slices with the chunk's absolute indptr slice, and squared
+    # center norms are precomputed for the sparse distance kernel.
+    # Inputs: X scipy CSR matrix (int32 indices/indptr); other parameters as in the
+    # dense version.
+    # Outputs (in place): labels, upper_bounds, lower_bounds; if update_centers also
+    # centers_new, weight_in_clusters, center_shift.
+    # Exceptions: errors converting X buffers; none from the nogil region.
+    # Side effects: as in the dense version.
+    # KNOWN ISSUE: same as the dense version (n_clusters from centers_new; calloc
+    # results unchecked).
     """Single iteration of K-means Elkan algorithm with sparse input.
 
     Update labels and centers (inplace), for one iteration, distributed
@@ -617,6 +697,18 @@ cdef void _update_chunk_sparse(
         floating *centers_new,                         # OUT
         floating *weight_in_clusters,                  # OUT
         bint update_centers) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: per-chunk worker for elkan_iter_chunked_sparse.
+    # Behavior: same bound-based pruning and relabeling as the dense chunk worker,
+    # using _euclidean_sparse_dense on each sample's nonzeros (indptr offsets made
+    # local by subtracting the first indptr value s); accumulates weighted nonzero
+    # coordinates into the thread-local buffers when update_centers.
+    # Inputs: X_data, X_indices chunk slices; X_indptr (n_samples+1) absolute offsets;
+    # sample_weight; centers_old; centers_squared_norms; center_half_distances;
+    # distance_next_center; update_centers.
+    # Outputs: labels, upper_bounds, lower_bounds slices; centers_new and
+    # weight_in_clusters buffers.
+    # Exceptions: none (noexcept nogil). Side effects: writes only the given buffers.
     """K-means combined EM step for one sparse data chunk.
 
     Compute the partial contribution of a single data chunk to the labels and

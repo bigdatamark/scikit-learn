@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled inner loop of DBSCAN. Given precomputed core-sample flags and
+# radius neighborhoods, assigns cluster labels by expanding connected components
+# of core samples. Used by sklearn.cluster.DBSCAN (_dbscan.py).
 # Fast inner loop for DBSCAN.
 
 # Authors: The scikit-learn developers
@@ -11,6 +15,20 @@ from sklearn.utils._typedefs cimport uint8_t, intp_t
 def dbscan_inner(const uint8_t[::1] is_core,
                  object[:] neighborhoods,
                  intp_t[::1] labels):
+    # [FUNCTION DOC]
+    # Behavior: iterates samples in index order; each unlabeled core sample seeds a new
+    # cluster id (0, 1, 2, ...). An iterative depth-first search with an explicit stack
+    # labels every reachable sample: a popped unlabeled sample gets the current id, and
+    # only if it is a core sample are its unlabeled neighbors pushed. Non-core (border)
+    # samples are labeled but never expanded, so a border point reachable from several
+    # clusters keeps the first id it receives. Samples never reached remain -1 (noise).
+    # Inputs: is_core (uint8, n_samples) nonzero for core samples; neighborhoods
+    # (object array, n_samples) each entry an intp array of neighbor indices;
+    # labels (intp, n_samples) must be pre-filled with -1.
+    # Outputs: none returned; labels is written in place with cluster ids.
+    # Exceptions: errors only if a neighborhood entry is not convertible to an intp
+    # memoryview or indices are out of range (bounds checking per build directives).
+    # Side effects: mutates labels; allocates a temporary C++ vector stack; holds the GIL.
     cdef intp_t i, label_num = 0, v
     cdef intp_t[:] neighb
     cdef vector[intp_t] stack

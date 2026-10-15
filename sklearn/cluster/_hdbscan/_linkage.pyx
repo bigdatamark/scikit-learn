@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Minimum spanning tree and single linkage construction for HDBSCAN (hdbscan.py).
+# Builds the MST of the mutual reachability graph with Prim's algorithm, either from
+# a precomputed dense mutual reachability matrix or directly from raw data plus core
+# distances and a DistanceMetric64 (without materializing the matrix), and turns an
+# MST edge list (sorted by distance) into a scipy-style single linkage hierarchy
+# using the UnionFind from sklearn.cluster._hierarchical_fast. Defines MST_edge_dtype
+# and its packed struct counterpart MST_edge_t.
 # Minimum spanning tree single linkage implementation for hdbscan
 
 # Authors: The scikit-learn developers
@@ -43,6 +51,8 @@ cnp.import_array()
 
 cdef extern from "numpy/arrayobject.h":
     intp_t * PyArray_SHAPE(cnp.PyArrayObject *)
+    # [FUNCTION DOC]
+    # External NumPy C-API declaration: pointer to an ndarray's shape array. Cannot raise.
 
 # Numpy structured dtype representing a single ordered edge in Prim's algorithm
 MST_edge_dtype = np.dtype([
@@ -54,6 +64,9 @@ MST_edge_dtype = np.dtype([
 # Packed shouldn't make a difference since they're all 8-byte quantities,
 # but it's included just to be safe.
 ctypedef packed struct MST_edge_t:
+    # [CLASS DOC]
+    # One MST edge (current_node, next_node, distance) as produced by Prim's algorithm;
+    # layout matches MST_edge_dtype (two int64 and one float64, 24 bytes).
     int64_t current_node
     int64_t next_node
     float64_t distance
@@ -61,6 +74,17 @@ ctypedef packed struct MST_edge_t:
 cpdef cnp.ndarray[MST_edge_t, ndim=1, mode='c'] mst_from_mutual_reachability(
     cnp.ndarray[float64_t, ndim=2] mutual_reachability
 ):
+    # [FUNCTION DOC]
+    # Behavior: vectorized Prim's algorithm. Keeps arrays of not-yet-added node ids and
+    # their current minimum reachability to the tree. Starting at node 0, each step
+    # removes the current node from the candidate set, updates candidate minima with the
+    # current node's row of the matrix, picks the candidate with the smallest value as
+    # next node, and records the edge (current node, next node, value). The recorded
+    # source is the most recently added node, not necessarily the tree node that
+    # realizes the minimum, which is enough for single linkage after sorting.
+    # Inputs: mutual_reachability (n_samples, n_samples) float64.
+    # Outputs: array of n_samples - 1 MST_edge_dtype records, in insertion order.
+    # Exceptions: numpy errors for malformed input. Side effects: allocations; holds the GIL.
     """Compute the Minimum Spanning Tree (MST) representation of the mutual-
     reachability graph using Prim's algorithm.
 
@@ -114,6 +138,20 @@ cpdef cnp.ndarray[MST_edge_t, ndim=1, mode='c'] mst_from_data_matrix(
     DistanceMetric64 dist_metric,
     float64_t alpha=1.0
 ):
+    # [FUNCTION DOC]
+    # Behavior: Prim's algorithm computing mutual reachability on the fly. For each step
+    # the current node joins the tree; for every out-of-tree node j the pairwise distance
+    # (dist_metric.dist divided by alpha) is combined with both core distances into the
+    # mutual reachability. If it improves j's stored minimum, the minimum and its source
+    # (the current node) are updated and j may become the best candidate; otherwise j's
+    # previous minimum and source are still considered. The best candidate becomes the
+    # next node and the edge (source, node, distance) is recorded, so sources are exact
+    # tree endpoints.
+    # Inputs: raw_data (n_samples, n_features) C-contiguous float64; core_distances
+    # (n_samples,); dist_metric DistanceMetric64; alpha distance scaling factor (> 0,
+    # undocumented in the docstring).
+    # Outputs: n_samples - 1 MST_edge_dtype records in insertion order (not sorted).
+    # Exceptions: errors propagated from dist_metric.dist. Side effects: allocations; O(n^2) distance calls.
     """Compute the Minimum Spanning Tree (MST) representation of the mutual-
     reachability graph generated from the provided `raw_data` and
     `core_distances` using Prim's algorithm.
@@ -224,6 +262,15 @@ cpdef cnp.ndarray[MST_edge_t, ndim=1, mode='c'] mst_from_data_matrix(
     return mst
 
 cpdef cnp.ndarray[HIERARCHY_t, ndim=1, mode="c"] make_single_linkage(const MST_edge_t[::1] mst):
+    # [FUNCTION DOC]
+    # Behavior: processes MST edges in the given order; for each edge finds the current
+    # cluster roots of both endpoints with UnionFind.fast_find, writes a hierarchy row
+    # (left root, right root, distance, combined size) and unions the roots so the new
+    # cluster gets id n_samples + row index.
+    # Inputs: mst (n_samples - 1,) MST_edge_t records, which must already be sorted by
+    # distance (the caller sorts them) for a valid dendrogram.
+    # Outputs: HIERARCHY_dtype array of length n_samples - 1.
+    # Exceptions: none explicit. Side effects: allocations only.
     """Construct a single-linkage tree from an MST.
 
     Parameters
