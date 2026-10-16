@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for MLPClassifier and MLPRegressor: worked-example SGD step, numerical
+#   gradient check, solver quality on digits/regression/iris data, partial_fit,
+#   warm_start, early stopping, convergence criteria, probability outputs, sparse input,
+#   dtype handling, pickling and Poisson loss.
+# Module-level data: 3-class and 2-class digits subsets scaled to [0, 1]
+#   (X_digits/y_digits are finally left bound to the unscaled 2-class digits and reused
+#   by the dtype tests), a scaled make_regression dataset and iris.
 """
 Testing for Multi-layer Perceptron module (sklearn.neural_network)
 """
@@ -62,6 +70,9 @@ y_iris = iris.target
 
 
 def test_alpha():
+    # [FUNCTION DOC]
+    # Checks that increasing alpha from 0 to 1 strictly decreases the L1 norm of both
+    #   layers' weights on binary digits.
     # Test that larger alpha yields weights closer to zero
     X = X_digits_binary[:100]
     y = y_digits_binary[:100]
@@ -83,6 +94,14 @@ def test_alpha():
 
 
 def test_fit():
+    # [FUNCTION DOC]
+    # Checks one SGD partial_fit step on a single sample against a hand-worked
+    #   backprop example: weights and intercepts are injected manually, then updated
+    #   coefficients, intercepts and the resulting predicted probability (0.739) are
+    #   compared to 3 decimals.
+    # KNOWN ISSUE: several attributes set before partial_fit (_coef_grads,
+    #   _intercept_grads, learning_rate_, _coef_velocity, _intercept_velocity) are not
+    #   used by the current implementation; they are leftovers from an older API.
     # Test that the algorithm solution is equal to a worked out example.
     X = np.array([[0.6, 0.8, 0.7]])
     y = np.array([0])
@@ -180,6 +199,11 @@ def test_fit():
 
 
 def test_gradient():
+    # [FUNCTION DOC]
+    # Gradient check: for 2 and 3 labels and every activation, fits a small lbfgs
+    #   network for one iteration, then compares the analytical gradient from
+    #   _loss_grad_lbfgs with a central finite-difference gradient (epsilon 1e-5) over
+    #   all parameters.
     # Test gradient.
 
     # This makes sure that the activation functions and their derivatives
@@ -228,6 +252,12 @@ def test_gradient():
 
             # analytically compute the gradients
             def loss_grad_fun(t):
+                # [FUNCTION DOC]
+                # HELPER: Evaluates the network loss and gradient at a flat parameter
+                #   vector using the preallocated buffers of the enclosing test.
+                # Inputs: t - flat parameter vector. Outputs: (loss, gradient).
+                # Side effects: overwrites the estimator's coefs_/intercepts_ through
+                #   _unpack.
                 return mlp._loss_grad_lbfgs(
                     t, X, Y, None, activations, deltas, coef_grads, intercept_grads
                 )
@@ -248,6 +278,10 @@ def test_gradient():
 
 @pytest.mark.parametrize("X,y", classification_datasets)
 def test_lbfgs_classification(X, y):
+    # [FUNCTION DOC]
+    # For each activation, checks lbfgs reaches training accuracy above 0.95 on binary
+    #   and multiclass digits and that predictions have the expected length and the
+    #   label dtype kind.
     # Test lbfgs on classification.
     # It should achieve a score higher than 0.95 for the binary and multi-class
     # versions of the digits dataset.
@@ -273,6 +307,9 @@ def test_lbfgs_classification(X, y):
 
 @pytest.mark.parametrize("X,y", regression_datasets)
 def test_lbfgs_regression(X, y):
+    # [FUNCTION DOC]
+    # For each activation, checks lbfgs training R2 above 0.80 for identity and above
+    #   0.98 for nonlinear activations on the regression dataset.
     # Test lbfgs on the regression dataset.
     for activation in ACTIVATION_TYPES:
         mlp = MLPRegressor(
@@ -294,6 +331,9 @@ def test_lbfgs_regression(X, y):
 
 @pytest.mark.parametrize("X,y", classification_datasets)
 def test_lbfgs_classification_maxfun(X, y):
+    # [FUNCTION DOC]
+    # Checks that a small max_fun (10) limits lbfgs: a ConvergenceWarning is raised
+    #   and n_iter_ does not exceed max_fun, for classification.
     # Test lbfgs parameter max_fun.
     # It should independently limit the number of iterations for lbfgs.
     max_fun = 10
@@ -315,6 +355,8 @@ def test_lbfgs_classification_maxfun(X, y):
 
 @pytest.mark.parametrize("X,y", regression_datasets)
 def test_lbfgs_regression_maxfun(X, y):
+    # [FUNCTION DOC]
+    # Same as the classification max_fun test for MLPRegressor with tol 0.
     # Test lbfgs parameter max_fun.
     # It should independently limit the number of iterations for lbfgs.
     max_fun = 10
@@ -336,6 +378,10 @@ def test_lbfgs_regression_maxfun(X, y):
 
 
 def test_learning_rate_warmstart():
+    # [FUNCTION DOC]
+    # Checks warm-started sgd fitting twice: constant learning rate is unchanged; with
+    #   invscaling the rate equals learning_rate_init / (t + 1)^power_t with t = 8
+    #   samples seen (two fits of 4 samples).
     # Tests that warm_start reuse past solutions.
     X = [[3, 2], [1, 6], [5, 6], [-2, -4]]
     y = [1, 1, 1, 0]
@@ -361,6 +407,10 @@ def test_learning_rate_warmstart():
 
 
 def test_multilabel_classification():
+    # [FUNCTION DOC]
+    # Checks multilabel support: lbfgs training score above 0.97, 100 sgd partial_fit
+    #   calls above 0.9, and that early_stopping (non-stratified for multilabel) fits
+    #   and predicts without error.
     # Test that multi-label classification works as expected.
     # test fit method
     X, y = make_multilabel_classification(
@@ -399,6 +449,8 @@ def test_multilabel_classification():
 
 
 def test_multioutput_regression():
+    # [FUNCTION DOC]
+    # Checks lbfgs on a 5-target regression problem reaches R2 above 0.9.
     # Test that multi-output regression works as expected
     X, y = make_regression(n_samples=200, n_targets=5, random_state=11)
     mlp = MLPRegressor(
@@ -409,6 +461,9 @@ def test_multioutput_regression():
 
 
 def test_partial_fit_classes_error():
+    # [FUNCTION DOC]
+    # Checks partial_fit raises ValueError when a later call passes classes different
+    #   from the first call.
     # Tests that passing different classes to partial_fit raises an error
     X = [[3, 2]]
     y = [0]
@@ -419,6 +474,9 @@ def test_partial_fit_classes_error():
 
 
 def test_partial_fit_classification():
+    # [FUNCTION DOC]
+    # Checks 100 sgd partial_fit epochs give the same predictions as fit with max_iter
+    #   100 and tol 0, and accuracy above 0.95, on binary and multiclass digits.
     # Test partial_fit on classification.
     # `partial_fit` should yield the same results as 'fit' for binary and
     # multi-class classification.
@@ -446,6 +504,9 @@ def test_partial_fit_classification():
 
 
 def test_partial_fit_unseen_classes():
+    # [FUNCTION DOC]
+    # Non-regression (#6994): classes declared on the first partial_fit but absent
+    #   from its y can appear in later calls; final score is positive.
     # Non regression test for bug 6994
     # Tests for labeling errors in partial fit
 
@@ -456,6 +517,9 @@ def test_partial_fit_unseen_classes():
 
 
 def test_partial_fit_regression():
+    # [FUNCTION DOC]
+    # Checks, with full-batch sgd and momentum 0 or 0.9, that 100 partial_fit calls
+    #   give the same predictions as fit with max_iter 100, and R2 above 0.65.
     # Test partial_fit on regression.
     # `partial_fit` should yield the same results as 'fit' for regression.
     X = X_reg
@@ -493,6 +557,9 @@ def test_partial_fit_regression():
 
 
 def test_partial_fit_errors():
+    # [FUNCTION DOC]
+    # Checks partial_fit raises ValueError when y contains labels not in classes, and
+    #   that partial_fit is not available (hasattr False) for an lbfgs classifier.
     # Test partial_fit error handling.
     X = [[3, 2], [1, 6]]
     y = [1, 0]
@@ -506,6 +573,9 @@ def test_partial_fit_errors():
 
 
 def test_nonfinite_params():
+    # [FUNCTION DOC]
+    # Checks MLPRegressor raises the non-finite weights ValueError when trained on
+    #   inputs near the float64 maximum (overflow warnings silenced).
     # Check that MLPRegressor throws ValueError when dealing with non-finite
     # parameter values
     rng = np.random.RandomState(0)
@@ -527,6 +597,9 @@ def test_nonfinite_params():
 
 
 def test_predict_proba_binary():
+    # [FUNCTION DOC]
+    # Checks binary predict_proba returns two columns, predict_log_proba equals its
+    #   log with the same argmax, and ROC AUC is 1 on the training subset.
     # Test that predict_proba works as expected for binary class.
     X = X_digits_binary[:50]
     y = y_digits_binary[:50]
@@ -550,6 +623,9 @@ def test_predict_proba_binary():
 
 
 def test_predict_proba_multiclass():
+    # [FUNCTION DOC]
+    # Checks multiclass predict_proba shape, and that predict_log_proba equals its log
+    #   with the same argmax.
     # Test that predict_proba works as expected for multi class.
     X = X_digits_multi[:10]
     y = y_digits_multi[:10]
@@ -571,6 +647,10 @@ def test_predict_proba_multiclass():
 
 
 def test_predict_proba_multilabel():
+    # [FUNCTION DOC]
+    # Checks multilabel predict_proba shape, that thresholding at 0.5 reproduces the
+    #   training indicator matrix, that rows do not sum to 1 (no softmax), and log-proba
+    #   consistency.
     # Test that predict_proba works as expected for multilabel.
     # Multilabel should not use softmax which makes probabilities sum to 1
     X, Y = make_multilabel_classification(
@@ -595,6 +675,10 @@ def test_predict_proba_multilabel():
 
 
 def test_shuffle():
+    # [FUNCTION DOC]
+    # Checks two identically seeded regressors with the same shuffle setting learn
+    #   identical first-layer weights, while shuffle True versus False gives different
+    #   weights after one epoch with batch size 1.
     # Test that the shuffle parameter affects the training process (it should)
     X, y = make_regression(n_samples=50, n_features=5, n_targets=1, random_state=0)
 
@@ -638,6 +722,9 @@ def test_shuffle():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_matrices(csr_container):
+    # [FUNCTION DOC]
+    # Checks lbfgs fits on dense and CSR inputs give the same predictions, and that a
+    #   fitted model predicts identically on dense and sparse inputs.
     # Test that sparse and dense input matrices output the same results.
     X = X_digits_binary[:50]
     y = y_digits_binary[:50]
@@ -654,6 +741,8 @@ def test_sparse_matrices(csr_container):
 
 
 def test_tolerance():
+    # [FUNCTION DOC]
+    # Checks that a large tol (0.5) makes sgd stop before max_iter.
     # Test tolerance.
     # It should force the solver to exit the loop when it converges.
     X = [[3, 2], [1, 6]]
@@ -664,6 +753,9 @@ def test_tolerance():
 
 
 def test_verbose_sgd(capsys):
+    # [FUNCTION DOC]
+    # Checks verbose sgd fit/partial_fit prints lines containing "Iteration" to stdout
+    #   (captured with capsys).
     # Test verbose.
     X = [[3, 2], [1, 6]]
     y = [1, 0]
@@ -679,6 +771,11 @@ def test_verbose_sgd(capsys):
 
 @pytest.mark.parametrize("MLPEstimator", [MLPClassifier, MLPRegressor])
 def test_early_stopping(MLPEstimator):
+    # [FUNCTION DOC]
+    # For classifier and regressor with sgd and early_stopping: stops before max_iter,
+    #   best_loss_ is None, validation_scores_ is a list whose max equals
+    #   best_validation_score_, and the last two scores did not improve by tol. Without
+    #   early stopping the validation attributes are None and best_loss_ is set.
     X = X_digits_binary[:100]
     y = y_digits_binary[:100]
     tol = 0.2
@@ -709,6 +806,9 @@ def test_early_stopping(MLPEstimator):
 
 
 def test_adaptive_learning_rate():
+    # [FUNCTION DOC]
+    # Checks the adaptive schedule stops before max_iter and only after the learning
+    #   rate dropped below 1e-6.
     X = [[3, 2], [1, 6]]
     y = [1, 0]
     clf = MLPClassifier(tol=0.5, max_iter=3000, solver="sgd", learning_rate="adaptive")
@@ -718,6 +818,10 @@ def test_adaptive_learning_rate():
 
 
 def test_warm_start():
+    # [FUNCTION DOC]
+    # Checks warm_start lbfgs refits with the same classes (or the same three-class
+    #   set with different counts) work, while switching to a different class set raises
+    #   ValueError with the expected message.
     X = X_iris
     y = y_iris
 
@@ -753,6 +857,9 @@ def test_warm_start():
 
 @pytest.mark.parametrize("MLPEstimator", [MLPClassifier, MLPRegressor])
 def test_warm_start_full_iteration(MLPEstimator):
+    # [FUNCTION DOC]
+    # Non-regression (#16812): with warm_start each sgd fit runs exactly max_iter
+    #   epochs (n_iter_ is reset per fit).
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/16812
     # Check that the MLP estimator accomplish `max_iter` with a
@@ -771,6 +878,9 @@ def test_warm_start_full_iteration(MLPEstimator):
 
 
 def test_n_iter_no_change():
+    # [FUNCTION DOC]
+    # Checks for several n_iter_no_change values that sgd stops with
+    #   _no_improvement_count equal to n_iter_no_change + 1 and before max_iter.
     # test n_iter_no_change using binary data set
     # the classifying fitting process is not prone to loss curve fluctuations
     X = X_digits_binary[:100]
@@ -792,6 +902,10 @@ def test_n_iter_no_change():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_n_iter_no_change_inf():
+    # [FUNCTION DOC]
+    # Checks n_iter_no_change = inf with a huge tol never stops early: n_iter_ equals
+    #   max_iter and the counter equals n_iter_ - 1 (incremented every epoch after the
+    #   first).
     # test n_iter_no_change using binary data set
     # the fitting process should go to max_iter iterations
     X = X_digits_binary[:100]
@@ -817,6 +931,10 @@ def test_n_iter_no_change_inf():
 
 
 def test_early_stopping_stratified():
+    # [FUNCTION DOC]
+    # Checks the early-stopping split is stratified: a class with a single member
+    #   makes train_test_split raise ValueError (class shown as 'True' because targets
+    #   are binarized).
     # Make sure data splitting for early stopping is stratified
     X = [[1, 2], [2, 3], [3, 4], [4, 5]]
     y = [0, 0, 0, 1]
@@ -833,6 +951,9 @@ def test_early_stopping_stratified():
 
 
 def test_mlp_early_stopping_string_labels():
+    # [FUNCTION DOC]
+    # Non-regression (#33760): early stopping with string labels gives one finite
+    #   validation score per epoch.
     """Check that labels can be strings when `early_stopping=True`.
 
     Non-regression test for:
@@ -857,6 +978,9 @@ def test_mlp_early_stopping_string_labels():
 
 
 def test_mlp_classifier_dtypes_casting():
+    # [FUNCTION DOC]
+    # Checks float32 and float64 classifiers trained identically give equal
+    #   predictions and probabilities within rtol 1e-2.
     # Compare predictions for different dtypes
     mlp_64 = MLPClassifier(
         alpha=1e-5, hidden_layer_sizes=(5, 3), random_state=1, max_iter=100, tol=1e-1
@@ -877,6 +1001,8 @@ def test_mlp_classifier_dtypes_casting():
 
 
 def test_mlp_regressor_dtypes_casting():
+    # [FUNCTION DOC]
+    # Checks float32 and float64 regressors give predictions within rtol 5e-4.
     mlp_64 = MLPRegressor(
         alpha=1e-5, hidden_layer_sizes=(5, 3), random_state=1, max_iter=150, tol=1e-3
     )
@@ -895,6 +1021,9 @@ def test_mlp_regressor_dtypes_casting():
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("Estimator", [MLPClassifier, MLPRegressor])
 def test_mlp_param_dtypes(dtype, Estimator):
+    # [FUNCTION DOC]
+    # Checks the input dtype (float32/float64) is used for all coefficients and
+    #   intercepts, and for regressor predictions.
     # Checks if input dtype is used for network parameters
     # and predictions
     X, y = X_digits.astype(dtype), y_digits
@@ -913,6 +1042,9 @@ def test_mlp_param_dtypes(dtype, Estimator):
 
 
 def test_mlp_loading_from_joblib_partial_fit(tmp_path):
+    # [FUNCTION DOC]
+    # Non-regression (#19626): after a joblib dump/load round trip, partial_fit still
+    #   updates weights so the model learns a new target value.
     """Loading from MLP and partial fitting updates weights. Non-regression
     test for #19626."""
     pre_trained_estimator = MLPRegressor(
@@ -941,6 +1073,10 @@ def test_mlp_loading_from_joblib_partial_fit(tmp_path):
 
 @pytest.mark.parametrize("Estimator", [MLPClassifier, MLPRegressor])
 def test_preserve_feature_names(Estimator):
+    # [FUNCTION DOC]
+    # Non-regression (gh-24846): fitting on a DataFrame with early stopping must not
+    #   emit a UserWarning about missing feature names during validation scoring
+    #   (warnings turned into errors). Skipped without pandas.
     """Check that feature names are preserved when early stopping is enabled.
 
     Feature names are required for consistency checks during scoring.
@@ -962,6 +1098,9 @@ def test_preserve_feature_names(Estimator):
 
 @pytest.mark.parametrize("MLPEstimator", [MLPClassifier, MLPRegressor])
 def test_mlp_warm_start_with_early_stopping(MLPEstimator):
+    # [FUNCTION DOC]
+    # Checks that refitting a warm-started early-stopping model with a larger max_iter
+    #   appends to validation_scores_.
     """Check that early stopping works with warm start."""
     mlp = MLPEstimator(
         max_iter=10, random_state=0, warm_start=True, early_stopping=True
@@ -978,6 +1117,9 @@ def test_mlp_warm_start_with_early_stopping(MLPEstimator):
 @pytest.mark.parametrize("MLPEstimator", [MLPClassifier, MLPRegressor])
 @pytest.mark.parametrize("solver", ["sgd", "adam", "lbfgs"])
 def test_mlp_warm_start_no_convergence(MLPEstimator, solver):
+    # [FUNCTION DOC]
+    # Non-regression (#24764): for every solver, warm-started fits stop at max_iter
+    #   (10, then 20) with a ConvergenceWarning and n_iter_ equal to max_iter.
     """Check that we stop the number of iteration at `max_iter` when warm starting.
 
     Non-regression test for:
@@ -1004,6 +1146,9 @@ def test_mlp_warm_start_no_convergence(MLPEstimator, solver):
 
 @pytest.mark.parametrize("MLPEstimator", [MLPClassifier, MLPRegressor])
 def test_mlp_partial_fit_after_fit(MLPEstimator):
+    # [FUNCTION DOC]
+    # Non-regression (gh-25693): partial_fit after fit with early_stopping raises the
+    #   dedicated ValueError instead of failing elsewhere.
     """Check partial fit does not fail after fit when early_stopping=True.
 
     Non-regression test for gh-25693.
@@ -1016,6 +1161,9 @@ def test_mlp_partial_fit_after_fit(MLPEstimator):
 
 
 def test_mlp_diverging_loss():
+    # [FUNCTION DOC]
+    # Non-regression (#29504): a diverging sgd regressor with early stopping finishes
+    #   without error and records NaN (as a Python float) as the last validation score.
     """Test that a diverging model does not raise errors when early stopping is enabled.
 
     Non-regression test for:
@@ -1048,6 +1196,9 @@ def test_mlp_diverging_loss():
 
 
 def test_mlp_sample_weight_with_early_stopping():
+    # [FUNCTION DOC]
+    # Checks that unit sample weights give the same predictions as no sample weights
+    #   with early stopping (exercises the weighted validation split path).
     # Test code path for inner validation set splitting.
     X, y = make_regression(
         n_samples=100,
@@ -1075,6 +1226,10 @@ def test_mlp_sample_weight_with_early_stopping():
 
 
 def test_mlp_vs_poisson_glm_equivalent(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks a Poisson MLP with one identity hidden unit and no penalty matches an
+    #   unpenalized PoissonRegressor's predictions (rtol 1e-4), while the squared-error
+    #   MLP does not.
     """Test MLP with Poisson loss and no hidden layer equals GLM."""
     n = 100
     rng = np.random.default_rng(global_random_seed)
@@ -1112,6 +1267,9 @@ def test_mlp_vs_poisson_glm_equivalent(global_random_seed):
 
 
 def test_minimum_input_sample_size():
+    # [FUNCTION DOC]
+    # Checks early stopping on 2 samples raises the "validation set is too small"
+    #   ValueError.
     """Check error message when the validation set is too small."""
     X, y = make_regression(n_samples=2, n_features=5, random_state=0)
     model = MLPRegressor(early_stopping=True, random_state=0)

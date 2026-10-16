@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for NearestCentroid: toy predictions/decision scores/probabilities with
+# different priors and sparse formats, iris accuracy with and without shrinkage,
+# pickling, shrinkage values versus R pamr, label-encoding invariance, translation
+# invariance, manhattan (median) centroids, and validation errors/warnings.
+# Module globals: toy X, y, test points T with expected outputs; iris permuted with
+# a seeded RNG at import time.
 """
 Testing for the nearest centroid module.
 """
@@ -36,6 +43,10 @@ iris.target = iris.target[perm]
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_classification_toy(csr_container):
+    # [FUNCTION DOC]
+    # Checks predict, decision_function and predict_proba on T match hard-coded values
+    # for default, uniform and empirical priors, predict for custom priors, and predict
+    # for every dense/sparse combination of fit and predict inputs (incl. COO/LIL).
     # Check classification on a toy dataset, including sparse versions.
     X_csr = csr_container(X)
     T_csr = csr_container(T)
@@ -87,6 +98,8 @@ def test_classification_toy(csr_container):
 
 
 def test_iris():
+    # [FUNCTION DOC]
+    # Checks training accuracy on iris exceeds 0.9 for euclidean and manhattan.
     # Check consistency on dataset iris.
     for metric in ("euclidean", "manhattan"):
         clf = NearestCentroid(metric=metric).fit(iris.data, iris.target)
@@ -95,6 +108,9 @@ def test_iris():
 
 
 def test_iris_shrinkage():
+    # [FUNCTION DOC]
+    # Checks training accuracy on iris exceeds 0.8 for both metrics and shrink
+    # thresholds None, 0.1, 0.5.
     # Check consistency on dataset iris, when using shrinkage.
     for metric in ("euclidean", "manhattan"):
         for shrink_threshold in [None, 0.1, 0.5]:
@@ -105,6 +121,8 @@ def test_iris_shrinkage():
 
 
 def test_pickle():
+    # [FUNCTION DOC]
+    # Checks a pickled/unpickled fitted model has the same class and score.
     import pickle
 
     # classification
@@ -124,6 +142,8 @@ def test_pickle():
 
 
 def test_shrinkage_correct():
+    # [FUNCTION DOC]
+    # Checks centroids_ with shrink_threshold=0.1 match reference values from R pamr.
     # Ensure that the shrinking is correct.
     # The expected result is calculated by R (pamr),
     # which is implemented by the author of the original paper.
@@ -138,6 +158,8 @@ def test_shrinkage_correct():
 
 
 def test_shrinkage_threshold_decoded_y():
+    # [FUNCTION DOC]
+    # Checks shrunken centroids_ are identical whether labels are {-1, 1} or {0, 1}.
     clf = NearestCentroid(shrink_threshold=0.01)
     y_ind = np.asarray(y)
     y_ind[y_ind == -1] = 0
@@ -148,6 +170,11 @@ def test_shrinkage_threshold_decoded_y():
 
 
 def test_predict_translated_data():
+    # [FUNCTION DOC]
+    # Checks predictions with shrinkage are unchanged when a per-sample noise vector is
+    # added to X before fitting and predicting.
+    # KNOWN ISSUE: the noise vector of length 50 is broadcast along columns (one value
+    # per feature), so it is a per-feature translation, not per-sample noise.
     # Test that NearestCentroid gives same results on translated data
 
     rng = np.random.RandomState(0)
@@ -166,6 +193,9 @@ def test_predict_translated_data():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_manhattan_metric(csr_container):
+    # [FUNCTION DOC]
+    # Checks manhattan centroids_ (feature-wise medians) are identical for dense and
+    # CSR input and equal the expected toy values.
     # Test the manhattan metric.
     X_csr = csr_container(X)
 
@@ -178,6 +208,8 @@ def test_manhattan_metric(csr_container):
 
 
 def test_features_zero_var():
+    # [FUNCTION DOC]
+    # Checks fit with shrinkage on constant-feature data raises ValueError.
     # Test that features with 0 variance throw error
 
     X = np.empty((10, 2))
@@ -192,6 +224,8 @@ def test_features_zero_var():
 
 
 def test_negative_priors_error():
+    # [FUNCTION DOC]
+    # Checks negative user priors raise ValueError "priors must be non-negative".
     """Check that we raise an error when the user-defined priors are negative."""
     clf = NearestCentroid(priors=[-2, 4])
     with pytest.raises(ValueError, match="priors must be non-negative"):
@@ -199,6 +233,9 @@ def test_negative_priors_error():
 
 
 def test_warn_non_normalized_priors():
+    # [FUNCTION DOC]
+    # Checks priors not summing to 1 trigger a UserWarning and class_prior_ is the
+    # normalized priors.
     """Check that we raise a warning and normalize the user-defined priors when they
     don't sum to 1.
     """
@@ -217,6 +254,9 @@ def test_warn_non_normalized_priors():
     "response_method", ["decision_function", "predict_proba", "predict_log_proba"]
 )
 def test_method_not_available_with_manhattan(response_method):
+    # [FUNCTION DOC]
+    # Checks decision_function/predict_proba/predict_log_proba raise AttributeError
+    # when metric is manhattan.
     """Check that we raise an AttributeError with Manhattan metric when trying
     to call a non-thresholded response method.
     """
@@ -227,6 +267,9 @@ def test_method_not_available_with_manhattan(response_method):
 
 @pytest.mark.parametrize("array_constructor", [np.array] + CSR_CONTAINERS)
 def test_error_zero_variances(array_constructor):
+    # [FUNCTION DOC]
+    # Checks fit raises ValueError "All features have zero variance" for constant
+    # features, for dense and CSR input.
     """Check that we raise an error when the variance for all features is zero."""
     X = np.ones((len(y), 2))
     X[:, 1] *= 2

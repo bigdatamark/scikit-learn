@@ -1,4 +1,10 @@
 # coding=utf8
+# [MODULE DOC]
+# Graph-based semi-supervised classifiers LabelPropagation (hard clamping,
+# row-normalized affinity matrix) and LabelSpreading (soft clamping with factor
+# alpha, symmetrically normalized graph Laplacian). Both share the iterative
+# label-diffusion fit and inductive predict logic in BaseLabelPropagation;
+# subclasses only supply the graph matrix and the clamping variant.
 """
 Label propagation in the context of this module refers to a set of
 semi-supervised classification algorithms. At a high level, these algorithms
@@ -75,6 +81,15 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base estimator. Subclasses must set the class attribute _variant
+    # ("propagation" or "spreading") and implement _build_graph, which reads self.X_
+    # and returns an (n_samples, n_samples) dense or sparse transition matrix.
+    # Fitted attributes: X_, classes_, label_distributions_, transduction_, n_iter_,
+    # plus nn_fit (fitted NearestNeighbors or None) when kernel == "knn".
+    # KNOWN ISSUE: __init__ default alpha=1 (docstring "1.0") lies outside the
+    # parameter constraint, which requires alpha in the open interval (0, 1) or
+    # None; harmless only because the class is abstract and subclasses override it.
     """Base class for label propagation module.
 
      Parameters
@@ -129,6 +144,9 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         tol=1e-3,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters unchanged (kernel, gamma, n_neighbors, alpha,
+        # max_iter, tol, n_jobs); no validation here (done at fit by _fit_context).
         self.max_iter = max_iter
         self.tol = tol
 
@@ -143,6 +161,21 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         self.n_jobs = n_jobs
 
     def _get_kernel(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Evaluates the configured kernel.
+        # rbf: returns the dense RBF kernel between X and X (y None) or X and y, using
+        # gamma. knn: lazily fits a NearestNeighbors(n_neighbors, n_jobs) on X if
+        # self.nn_fit is None; with y None returns the sparse 0/1 connectivity graph of
+        # the training points to their n_neighbors neighbors (each point counts itself);
+        # with y given returns an integer array (n_queries, n_neighbors) of neighbor
+        # indices into the training set. callable: returns kernel(X, X) or kernel(X, y).
+        # Inputs: X - training data (n_samples, n_features); y - optional query data
+        # (despite the name, a feature matrix, not labels).
+        # Outputs: kernel/affinity matrix or neighbor index array as described.
+        # Side effects: may set self.nn_fit.
+        # KNOWN ISSUE: relies on self.nn_fit existing; it is only created (as None) by
+        # subclass _build_graph, so calling with kernel "knn" before that raises
+        # AttributeError. An unrecognized kernel silently returns None.
         if self.kernel == "rbf":
             if y is None:
                 return rbf_kernel(X, X, gamma=self.gamma)
@@ -167,11 +200,20 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def _build_graph(self):
+        # [FUNCTION DOC]
+        # Abstract: subclasses return the graph/transition matrix built from self.X_.
+        # Exceptions: NotImplementedError if the base implementation is called.
         raise NotImplementedError(
             "Graph construction must be implemented to fit a label propagation model."
         )
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns, for each row of X, the class in classes_ with the highest
+        # probability from predict_proba (first class on ties).
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples,) of labels.
+        # Exceptions: as predict_proba (NotFittedError, validation errors).
         """Perform inductive inference across the model.
 
         Parameters
@@ -192,6 +234,20 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         return self.classes_[np.argmax(probas, axis=1)].ravel()
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Inductive inference. Checks the model is fitted and validates X (any sparse
+        # format accepted, feature count checked against fit). Gets the kernel between
+        # X_ and X. For knn: for each query, sums the rows of label_distributions_ of its
+        # n_neighbors training neighbors (unweighted). Otherwise: transposes the
+        # (n_train, n_query) kernel and multiplies it by label_distributions_. Each row
+        # is then divided by its sum.
+        # Inputs: X - array-like or sparse (n_samples, n_features).
+        # Outputs: ndarray (n_samples, n_classes), rows summing to 1.
+        # Exceptions: NotFittedError; validation errors.
+        # Side effects: none on self (knn reuses the fitted nn_fit).
+        # KNOWN ISSUE: rows whose total weight is zero (e.g. RBF underflow far from all
+        # training points) produce NaN from a 0/0 division; fit guards this case but
+        # predict_proba does not.
         """Predict probability for each possible outcome.
 
         Compute the probability estimates for each single sample in X
@@ -234,6 +290,30 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Iterative label diffusion. Steps: validate X (csr/csc allowed) and y, store
+        # X_, check y is a classification target; build graph via _build_graph;
+        # classes_ is the sorted unique labels excluding -1. Initialize
+        # label_distributions_ as one-hot rows (all zeros for unlabeled samples).
+        # y_static is a copy: for "propagation" its unlabeled rows are zeroed; for
+        # "spreading" it is scaled by (1 - alpha). Graph converted to CSR if sparse.
+        # Loop up to max_iter times (n_iter_ is the loop index): stop if the summed
+        # absolute change versus the previous distributions is below tol; otherwise
+        # multiply graph by distributions. Propagation: row-normalize (zero rows kept),
+        # then reset labeled rows to y_static (hard clamping). Spreading: distributions
+        # become alpha times the product plus y_static (soft clamping). If the loop does
+        # not break, emit ConvergenceWarning and increment n_iter_ to equal max_iter.
+        # Finally row-normalize (zero rows left at zero) and set transduction_ to the
+        # argmax class per sample.
+        # Inputs: X - (n_samples, n_features); y - (n_samples,) labels, -1 = unlabeled.
+        # Outputs: self.
+        # Exceptions: validation errors (parameter constraints, non-classification y).
+        # Side effects: sets X_, classes_, label_distributions_, n_iter_,
+        # transduction_ (and nn_fit through _build_graph); may warn ConvergenceWarning.
+        # KNOWN ISSUE: when the loop breaks, n_iter_ equals the number of completed
+        # updates, but the convergence check runs before the update so the first
+        # iteration can never break; also, if every label is -1, classes_ is empty and
+        # the distributions have zero columns.
         """Fit a semi-supervised label propagation model to X.
 
         The input samples (labeled and unlabeled) are provided by matrix X,
@@ -338,12 +418,19 @@ class BaseLabelPropagation(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the parent tags to declare that sparse input is supported.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class LabelPropagation(BaseLabelPropagation):
+    # [CLASS DOC]
+    # Hard-clamping variant (_variant "propagation"): labeled samples keep their
+    # original one-hot distribution every iteration. alpha is not a parameter (its
+    # constraint is removed and alpha=None is passed to the base). Default
+    # max_iter is 1000.
     """Label Propagation classifier.
 
     Read more in the :ref:`User Guide <label_propagation>`.
@@ -443,6 +530,8 @@ class LabelPropagation(BaseLabelPropagation):
         tol=1e-3,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to the base __init__ with alpha fixed to None.
         super().__init__(
             kernel=kernel,
             gamma=gamma,
@@ -454,6 +543,16 @@ class LabelPropagation(BaseLabelPropagation):
         )
 
     def _build_graph(self):
+        # [FUNCTION DOC]
+        # Builds the row-stochastic transition matrix: resets nn_fit to None for knn
+        # (forcing a refit on the new X_), computes the affinity matrix of X_ with
+        # itself, and divides each row by its row sum (sparse matrices are handled by
+        # left-multiplying with a diagonal inverse matrix on SciPy < 1.12, otherwise via
+        # broadcast division, which works for both dense and sparse arrays).
+        # Outputs: dense ndarray or sparse matrix (n_samples, n_samples).
+        # Side effects: sets self.nn_fit; may modify the dense kernel in place.
+        # KNOWN ISSUE: a row with zero total affinity (only possible with a callable
+        # kernel) gives division by zero.
         """Matrix representing a fully connected graph between each sample."""
         if self.kernel == "knn":
             self.nn_fit = None
@@ -476,6 +575,8 @@ class LabelPropagation(BaseLabelPropagation):
         return affinity_matrix
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Delegates to the base fit; overridden only to carry a subclass docstring.
         """Fit a semi-supervised label propagation model to X.
 
         Parameters
@@ -498,6 +599,10 @@ class LabelPropagation(BaseLabelPropagation):
 
 
 class LabelSpreading(BaseLabelPropagation):
+    # [CLASS DOC]
+    # Soft-clamping variant (_variant "spreading"): each iteration mixes alpha times
+    # the propagated distributions with (1 - alpha) times the initial labels. alpha
+    # must lie in the open interval (0, 1); default 0.2, max_iter default 30.
     """LabelSpreading model for semi-supervised learning.
 
     This model is similar to the basic Label Propagation algorithm,
@@ -609,6 +714,8 @@ class LabelSpreading(BaseLabelPropagation):
         tol=1e-3,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters, including alpha, to the base __init__.
         # this one has different base parameters
         super().__init__(
             kernel=kernel,
@@ -621,6 +728,14 @@ class LabelSpreading(BaseLabelPropagation):
         )
 
     def _build_graph(self):
+        # [FUNCTION DOC]
+        # Builds the spreading matrix S = D^-1/2 W D^-1/2 with zero diagonal: resets
+        # nn_fit for knn, computes affinity W of X_, takes the normalized graph
+        # Laplacian (identity minus S), negates it and zeroes the diagonal.
+        # Outputs: dense ndarray or sparse matrix (n_samples, n_samples).
+        # Side effects: sets self.nn_fit.
+        # KNOWN ISSUE: the sparse branch accesses .row/.col, so it assumes the laplacian
+        # helper returns a COO matrix; another sparse format would raise AttributeError.
         """Graph matrix for Label Spreading computes the graph laplacian"""
         # compute affinity matrix (or gram matrix)
         if self.kernel == "knn":

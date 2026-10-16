@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for LabelPropagation and LabelSpreading: transduction, label
+# distributions, predictions, agreement with closed-form solutions, sparse input
+# types, graph normalization, convergence behavior/warnings, zero-normalizer
+# safety and callable sparse kernels. ESTIMATORS pairs each class with rbf, knn
+# (n_neighbors=2) and a callable rbf kernel; LP_ESTIMATORS keeps the
+# LabelPropagation entries only.
 """test the label propagation module"""
 
 import warnings
@@ -45,6 +52,9 @@ LP_ESTIMATORS = [
 
 @pytest.mark.parametrize("Estimator, parameters", ESTIMATORS)
 def test_fit_transduction(global_dtype, Estimator, parameters):
+    # [FUNCTION DOC]
+    # Verifies, for every estimator config and float dtype, that fitting on three
+    # 2-D points with labels [0, 1, -1] transduces the unlabeled point to class 1.
     samples = np.asarray([[1.0, 0.0], [0.0, 2.0], [1.0, 3.0]], dtype=global_dtype)
     labels = [0, 1, -1]
     clf = Estimator(**parameters).fit(samples, labels)
@@ -53,6 +63,10 @@ def test_fit_transduction(global_dtype, Estimator, parameters):
 
 @pytest.mark.parametrize("Estimator, parameters", ESTIMATORS)
 def test_distribution(global_dtype, Estimator, parameters):
+    # [FUNCTION DOC]
+    # Verifies that an unlabeled point equidistant from the two labeled points gets
+    # a label distribution of about [0.5, 0.5] (atol 1e-2); knn configs are skipped
+    # as unstable.
     if parameters["kernel"] == "knn":
         pytest.skip(
             "Unstable test for this configuration: changes in k-NN ordering break it."
@@ -65,6 +79,8 @@ def test_distribution(global_dtype, Estimator, parameters):
 
 @pytest.mark.parametrize("Estimator, parameters", ESTIMATORS)
 def test_predict(global_dtype, Estimator, parameters):
+    # [FUNCTION DOC]
+    # Verifies predict on a new point near the class-1 sample returns [1].
     samples = np.asarray([[1.0, 0.0], [0.0, 2.0], [1.0, 3.0]], dtype=global_dtype)
     labels = [0, 1, -1]
     clf = Estimator(**parameters).fit(samples, labels)
@@ -73,6 +89,9 @@ def test_predict(global_dtype, Estimator, parameters):
 
 @pytest.mark.parametrize("Estimator, parameters", ESTIMATORS)
 def test_predict_proba(global_dtype, Estimator, parameters):
+    # [FUNCTION DOC]
+    # Verifies predict_proba of a point equidistant from both labeled samples is
+    # [[0.5, 0.5]].
     samples = np.asarray([[1.0, 0.0], [0.0, 1.0], [1.0, 2.5]], dtype=global_dtype)
     labels = [0, 1, -1]
     clf = Estimator(**parameters).fit(samples, labels)
@@ -82,6 +101,13 @@ def test_predict_proba(global_dtype, Estimator, parameters):
 @pytest.mark.parametrize("alpha", [0.1, 0.3, 0.5, 0.7, 0.9])
 @pytest.mark.parametrize("Estimator, parameters", ESTIMATORS)
 def test_label_spreading_closed_form(global_dtype, Estimator, parameters, alpha):
+    # [FUNCTION DOC]
+    # Verifies LabelSpreading converges to the Zhou et al. closed form: builds S via
+    # _build_graph, computes inverse of (I - alpha S) times one-hot Y (unlabeled rows
+    # zero), row-normalizes, and compares with label_distributions_ after fitting
+    # with max_iter=100, tol=1e-10, for several alpha values.
+    # KNOWN ISSUE: parametrized over ESTIMATORS but Estimator/parameters are unused;
+    # every case tests the same LabelSpreading model (redundant repetitions).
     n_classes = 2
     X, y = make_classification(n_classes=n_classes, n_samples=200, random_state=0)
     X = X.astype(global_dtype, copy=False)
@@ -107,6 +133,11 @@ def test_label_spreading_closed_form(global_dtype, Estimator, parameters, alpha)
 
 
 def test_label_propagation_closed_form(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies LabelPropagation matches the Zhu et al. harmonic solution: with
+    # transition matrix T from _build_graph, unlabeled distributions equal inverse
+    # of (I - Tuu) times Tul times Y_l; after row normalization they must match
+    # label_distributions_ within atol 1e-4.
     n_classes = 2
     X, y = make_classification(n_classes=n_classes, n_samples=200, random_state=0)
     X = X.astype(global_dtype, copy=False)
@@ -140,6 +171,9 @@ def test_label_propagation_closed_form(global_dtype):
 def test_sparse_input_types(
     accepted_sparse_type, index_dtype, dtype, Estimator, parameters
 ):
+    # [FUNCTION DOC]
+    # Non-regression (#17085): fitting on CSR/CSC matrices/arrays with float32/64
+    # data and int32/int64 index arrays works and predict returns the expected [1].
     # This is non-regression test for #17085
     X = _convert_container([[1.0, 0.0], [0.0, 2.0], [1.0, 3.0]], accepted_sparse_type)
     X.data = X.data.astype(dtype, copy=False)
@@ -153,6 +187,10 @@ def test_sparse_input_types(
 @pytest.mark.parametrize("constructor", CONSTRUCTOR_TYPES)
 @pytest.mark.parametrize("Estimator, parameters", LP_ESTIMATORS)
 def test_label_propagation_build_graph_normalized(constructor, Estimator, parameters):
+    # [FUNCTION DOC]
+    # Verifies LabelPropagation._build_graph row-normalizes a fixed 3x3 affinity
+    # matrix supplied by a callable kernel in dense and several sparse containers:
+    # rows sum to 1 and values equal the expected matrix.
     # required but unused X and labels values
     X = np.array([[1.0, 0.0], [1.0, 1.0], [1.0, 3.0]])
     labels = [0, 1, -1]
@@ -162,6 +200,9 @@ def test_label_propagation_build_graph_normalized(constructor, Estimator, parame
     expected = np.array([[0.5, 0.5, 0.0], [0.5, 0.25, 0.25], [0.0, 0.25, 0.75]])
 
     def kernel_affinity_matrix(x, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Callable kernel ignoring its inputs; returns the fixed aff_matrix
+        # converted to the parametrized container type.
         return _convert_container(aff_matrix, constructor)
 
     clf = Estimator(kernel=kernel_affinity_matrix).fit(X, labels)
@@ -175,6 +216,9 @@ def test_label_propagation_build_graph_normalized(constructor, Estimator, parame
 
 @pytest.mark.parametrize("constructor_type", CONSTRUCTOR_TYPES)
 def test_convergence_speed(constructor_type):
+    # [FUNCTION DOC]
+    # Non-regression (#5774): LabelSpreading on a 3-point dataset (dense or sparse)
+    # converges in fewer than 10 iterations and predicts [0, 1, 1].
     # This is a non-regression test for #5774
     X = _convert_container([[1.0, 0.0], [0.0, 1.0], [1.0, 2.5]], constructor_type)
     y = np.array([0, 1, -1])
@@ -187,6 +231,10 @@ def test_convergence_speed(constructor_type):
 
 
 def test_convergence_warning():
+    # [FUNCTION DOC]
+    # Verifies max_iter=1 triggers ConvergenceWarning with the expected message and
+    # n_iter_ == max_iter for both estimators, and that max_iter=500 fits without
+    # any ConvergenceWarning (turned into errors).
     # This is a non-regression test for #5774
     X = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 2.5]])
     y = np.array([0, 1, -1])
@@ -217,6 +265,10 @@ def test_convergence_warning():
     [label_propagation.LabelSpreading, label_propagation.LabelPropagation],
 )
 def test_label_propagation_non_zero_normalizer(LabelPropagationCls):
+    # [FUNCTION DOC]
+    # Non-regression (#9292, PR 15946): with knn n_neighbors=1 and duplicated points,
+    # unlabeled samples get zero-sum rows; fit must not emit RuntimeWarning
+    # (division by zero), checked by turning RuntimeWarnings into errors.
     # check that we don't divide by zero in case of null normalizer
     # non-regression test for
     # https://github.com/scikit-learn/scikit-learn/pull/15946
@@ -230,10 +282,19 @@ def test_label_propagation_non_zero_normalizer(LabelPropagationCls):
 
 
 def test_predict_sparse_callable_kernel(global_dtype):
+    # [FUNCTION DOC]
+    # Non-regression (#15866): a callable kernel returning a sparse top-k RBF matrix
+    # works for fit and predict; both estimators must score at least 0.9 accuracy on
+    # a held-out split of a 4-class synthetic dataset.
     # This is a non-regression test for #15866
 
     # Custom sparse kernel (top-K RBF)
     def topk_rbf(X, Y=None, n_neighbors=10, gamma=1e-5):
+        # [FUNCTION DOC]
+        # HELPER: Sparse kernel: fits 10-NN on X, takes the distance graph of Y (or X's
+        # own neighbors when Y is None) against X, applies exp(-gamma * d^2) to the
+        # stored entries, asserts sparsity and returns the transpose (n_X, n_Y).
+        # KNOWN ISSUE: the n_neighbors argument is ignored (10 is hard-coded).
         nn = NearestNeighbors(n_neighbors=10, metric="euclidean", n_jobs=2)
         nn.fit(X)
         W = -1 * nn.kneighbors_graph(Y, mode="distance").power(2) * gamma

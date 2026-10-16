@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Multi-layer perceptron estimators: BaseMultilayerPerceptron (shared training
+#   machinery: weight initialisation, forward pass, backpropagation, L-BFGS and
+#   stochastic sgd/adam solvers, early stopping), MLPClassifier (log loss, logistic or
+#   softmax output) and MLPRegressor (squared error with identity output or Poisson with
+#   exp output).
+# Parameters of all layers are kept as lists coefs_ (one (fan_in, fan_out) matrix per
+#   layer) and intercepts_ (one vector per layer). The L-BFGS solver works on one flat
+#   vector built by _pack.
+# Side effects at import: none.
 """Multi-layer Perceptron"""
 
 # Authors: The scikit-learn developers
@@ -51,11 +61,25 @@ _STOCHASTIC_SOLVERS = ["sgd", "adam"]
 
 
 def _pack(coefs_, intercepts_):
+    # [FUNCTION DOC]
+    # HELPER: Flattens every coefficient matrix and then every intercept vector, in
+    #   layer order, and concatenates them into one 1-D array (the layout that _unpack
+    #   inverts via _coef_indptr/_intercept_indptr).
+    # Inputs: coefs_, intercepts_ - lists of arrays.
+    # Outputs: 1-D ndarray of length equal to the total number of parameters.
     """Pack the parameters into a single vector."""
     return np.hstack([l.ravel() for l in coefs_ + intercepts_])
 
 
 class BaseMultilayerPerceptron(BaseEstimator, ABC):
+    # [CLASS DOC]
+    # Abstract base for the MLP estimators. Subclasses supply loss via __init__ and
+    #   implement _validate_input, _predict and _score. Hyperparameters are validated by
+    #   _parameter_constraints before fit/partial_fit.
+    # Fitted state shared by subclasses: coefs_, intercepts_, n_layers_, n_outputs_,
+    #   out_activation_, n_iter_, t_, loss_, plus for stochastic solvers loss_curve_,
+    #   best_loss_, validation_scores_, best_validation_score_ and private _optimizer,
+    #   _best_coefs, _best_intercepts, _no_improvement_count, _random_state.
     """Base class for MLP classification and regression.
 
     Warning: This class should not be used directly.
@@ -127,6 +151,11 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         n_iter_no_change,
         max_fun,
     ):
+        # [FUNCTION DOC]
+        # Stores every hyperparameter unchanged (sklearn convention, no validation).
+        #   Abstract: only subclasses are instantiated.
+        # Inputs: see the class parameter list; loss is the loss name chosen by the
+        #   subclass.
         self.activation = activation
         self.solver = solver
         self.alpha = alpha
@@ -153,6 +182,15 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         self.max_fun = max_fun
 
     def _unpack(self, packed_parameters):
+        # [FUNCTION DOC]
+        # HELPER: Inverse of _pack. For each layer, slices the flat vector using the
+        #   precomputed (start, end, shape) entries in _coef_indptr and (start, end) in
+        #   _intercept_indptr and assigns reshaped views into coefs_[i] and
+        #   intercepts_[i].
+        # Inputs: packed_parameters - 1-D array from L-BFGS.
+        # Side effects: replaces the entries of self.coefs_ and self.intercepts_
+        #   (views on the input array, not copies). Requires _fit_lbfgs to have set the
+        #   index pointers.
         """Extract the coefficients and intercepts from packed_parameters."""
         for i in range(self.n_layers_ - 1):
             start, end, shape = self._coef_indptr[i]
@@ -162,6 +200,15 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
             self.intercepts_[i] = packed_parameters[start:end]
 
     def _forward_pass(self, activations):
+        # [FUNCTION DOC]
+        # HELPER: Training-time forward pass. For each layer i, activations[i + 1] is
+        #   activations[i] times coefs_[i] plus intercepts_[i]; the hidden activation
+        #   function is applied in place on all but the last layer, and the output
+        #   activation (out_activation_) in place on the last.
+        # Inputs: activations - list whose element 0 is the input batch; other entries
+        #   are overwritten.
+        # Outputs: the same list, filled.
+        # Side effects: mutates the activations list.
         """Perform a forward pass on the network by computing the values
         of the neurons in the hidden layers and the output layer.
 
@@ -187,6 +234,15 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return activations
 
     def _forward_pass_fast(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # HELPER: Prediction-time forward pass that keeps only the current layer's
+        #   activation instead of all of them. Optionally validates X (CSR/CSC accepted,
+        #   reset=False).
+        # Inputs: X - (n_samples, n_features) array or sparse; check_input - bool,
+        #   default True.
+        # Outputs: ndarray (n_samples, n_outputs_) of output-layer activations
+        #   (probabilities for classifiers, predictions for regressors).
+        # Exceptions: ValueError from validate_data on bad input or feature mismatch.
         """Predict using the trained model
 
         This is the same as _forward_pass but does not record the activations
@@ -226,6 +282,15 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
     def _compute_loss_grad(
         self, layer, sw_sum, activations, deltas, coef_grads, intercept_grads
     ):
+        # [FUNCTION DOC]
+        # HELPER: Gradients for one layer: coef grad is activations[layer] transposed
+        #   times deltas[layer] plus alpha times coefs_[layer], all divided by sw_sum;
+        #   intercept grad is the column sum of deltas[layer] divided by sw_sum.
+        # Inputs: layer - int index; sw_sum - number of samples or sum of sample
+        #   weights; activations, deltas - lists from backprop; coef_grads,
+        #   intercept_grads - output lists.
+        # Outputs: None.
+        # Side effects: overwrites coef_grads[layer] and intercept_grads[layer].
         """Compute the gradient of loss with respect to coefs and intercept for
         specified layer.
 
@@ -248,6 +313,14 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         coef_grads,
         intercept_grads,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Objective function for scipy L-BFGS: unpacks the flat parameter
+        #   vector into coefs_/intercepts_, runs _backprop and returns the loss with the
+        #   gradient flattened by _pack.
+        # Inputs: packed_coef_inter - flat parameter vector; X, y, sample_weight;
+        #   preallocated activations, deltas, coef_grads, intercept_grads lists.
+        # Outputs: tuple (loss float, gradient 1-D array).
+        # Side effects: updates self.coefs_/intercepts_ and the work lists.
         """Compute the MLP loss function and its corresponding derivatives
         with respect to the different parameters given in the initialization.
 
@@ -301,6 +374,22 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
     def _backprop(
         self, X, y, sample_weight, activations, deltas, coef_grads, intercept_grads
     ):
+        # [FUNCTION DOC]
+        # HELPER: Computes loss and gradients for one batch. Steps: forward pass; loss
+        #   from LOSS_FUNCTIONS (log_loss is switched to binary_log_loss when the output
+        #   is logistic) using sample_weight; add L2 penalty 0.5 * alpha * (sum of
+        #   squared coefficients, intercepts excluded) divided by sw_sum (n_samples, or
+        #   the sum of sample weights). Output delta is prediction minus y (valid for
+        #   the canonical link/loss pairs used), multiplied row-wise by sample weights
+        #   if given; gradient of the last layer; then for each hidden layer from last
+        #   to first, delta is the next delta times the transposed next coefficients,
+        #   multiplied in place by the activation derivative, and its gradients are
+        #   computed.
+        # Inputs: X - batch (n_samples, n_features), possibly sparse; y - 2-D targets
+        #   (n_samples, n_outputs); sample_weight - (n_samples,) or None; activations,
+        #   deltas, coef_grads, intercept_grads - work lists.
+        # Outputs: tuple (loss float, coef_grads list, intercept_grads list).
+        # Side effects: overwrites the work lists in place.
         """Compute the MLP loss function and its corresponding derivatives
         with respect to each parameter: weights and bias vectors.
 
@@ -393,6 +482,19 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return loss, coef_grads, intercept_grads
 
     def _initialize(self, y, layer_units, dtype):
+        # [FUNCTION DOC]
+        # HELPER: First-fit initialisation. Resets n_iter_ and t_ to 0, sets
+        #   n_outputs_ and n_layers_, chooses out_activation_ (regressor: exp for
+        #   poisson else identity; classifier: softmax if the label binarizer saw a
+        #   multiclass target, otherwise logistic for binary and multilabel),
+        #   initialises each layer with _init_coef, keeps copies as
+        #   _best_coefs/_best_intercepts and, for sgd/adam, resets loss_curve_,
+        #   _no_improvement_count and the early-stopping bookkeeping (validation_scores_
+        #   list and best_validation_score_ = -inf when early_stopping, else best_loss_
+        #   = inf).
+        # Inputs: y - 2-D target array; layer_units - list of layer sizes including
+        #   input and output; dtype - float dtype for the weights.
+        # Side effects: sets the attributes above; consumes self._random_state.
         # set all attributes, allocate weights etc. for first call
         # Initialize parameters
         self.n_iter_ = 0
@@ -443,6 +545,14 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
                 self.best_validation_score_ = None
 
     def _init_coef(self, fan_in, fan_out, dtype):
+        # [FUNCTION DOC]
+        # HELPER: Glorot uniform initialisation: bound = sqrt(factor / (fan_in +
+        #   fan_out)) with factor 2 for logistic activation and 6 otherwise; weights of
+        #   shape (fan_in, fan_out) and intercepts of shape (fan_out,) are drawn
+        #   uniformly in [-bound, bound] and cast to dtype.
+        # Inputs: fan_in, fan_out - ints; dtype.
+        # Outputs: (coef_init, intercept_init).
+        # Side effects: advances self._random_state.
         # Use the initialization method recommended by
         # Glorot et al.
         factor = 6.0
@@ -460,6 +570,22 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return coef_init, intercept_init
 
     def _fit(self, X, y, sample_weight=None, incremental=False):
+        # [FUNCTION DOC]
+        # HELPER: Shared training entry for fit and partial_fit. Normalises
+        #   hidden_layer_sizes to a list and checks all sizes are positive; decides
+        #   first_pass (no coefs_ yet, or neither warm_start nor incremental); validates
+        #   X and y through the subclass _validate_input (resetting feature info on
+        #   first pass) and sample_weight; reshapes y to 2-D; builds layer_units =
+        #   [n_features] + hidden sizes + [n_outputs]; creates self._random_state from
+        #   random_state (recreated on every call); initialises the network on first
+        #   pass; allocates activations, deltas and gradient buffers in X's dtype;
+        #   dispatches to _fit_stochastic or _fit_lbfgs.
+        # Inputs: X, y; sample_weight - (n_samples,) or None; incremental - True from
+        #   partial_fit.
+        # Outputs: self.
+        # Exceptions: ValueError if a hidden layer size is <= 0, if validation fails,
+        #   or if the solver produced non-finite weights.
+        # Side effects: sets/updates all fitted attributes.
         # Make sure self.hidden_layer_sizes is a list
         hidden_layer_sizes = self.hidden_layer_sizes
         if not hasattr(hidden_layer_sizes, "__iter__"):
@@ -555,6 +681,16 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         intercept_grads,
         layer_units,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Trains with scipy L-BFGS-B on the flat parameter vector. Builds
+        #   _coef_indptr (start, end, shape per layer) and _intercept_indptr (start, end
+        #   per layer) matching _pack's layout, then minimises _loss_grad_lbfgs with
+        #   jac=True, maxfun=max_fun, maxiter=max_iter, gtol=tol and iprint 1 when
+        #   verbose else -1.
+        # Inputs: X, y, sample_weight and the work buffers; layer_units.
+        # Side effects: sets _coef_indptr, _intercept_indptr, n_iter_ (via
+        #   _check_optimize_result, which warns ConvergenceWarning when not converged),
+        #   loss_, and the final coefs_/intercepts_.
         # Store meta information for the parameters
         self._coef_indptr = []
         self._intercept_indptr = []
@@ -619,6 +755,32 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         layer_units,
         incremental,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Mini-batch training with sgd or adam. Creates a new optimizer unless
+        #   incremental and one exists. If early_stopping: holds out validation_fraction
+        #   of the data with train_test_split (stratified for single-output classifiers,
+        #   sample weights split along), errors if fewer than 2 validation samples, and
+        #   converts classifier validation targets back to labels. Batch size is
+        #   min(200, n_samples) for auto, otherwise clipped to [1, n_samples] with a
+        #   warning when larger. For each epoch up to max_iter: optionally shuffle
+        #   sample indices; for each batch run _backprop and optimizer.update_params on
+        #   coefs_ + intercepts_ (in place); accumulate loss weighted by batch length;
+        #   set loss_ (accumulated loss divided by n_train), increase t_ by n_samples,
+        #   append to loss_curve_, optionally print; update the no-improvement counter;
+        #   let the optimizer update its learning rate; if the counter exceeds
+        #   n_iter_no_change ask the optimizer to stop (break) or reset the counter;
+        #   stop after one epoch when incremental; warn ConvergenceWarning when max_iter
+        #   epochs are completed. KeyboardInterrupt is caught and turned into a warning.
+        #   With early_stopping, best coefficients are restored at the end.
+        # Inputs: X, y (2-D, binarized for classifiers), sample_weight, work buffers,
+        #   layer_units, incremental.
+        # Exceptions: ValueError if early_stopping is used with partial_fit or the
+        #   validation set is too small.
+        # Side effects: mutates many fitted attributes, prints when verbose, emits
+        #   warnings, consumes _random_state.
+        # KNOWN ISSUE: the batch_size warning text mentions "less than 1" although
+        #   only the larger-than-n_samples case is checked (values below 1 are rejected
+        #   by parameter validation).
         params = self.coefs_ + self.intercepts_
         if not incremental or not hasattr(self, "_optimizer"):
             if self.solver == "sgd":
@@ -797,6 +959,20 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
             self.intercepts_ = self._best_intercepts
 
     def _update_no_improvement_count(self, early_stopping, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Updates the convergence counter after an epoch. With early_stopping:
+        #   computes the validation score (via _score, may be NaN), appends it to
+        #   validation_scores_, optionally prints it; increments _no_improvement_count
+        #   if the score is below best_validation_score_ + tol, otherwise resets it; on
+        #   a new best score stores copies of the coefficients/intercepts. Without early
+        #   stopping: same logic on the last training loss versus best_loss_ - tol,
+        #   updating best_loss_ on improvement.
+        # Inputs: early_stopping bool; X, y, sample_weight - validation data (unused
+        #   when not early stopping).
+        # Side effects: mutates counters, best scores/losses and best-weight
+        #   snapshots.
+        # KNOWN ISSUE: a NaN validation score compares false against the threshold, so
+        #   it resets the no-improvement counter instead of counting as no improvement.
         if early_stopping:
             # compute validation score (can be NaN), use that for stopping
             val_score = self._score(X, y, sample_weight=sample_weight)
@@ -829,6 +1005,12 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the network from scratch (or from the current weights when warm_start)
+        #   on X, y with optional sample_weight by delegating to _fit with
+        #   incremental=False.
+        # Outputs: self.
+        # Side effects: see _fit.
         """Fit the model to data matrix X and target(s) y.
 
         Parameters
@@ -853,6 +1035,10 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return self._fit(X, y, sample_weight=sample_weight, incremental=False)
 
     def _check_solver(self):
+        # [FUNCTION DOC]
+        # HELPER: Availability check for partial_fit: returns True for sgd/adam.
+        # Exceptions: AttributeError when solver is lbfgs (makes partial_fit appear
+        #   absent).
         if self.solver not in _STOCHASTIC_SOLVERS:
             raise AttributeError(
                 "partial_fit is only available for stochastic"
@@ -861,6 +1047,13 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return True
 
     def _score_with_function(self, X, y, sample_weight, score_function):
+        # [FUNCTION DOC]
+        # HELPER: Scores predictions with the given metric without re-validating X (to
+        #   keep feature names). Returns NaN when predictions are floating point and
+        #   contain non-finite values.
+        # Inputs: X, y, sample_weight; score_function - metric taking y_true, y_pred,
+        #   sample_weight.
+        # Outputs: float score or NaN.
         """Private score method without input validation."""
         # Input validation would remove feature names, so we disable it
         y_pred = self._predict(X, check_input=False)
@@ -871,12 +1064,20 @@ class BaseMultilayerPerceptron(BaseEstimator, ABC):
         return score_function(y, y_pred, sample_weight=sample_weight)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
+    # [CLASS DOC]
+    # Multi-layer perceptron classifier trained with log loss. Targets are binarized
+    #   by an internal LabelBinarizer (_label_binarizer); the output layer is softmax
+    #   for multiclass, logistic for binary and multilabel targets. Supports partial_fit
+    #   only for sgd/adam.
     """Multi-layer Perceptron classifier.
 
     This model optimizes the log-loss function using LBFGS or stochastic
@@ -1182,6 +1383,10 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         n_iter_no_change=10,
         max_fun=15000,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters via the base constructor with loss fixed to log_loss.
+        #   Defaults: one hidden layer of 100 relu units, adam solver, alpha 1e-4,
+        #   batch_size auto, max_iter 200, tol 1e-4, n_iter_no_change 10, max_fun 15000.
         super().__init__(
             hidden_layer_sizes=hidden_layer_sizes,
             activation=activation,
@@ -1210,6 +1415,17 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         )
 
     def _validate_input(self, X, y, incremental, reset):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (CSR/CSC, float64/float32) and y (multi-output allowed;
+        #   single column ravelled with a warning). Fits a new LabelBinarizer and sets
+        #   classes_ when classes_ is absent or when neither warm_start nor incremental.
+        #   Otherwise checks label compatibility: with warm_start the class set must be
+        #   identical; for incremental fits y must not contain unseen classes. Finally
+        #   binarizes y and casts it to bool (to avoid upcasting float32 data).
+        # Inputs: X, y; incremental bool; reset - whether to reset n_features_in_.
+        # Outputs: (X, y_binarized 2-D bool array).
+        # Exceptions: ValueError on class mismatches or invalid input.
+        # Side effects: may set _label_binarizer and classes_.
         X, y = validate_data(
             self,
             X,
@@ -1265,6 +1481,11 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         return X, y
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts class labels for X.
+        # Outputs: array (n_samples,) of labels, or (n_samples, n_classes) indicator
+        #   matrix for multilabel.
+        # Exceptions: NotFittedError if not fitted.
         """Predict using the multi-layer perceptron classifier.
 
         Parameters
@@ -1281,6 +1502,10 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         return self._predict(X)
 
     def _predict(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # HELPER: Forward pass then inverse label binarization (thresholding / argmax
+        #   done by LabelBinarizer). Output is ravelled for single-output networks.
+        # Inputs: X; check_input - validate X when True.
         """Private predict method with optional input validation"""
         y_pred = self._forward_pass_fast(X, check_input=check_input)
 
@@ -1290,6 +1515,9 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         return self._label_binarizer.inverse_transform(y_pred)
 
     def _score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Accuracy of predictions on X versus y, NaN if outputs are non-
+        #   finite; used for early-stopping validation.
         return super()._score_with_function(
             X, y, sample_weight=sample_weight, score_function=accuracy_score
         )
@@ -1297,6 +1525,17 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
     @available_if(lambda est: est._check_solver())
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, sample_weight=None, classes=None):
+        # [FUNCTION DOC]
+        # One epoch of sgd/adam on the given data. On the first call classes must be
+        #   provided (checked by _check_partial_fit_first_call, which also sets
+        #   classes_); the label binarizer is fit on y for multilabel targets, otherwise
+        #   on classes. Then delegates to _fit with incremental=True.
+        # Inputs: X, y; sample_weight optional; classes - array of all labels,
+        #   required on first call.
+        # Outputs: self.
+        # Exceptions: ValueError if classes is missing on the first call or
+        #   inconsistent later, or with early_stopping; AttributeError (method
+        #   unavailable) for the lbfgs solver.
         """Update the model with a single iteration over the given data.
 
         Parameters
@@ -1335,6 +1574,10 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         return self._fit(X, y, sample_weight=sample_weight, incremental=True)
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Natural log of predict_proba, computed in place on the probability array.
+        # Outputs: ndarray (n_samples, n_classes); may contain -inf for zero
+        #   probabilities.
         """Return the log of probability estimates.
 
         Parameters
@@ -1353,6 +1596,13 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
         return np.log(y_prob, out=y_prob)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Class probabilities from the forward pass. For a single logistic output the
+        #   result is stacked as two columns [1 - p, p]; otherwise the output layer is
+        #   returned as is (softmax rows, or independent logistic columns for
+        #   multilabel).
+        # Outputs: ndarray (n_samples, n_classes).
+        # Exceptions: NotFittedError.
         """Probability estimates.
 
         Parameters
@@ -1378,12 +1628,17 @@ class MLPClassifier(ClassifierMixin, BaseMultilayerPerceptron):
             return y_pred
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds the multi_label classifier tag on top of the base tags.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_label = True
         return tags
 
 
 class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
+    # [CLASS DOC]
+    # Multi-layer perceptron regressor. loss squared_error uses an identity output
+    #   layer; poisson uses an exp output layer. Multi-output targets are supported.
     """Multi-layer Perceptron regressor.
 
     This model optimizes the squared error using LBFGS or stochastic gradient
@@ -1705,6 +1960,10 @@ class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
         n_iter_no_change=10,
         max_fun=15000,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters via the base constructor; loss is the first
+        #   positional parameter (default squared_error). Other defaults match
+        #   MLPClassifier.
         super().__init__(
             hidden_layer_sizes=hidden_layer_sizes,
             activation=activation,
@@ -1733,6 +1992,10 @@ class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
         )
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts targets for X; output is (n_samples,) for single-output models,
+        #   otherwise (n_samples, n_outputs).
+        # Exceptions: NotFittedError.
         """Predict using the multi-layer perceptron model.
 
         Parameters
@@ -1749,6 +2012,9 @@ class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
         return self._predict(X)
 
     def _predict(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # HELPER: Forward pass; ravels the single-output case.
+        # Inputs: X; check_input bool.
         """Private predict method with optional input validation"""
         y_pred = self._forward_pass_fast(X, check_input=check_input)
         if y_pred.shape[1] == 1:
@@ -1756,11 +2022,18 @@ class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
         return y_pred
 
     def _score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: R2 score of predictions on X versus y, NaN if outputs are non-
+        #   finite; used for early-stopping validation.
         return super()._score_with_function(
             X, y, sample_weight=sample_weight, score_function=r2_score
         )
 
     def _validate_input(self, X, y, incremental, reset):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (CSR/CSC, float64/float32) and numeric y (multi-output
+        #   allowed; single column ravelled with a warning).
+        # Outputs: (X, y). Exceptions: ValueError on invalid input.
         X, y = validate_data(
             self,
             X,
@@ -1778,6 +2051,13 @@ class MLPRegressor(RegressorMixin, BaseMultilayerPerceptron):
     @available_if(lambda est: est._check_solver)
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # One epoch of sgd/adam on the given data via _fit with incremental=True.
+        # Inputs: X, y, optional sample_weight.
+        # Outputs: self.
+        # KNOWN ISSUE: the available_if check passes the bound method _check_solver
+        #   without calling it, so the condition is always truthy and partial_fit is
+        #   exposed even for solver lbfgs (unlike MLPClassifier, which calls it).
         """Update the model with a single iteration over the given data.
 
         Parameters

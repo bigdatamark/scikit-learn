@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for NeighborhoodComponentsAnalysis: learned transform behaviour on toy
+# data, gradient correctness, parameter/init validation, auto-init selection,
+# warm start, verbose output, degenerate class configurations, callbacks,
+# convergence warning, numpy scalar params and feature names.
+# Import-time side effects: loads iris, permutes it with a seeded RNG and marks the
+# resulting module-global arrays read-only; defines EPS (unused here).
 """
 Testing for Neighborhood Component Analysis module (sklearn.neighbors.nca)
 """
@@ -34,6 +41,9 @@ EPS = np.finfo(float).eps
 
 
 def test_simple_example():
+    # [FUNCTION DOC]
+    # Checks that after fitting on 4 points where opposite labels are adjacent, each
+    # point's nearest other point in the transformed space has the same label.
     """Test on a simple example.
 
     Puts four points in the input space where the opposite labels points are
@@ -52,6 +62,11 @@ def test_simple_example():
 
 
 def test_toy_example_collapse_points():
+    # [FUNCTION DOC]
+    # Two same-class points plus a different-class point at their midpoint: checks the
+    # fitted transform collapses all three to one point and the final loss (recorded
+    # via a callback) is -1 within 1e-10.
+    # KNOWN ISSUE: leftover debug print of X_t.
     """Test on a toy example of three points that should collapse
 
     We build a simple example: two points from the same class and a point from
@@ -69,7 +84,14 @@ def test_toy_example_collapse_points():
     y = [0, 0, 1]
 
     class LossStorer:
+        # [CLASS DOC]
+        # HELPER: Callback holder that recomputes the NCA loss at each optimizer iteration
+        # using a separate unfitted NCA instance.
         def __init__(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets loss to inf, creates a fake NCA with n_iter_ set to inf, validates
+            # X/y with it, label-encodes y and stores the same-class boolean mask.
+            # Side effects: sets self.loss, self.fake_nca, self.X, self.same_class_mask.
             self.loss = np.inf  # initialize the loss to very high
             # Initialize a fake NCA and variables needed to compute the loss:
             self.fake_nca = NeighborhoodComponentsAnalysis()
@@ -79,6 +101,9 @@ def test_toy_example_collapse_points():
             self.same_class_mask = y[:, np.newaxis] == y[np.newaxis, :]
 
         def callback(self, transformation, n_iter):
+            # [FUNCTION DOC]
+            # HELPER: Calls the fake NCA's _loss_grad_lbfgs with sign -1 on the flattened
+            # transformation and stores the loss in self.loss (n_iter is ignored).
             """Stores the last value of the loss function"""
             self.loss, _ = self.fake_nca._loss_grad_lbfgs(
                 transformation, self.X, self.same_class_mask, -1.0
@@ -94,6 +119,9 @@ def test_toy_example_collapse_points():
 
 
 def test_finite_differences(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _loss_grad_lbfgs's gradient against scipy check_grad finite differences
+    # for a random transformation with random output dimension (abs tol 1e-4).
     """Test gradient of loss function
 
     Assert that the gradient is almost equal to its finite differences
@@ -108,9 +136,13 @@ def test_finite_differences(global_random_seed):
     mask = y[:, np.newaxis] == y[np.newaxis, :]
 
     def fun(M):
+        # [FUNCTION DOC]
+        # HELPER: Returns the loss for flattened transformation M.
         return nca._loss_grad_lbfgs(M, X, mask)[0]
 
     def grad(M):
+        # [FUNCTION DOC]
+        # HELPER: Returns the gradient for flattened transformation M.
         return nca._loss_grad_lbfgs(M, X, mask)[1]
 
     # compare the gradient to a finite difference approximation
@@ -119,6 +151,9 @@ def test_finite_differences(global_random_seed):
 
 
 def test_params_validation():
+    # [FUNCTION DOC]
+    # Checks fit raises ValueError with exact messages when init has more output than
+    # input dimensions and when n_components exceeds n_features.
     # Test that invalid parameters raise value error
     X = np.arange(12).reshape(4, 3)
     y = [1, 1, 2, 2]
@@ -144,6 +179,9 @@ def test_params_validation():
 
 
 def test_transformation_dimensions():
+    # [FUNCTION DOC]
+    # Checks fit fails when init's input dimension mismatches X or its output dim
+    # exceeds its input dim, and succeeds with a square matching init.
     X = np.arange(12).reshape(4, 3)
     y = [1, 1, 2, 2]
 
@@ -165,6 +203,9 @@ def test_transformation_dimensions():
 
 
 def test_n_components():
+    # [FUNCTION DOC]
+    # Checks ValueError messages when n_components mismatches init's output dimension
+    # or exceeds n_features, and that a valid n_components with identity init fits.
     rng = np.random.RandomState(42)
     X = np.arange(12).reshape(4, 3)
     y = [1, 1, 2, 2]
@@ -200,6 +241,10 @@ def test_n_components():
 
 
 def test_init_transformation():
+    # [FUNCTION DOC]
+    # Checks every named init (identity, random, auto, pca, lda) and a valid array init
+    # fit, and that array inits with wrong input dim, output > input dim, or output dim
+    # different from n_components raise ValueError with exact messages.
     rng = np.random.RandomState(42)
     X, y = make_blobs(n_samples=30, centers=6, n_features=5, random_state=0)
 
@@ -268,6 +313,11 @@ def test_init_transformation():
 @pytest.mark.parametrize("n_classes", [5, 7, 11])
 @pytest.mark.parametrize("n_components", [3, 5, 7, 11])
 def test_auto_init(n_samples, n_features, n_classes, n_components):
+    # [FUNCTION DOC]
+    # For valid sample/feature/class/component combinations, checks init="auto" gives
+    # the same components_ (max_iter=1) as lda when n_components <= min(n_classes-1,
+    # n_features), pca when n_components < min(n_features, n_samples), else identity.
+    # Invalid combinations are skipped silently.
     # Test that auto choose the init as expected with every configuration
     # of order of n_samples, n_features, n_classes and n_components.
     rng = np.random.RandomState(42)
@@ -299,6 +349,9 @@ def test_auto_init(n_samples, n_features, n_classes, n_components):
 
 
 def test_warm_start_validation():
+    # [FUNCTION DOC]
+    # Checks refitting a warm-started model on data with fewer features raises the
+    # dimensionality-mismatch ValueError.
     X, y = make_classification(
         n_samples=30,
         n_features=5,
@@ -329,6 +382,10 @@ def test_warm_start_validation():
 
 
 def test_warm_start_effectiveness():
+    # [FUNCTION DOC]
+    # Fits to convergence then refits with max_iter=1; checks the warm-started model's
+    # components change by less than 3 (L1) and change less than the cold-started one.
+    # Side effects: mutates max_iter on fitted estimators.
     # A 1-iteration second fit on same data should give almost same result
     # with warm starting, and quite different result without warm starting.
 
@@ -364,6 +421,10 @@ def test_warm_start_effectiveness():
     "init_name", ["pca", "lda", "identity", "random", "precomputed"]
 )
 def test_verbose(init_name, capsys):
+    # [FUNCTION DOC]
+    # Captures stdout with verbose=1 for each init; checks the pca/lda timing line,
+    # header and separator lines, per-iteration line format and final "Training took"
+    # line.
     # assert there is proper output when verbose = 1, for every initialization
     # except auto because auto will call one of the others
     rng = np.random.RandomState(42)
@@ -408,6 +469,8 @@ def test_verbose(init_name, capsys):
 
 
 def test_no_verbose(capsys):
+    # [FUNCTION DOC]
+    # Checks fitting with default verbose prints nothing.
     # assert by default there is no output (verbose=0)
     nca = NeighborhoodComponentsAnalysis()
     nca.fit(iris_data, iris_target)
@@ -417,6 +480,9 @@ def test_no_verbose(capsys):
 
 
 def test_singleton_class():
+    # [FUNCTION DOC]
+    # Checks fit works with one singleton class, with two singleton classes, and with
+    # only singleton classes, where identity init must leave the transform as identity.
     X = iris_data.copy()
     y = iris_target.copy()
 
@@ -453,6 +519,9 @@ def test_singleton_class():
 
 
 def test_one_class():
+    # [FUNCTION DOC]
+    # Checks fitting on a single class with identity init leaves transform identity
+    # (no gradient signal).
     X = iris_data[iris_target == 0]
     y = iris_target[iris_target == 0]
 
@@ -464,9 +533,14 @@ def test_one_class():
 
 
 def test_callback(capsys):
+    # [FUNCTION DOC]
+    # Checks the user callback is invoked with a flattened (n_features^2,) array and
+    # that its printed output for n_iter=1 appears in stdout.
     max_iter = 10
 
     def my_cb(transformation, n_iter):
+        # [FUNCTION DOC]
+        # HELPER: Asserts flattened transformation shape and prints remaining iterations.
         assert transformation.shape == (iris_data.shape[1] ** 2,)
         rem_iter = max_iter - n_iter
         print("{} iterations remaining...".format(rem_iter))
@@ -481,12 +555,19 @@ def test_callback(capsys):
 
 
 def test_expected_transformation_shape():
+    # [FUNCTION DOC]
+    # Checks the transformation passed to the callback has n_features^2 elements.
     """Test that the transformation has the expected shape."""
     X = iris_data
     y = iris_target
 
     class TransformationStorer:
+        # [CLASS DOC]
+        # HELPER: Callback holder storing the last transformation seen by the optimizer.
         def __init__(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Builds a fake NCA, validates X/y, stores X and same-class mask.
+            # KNOWN ISSUE: fake_nca, X and same_class_mask are never used by this test.
             # Initialize a fake NCA and variables needed to call the loss
             # function:
             self.fake_nca = NeighborhoodComponentsAnalysis()
@@ -496,6 +577,8 @@ def test_expected_transformation_shape():
             self.same_class_mask = y[:, np.newaxis] == y[np.newaxis, :]
 
         def callback(self, transformation, n_iter):
+            # [FUNCTION DOC]
+            # HELPER: Stores the received transformation in self.transformation.
             """Stores the last value of the transformation taken as input by
             the optimizer"""
             self.transformation = transformation
@@ -508,6 +591,9 @@ def test_expected_transformation_shape():
 
 
 def test_convergence_warning():
+    # [FUNCTION DOC]
+    # Checks fitting with max_iter=2 emits ConvergenceWarning "[...] NCA did not
+    # converge".
     nca = NeighborhoodComponentsAnalysis(max_iter=2, verbose=1)
     cls_name = nca.__class__.__name__
     msg = "[{}] NCA did not converge".format(cls_name)
@@ -524,6 +610,9 @@ def test_convergence_warning():
     ],
 )
 def test_parameters_valid_types(param, value):
+    # [FUNCTION DOC]
+    # Checks numpy int32/float32 values for n_components, max_iter and tol are accepted
+    # by fit without error.
     # check that no error is raised when parameters have numpy integer or
     # floating types.
     nca = NeighborhoodComponentsAnalysis(**{param: value})
@@ -536,6 +625,9 @@ def test_parameters_valid_types(param, value):
 
 @pytest.mark.parametrize("n_components", [None, 2])
 def test_nca_feature_names_out(n_components):
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns lowercase class name plus index for
+    # n_components (or n_features when None) outputs (regression #28293).
     """Check `get_feature_names_out` for `NeighborhoodComponentsAnalysis`.
 
     Non-regression test for:

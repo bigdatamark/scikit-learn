@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Main test suite for the neighbors estimators (NearestNeighbors, KNeighbors*/
+# RadiusNeighbors* classifiers and regressors) and graph utilities: agreement
+# across algorithms and backends, precomputed dense/sparse distances, sorted graph
+# helpers, classification/regression correctness, outlier labels, multioutput,
+# sparse input, graph builders, parameter validation, metric support, parallelism,
+# LOOCV via predict(None), and assorted regressions.
+# Import-time side effects: loads iris and digits and permutes them with a shared
+# module RNG (also reused by some tests, making them order-dependent); wraps
+# neighbors.kneighbors_graph and radius_neighbors_graph with ignore_warnings by
+# monkeypatching the sklearn.neighbors module globally for the whole session.
 import re
 import warnings
 from itertools import product
@@ -97,6 +108,10 @@ DISTANCE_METRIC_OBJS = ["DM_euclidean"]
 
 
 def _parse_metric(metric: str, dtype=None):
+    # [FUNCTION DOC]
+    # HELPER: Turns a metric string starting with "DM_" into a DistanceMetric of the
+    # given dtype for the rest of the name; returns any other string unchanged.
+    # Inputs: metric - str; dtype - numpy dtype or None. Outputs: str or DistanceMetric.
     """
     Helper function for properly building a type-specialized DistanceMetric instances.
 
@@ -112,6 +127,13 @@ def _parse_metric(metric: str, dtype=None):
 
 
 def _generate_test_params_for(metric: str, n_features: int):
+    # [FUNCTION DOC]
+    # HELPER: Returns a list of metric_params dicts to test for a metric: several p
+    # values (and a weighted p=3) for minkowski, a random V for seuclidean, a random
+    # symmetric positive definite VI for mahalanobis, else a single empty dict.
+    # Randomness is seeded (RandomState(1)). Callers mutate the dicts (pop "p").
+    # KNOWN ISSUE: when metric is a DistanceMetric object (DM_ cases) the string
+    # comparisons silently fall through to the empty-params case.
     """Return list of DistanceMetric kwargs for tests."""
 
     # Distinguishing on cases not to compute unneeded datastructures.
@@ -141,6 +163,10 @@ def _generate_test_params_for(metric: str, n_features: int):
 
 
 def _weight_func(dist):
+    # [FUNCTION DOC]
+    # HELPER: Inverse-square distance weights: 1/dist squared, with division-by-zero
+    # warnings suppressed (zero distance yields inf).
+    # Inputs: dist - array. Outputs: array of same shape.
     """Weight function to replace lambda d: d ** -2.
     The lambda function is not valid because:
     if d==0 then 0^-2 is not valid."""
@@ -176,6 +202,13 @@ def test_unsupervised_kneighbors(
     query_is_train,
     metric,
 ):
+    # [FUNCTION DOC]
+    # For each common metric and dtype, checks every algorithm returns identical
+    # kneighbors indices (with and without distances) and distances within atol 1e-6,
+    # comparing consecutive algorithms; skips tree algorithms for float32
+    # DistanceMetric objects.
+    # KNOWN ISSUE: return_distance=False vs True consistency is not checked for the
+    # last algorithm in ALGORITHMS.
     # The different algorithms must return identical results
     # on their common metrics, with and without returning
     # distances
@@ -272,6 +305,10 @@ def test_neigh_predictions_algorithm_agnosticity(
     radius,
     NeighborsMixinSubclass,
 ):
+    # [FUNCTION DOC]
+    # Checks predictions of each KNeighbors/RadiusNeighbors classifier/regressor are
+    # equal across algorithms for each common metric; skips DistanceMetric objects for
+    # classifiers and radius estimators.
     # The different algorithms must return identical predictions results
     # on their common metrics.
 
@@ -338,6 +375,10 @@ def test_neigh_predictions_algorithm_agnosticity(
     ),
 )
 def test_unsupervised_inputs(global_dtype, KNeighborsMixinSubclass):
+    # [FUNCTION DOC]
+    # Checks k-neighbors estimators can be fit on a fitted NearestNeighbors, a BallTree
+    # or a KDTree and return the same kneighbors as NearestNeighbors fit on X.
+    # Uses the module-level RNG.
     # Test unsupervised inputs for neighbors estimators
 
     X = rng.random_sample((10, 3)).astype(global_dtype, copy=False)
@@ -359,6 +400,9 @@ def test_unsupervised_inputs(global_dtype, KNeighborsMixinSubclass):
 
 
 def test_not_fitted_error_gets_raised():
+    # [FUNCTION DOC]
+    # Checks kneighbors_graph and radius_neighbors_graph raise NotFittedError before
+    # fit.
     X = [[1]]
     neighbors_ = neighbors.NearestNeighbors()
     with pytest.raises(NotFittedError):
@@ -369,6 +413,15 @@ def test_not_fitted_error_gets_raised():
 
 @pytest.mark.filterwarnings("ignore:EfficiencyWarning")
 def check_precomputed(make_train_test, estimators):
+    # [FUNCTION DOC]
+    # HELPER: Shared check for metric="precomputed". Builds train/test distance
+    # matrices with make_train_test, compares kneighbors of a feature-space model with
+    # brute and auto precomputed models (also with X=None), checks wrong-shape queries
+    # raise ValueError, then for each estimator class with n_neighbors=radius=1 checks
+    # predictions agree between euclidean features and precomputed distances.
+    # Inputs: make_train_test - callable (X, Y) -> (DXX, DYX); estimators - classes.
+    # KNOWN ISSUE: the filterwarnings mark has no effect because this function is not
+    # collected as a test.
     """Tests unsupervised NearestNeighbors with a distance matrix."""
     # Note: smaller samples may result in spurious test success
     rng = np.random.RandomState(42)
@@ -424,7 +477,12 @@ def check_precomputed(make_train_test, estimators):
 
 
 def test_precomputed_dense():
+    # [FUNCTION DOC]
+    # Runs check_precomputed with dense pairwise distance matrices for all four
+    # supervised neighbors estimators.
     def make_train_test(X_train, X_test):
+        # [FUNCTION DOC]
+        # HELPER: Returns dense train-train and test-train euclidean distance matrices.
         return (
             metrics.pairwise_distances(X_train),
             metrics.pairwise_distances(X_test, X_train),
@@ -441,7 +499,13 @@ def test_precomputed_dense():
 
 @pytest.mark.parametrize("fmt", ["csr", "lil"])
 def test_precomputed_sparse_knn(fmt):
+    # [FUNCTION DOC]
+    # Runs check_precomputed with sparse k-NN distance graphs (k=4, csr/lil) for the
+    # KNeighbors estimators.
     def make_train_test(X_train, X_test):
+        # [FUNCTION DOC]
+        # HELPER: Fits a 4-NN model on X_train and returns its distance graphs for train
+        # and test data converted to fmt.
         nn = neighbors.NearestNeighbors(n_neighbors=3 + 1).fit(X_train)
         return (
             nn.kneighbors_graph(X_train, mode="distance").asformat(fmt),
@@ -459,7 +523,13 @@ def test_precomputed_sparse_knn(fmt):
 
 @pytest.mark.parametrize("fmt", ["csr", "lil"])
 def test_precomputed_sparse_radius(fmt):
+    # [FUNCTION DOC]
+    # Runs check_precomputed with sparse radius-1 distance graphs (csr/lil) for the
+    # RadiusNeighbors estimators.
     def make_train_test(X_train, X_test):
+        # [FUNCTION DOC]
+        # HELPER: Fits a radius-1 model and returns train and test radius distance graphs
+        # converted to fmt.
         nn = neighbors.NearestNeighbors(radius=1).fit(X_train)
         return (
             nn.radius_neighbors_graph(X_train, mode="distance").asformat(fmt),
@@ -477,6 +547,9 @@ def test_precomputed_sparse_radius(fmt):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_is_sorted_by_data(csr_container):
+    # [FUNCTION DOC]
+    # Checks _is_sorted_by_data is True for CSR matrices whose data are sorted within
+    # each row (even if not across rows, and with empty rows), False otherwise.
     # Test that _is_sorted_by_data works as expected. In CSR sparse matrix,
     # entries in each row can be sorted by indices, by data, or unsorted.
     # _is_sorted_by_data should return True when entries are sorted by data,
@@ -504,6 +577,9 @@ def test_is_sorted_by_data(csr_container):
 @pytest.mark.parametrize("function", [sort_graph_by_row_values, _check_precomputed])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sort_graph_by_row_values(function, csr_container):
+    # [FUNCTION DOC]
+    # Checks sort_graph_by_row_values and _check_precomputed return graphs sorted by
+    # row data, for uniform and varying numbers of nonzeros per row.
     # Test that sort_graph_by_row_values returns a graph sorted by row values
     X = csr_container(np.abs(np.random.RandomState(42).randn(10, 10)))
     assert not _is_sorted_by_data(X)
@@ -523,6 +599,10 @@ def test_sort_graph_by_row_values(function, csr_container):
 @pytest.mark.filterwarnings("ignore:EfficiencyWarning")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sort_graph_by_row_values_copy(csr_container):
+    # [FUNCTION DOC]
+    # Checks sort_graph_by_row_values sorts CSR in place by default or with copy=False,
+    # copies with copy=True, _check_precomputed always copies, and non-CSR input works
+    # only with copy=True (ValueError otherwise).
     # Test if the sorting is done inplace if X is CSR, so that Xt is X.
     X_ = csr_container(np.abs(np.random.RandomState(42).randn(10, 10)))
     assert not _is_sorted_by_data(X_)
@@ -551,6 +631,10 @@ def test_sort_graph_by_row_values_copy(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sort_graph_by_row_values_warning(csr_container):
+    # [FUNCTION DOC]
+    # Checks EfficiencyWarning "was not sorted by row values" is emitted by default,
+    # with warn_when_not_sorted=True and by _check_precomputed, and not emitted with
+    # warn_when_not_sorted=False.
     # Test that the parameter warn_when_not_sorted works as expected.
     X = csr_container(np.abs(np.random.RandomState(42).randn(10, 10)))
     assert not _is_sorted_by_data(X)
@@ -573,6 +657,9 @@ def test_sort_graph_by_row_values_warning(csr_container):
     "sparse_container", DOK_CONTAINERS + BSR_CONTAINERS + DIA_CONTAINERS
 )
 def test_sort_graph_by_row_values_bad_sparse_format(sparse_container):
+    # [FUNCTION DOC]
+    # Checks DOK/BSR/DIA input raises TypeError "format is not supported" in both
+    # sort_graph_by_row_values and _check_precomputed.
     # Test that sort_graph_by_row_values and _check_precomputed error on bad formats
     X = sparse_container(np.abs(np.random.RandomState(42).randn(10, 10)))
     with pytest.raises(TypeError, match="format is not supported"):
@@ -584,6 +671,10 @@ def test_sort_graph_by_row_values_bad_sparse_format(sparse_container):
 @pytest.mark.filterwarnings("ignore:EfficiencyWarning")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_precomputed_sparse_invalid(csr_container):
+    # [FUNCTION DOC]
+    # Checks precomputed sparse graphs: valid queries work; a graph where a sample has
+    # too few stored neighbors raises the "2 neighbors per samples are required" error;
+    # negative distances raise "Negative values in data passed to precomputed".
     dist = np.array([[0.0, 2.0, 1.0], [2.0, 0.0, 3.0], [1.0, 3.0, 0.0]])
     dist_csr = csr_container(dist)
     neigh = neighbors.NearestNeighbors(n_neighbors=1, metric="precomputed")
@@ -608,6 +699,9 @@ def test_precomputed_sparse_invalid(csr_container):
 
 
 def test_precomputed_cross_validation():
+    # [FUNCTION DOC]
+    # Checks cross_val_score is identical for features and for the precomputed
+    # distance matrix (correct square splitting) for all four supervised estimators.
     # Ensure array is split correctly
     rng = np.random.RandomState(0)
     X = rng.rand(20, 2)
@@ -627,6 +721,10 @@ def test_precomputed_cross_validation():
 def test_unsupervised_radius_neighbors(
     global_dtype, n_samples=20, n_features=5, n_query_pts=2, radius=0.5, random_state=0
 ):
+    # [FUNCTION DOC]
+    # For each p and algorithm, sorts radius_neighbors results by distance and checks
+    # indices with/without distances agree and all algorithms return the same
+    # distances and indices.
     # Test unsupervised radius-based query
     rng = np.random.RandomState(random_state)
 
@@ -678,6 +776,9 @@ def test_kneighbors_classifier(
     n_neighbors=5,
     random_state=0,
 ):
+    # [FUNCTION DOC]
+    # Checks KNeighborsClassifier predicts the training labels of slightly perturbed
+    # training points, for integer and string labels, all algorithms and weights.
     # Test k-neighbors classification
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features).astype(global_dtype, copy=False) - 1
@@ -705,6 +806,8 @@ def test_kneighbors_classifier_float_labels(
     n_neighbors=5,
     random_state=0,
 ):
+    # [FUNCTION DOC]
+    # Checks float-valued labels are handled and predictions equal the integer labels.
     # Test k-neighbors classification
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features).astype(global_dtype, copy=False) - 1
@@ -718,6 +821,9 @@ def test_kneighbors_classifier_float_labels(
 
 
 def test_kneighbors_classifier_predict_proba(global_dtype):
+    # [FUNCTION DOC]
+    # Checks predict_proba against hand-computed class fractions with p=1 and k=3, for
+    # integer and string labels, and distance-weighted probabilities with k=2.
     # Test KNeighborsClassifier.predict_proba() method
     X = np.array(
         [[0, 2, 0], [0, 2, 1], [2, 0, 0], [2, 2, 0], [0, 0, 2], [0, 0, 1]]
@@ -764,6 +870,9 @@ def test_radius_neighbors_classifier(
     radius=0.5,
     random_state=0,
 ):
+    # [FUNCTION DOC]
+    # Radius analog of test_kneighbors_classifier: perturbed training points must get
+    # their labels (int and str), all algorithms and weights.
     # Test radius-based classification
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features).astype(global_dtype, copy=False) - 1
@@ -788,6 +897,9 @@ def test_radius_neighbors_classifier(
 def test_radius_neighbors_classifier_when_no_neighbors(
     global_dtype, algorithm, weights, outlier_label
 ):
+    # [FUNCTION DOC]
+    # Checks queries with neighbors are predicted correctly and that, when
+    # outlier_label is None, a query with no neighbors in radius raises ValueError.
     # Test radius-based classifier when no neighbors found.
     # In this case it should rise an informative exception
 
@@ -818,6 +930,12 @@ def test_radius_neighbors_classifier_when_no_neighbors(
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 @pytest.mark.parametrize("weights", WEIGHTS)
 def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, weights):
+    # [FUNCTION DOC]
+    # Checks outlier_label handling: -1 not in classes warns and yields label -1 and
+    # zero probabilities; invalid outlier_label (nested list, string) raises
+    # TypeError; "most_frequent" and in-class labels set outlier probabilities; an
+    # out-of-class label warns; multioutput with a shared label or a per-output list
+    # works; a list of wrong length raises ValueError.
     # Test radius-based classifier when no neighbors found and outliers
     # are labeled.
 
@@ -855,6 +973,8 @@ def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, w
 
     # test outlier_label scalar verification
     def check_array_exception():
+        # [FUNCTION DOC]
+        # HELPER: Fits with a nested-list outlier_label (expected to raise TypeError).
         clf = RNC(radius=1, outlier_label=[[5]])
         clf.fit(X, y)
 
@@ -863,6 +983,8 @@ def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, w
 
     # test invalid outlier_label dtype
     def check_dtype_exception():
+        # [FUNCTION DOC]
+        # HELPER: Fits with a string outlier_label not in classes (expected TypeError).
         clf = RNC(radius=1, outlier_label="a")
         clf.fit(X, y)
 
@@ -885,6 +1007,9 @@ def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, w
 
     # test manual label out of y warning
     def check_warning():
+        # [FUNCTION DOC]
+        # HELPER: Fits with out-of-class outlier_label 4 and calls predict_proba on an
+        # outlier (expected UserWarning).
         clf = RNC(radius=1, outlier_label=4)
         clf.fit(X, y)
         clf.predict_proba([[1], [15]])
@@ -935,6 +1060,9 @@ def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, w
 
     # test inconsistent outlier label list length
     def check_exception():
+        # [FUNCTION DOC]
+        # HELPER: Fits multioutput y with a 3-element outlier_label list for 2 outputs
+        # (expected ValueError).
         clf = RNC(radius=1, outlier_label=[0, 1, 2])
         clf.fit(X, y_multi)
 
@@ -943,6 +1071,9 @@ def test_radius_neighbors_classifier_outlier_labeling(global_dtype, algorithm, w
 
 
 def test_radius_neighbors_classifier_zero_distance():
+    # [FUNCTION DOC]
+    # Checks predictions are correct when a query coincides with a training sample,
+    # for all algorithms and weights (inf weights handled).
     # Test radius-based classifier, when distance to a sample is zero.
 
     X = np.array([[1.0, 1.0], [2.0, 2.0]])
@@ -967,6 +1098,10 @@ def test_radius_neighbors_classifier_zero_distance():
 
 
 def test_neighbors_regressors_zero_distance():
+    # [FUNCTION DOC]
+    # Checks radius and k-NN regressors with uniform/distance weights give expected
+    # values when a query exactly matches training samples (zero distance) and with
+    # duplicate training points.
     # Test radius-based regressor, when distance to a sample is zero.
 
     X = np.array([[1.0, 1.0], [1.0, 1.0], [2.0, 2.0], [2.5, 2.5]])
@@ -1000,6 +1135,9 @@ def test_neighbors_regressors_zero_distance():
 
 
 def test_radius_neighbors_boundary_handling():
+    # [FUNCTION DOC]
+    # Checks points at exactly the radius are included, and that a single query
+    # returns a 1-element object array.
     """Test whether points lying on boundary are handled consistently
 
     Also ensures that even with only one query point, an object array
@@ -1019,6 +1157,9 @@ def test_radius_neighbors_boundary_handling():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_radius_neighbors_returns_array_of_objects(csr_container):
+    # [FUNCTION DOC]
+    # Checks radius_neighbors on a precomputed sparse matrix returns object arrays of
+    # per-row arrays (regression #16036).
     # check that we can pass precomputed distances to
     # NearestNeighbors.radius_neighbors()
     # non-regression test for
@@ -1042,6 +1183,9 @@ def test_radius_neighbors_returns_array_of_objects(csr_container):
 
 @pytest.mark.parametrize("algorithm", ["ball_tree", "kd_tree", "brute"])
 def test_query_equidistant_kth_nn(algorithm):
+    # [FUNCTION DOC]
+    # Checks that among equidistant candidates for the k-th neighbor, the earliest
+    # index wins, for each algorithm.
     # For several candidates for the k-th nearest neighbor position,
     # the first candidate should be chosen
     query_point = np.array([[0, 0]])
@@ -1069,6 +1213,10 @@ def test_query_equidistant_kth_nn(algorithm):
     ],
 )
 def test_radius_neighbors_sort_results(algorithm, metric):
+    # [FUNCTION DOC]
+    # Checks sort_results=True yields sorted distances in radius_neighbors and a graph
+    # sorted by data, and that sort_results without return_distance raises ValueError
+    # (except for precomputed input). DistanceMetric objects are skipped.
     # Test radius_neighbors[_graph] output when sort_result is True
 
     metric = _parse_metric(metric, np.float64)
@@ -1106,6 +1254,9 @@ def test_radius_neighbors_sort_results(algorithm, metric):
 
 
 def test_RadiusNeighborsClassifier_multioutput():
+    # [FUNCTION DOC]
+    # Checks multioutput RadiusNeighborsClassifier predictions equal stacking
+    # per-output single models, for all algorithms and weights.
     # Test k-NN classifier on multioutput data
     rng = check_random_state(0)
     n_features = 2
@@ -1146,6 +1297,9 @@ def test_RadiusNeighborsClassifier_multioutput():
 def test_kneighbors_classifier_sparse(
     n_samples=40, n_features=5, n_test_pts=10, n_neighbors=5, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks a classifier fit on each sparse format predicts the labels of perturbed
+    # training points given in every sparse format or dense.
     # Test k-NN classifier on sparse matrices
     # Like the above, but with various types of sparse matrices
     rng = np.random.RandomState(random_state)
@@ -1164,6 +1318,9 @@ def test_kneighbors_classifier_sparse(
 
 
 def test_KNeighborsClassifier_multioutput():
+    # [FUNCTION DOC]
+    # Checks multioutput KNeighborsClassifier predict and predict_proba equal those of
+    # per-output single models.
     # Test k-NN classifier on multioutput data
     rng = check_random_state(0)
     n_features = 5
@@ -1210,6 +1367,9 @@ def test_KNeighborsClassifier_multioutput():
 def test_kneighbors_regressor(
     n_samples=40, n_features=5, n_test_pts=10, n_neighbors=3, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks k-NN regression on perturbed training points is within 0.3 of targets for
+    # all algorithms and weights.
     # Test k-neighbors regression
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features) - 1
@@ -1232,6 +1392,9 @@ def test_kneighbors_regressor(
 
 
 def test_KNeighborsRegressor_multioutput_uniform_weight():
+    # [FUNCTION DOC]
+    # Checks uniform-weight multioutput predictions equal the mean of the neighbors'
+    # targets obtained from kneighbors.
     # Test k-neighbors in multi-output regression with uniform weight
     rng = check_random_state(0)
     n_features = 5
@@ -1259,6 +1422,8 @@ def test_KNeighborsRegressor_multioutput_uniform_weight():
 def test_kneighbors_regressor_multioutput(
     n_samples=40, n_features=5, n_test_pts=10, n_neighbors=3, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks 2-output k-NN regression has correct shape and is within 0.3 of targets.
     # Test k-neighbors in multi-output regression
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features) - 1
@@ -1284,6 +1449,9 @@ def test_kneighbors_regressor_multioutput(
 def test_radius_neighbors_regressor(
     n_samples=40, n_features=3, n_test_pts=10, radius=0.5, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks radius regression is within radius/2 of targets, and that a query with no
+    # neighbors warns and predicts NaN.
     # Test radius-based neighbors regression
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features) - 1
@@ -1321,6 +1489,9 @@ def test_radius_neighbors_regressor(
 
 
 def test_RadiusNeighborsRegressor_multioutput_with_uniform_weight():
+    # [FUNCTION DOC]
+    # Checks uniform-weight multioutput radius predictions equal the mean of targets
+    # of the neighbors returned by radius_neighbors.
     # Test radius neighbors in multi-output regression (uniform weight)
 
     rng = check_random_state(0)
@@ -1350,6 +1521,9 @@ def test_RadiusNeighborsRegressor_multioutput_with_uniform_weight():
 def test_RadiusNeighborsRegressor_multioutput(
     n_samples=40, n_features=5, n_test_pts=10, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks 2-output radius regression shape and accuracy (within 0.3) for all
+    # algorithms and weights.
     # Test k-neighbors in multi-output regression with various weight
     rng = np.random.RandomState(random_state)
     X = 2 * rng.rand(n_samples, n_features) - 1
@@ -1374,6 +1548,12 @@ def test_RadiusNeighborsRegressor_multioutput(
 def test_kneighbors_regressor_sparse(
     n_samples=40, n_features=5, n_test_pts=10, n_neighbors=5, random_state=0
 ):
+    # [FUNCTION DOC]
+    # Checks k-NN regression fit on each sparse format, and a precomputed variant,
+    # predicts rounded labels with > 95% accuracy for all input formats; precomputed
+    # DOK/BSR queries raise TypeError about explicit zeros.
+    # KNOWN ISSUE: the leading comment says radius-based regression, but only
+    # KNeighborsRegressor is tested.
     # Test radius-based regression on sparse matrices
     # Like the above, but with various types of sparse matrices
     rng = np.random.RandomState(random_state)
@@ -1403,6 +1583,9 @@ def test_kneighbors_regressor_sparse(
 
 
 def test_neighbors_iris():
+    # [FUNCTION DOC]
+    # Sanity check on iris: 1-NN reproduces labels, 9-NN and 5-NN regression reach
+    # > 95% accuracy, for every algorithm.
     # Sanity checks on the iris dataset
     # Puts three points of each label in the plane and performs a
     # nearest neighbor query on points near the decision boundary.
@@ -1422,6 +1605,9 @@ def test_neighbors_iris():
 
 
 def test_neighbors_digits():
+    # [FUNCTION DOC]
+    # Checks 1-NN brute accuracy on digits is identical for uint8 and float input
+    # (guards against uint8 overflow in distances).
     # Sanity check on the digits dataset
     # the 'brute' algorithm has been observed to fail if the input
     # dtype is uint8 due to overflow in distance calculations.
@@ -1443,6 +1629,9 @@ def test_neighbors_digits():
 
 
 def test_kneighbors_graph():
+    # [FUNCTION DOC]
+    # Checks kneighbors_graph connectivity/distance matrices for k=1, 2, 3 on a 3-point
+    # toy set against hard-coded values.
     # Test kneighbors_graph to build the k-Nearest Neighbor graph.
     X = np.array([[0, 1], [1.01, 1.0], [2, 0]])
 
@@ -1478,6 +1667,8 @@ def test_kneighbors_graph():
 @pytest.mark.parametrize("mode", ["connectivity", "distance"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_kneighbors_graph_sparse(n_neighbors, mode, csr_container, seed=36):
+    # [FUNCTION DOC]
+    # Checks kneighbors_graph is the same for dense and CSR input.
     # Test kneighbors_graph to build the k-Nearest Neighbor graph
     # for sparse input.
     rng = np.random.RandomState(seed)
@@ -1491,6 +1682,8 @@ def test_kneighbors_graph_sparse(n_neighbors, mode, csr_container, seed=36):
 
 
 def test_radius_neighbors_graph():
+    # [FUNCTION DOC]
+    # Checks radius_neighbors_graph connectivity and distance outputs on a toy set.
     # Test radius_neighbors_graph to build the Nearest Neighbor graph.
     X = np.array([[0, 1], [1.01, 1.0], [2, 0]])
 
@@ -1507,6 +1700,9 @@ def test_radius_neighbors_graph():
 @pytest.mark.parametrize("mode", ["connectivity", "distance"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_radius_neighbors_graph_sparse(n_neighbors, mode, csr_container, seed=36):
+    # [FUNCTION DOC]
+    # Checks radius_neighbors_graph is the same for dense and CSR input.
+    # KNOWN ISSUE: the parameter named n_neighbors is actually passed as the radius.
     # Test radius_neighbors_graph to build the Nearest Neighbor graph
     # for sparse input.
     rng = np.random.RandomState(seed)
@@ -1530,6 +1726,11 @@ def test_radius_neighbors_graph_sparse(n_neighbors, mode, csr_container, seed=36
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_neighbors_validate_parameters(Estimator, csr_container):
+    # [FUNCTION DOC]
+    # Checks errors for: predict before fit, haversine on sparse input, haversine with
+    # 3 features, empty X, 3D X, and zero-feature queries.
+    # KNOWN ISSUE: ignore_warnings is applied to the result of nbrs.fit(...) (fit runs
+    # before wrapping), so it does not suppress anything.
     """Additional parameter validation for *Neighbors* estimators not covered by common
     validation."""
     X = rng.random_sample((10, 2))
@@ -1578,6 +1779,8 @@ def test_neighbors_validate_parameters(Estimator, csr_container):
 @pytest.mark.parametrize("n_features", [2, 100])
 @pytest.mark.parametrize("algorithm", ["auto", "brute"])
 def test_neighbors_minkowski_semimetric_algo_warn(Estimator, n_features, algorithm):
+    # [FUNCTION DOC]
+    # Checks p=0.1 with auto/brute warns that it is not a metric and uses brute.
     """
     Validation of all classes extending NeighborsBase with
     Minkowski semi-metrics (i.e. when 0 < p < 1). That proper
@@ -1609,6 +1812,9 @@ def test_neighbors_minkowski_semimetric_algo_warn(Estimator, n_features, algorit
 @pytest.mark.parametrize("n_features", [2, 100])
 @pytest.mark.parametrize("algorithm", ["kd_tree", "ball_tree"])
 def test_neighbors_minkowski_semimetric_algo_error(Estimator, n_features, algorithm):
+    # [FUNCTION DOC]
+    # Checks p=0.1 with kd_tree/ball_tree raises the documented ValueError.
+    # KNOWN ISSUE: n_features parameter is ignored (X always has 2 features).
     """Check that we raise a proper error if `algorithm!='brute'` and `p<1`."""
     X = rng.random_sample((10, 2))
     y = np.ones(10)
@@ -1625,6 +1831,9 @@ def test_neighbors_minkowski_semimetric_algo_error(Estimator, n_features, algori
 
 # TODO: remove when NearestNeighbors methods uses parameter validation mechanism
 def test_nearest_neighbors_validate_params():
+    # [FUNCTION DOC]
+    # Checks an invalid mode in kneighbors_graph/radius_neighbors_graph raises
+    # ValueError.
     """Validate parameter of NearestNeighbors."""
     X = rng.random_sample((10, 2))
 
@@ -1658,6 +1867,10 @@ def test_neighbors_metrics(
     n_query_pts=2,
     n_neighbors=5,
 ):
+    # [FUNCTION DOC]
+    # For metrics valid for both ball_tree and brute (and DM_ objects), and each set of
+    # metric params, checks brute, ball_tree and kd_tree (when supported, else fit must
+    # raise ValueError) return the same kneighbors with dtype-dependent rtol.
     rng = np.random.RandomState(global_random_seed)
 
     metric = _parse_metric(metric, global_dtype)
@@ -1743,6 +1956,10 @@ def test_kneighbors_brute_backend(
     n_query_pts=5,
     n_neighbors=5,
 ):
+    # [FUNCTION DOC]
+    # Checks the legacy and the Cython pairwise-distances-reduction brute backends
+    # give compatible kneighbors results for every brute metric and params (boolean
+    # data for boolean metrics, 2 features for haversine).
     rng = np.random.RandomState(global_random_seed)
     # Both backend for the 'brute' algorithm of kneighbors must give identical results.
     X_train = rng.rand(n_samples, n_features).astype(global_dtype, copy=False)
@@ -1790,7 +2007,12 @@ def test_kneighbors_brute_backend(
 
 
 def test_callable_metric():
+    # [FUNCTION DOC]
+    # Checks a callable metric gives the same kneighbors distances with auto and brute.
     def custom_metric(x1, x2):
+        # [FUNCTION DOC]
+        # HELPER: Toy callable metric: square root of the sum of squared entries of both
+        # vectors. KNOWN ISSUE: not a true distance (nonzero for identical points).
         return np.sqrt(np.sum(x1**2 + x2**2))
 
     X = np.random.RandomState(42).rand(20, 2)
@@ -1817,6 +2039,11 @@ def test_callable_metric():
 def test_valid_brute_metric_for_auto_algorithm(
     global_dtype, metric, csr_container, n_samples=20, n_features=12
 ):
+    # [FUNCTION DOC]
+    # Smoke test that every brute metric (and DM_ objects) works with algorithm auto
+    # on dense data, and on CSR when the metric supports sparse; precomputed is
+    # checked with a small distance matrix.
+    # Uses the module-level RNG.
     metric = _parse_metric(metric, global_dtype)
 
     X = rng.rand(n_samples, n_features).astype(global_dtype, copy=False)
@@ -1859,6 +2086,8 @@ def test_valid_brute_metric_for_auto_algorithm(
 
 
 def test_metric_params_interface():
+    # [FUNCTION DOC]
+    # Checks passing p via metric_params emits a SyntaxWarning on fit.
     X = rng.rand(5, 5)
     y = rng.randint(0, 2, 5)
     est = neighbors.KNeighborsClassifier(metric_params={"p": 3})
@@ -1868,6 +2097,9 @@ def test_metric_params_interface():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_predict_sparse_ball_kd_tree(csr_container):
+    # [FUNCTION DOC]
+    # Checks predict with sparse input raises ValueError for models fit with kd_tree
+    # or ball_tree.
     rng = np.random.RandomState(0)
     X = rng.rand(5, 5)
     y = rng.randint(0, 2, 5)
@@ -1880,6 +2112,12 @@ def test_predict_sparse_ball_kd_tree(csr_container):
 
 
 def test_non_euclidean_kneighbors():
+    # [FUNCTION DOC]
+    # Checks kneighbors_graph/radius_neighbors_graph functions match NearestNeighbors
+    # methods for manhattan and chebyshev, and that passing a fitted estimator with a
+    # different metric raises ValueError.
+    # KNOWN ISSUE: np.sort result is discarded, so the radius is an arbitrary
+    # (unsorted) pairwise distance, not the 16th smallest as intended.
     rng = np.random.RandomState(0)
     X = rng.rand(5, 5)
 
@@ -1916,11 +2154,17 @@ def test_non_euclidean_kneighbors():
 
 
 def check_object_arrays(nparray, list_check):
+    # [FUNCTION DOC]
+    # HELPER: Asserts each element of an object array equals the corresponding entry
+    # of list_check.
     for ind, ele in enumerate(nparray):
         assert_array_equal(ele, list_check[ind])
 
 
 def test_k_and_radius_neighbors_train_is_not_query():
+    # [FUNCTION DOC]
+    # Checks kneighbors, radius_neighbors and their graph variants on 1D toy data when
+    # the query differs from the training set, for all algorithms.
     # Test kneighbors et.al when query is not training data
 
     for algorithm in ALGORITHMS:
@@ -1952,6 +2196,9 @@ def test_k_and_radius_neighbors_train_is_not_query():
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_k_and_radius_neighbors_X_None(algorithm):
+    # [FUNCTION DOC]
+    # Checks that with X=None each training point excludes itself from its neighbors
+    # in kneighbors, radius_neighbors and both graph methods, including duplicates.
     # Test kneighbors et.al when query is None
     nn = neighbors.NearestNeighbors(n_neighbors=1, algorithm=algorithm)
 
@@ -1984,6 +2231,10 @@ def test_k_and_radius_neighbors_X_None(algorithm):
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_k_and_radius_neighbors_duplicates(algorithm):
+    # [FUNCTION DOC]
+    # Checks query points equal to training points are not specially treated, explicit
+    # zero distances are stored in graphs, and with X=None and more duplicates than
+    # n_neighbors the self sample is masked.
     # Test behavior of kneighbors when duplicates are present in query
     nn = neighbors.NearestNeighbors(n_neighbors=1, algorithm=algorithm)
     duplicates = [[0], [1], [3]]
@@ -2033,6 +2284,9 @@ def test_k_and_radius_neighbors_duplicates(algorithm):
 
 
 def test_include_self_neighbors_graph():
+    # [FUNCTION DOC]
+    # Checks include_self toggles the diagonal in kneighbors_graph and
+    # radius_neighbors_graph.
     # Test include_self parameter in neighbors_graph
     X = [[2, 3], [4, 5]]
     kng = neighbors.kneighbors_graph(X, 1, include_self=True).toarray()
@@ -2050,6 +2304,10 @@ def test_include_self_neighbors_graph():
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_same_knn_parallel(algorithm):
+    # [FUNCTION DOC]
+    # Checks predict, kneighbors and kneighbors_graph are identical with n_jobs=1 and
+    # n_jobs=3.
+    # KNOWN ISSUE: train_test_split has no random_state (unseeded split).
     X, y = datasets.make_classification(
         n_samples=30, n_features=5, n_redundant=0, random_state=0
     )
@@ -2075,6 +2333,8 @@ def test_same_knn_parallel(algorithm):
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_same_radius_neighbors_parallel(algorithm):
+    # [FUNCTION DOC]
+    # Radius analog of test_same_knn_parallel (n_jobs=3 vs default).
     X, y = datasets.make_classification(
         n_samples=30, n_features=5, n_redundant=0, random_state=0
     )
@@ -2101,6 +2361,9 @@ def test_same_radius_neighbors_parallel(algorithm):
 
 @pytest.mark.parametrize("algorithm", ["ball_tree", "kd_tree"])
 def test_radius_neighbors_parallel_array_radius(algorithm):
+    # [FUNCTION DOC]
+    # Checks per-query radius arrays give the same neighbor sets with n_jobs=2 for tree
+    # algorithms.
     rng = np.random.RandomState(0)
     X = rng.rand(10, 3)
     radius = np.full(len(X), 0.4)
@@ -2121,6 +2384,9 @@ def test_radius_neighbors_parallel_array_radius(algorithm):
 @pytest.mark.parametrize("backend", ["threading", "loky"])
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_knn_forcing_backend(backend, algorithm):
+    # [FUNCTION DOC]
+    # Smoke test that k-NN methods work under a globally forced joblib backend
+    # (threading or loky) with n_jobs=2.
     # Non-regression test which ensures the knn methods are properly working
     # even when forcing the global joblib backend.
     with joblib.parallel_backend(backend):
@@ -2139,6 +2405,8 @@ def test_knn_forcing_backend(backend, algorithm):
 
 
 def test_dtype_convert():
+    # [FUNCTION DOC]
+    # Checks 1-NN classification with string labels on identity data returns labels.
     classifier = neighbors.KNeighborsClassifier(n_neighbors=1)
     CLASSES = 15
     X = np.eye(CLASSES)
@@ -2150,7 +2418,13 @@ def test_dtype_convert():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_metric_callable(csr_container):
+    # [FUNCTION DOC]
+    # Checks a callable metric receiving sparse rows works with brute on CSR data and
+    # returns expected neighbors.
     def sparse_metric(x, y):  # Metric accepting sparse matrix input (only)
+        # [FUNCTION DOC]
+        # HELPER: Asserts both inputs are sparse and returns their dot product as a float
+        # (used as a pseudo-distance).
         assert issparse(x) and issparse(y)
         return x.dot(y.T).toarray().item()
 
@@ -2174,6 +2448,9 @@ def test_sparse_metric_callable(csr_container):
 # ignore conversion to boolean in pairwise_distances
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.DataConversionWarning")
 def test_pairwise_boolean_distance():
+    # [FUNCTION DOC]
+    # Checks jaccard distances on float data agree between brute and ball_tree
+    # (regression #4523).
     # Non-regression test for #4523
     # 'brute': uses scipy.spatial.distance through pairwise_distances
     # 'ball_tree': uses sklearn.neighbors._dist_metrics
@@ -2187,6 +2464,9 @@ def test_pairwise_boolean_distance():
 
 
 def test_radius_neighbors_predict_proba():
+    # [FUNCTION DOC]
+    # Checks predict equals argmax of predict_proba, or outlier_label when all
+    # probabilities are zero, over five seeds.
     for seed in range(5):
         X, y = datasets.make_classification(
             n_samples=50,
@@ -2208,6 +2488,9 @@ def test_radius_neighbors_predict_proba():
 
 
 def test_pipeline_with_nearest_neighbors_transformer():
+    # [FUNCTION DOC]
+    # Duplicate of the pipeline equivalence test in test_neighbors_pipeline: compact
+    # regressors versus transformer + precomputed regressor pipelines.
     # Test chaining KNeighborsTransformer and classifiers/regressors
     rng = np.random.RandomState(0)
     X = 2 * rng.rand(40, 5) - 1
@@ -2265,6 +2548,10 @@ def test_pipeline_with_nearest_neighbors_transformer():
     ],
 )
 def test_auto_algorithm(X, metric, metric_params, expected_algo):
+    # [FUNCTION DOC]
+    # Checks algorithm="auto" picks brute/kd_tree/ball_tree as expected for given data
+    # shapes and metrics.
+    # KNOWN ISSUE: parametrize data uses the global unseeded numpy RNG.
     model = neighbors.NearestNeighbors(
         n_neighbors=4, algorithm="auto", metric=metric, metric_params=metric_params
     )
@@ -2288,6 +2575,9 @@ def test_radius_neighbors_brute_backend(
     n_query_pts=5,
     radius=1.0,
 ):
+    # [FUNCTION DOC]
+    # Checks legacy and reduction brute backends give compatible radius_neighbors
+    # results for every brute metric and params.
     rng = np.random.RandomState(global_random_seed)
     # Both backends for the 'brute' algorithm of radius_neighbors
     # must give identical results.
@@ -2337,11 +2627,15 @@ def test_radius_neighbors_brute_backend(
 
 
 def test_valid_metrics_has_no_duplicate():
+    # [FUNCTION DOC]
+    # Checks no VALID_METRICS list contains duplicates.
     for val in neighbors.VALID_METRICS.values():
         assert len(val) == len(set(val))
 
 
 def test_regressor_predict_on_arraylikes():
+    # [FUNCTION DOC]
+    # Checks predict accepts lists when weights is a callable (regression #22687).
     """Ensures that `predict` works for array-likes when `weights` is a callable.
 
     Non-regression test for #22687.
@@ -2350,6 +2644,8 @@ def test_regressor_predict_on_arraylikes():
     y = [2, 3, 5, 6]
 
     def _weights(dist):
+        # [FUNCTION DOC]
+        # HELPER: Returns uniform weights of ones with the shape of dist.
         return np.ones_like(dist)
 
     est = KNeighborsRegressor(n_neighbors=1, algorithm="brute", weights=_weights)
@@ -2370,6 +2666,10 @@ def test_regressor_predict_on_arraylikes():
     ],
 )
 def test_nan_euclidean_support(Estimator, params):
+    # [FUNCTION DOC]
+    # Checks each neighbors estimator fits with metric nan_euclidean on data with NaN
+    # and its kneighbors/predict/transform/fit_predict outputs contain no NaN.
+    # Side effects: mutates the parametrized params dict.
     """Check that the different neighbor estimators are lenient towards `nan`
     values if using `metric="nan_euclidean"`.
     """
@@ -2390,6 +2690,9 @@ def test_nan_euclidean_support(Estimator, params):
 
 
 def test_predict_dataframe():
+    # [FUNCTION DOC]
+    # Checks KNeighborsClassifier predict works on a pandas DataFrame (regression
+    # #26768); skipped without pandas.
     """Check that KNN predict works with dataframes
 
     non-regression test for issue #26768
@@ -2404,6 +2707,9 @@ def test_predict_dataframe():
 
 
 def test_nearest_neighbours_works_with_p_less_than_1():
+    # [FUNCTION DOC]
+    # Checks brute NearestNeighbors with metric_params p=0.5 returns all points in the
+    # expected order for radius_neighbors and kneighbors (regression #26548).
     """Check that NearestNeighbors works with :math:`p \\in (0,1)` when `algorithm`
     is `"auto"` or `"brute"` regardless of the dtype of X.
 
@@ -2423,6 +2729,9 @@ def test_nearest_neighbours_works_with_p_less_than_1():
 
 
 def test_KNeighborsClassifier_raise_on_all_zero_weights():
+    # [FUNCTION DOC]
+    # Checks predict and predict_proba raise ValueError when a callable weights
+    # function gives zero weight to all neighbors of a sample.
     """Check that `predict` and `predict_proba` raises on sample of all zeros weights.
 
     Related to Issue #25854.
@@ -2431,6 +2740,8 @@ def test_KNeighborsClassifier_raise_on_all_zero_weights():
     y = [0, 0, 1, 1]
 
     def _weights(dist):
+        # [FUNCTION DOC]
+        # HELPER: Element-wise weight of 0 for distance > 0.5, else 1.
         return np.vectorize(lambda x: 0 if x > 0.5 else 1)(dist)
 
     est = neighbors.KNeighborsClassifier(n_neighbors=3, weights=_weights)
@@ -2458,6 +2769,10 @@ def test_KNeighborsClassifier_raise_on_all_zero_weights():
 )
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_neighbor_classifiers_loocv(nn_model, algorithm):
+    # [FUNCTION DOC]
+    # Checks predict(None) equals leave-one-out predictions (via cross_val_score) and
+    # score(None, y) equals mean LOO accuracy and is below training accuracy; radius
+    # set to the 80th percentile of pairwise distances.
     """Check that `predict` and related functions work fine with X=None
 
     Calling predict with X=None computes a prediction for each training point
@@ -2499,6 +2814,9 @@ def test_neighbor_classifiers_loocv(nn_model, algorithm):
 )
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_neighbor_regressors_loocv(nn_model, algorithm):
+    # [FUNCTION DOC]
+    # Checks predict(None) equals cross_val_predict with LeaveOneOut for k-NN and
+    # radius regressors.
     """Check that `predict` and related functions work fine with X=None"""
     X, y = datasets.make_regression(n_samples=15, n_features=2, random_state=0)
 
@@ -2530,6 +2848,9 @@ def test_neighbor_regressors_loocv(nn_model, algorithm):
     "Estimator", [neighbors.KNeighborsClassifier, neighbors.RadiusNeighborsClassifier]
 )
 def test_neighbors_classifier_with_string_labels(metric, Estimator):
+    # [FUNCTION DOC]
+    # Checks brute classifiers with string labels predict valid labels of the right
+    # shape for every common metric (regression #33034). Uses the module-level RNG.
     """Ensure KNeighborsClassifier(algorithm='brute') works with string labels.
 
     Non-regression test for issue #33034.

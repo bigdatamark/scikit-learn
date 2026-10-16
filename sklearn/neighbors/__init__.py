@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Public entry point of sklearn.neighbors: nearest-neighbor search, classification,
+# regression, outlier detection (LocalOutlierFactor), density estimation
+# (KernelDensity), metric learning (NeighborhoodComponentsAnalysis), NearestCentroid,
+# neighbor-graph transformers/functions, the BallTree/KDTree structures, metric
+# whitelists VALID_METRICS / VALID_METRICS_SPARSE and sort_graph_by_row_values.
+# Side effects at import: imports the compiled tree extensions (_ball_tree, _kd_tree);
+# no global state is modified.
 """The k-nearest neighbors algorithms."""
 
 # Authors: The scikit-learn developers

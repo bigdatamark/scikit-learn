@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Naive Bayes classifiers: Gaussian, Multinomial, Complement, Bernoulli and Categorical.
+# All share _BaseNB, which turns a per-class joint log likelihood (log prior plus
+# class-conditional log likelihood) into predictions and (log-)probabilities. The
+# discrete variants share _BaseDiscreteNB, which accumulates weighted per-class counts
+# (sufficient statistics) in fit/partial_fit, then derives smoothed feature log
+# probabilities and class log priors from them. GaussianNB supports the Array API;
+# the discrete variants are NumPy/SciPy-sparse only.
+# Side effects at import: none beyond imports.
 """Naive Bayes algorithms.
 
 These are supervised learning methods based on applying Bayes' theorem with strong
@@ -47,10 +56,18 @@ __all__ = [
 
 
 class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for all naive Bayes estimators. Subclasses implement
+    # _joint_log_likelihood (unnormalized log posterior per class) and _check_X (input
+    # validation for prediction). This class provides the four predict* methods on top.
     """Abstract base class for naive Bayes estimators"""
 
     @abstractmethod
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # Abstract: return the unnormalized log posterior log P(c) + log P(x|c).
+        # Inputs: X - already validated array of shape (n_samples, n_features).
+        # Outputs: array of shape (n_samples, n_classes), columns ordered as classes_.
         """Compute the unnormalized posterior log probability of X
 
         I.e. ``log P(c) + log P(x|c)`` for all rows x of X, as an array-like of
@@ -64,12 +81,23 @@ class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # Abstract: validate/convert X for prediction (no reset of n_features_in_).
+        # Inputs: X - raw input. Outputs: validated X suitable for
+        # _joint_log_likelihood.
         """To be overridden in subclasses with the actual checks.
 
         Only used in predict* methods.
         """
 
     def predict_joint_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the joint log probability log P(x, y) for each sample and class.
+        # Steps: check fitted, validate X via _check_X, delegate to
+        # _joint_log_likelihood.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: array (n_samples, n_classes).
+        # Exceptions: NotFittedError if not fitted; validation errors from _check_X.
         """Return joint log probability estimates for the test vector X.
 
         For each row x of X and class y, the joint log probability is given by
@@ -94,6 +122,17 @@ class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         return self._joint_log_likelihood(X)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts the class label per sample as the class with largest joint log
+        # likelihood.
+        # Steps: check fitted, validate X, compute jll, argmax along the class axis,
+        # index
+        # classes_ with the winning indices. When labels are strings the indices are
+        # moved to
+        # NumPy on CPU first because string classes_ is a NumPy array.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: array (n_samples,) of labels taken from classes_.
+        # Exceptions: NotFittedError; validation errors.
         """
         Perform classification on an array of test vectors X.
 
@@ -117,6 +156,14 @@ class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         return self.classes_[pred_indices]
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns normalized log posterior probabilities.
+        # Steps: check fitted, validate X, compute jll, subtract per-row logsumexp of
+        # jll
+        # (i.e. log P(x)) from every column.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: array (n_samples, n_classes); each row's exp sums to 1.
+        # Exceptions: NotFittedError; validation errors.
         """
         Return log-probability estimates for the test vector X.
 
@@ -141,6 +188,10 @@ class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
         return jll - xpx.atleast_nd(log_prob_x, ndim=2).T
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns posterior probabilities as the exponential of predict_log_proba.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: array (n_samples, n_classes), rows sum to 1.
         """
         Return probability estimates for the test vector X.
 
@@ -161,6 +212,11 @@ class _BaseNB(ClassifierMixin, BaseEstimator, metaclass=ABCMeta):
 
 
 class GaussianNB(_BaseNB):
+    # [CLASS DOC]
+    # Naive Bayes with per-class, per-feature Gaussian likelihoods (diagonal
+    # covariance).
+    # Stores theta_ (means), var_ (variances plus epsilon_), class_count_ and
+    # class_prior_. Supports incremental learning and the Array API.
     """
     Gaussian Naive Bayes (GaussianNB).
 
@@ -247,11 +303,25 @@ class GaussianNB(_BaseNB):
     }
 
     def __init__(self, *, priors=None, var_smoothing=1e-9):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged (sklearn convention, no validation here).
+        # Inputs: priors - optional class priors (n_classes,); var_smoothing - float,
+        # fraction
+        # of the largest feature variance added to all variances.
         self.priors = priors
         self.var_smoothing = var_smoothing
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits from scratch: validates y alone, then calls _partial_fit with classes set
+        # to the
+        # unique values of y and _refit=True (which discards any previous classes_).
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight optional
+        # (n_samples,).
+        # Outputs: self.
+        # Exceptions: see _partial_fit; parameter validation via _fit_context.
+        # Side effects: sets all fitted attributes.
         """Fit Gaussian Naive Bayes according to X, y.
 
         Parameters
@@ -281,11 +351,32 @@ class GaussianNB(_BaseNB):
         )
 
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # Validates X for prediction without resetting n_features_in_ (dense only).
+        # Outputs: validated array.
         """Validate X, used only in predict* methods."""
         return validate_data(self, X, reset=False)
 
     @staticmethod
     def _update_mean_variance(n_past, mu, var, X, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Online combination of a running Gaussian mean/variance with a new
+        # batch
+        # (Chan, Golub and LeVeque pairwise update).
+        # Steps: if X has no rows, or the sample weights sum to ~0, return mu and var
+        # unchanged.
+        # Otherwise compute the (weighted) mean and biased variance of the batch along
+        # axis 0
+        # and its (weighted) count n_new. If n_past is 0, return the batch statistics.
+        # Else total mean is the count-weighted average of both means; total sum of
+        # squared
+        # deviations is old_ssd plus new_ssd plus n_new*n_past/n_total times the squared
+        # difference of the means; total variance is that divided by n_total.
+        # Inputs: n_past - (weighted) count already seen; mu, var - arrays
+        # (n_features,);
+        # X - batch (n_samples, n_features); sample_weight - optional (n_samples,).
+        # Outputs: tuple (total_mu, total_var), each (n_features,).
+        # Side effects: none.
         """Compute online update of Gaussian mean and variance.
 
         Given starting sample count, mean, and variance, a new set of
@@ -361,6 +452,15 @@ class GaussianNB(_BaseNB):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, classes=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Incremental fit on a batch; thin wrapper calling _partial_fit with
+        # _refit=False.
+        # Inputs: X, y as in fit; classes - all possible labels, required on the first
+        # call;
+        # sample_weight optional.
+        # Outputs: self.
+        # Exceptions: ValueError if classes is missing on first call or inconsistent
+        # later.
         """Incremental fit on a batch of samples.
 
         This method is expected to be called several times consecutively
@@ -405,6 +505,39 @@ class GaussianNB(_BaseNB):
         )
 
     def _partial_fit(self, X, y, classes=None, _refit=False, sample_weight=None):
+        # [FUNCTION DOC]
+        # Core fitting routine shared by fit and partial_fit.
+        # Steps: if _refit, clear classes_. Determine whether this is the first call
+        # (sets
+        # classes_ on first call). Validate X, y (reset feature info only on the first
+        # call),
+        # pick a floating dtype, validate sample_weight. Set epsilon_ to var_smoothing
+        # times
+        # the largest per-feature variance of THIS batch. On first call allocate zero
+        # theta_,
+        # var_ (n_classes, n_features) and class_count_, and either validate and store
+        # user priors or zero class_prior_. On later calls check the feature count
+        # matches
+        # and subtract epsilon_ from var_. Verify every label in y belongs to classes_.
+        # For
+        # each label present, select its rows (and weights) and merge them into that
+        # class's mean/variance with _update_mean_variance, then add the (weighted)
+        # count to
+        # class_count_. Finally add epsilon_ back to var_, and if no priors were given
+        # set
+        # class_prior_ to normalized class_count_.
+        # Inputs: X, y, classes, sample_weight as in partial_fit; _refit - bool, start
+        # over.
+        # Outputs: self.
+        # Exceptions: ValueError for wrong number of priors, priors not summing to 1,
+        # negative priors, feature-count mismatch, labels not in classes_.
+        # Side effects: sets/updates classes_, theta_, var_, class_count_, class_prior_,
+        # epsilon_, n_features_in_ (and feature_names_in_).
+        # KNOWN ISSUE: on a later partial_fit call, the epsilon_ subtracted from var_ is
+        # the
+        # newly computed one (from the current batch), not the one added on the previous
+        # call,
+        # so var_ drifts by the difference between the two epsilons across batches.
         """Actual implementation of Gaussian NB fitting.
 
         Parameters
@@ -531,6 +664,13 @@ class GaussianNB(_BaseNB):
         return self
 
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # For each class i, computes log prior plus the Gaussian log density summed over
+        # features: -0.5 times the sum of log(2*pi*var) minus 0.5 times the sum of
+        # squared
+        # deviations from theta_ divided by var. Stacks per-class columns.
+        # Inputs: X - validated (n_samples, n_features).
+        # Outputs: array (n_samples, n_classes).
         xp, _ = get_namespace(X)
         joint_log_likelihood = []
         for i in range(size(self.classes_)):
@@ -545,12 +685,21 @@ class GaussianNB(_BaseNB):
         return joint_log_likelihood
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare Array API support.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.array_api_support = True
         return tags
 
 
 class _BaseDiscreteNB(_BaseNB):
+    # [CLASS DOC]
+    # Abstract base for count-based naive Bayes models (Multinomial, Complement,
+    # Bernoulli, Categorical). Implements fit/partial_fit: binarize labels into a one-
+    # hot
+    # matrix Y (weighted by sample_weight), let the subclass accumulate counts (_count),
+    # smooth via alpha (_update_feature_log_prob), and set class_log_prior_.
     """Abstract base class for naive Bayes on discrete/categorical data
 
     Any estimator based on this class should provide:
@@ -569,6 +718,8 @@ class _BaseDiscreteNB(_BaseNB):
     }
 
     def __init__(self, alpha=1.0, fit_prior=True, class_prior=None, force_alpha=True):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters alpha, fit_prior, class_prior, force_alpha unchanged.
         self.alpha = alpha
         self.fit_prior = fit_prior
         self.class_prior = class_prior
@@ -576,6 +727,10 @@ class _BaseDiscreteNB(_BaseNB):
 
     @abstractmethod
     def _count(self, X, Y):
+        # [FUNCTION DOC]
+        # Abstract: add counts from X and one-hot/weighted label matrix Y (n_samples,
+        # n_classes) into class_count_, feature_count_ and any model-specific counters.
+        # Side effects: mutates the count attributes in place.
         """Update counts that are used to calculate probabilities.
 
         The counts make up a sufficient statistic extracted from the data.
@@ -593,6 +748,11 @@ class _BaseDiscreteNB(_BaseNB):
 
     @abstractmethod
     def _update_feature_log_prob(self, alpha):
+        # [FUNCTION DOC]
+        # Abstract: recompute feature_log_prob_ from the accumulated counts using
+        # smoothing
+        # value alpha (scalar or per-feature array). Side effects: sets
+        # feature_log_prob_.
         """Update feature log probabilities based on counts.
 
         This method is called each time `fit` or `partial_fit` update the
@@ -605,14 +765,32 @@ class _BaseDiscreteNB(_BaseNB):
         """
 
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # Validates X for prediction, accepting CSR sparse input, no reset.
         """Validate X, used only in predict* methods."""
         return validate_data(self, X, accept_sparse="csr", reset=False)
 
     def _check_X_y(self, X, y, reset=True):
+        # [FUNCTION DOC]
+        # Validates X and y for fitting, accepting CSR sparse X.
+        # Inputs: reset - whether to (re)set n_features_in_/feature_names_in_.
+        # Outputs: tuple (X, y).
         """Validate X and y in fit methods."""
         return validate_data(self, X, y, accept_sparse="csr", reset=reset)
 
     def _update_class_log_prior(self, class_prior=None):
+        # [FUNCTION DOC]
+        # Sets class_log_prior_. If class_prior is given, use its log. Else if
+        # fit_prior, use
+        # log of class_count_ minus log of the total count (log(0) warnings for classes
+        # not
+        # yet observed are silenced, giving -inf). Otherwise use a uniform prior, -log
+        # of the
+        # number of classes for every class.
+        # Inputs: class_prior - optional array (n_classes,).
+        # Exceptions: ValueError if class_prior length differs from the number of
+        # classes.
+        # Side effects: sets class_log_prior_.
         """Update class log priors.
 
         The class log priors are based on `class_prior`, class count or the
@@ -637,6 +815,20 @@ class _BaseDiscreteNB(_BaseNB):
             self.class_log_prior_ = np.full(n_classes, -np.log(n_classes))
 
     def _check_alpha(self):
+        # [FUNCTION DOC]
+        # Returns the effective smoothing value. Converts non-scalar alpha to an array;
+        # if an
+        # array, checks its length equals n_features_in_ and that no entry is negative.
+        # If the
+        # minimum alpha is below 1e-10 and force_alpha is False, warns and clips alpha
+        # up to
+        # 1e-10.
+        # Outputs: float or ndarray (n_features,).
+        # Exceptions: ValueError for wrong array length or negative entries.
+        # Side effects: UserWarning when clipping.
+        # KNOWN ISSUE: the error text says values must be "greater than 0" but the check
+        # only
+        # rejects negatives, so zeros are accepted.
         alpha = (
             np.asarray(self.alpha) if not isinstance(self.alpha, Real) else self.alpha
         )
@@ -662,6 +854,25 @@ class _BaseDiscreteNB(_BaseNB):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, classes=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Incremental fit on a batch.
+        # Steps: first call is detected by absence of classes_; validate X, y (resetting
+        # feature info only on first call). If first call (classes required), allocate
+        # counters
+        # via _init_counters. One-hot encode y against classes_; a single column is
+        # expanded to
+        # two complementary columns for binary problems or set to ones for one class.
+        # Check row
+        # counts match, convert Y to float64, and multiply each row by its sample
+        # weight.
+        # Then _count, _check_alpha, _update_feature_log_prob, _update_class_log_prior.
+        # Inputs: X (n_samples, n_features), dense or sparse; y (n_samples,); classes -
+        # all
+        # labels, required on first call; sample_weight optional (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError if classes missing/inconsistent, or X and y lengths
+        # differ.
+        # Side effects: updates counters and fitted attributes.
         """Incremental fit on a batch of samples.
 
         This method is expected to be called several times consecutively
@@ -745,6 +956,17 @@ class _BaseDiscreteNB(_BaseNB):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits from scratch. Validates X, y; one-hot encodes y with LabelBinarizer
+        # (setting
+        # classes_), handling the 1-column binary/single-class cases as in partial_fit;
+        # when
+        # sample_weight is given converts Y to float and scales rows by weights. Resets
+        # counters, then _count, smoothing via _check_alpha/_update_feature_log_prob,
+        # and
+        # _update_class_log_prior.
+        # Inputs: X, y, optional sample_weight. Outputs: self.
+        # Side effects: sets classes_, counters, feature_log_prob_, class_log_prior_.
         """Fit Naive Bayes classifier according to X, y.
 
         Parameters
@@ -798,10 +1020,18 @@ class _BaseDiscreteNB(_BaseNB):
         return self
 
     def _init_counters(self, n_classes, n_features):
+        # [FUNCTION DOC]
+        # HELPER: Allocates zero class_count_ (n_classes,) and feature_count_
+        # (n_classes,
+        # n_features) as float64. Side effects: overwrites those attributes.
         self.class_count_ = np.zeros(n_classes, dtype=np.float64)
         self.feature_count_ = np.zeros((n_classes, n_features), dtype=np.float64)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support and marks the classifier as possibly poor-
+        # scoring for
+        # common tests.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.classifier_tags.poor_score = True
@@ -809,6 +1039,9 @@ class _BaseDiscreteNB(_BaseNB):
 
 
 class MultinomialNB(_BaseDiscreteNB):
+    # [CLASS DOC]
+    # Multinomial naive Bayes for count features (e.g. word counts). Feature log
+    # probability is the log of smoothed per-class feature counts over their row total.
     """
     Naive Bayes classifier for multinomial models.
 
@@ -904,6 +1137,8 @@ class MultinomialNB(_BaseDiscreteNB):
     def __init__(
         self, *, alpha=1.0, force_alpha=True, fit_prior=True, class_prior=None
     ):
+        # [FUNCTION DOC]
+        # Forwards keyword-only hyper-parameters to _BaseDiscreteNB.__init__.
         super().__init__(
             alpha=alpha,
             fit_prior=fit_prior,
@@ -912,17 +1147,28 @@ class MultinomialNB(_BaseDiscreteNB):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares that input must be non-negative.
         tags = super().__sklearn_tags__()
         tags.input_tags.positive_only = True
         return tags
 
     def _count(self, X, Y):
+        # [FUNCTION DOC]
+        # Adds Y transposed times X to feature_count_ and column sums of Y to
+        # class_count_.
+        # Exceptions: ValueError if X contains negative values.
+        # Side effects: mutates feature_count_, class_count_.
         """Count and smooth feature occurrences."""
         check_non_negative(X, "MultinomialNB (input X)")
         self.feature_count_ += safe_sparse_dot(Y.T, X)
         self.class_count_ += Y.sum(axis=0)
 
     def _update_feature_log_prob(self, alpha):
+        # [FUNCTION DOC]
+        # Adds alpha to feature_count_, then sets feature_log_prob_ to the log of each
+        # entry
+        # minus the log of its row sum. Side effects: sets feature_log_prob_.
         """Apply smoothing to raw counts and recompute log probabilities"""
         smoothed_fc = self.feature_count_ + alpha
         smoothed_cc = smoothed_fc.sum(axis=1)
@@ -932,11 +1178,19 @@ class MultinomialNB(_BaseDiscreteNB):
         )
 
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # Returns X times feature_log_prob_ transposed plus class_log_prior_, shape
+        # (n_samples, n_classes).
         """Calculate the posterior log probability of the samples X"""
         return safe_sparse_dot(X, self.feature_log_prob_.T) + self.class_log_prior_
 
 
 class ComplementNB(_BaseDiscreteNB):
+    # [CLASS DOC]
+    # Complement naive Bayes (Rennie et al. 2003): weights are estimated from counts of
+    # all
+    # classes except the target one; suited to imbalanced text data. Priors are ignored
+    # except when only one class is present.
     """The Complement Naive Bayes classifier described in Rennie et al. (2003).
 
     The Complement Naive Bayes classifier was designed to correct the "severe
@@ -1051,6 +1305,8 @@ class ComplementNB(_BaseDiscreteNB):
         class_prior=None,
         norm=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards the shared hyper-parameters to the base class and stores norm.
         super().__init__(
             alpha=alpha,
             force_alpha=force_alpha,
@@ -1060,11 +1316,19 @@ class ComplementNB(_BaseDiscreteNB):
         self.norm = norm
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares that input must be non-negative.
         tags = super().__sklearn_tags__()
         tags.input_tags.positive_only = True
         return tags
 
     def _count(self, X, Y):
+        # [FUNCTION DOC]
+        # Like MultinomialNB._count and additionally sets feature_all_ to the per-
+        # feature
+        # total over classes.
+        # Exceptions: ValueError on negative X. Side effects: mutates counts, sets
+        # feature_all_.
         """Count feature occurrences."""
         check_non_negative(X, "ComplementNB (input X)")
         self.feature_count_ += safe_sparse_dot(Y.T, X)
@@ -1072,6 +1336,14 @@ class ComplementNB(_BaseDiscreteNB):
         self.feature_all_ = self.feature_count_.sum(axis=0)
 
     def _update_feature_log_prob(self, alpha):
+        # [FUNCTION DOC]
+        # Complement count per class is feature_all_ plus alpha minus the class's own
+        # count;
+        # take log of each row normalized to sum 1. If norm, divide each row by its sum
+        # (second normalization); otherwise negate it, so that argmax in predict picks
+        # the
+        # class with smallest complement weight.
+        # Side effects: sets feature_log_prob_.
         """Apply smoothing to raw counts and compute the weights."""
         comp_count = self.feature_all_ + alpha - self.feature_count_
         logged = np.log(comp_count / comp_count.sum(axis=1, keepdims=True))
@@ -1084,6 +1356,12 @@ class ComplementNB(_BaseDiscreteNB):
         self.feature_log_prob_ = feature_log_prob
 
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # Returns X times feature_log_prob_ transposed; the class log prior is added
+        # only
+        # when there is a single class.
+        # Outputs: array (n_samples, n_classes) of class scores (not true log
+        # likelihoods).
         """Calculate the class scores for the samples in X."""
         jll = safe_sparse_dot(X, self.feature_log_prob_.T)
         if len(self.classes_) == 1:
@@ -1092,6 +1370,9 @@ class ComplementNB(_BaseDiscreteNB):
 
 
 class BernoulliNB(_BaseDiscreteNB):
+    # [CLASS DOC]
+    # Naive Bayes for binary/boolean features; optionally binarizes inputs with a
+    # threshold before fitting and predicting. Penalizes absence of features explicitly.
     """Naive Bayes classifier for multivariate Bernoulli models.
 
     Like MultinomialNB, this classifier is suitable for discrete data. The
@@ -1207,6 +1488,8 @@ class BernoulliNB(_BaseDiscreteNB):
         fit_prior=True,
         class_prior=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards the shared hyper-parameters to the base class and stores binarize.
         super().__init__(
             alpha=alpha,
             fit_prior=fit_prior,
@@ -1216,6 +1499,8 @@ class BernoulliNB(_BaseDiscreteNB):
         self.binarize = binarize
 
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # Base validation, then binarizes X with threshold binarize unless it is None.
         """Validate X, used only in predict* methods."""
         X = super()._check_X(X)
         if self.binarize is not None:
@@ -1223,17 +1508,28 @@ class BernoulliNB(_BaseDiscreteNB):
         return X
 
     def _check_X_y(self, X, y, reset=True):
+        # [FUNCTION DOC]
+        # Base validation of X and y, then binarizes X unless binarize is None.
+        # Outputs: tuple (X, y).
         X, y = super()._check_X_y(X, y, reset=reset)
         if self.binarize is not None:
             X = binarize(X, threshold=self.binarize)
         return X, y
 
     def _count(self, X, Y):
+        # [FUNCTION DOC]
+        # Adds Y transposed times X to feature_count_ and column sums of Y to
+        # class_count_.
+        # Side effects: mutates counts.
         """Count and smooth feature occurrences."""
         self.feature_count_ += safe_sparse_dot(Y.T, X)
         self.class_count_ += Y.sum(axis=0)
 
     def _update_feature_log_prob(self, alpha):
+        # [FUNCTION DOC]
+        # Sets feature_log_prob_ to log of (feature count plus alpha) minus log of
+        # (class count
+        # plus 2*alpha), i.e. smoothed log P(feature = 1 | class).
         """Apply smoothing to raw counts and recompute log probabilities"""
         smoothed_fc = self.feature_count_ + alpha
         smoothed_cc = self.class_count_ + alpha * 2
@@ -1243,6 +1539,13 @@ class BernoulliNB(_BaseDiscreteNB):
         )
 
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # Computes for each sample and class the sum over features of x*log p +
+        # (1-x)*log(1-p), rewritten as X times (log p - log(1-p)) transposed plus the
+        # per-class
+        # sum of log(1-p), plus class_log_prior_.
+        # Exceptions: ValueError if X's feature count differs from the fitted one.
+        # Outputs: array (n_samples, n_classes).
         """Calculate the posterior log probability of the samples X"""
         n_features = self.feature_log_prob_.shape[1]
         n_features_X = X.shape[1]
@@ -1262,6 +1565,10 @@ class BernoulliNB(_BaseDiscreteNB):
 
 
 class CategoricalNB(_BaseDiscreteNB):
+    # [CLASS DOC]
+    # Naive Bayes for categorical features encoded as non-negative integers 0..n-1 per
+    # feature. Keeps per-feature count matrices category_count_ (n_classes,
+    # n_categories_i) and per-feature log probability matrices.
     """Naive Bayes classifier for categorical features.
 
     The categorical Naive Bayes classifier is suitable for classification with
@@ -1384,6 +1691,9 @@ class CategoricalNB(_BaseDiscreteNB):
         class_prior=None,
         min_categories=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards the shared hyper-parameters to the base class and stores
+        # min_categories.
         super().__init__(
             alpha=alpha,
             force_alpha=force_alpha,
@@ -1393,6 +1703,9 @@ class CategoricalNB(_BaseDiscreteNB):
         self.min_categories = min_categories
 
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Delegates to _BaseDiscreteNB.fit (exists to provide the specific docstring).
+        # Outputs: self.
         """Fit Naive Bayes classifier according to X, y.
 
         Parameters
@@ -1420,6 +1733,9 @@ class CategoricalNB(_BaseDiscreteNB):
         return super().fit(X, y, sample_weight=sample_weight)
 
     def partial_fit(self, X, y, classes=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Delegates to _BaseDiscreteNB.partial_fit (exists for the specific docstring).
+        # Outputs: self.
         """Incremental fit on a batch of samples.
 
         This method is expected to be called several times consecutively
@@ -1464,6 +1780,8 @@ class CategoricalNB(_BaseDiscreteNB):
         return super().partial_fit(X, y, classes, sample_weight=sample_weight)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares categorical, dense-only, non-negative input.
         tags = super().__sklearn_tags__()
         tags.input_tags.categorical = True
         tags.input_tags.sparse = False
@@ -1471,6 +1789,9 @@ class CategoricalNB(_BaseDiscreteNB):
         return tags
 
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # Validates X for prediction as a finite dense integer array, no reset.
+        # Exceptions: ValueError on sparse input, non-finite or negative values.
         """Validate X, used only in predict* methods."""
         X = validate_data(
             self,
@@ -1484,6 +1805,10 @@ class CategoricalNB(_BaseDiscreteNB):
         return X
 
     def _check_X_y(self, X, y, reset=True):
+        # [FUNCTION DOC]
+        # Validates X (dense, finite, integer) and y for fitting, then rejects negatives
+        # in X.
+        # Outputs: tuple (X, y).
         X, y = validate_data(
             self,
             X,
@@ -1497,11 +1822,24 @@ class CategoricalNB(_BaseDiscreteNB):
         return X, y
 
     def _init_counters(self, n_classes, n_features):
+        # [FUNCTION DOC]
+        # HELPER: Sets class_count_ to zeros (n_classes,) and category_count_ to a list
+        # with
+        # one empty (n_classes, 0) array per feature; columns are grown during _count.
         self.class_count_ = np.zeros(n_classes, dtype=np.float64)
         self.category_count_ = [np.zeros((n_classes, 0)) for _ in range(n_features)]
 
     @staticmethod
     def _validate_n_categories(X, min_categories):
+        # [FUNCTION DOC]
+        # HELPER: Number of categories per feature is the column max of X plus 1; if
+        # min_categories is given, take the element-wise maximum with it.
+        # Inputs: X - int array (n_samples, n_features); min_categories - None, int or
+        # array-like (n_features,).
+        # Outputs: int array (n_features,).
+        # Exceptions: ValueError if min_categories is not signed-integer typed or its
+        # shape
+        # does not broadcast to (n_features,) without changing shape.
         # rely on max for n_categories categories are encoded between 0...n-1
         n_categories_X = X.max(axis=0) + 1
         min_categories_ = np.array(min_categories)
@@ -1523,7 +1861,22 @@ class CategoricalNB(_BaseDiscreteNB):
             return n_categories_X
 
     def _count(self, X, Y):
+        # [FUNCTION DOC]
+        # Adds Y's column sums to class_count_, recomputes n_categories_ from the
+        # current batch,
+        # and for each feature pads its count matrix with zero columns up to
+        # n_categories_ and
+        # adds per-class weighted category counts.
+        # Side effects: mutates class_count_, category_count_, sets n_categories_.
+        # KNOWN ISSUE: n_categories_ is recomputed from the current batch only, so after
+        # a
+        # partial_fit with a smaller max category it can be lower than the width of an
+        # existing
+        # category_count_ matrix (the matrix is never shrunk, so this is only cosmetic).
         def _update_cat_count_dims(cat_count, highest_feature):
+            # [FUNCTION DOC]
+            # HELPER: Pads cat_count with zero columns on the right so it has at least
+            # highest_feature+1 columns. Outputs: the padded (or original) array.
             diff = highest_feature + 1 - cat_count.shape[1]
             if diff > 0:
                 # we append a column full of zeros for each new category
@@ -1531,6 +1884,12 @@ class CategoricalNB(_BaseDiscreteNB):
             return cat_count
 
         def _update_cat_count(X_feature, Y, cat_count, n_classes):
+            # [FUNCTION DOC]
+            # HELPER: For each class j, select samples with nonzero Y[:, j], bincount
+            # their
+            # category values (weighted by Y entries unless Y has int64 dtype), and add
+            # the nonzero
+            # counts into row j of cat_count. Side effects: mutates cat_count in place.
             for j in range(n_classes):
                 mask = Y[:, j].astype(bool)
                 if Y.dtype.type == np.int64:
@@ -1553,6 +1912,12 @@ class CategoricalNB(_BaseDiscreteNB):
             )
 
     def _update_feature_log_prob(self, alpha):
+        # [FUNCTION DOC]
+        # For each feature, add alpha to its category counts and take log of each entry
+        # minus
+        # log of its row sum. Side effects: sets feature_log_prob_ as a list of
+        # (n_classes,
+        # n_categories_i) arrays.
         feature_log_prob = []
         for i in range(self.n_features_in_):
             smoothed_cat_count = self.category_count_[i] + alpha
@@ -1563,6 +1928,14 @@ class CategoricalNB(_BaseDiscreteNB):
         self.feature_log_prob_ = feature_log_prob
 
     def _joint_log_likelihood(self, X):
+        # [FUNCTION DOC]
+        # Checks feature count, then for each feature adds the log probability of each
+        # sample's observed category (for every class) and finally adds
+        # class_log_prior_.
+        # Outputs: array (n_samples, n_classes).
+        # Exceptions: ValueError on feature mismatch; IndexError if a category exceeds
+        # those
+        # seen during fit.
         _check_n_features(self, X, reset=False)
         jll = np.zeros((X.shape[0], self.class_count_.shape[0]))
         for i in range(self.n_features_in_):

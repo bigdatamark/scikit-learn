@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Checks that estimators computing neighbors internally give the same results as
+# a pipeline that precomputes the neighbor graph with KNeighborsTransformer or
+# RadiusNeighborsTransformer followed by the estimator with a precomputed metric.
 """
 This is testing the equivalence between some estimators with internal nearest
 neighbors computations, and the corresponding pipeline versions with
@@ -24,6 +28,9 @@ from sklearn.utils._testing import assert_array_almost_equal
 
 
 def test_spectral_clustering():
+    # [FUNCTION DOC]
+    # Compares SpectralClustering labels with affinity nearest_neighbors against a
+    # connectivity KNeighborsTransformer + precomputed-affinity pipeline.
     # Test chaining KNeighborsTransformer and SpectralClustering
     n_neighbors = 5
     X, _ = make_blobs(random_state=0)
@@ -44,6 +51,9 @@ def test_spectral_clustering():
 
 
 def test_spectral_embedding():
+    # [FUNCTION DOC]
+    # Compares SpectralEmbedding output with nearest_neighbors affinity against the
+    # connectivity-graph pipeline on 1000 samples from 3 blobs.
     # Test chaining KNeighborsTransformer and SpectralEmbedding
     n_neighbors = 5
 
@@ -75,6 +85,9 @@ def test_spectral_embedding():
 
 
 def test_dbscan():
+    # [FUNCTION DOC]
+    # Compares DBSCAN labels against a distance RadiusNeighborsTransformer (same
+    # radius) + precomputed DBSCAN pipeline.
     # Test chaining RadiusNeighborsTransformer and DBSCAN
     radius = 0.3
     n_clusters = 3
@@ -93,6 +106,9 @@ def test_dbscan():
 
 
 def test_isomap():
+    # [FUNCTION DOC]
+    # Compares Isomap fit_transform on X and transform on new X2 against a distance
+    # KNeighborsTransformer + precomputed Isomap pipeline.
     # Test chaining KNeighborsTransformer and Isomap with
     # neighbors_algorithm='precomputed'
     algorithm = "auto"
@@ -120,6 +136,9 @@ def test_isomap():
 
 
 def test_tsne():
+    # [FUNCTION DOC]
+    # For minkowski and sqeuclidean metrics, compares barnes_hut TSNE embeddings
+    # against a pipeline with 3*perplexity+1 precomputed neighbors.
     # Test chaining KNeighborsTransformer and TSNE
     max_iter = 250
     perplexity = 5
@@ -158,6 +177,8 @@ def test_tsne():
 
 
 def test_lof_novelty_false():
+    # [FUNCTION DOC]
+    # Compares LocalOutlierFactor fit_predict against the precomputed pipeline.
     # Test chaining KNeighborsTransformer and LocalOutlierFactor
     n_neighbors = 4
 
@@ -184,6 +205,8 @@ def test_lof_novelty_false():
 
 
 def test_lof_novelty_true():
+    # [FUNCTION DOC]
+    # Compares novelty LOF predict on new data against the precomputed pipeline.
     # Test chaining KNeighborsTransformer and LocalOutlierFactor
     n_neighbors = 4
 
@@ -211,6 +234,12 @@ def test_lof_novelty_true():
 
 
 def test_kneighbors_regressor():
+    # [FUNCTION DOC]
+    # For four transformer/regressor pairings (k with k, larger-k with radius, radius
+    # with radius, larger-radius with k), compares predictions of the compact regressor
+    # with a pipeline using a precomputed-metric clone of it. The transformers that
+    # feed the mismatched regressor precompute twice as many neighbors / radius so the
+    # needed neighbors are included.
     # Test chaining KNeighborsTransformer and classifiers/regressors
     rng = np.random.RandomState(0)
     X = 2 * rng.rand(40, 5) - 1

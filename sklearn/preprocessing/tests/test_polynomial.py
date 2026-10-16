@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Test suite for PolynomialFeatures and SplineTransformer
+#   (sklearn.preprocessing._polynomial): parameter validation, knot placement, B-spline
+#   properties (partition of unity, periodicity, smoothness, extrapolation modes,
+#   missing-value handling, sparse output), polynomial expansion for dense/CSR/CSC input
+#   including index-dtype promotion and overflow edge cases of the Cython CSR expansion,
+#   feature names, and array API compliance.
 import re
 import sys
 
@@ -42,10 +49,17 @@ from sklearn.utils.fixes import (
 
 @pytest.mark.parametrize("est", (PolynomialFeatures, SplineTransformer))
 def test_polynomial_and_spline_array_order(est):
+    # [FUNCTION DOC]
+    # Verifies the output memory layout: default and order="C" give C-contiguous output,
+    #   order="F" gives Fortran-ordered output, for both PolynomialFeatures and
+    #   SplineTransformer.
     """Test that output array has the given order."""
     X = np.arange(10).reshape(5, 2)
 
     def is_c_contiguous(a):
+        # [FUNCTION DOC]
+        # HELPER: Returns True when the array is C-contiguous, tested as its transpose
+        #   being Fortran-ordered.
         return np.isfortran(a.T)
 
     assert is_c_contiguous(est().fit_transform(X))
@@ -62,6 +76,9 @@ def test_polynomial_and_spline_array_order(est):
     ],
 )
 def test_spline_transformer_input_validation(params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies SplineTransformer.fit raises ValueError with the given message for too
+    #   few knots, knots of the wrong width, and unsorted knots.
     """Test that we raise errors for invalid input in SplineTransformer."""
     X = [[1], [2]]
 
@@ -71,6 +88,9 @@ def test_spline_transformer_input_validation(params, err_msg):
 
 @pytest.mark.parametrize("extrapolation", ["continue", "periodic"])
 def test_spline_transformer_integer_knots(extrapolation):
+    # [FUNCTION DOC]
+    # Verifies integer-valued explicit knots are accepted for "continue" and "periodic"
+    #   extrapolation (smoke test: fit_transform must not raise).
     """Test that SplineTransformer accepts integer value knot positions."""
     X = np.arange(20).reshape(10, 2)
     knots = [[0, 1], [1, 2], [5, 5], [11, 10], [12, 11]]
@@ -80,6 +100,10 @@ def test_spline_transformer_integer_knots(extrapolation):
 
 
 def test_spline_transformer_feature_names():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out produces "<feature>_sp_<i>" names, n_knots + degree
+    #   - 1 per feature with include_bias, one fewer without, using default and custom
+    #   input names.
     """Test that SplineTransformer generates correct feature names."""
     X = np.arange(20).reshape(10, 2)
     splt = SplineTransformer(n_knots=3, degree=3, include_bias=True).fit(X)
@@ -123,6 +147,9 @@ def test_spline_transformer_feature_names():
 )
 @pytest.mark.parametrize("degree", [2, 3])
 def test_split_transform_feature_names_extrapolation_degree(extrapolation, degree):
+    # [FUNCTION DOC]
+    # Non-regression for gh-25292: number of feature names equals n_features_out_ and
+    #   the transform width, for every extrapolation mode and degree 2/3.
     """Test feature names are correct for different extrapolations and degree.
 
     Non-regression test for gh-25292.
@@ -141,6 +168,10 @@ def test_split_transform_feature_names_extrapolation_degree(extrapolation, degre
 @pytest.mark.parametrize("knots", ["uniform", "quantile"])
 @pytest.mark.parametrize("extrapolation", ["constant", "periodic"])
 def test_spline_transformer_unity_decomposition(degree, n_knots, knots, extrapolation):
+    # [FUNCTION DOC]
+    # Verifies spline basis values sum to 1 per row on training and in-range test points
+    #   (partition of unity) for uniform/quantile knots and constant/periodic
+    #   extrapolation; periodic runs add degree to n_knots.
     """Test that B-splines are indeed a decomposition of unity.
 
     Splines basis functions must sum up to 1 per row, if we stay in between boundaries.
@@ -167,6 +198,9 @@ def test_spline_transformer_unity_decomposition(degree, n_knots, knots, extrapol
 
 @pytest.mark.parametrize(["bias", "intercept"], [(True, False), (False, True)])
 def test_spline_transformer_linear_regression(bias, intercept):
+    # [FUNCTION DOC]
+    # Verifies a SplineTransformer + LinearRegression pipeline fits sin(x)+2 within rtol
+    #   1e-3, with the bias provided by either the splines or the regression intercept.
     """Test that B-splines fit a sinusodial curve pretty well."""
     X = np.linspace(0, 10, 100)[:, None]
     y = np.sin(X[:, 0]) + 2  # +2 to avoid the value 0 in assert_allclose
@@ -211,6 +245,10 @@ def test_spline_transformer_linear_regression(bias, intercept):
 def test_spline_transformer_get_base_knot_positions(
     knots, n_knots, sample_weight, expected_knots
 ):
+    # [FUNCTION DOC]
+    # Verifies the private static _get_base_knot_positions returns the expected uniform
+    #   or (weighted) quantile knot positions, with and without sample_weight (zero
+    #   weights exclude samples from the range).
     """Check the behaviour to find knot positions with and without sample_weight."""
     X = np.array([[0, 2], [0, 2], [2, 2], [3, 3], [4, 6], [5, 8], [6, 14]])
     base_knots = SplineTransformer._get_base_knot_positions(
@@ -221,10 +259,17 @@ def test_spline_transformer_get_base_knot_positions(
 
 @pytest.mark.parametrize(["bias", "intercept"], [(True, False), (False, True)])
 def test_spline_transformer_periodic_linear_regression(bias, intercept):
+    # [FUNCTION DOC]
+    # Verifies a periodic spline regression fits a periodic function on [0, 1] and
+    #   extrapolates periodically on [-1, 2]: predictions match the function and repeat
+    #   with period 1.
     """Test that B-splines fit a periodic curve pretty well."""
 
     # "+ 3" to avoid the value 0 in assert_allclose
     def f(x):
+        # [FUNCTION DOC]
+        # HELPER: Periodic target sin(2 pi x) - sin(8 pi x) + 3 (offset avoids zeros for
+        #   relative tolerance).
         return np.sin(2 * np.pi * x) - np.sin(8 * np.pi * x) + 3
 
     X = np.linspace(0, 1, 101)[:, None]
@@ -252,6 +297,10 @@ def test_spline_transformer_periodic_linear_regression(bias, intercept):
 
 
 def test_spline_transformer_periodic_spline_backport():
+    # [FUNCTION DOC]
+    # Verifies the periodic extrapolation of SplineTransformer with explicit knots
+    #   equals scipy BSpline with extrapolate "periodic" on an equivalent extended knot
+    #   vector and identity-like coefficients.
     """Test that the backport of extrapolate="periodic" works correctly"""
     X = np.linspace(-2, 3.5, 10)[:, None]
     degree = 2
@@ -270,6 +319,9 @@ def test_spline_transformer_periodic_spline_backport():
 
 
 def test_spline_transformer_periodic_splines_periodicity():
+    # [FUNCTION DOC]
+    # Verifies that two periodic knot sets that are shifts of each other (same period)
+    #   produce the same basis up to a column permutation.
     """Test if shifted knots result in the same transformation up to permutation."""
     X = np.linspace(0, 10, 101)[:, None]
 
@@ -293,6 +345,10 @@ def test_spline_transformer_periodic_splines_periodicity():
 
 @pytest.mark.parametrize("degree", [3, 5])
 def test_spline_transformer_periodic_splines_smoothness(degree):
+    # [FUNCTION DOC]
+    # Verifies periodic splines are degree-1 times continuously differentiable across
+    #   knots by bounding successive finite differences of the transform by 10 times the
+    #   grid step, and that the next derivative order shows spikes (> 1) at the knots.
     """Test that spline transformation is smooth at first / last knot."""
     X = np.linspace(-2, 10, 10_000)[:, None]
 
@@ -333,6 +389,10 @@ def test_spline_transformer_periodic_splines_smoothness(degree):
 @pytest.mark.parametrize(["bias", "intercept"], [(True, False), (False, True)])
 @pytest.mark.parametrize("degree", [1, 2, 3, 4, 5])
 def test_spline_transformer_extrapolation(bias, intercept, degree):
+    # [FUNCTION DOC]
+    # Verifies extrapolation modes on a linear target: "constant" clamps predictions to
+    #   the boundary values, "linear" continues the line, and "error" raises ValueError
+    #   for out-of-range inputs.
     """Test that B-spline extrapolation works correctly."""
     # we use a straight line for that
     X = np.linspace(-1, 1, 100)[:, None]
@@ -387,6 +447,10 @@ def test_spline_transformer_extrapolation(bias, intercept, degree):
 
 
 def test_spline_transformer_kbindiscretizer(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies a degree-0 spline with quantile knots equals the one-hot dense
+    #   KBinsDiscretizer output with quantile strategy (averaged_inverted_cdf), up to
+    #   rtol 1e-13, on seeded normal data.
     """Test that a B-spline of degree=0 is equivalent to KBinsDiscretizer."""
     rng = np.random.RandomState(global_random_seed)
     X = rng.randn(200).reshape(200, 1)
@@ -420,6 +484,12 @@ def test_spline_transformer_kbindiscretizer(global_random_seed):
 def test_spline_transformer_sparse_output(
     degree, knots, extrapolation, include_bias, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies sparse_output=True gives a CSR matrix equal to the dense output, in range
+    #   and in the extrapolation regime; with extrapolation "error", dense raises the
+    #   knots-limit message and sparse raises "Out of bounds".
+    # Inputs: degree, knots, extrapolation, include_bias - SplineTransformer params;
+    #   global_random_seed - fixture seeding the data.
     rng = np.random.RandomState(global_random_seed)
     X = rng.randn(200).reshape(40, 5)
 
@@ -475,6 +545,9 @@ def test_spline_transformer_sparse_output(
 def test_spline_transformer_n_features_out(
     n_knots, include_bias, degree, extrapolation, sparse_output
 ):
+    # [FUNCTION DOC]
+    # Verifies transform output width equals n_features_out_ across n_knots,
+    #   include_bias, degree, extrapolation and sparse_output combinations.
     """Test that transform results in n_features_out_ features."""
     splt = SplineTransformer(
         n_knots=n_knots,
@@ -494,6 +567,11 @@ def test_spline_transformer_n_features_out(
 )
 @pytest.mark.parametrize("sparse_output", [False, True])
 def test_spline_transformer_handles_missing_values(extrapolation, sparse_output):
+    # [FUNCTION DOC]
+    # Verifies handle_missing: "error" raises on NaN; "zeros" gives consistent results
+    #   for fit_transform vs fit+transform, with unit sample_weight and on row subsets,
+    #   encodes NaN entries as all-zero spline columns, keeps values in [0, 1], and
+    #   leaves non-missing outputs equal to those obtained without NaN.
     """Test that SplineTransformer handles missing values correctly.
     We only test for knots="uniform", since for "quantile" the metrics are calculated
     differently with nans present and a different result is thus expected.
@@ -571,6 +649,10 @@ def test_spline_transformer_handles_missing_values(extrapolation, sparse_output)
 )
 @pytest.mark.parametrize("sparse_output", [False, True])
 def test_spline_transformer_handles_all_nans(extrapolation, sparse_output):
+    # [FUNCTION DOC]
+    # Verifies with handle_missing="zeros" that a fully-missing feature column (and
+    #   partially missing ones) are encoded as zeros after fitting on the same data.
+    # KNOWN ISSUE: the array X is built but never used.
     """Test that SplineTransformer encodes missing values to zeros even for
     all-nan-features."""
 
@@ -602,6 +684,9 @@ def test_spline_transformer_handles_all_nans(extrapolation, sparse_output):
     ],
 )
 def test_polynomial_features_input_validation(params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies PolynomialFeatures.fit raises ValueError for invalid degree tuples
+    #   (negative, non-integer, min greater than max, wrong length).
     """Test that we raise errors for invalid input in PolynomialFeatures."""
     X = [[1], [2]]
 
@@ -611,6 +696,9 @@ def test_polynomial_features_input_validation(params, err_msg):
 
 @pytest.fixture()
 def single_feature_degree3():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning X (6x1 column 0..5) and P, the matrix of its powers 0 to
+    #   3 as columns.
     X = np.arange(6)[:, np.newaxis]
     P = np.hstack([np.ones_like(X), X, X**2, X**3])
     return X, P
@@ -638,6 +726,10 @@ def test_polynomial_features_one_feature(
     indices,
     X_container,
 ):
+    # [FUNCTION DOC]
+    # Verifies PolynomialFeatures on one feature selects the expected power columns of P
+    #   for each degree/include_bias/interaction_only combination, for dense, CSR and
+    #   CSC input, and that powers_ has shape (n_output_features_, n_features_in_).
     """Test PolynomialFeatures on single feature up to degree 3."""
     X, P = single_feature_degree3
     if X_container is not None:
@@ -655,6 +747,10 @@ def test_polynomial_features_one_feature(
 
 @pytest.fixture()
 def two_features_degree3():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning X (3x2 array 0..5) and P, the 10 monomials of degree up
+    #   to 3 of its two columns in PolynomialFeatures output order (bias, degree 1,
+    #   degree 2, degree 3).
     X = np.arange(6).reshape((3, 2))
     x1 = X[:, :1]
     x2 = X[:, 1:]
@@ -709,6 +805,10 @@ def test_polynomial_features_two_features(
     indices,
     X_container,
 ):
+    # [FUNCTION DOC]
+    # Verifies PolynomialFeatures on two features selects the expected monomial columns
+    #   of P for each degree/include_bias/interaction_only combination, for dense, CSR
+    #   and CSC input, plus the powers_ shape.
     """Test PolynomialFeatures on 2 features up to degree 3."""
     X, P = two_features_degree3
     if X_container is not None:
@@ -725,6 +825,10 @@ def test_polynomial_features_two_features(
 
 
 def test_polynomial_feature_names():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out naming ("1", "x0", "x0^2", "x0 x1", ...) for
+    #   several degrees, degree ranges and interaction_only, that the count matches the
+    #   transform width, and that unicode input names pass through.
     X = np.arange(30).reshape(10, 3)
     poly = PolynomialFeatures(degree=2, include_bias=True).fit(X)
     feature_names = poly.get_feature_names_out()
@@ -817,6 +921,9 @@ def test_polynomial_feature_names():
 def test_polynomial_features_csc_X(
     deg, include_bias, interaction_only, dtype, csc_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies CSC input gives CSC output with the same dtype and values as dense input,
+    #   for several degree/bias/interaction/dtype settings on seeded random binary data.
     rng = np.random.RandomState(global_random_seed)
     X = rng.randint(0, 2, (100, 2))
     X_csc = csc_container(X)
@@ -847,6 +954,9 @@ def test_polynomial_features_csc_X(
 def test_polynomial_features_csr_X(
     deg, include_bias, interaction_only, dtype, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies CSR input gives CSR output with the same dtype and values as dense input,
+    #   for several degree/bias/interaction/dtype settings on seeded random binary data.
     rng = np.random.RandomState(global_random_seed)
     X = rng.randint(0, 2, (100, 2))
     X_csr = csr_container(X)
@@ -872,6 +982,13 @@ def test_polynomial_features_csr_X(
 def test_num_combinations(
     n_features, min_degree, max_degree, interaction_only, include_bias, csr_container
 ):
+    # [FUNCTION DOC]
+    # Verifies n_output_features_ computed at fit equals the number of combinations
+    #   yielded by the private _combinations generator, using a CSR matrix with a single
+    #   non-zero in the last column.
+    # KNOWN ISSUE: the min_degree parameter is never used (degree is set to max_degree
+    #   only and _combinations gets min_degree 0), so the (min_degree, max_degree) pairs
+    #   only vary max_degree.
     """
     Test that n_output_features_ is calculated correctly.
     """
@@ -907,6 +1024,9 @@ def test_num_combinations(
 def test_polynomial_features_csr_X_floats(
     deg, include_bias, interaction_only, dtype, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies CSR float32/float64 expansion matches dense results and dtype on a seeded
+    #   1000x10 random sparse matrix.
     X_csr = csr_container(
         _sparse_random_array((1000, 10), density=0.5, random_state=global_random_seed)
     )
@@ -944,6 +1064,11 @@ def test_polynomial_features_csr_X_floats(
 def test_polynomial_features_csr_X_zero_row(
     zero_row_index, deg, interaction_only, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies CSR expansion handles an all-zero row at each position (first, middle,
+    #   last) and matches the dense result.
+    # Side effects: assigns zeros into a CSR row (may emit a scipy sparse efficiency
+    #   warning).
     X_csr = csr_container(
         _sparse_random_array((3, 10), density=1.0, random_state=global_random_seed)
     )
@@ -969,6 +1094,9 @@ def test_polynomial_features_csr_X_zero_row(
 def test_polynomial_features_csr_X_degree_4(
     include_bias, interaction_only, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies degree 4 (beyond what the Cython CSR expansion supports directly) on CSR
+    #   input still returns CSR output matching the dense result.
     X_csr = csr_container(
         _sparse_random_array((1000, 10), density=0.5, random_state=global_random_seed)
     )
@@ -1004,6 +1132,9 @@ def test_polynomial_features_csr_X_degree_4(
 def test_polynomial_features_csr_X_dim_edges(
     deg, dim, interaction_only, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies CSR expansion at dimension edge cases (1 to 3 features, degree 2/3)
+    #   matches dense results.
     X_csr = csr_container(
         _sparse_random_array((1000, dim), density=0.5, random_state=global_random_seed)
     )
@@ -1024,6 +1155,12 @@ def test_polynomial_features_csr_X_dim_edges(
 def test_csr_polynomial_expansion_index_overflow_non_regression(
     interaction_only, include_bias, csr_container
 ):
+    # [FUNCTION DOC]
+    # Non-regression for gh-16803: degree-2 expansion of a CSR matrix with 120001
+    #   features promotes indices/indptr to int64 when output column indices exceed
+    #   int32, and the data, row and column positions of non-zeros match values computed
+    #   by hand; on platforms where the output cannot be indexed, checks the ValueError
+    #   instead and returns early.
     """Check the automatic index dtype promotion to `np.int64` when needed.
 
     This ensures that sufficiently large input configurations get
@@ -1035,6 +1172,11 @@ def test_csr_polynomial_expansion_index_overflow_non_regression(
     """
 
     def degree_2_calc(d, i, j):
+        # [FUNCTION DOC]
+        # HELPER: Returns the zero-based degree-2 output column offset (before adding
+        #   the degree-1 block) for the product of input columns i <= j among d
+        #   features, using the interaction-only or full triangular indexing formula
+        #   depending on interaction_only.
         if interaction_only:
             return d * i - (i**2 + 3 * i) // 2 - 1 + j
         else:
@@ -1157,6 +1299,11 @@ def test_csr_polynomial_expansion_index_overflow_non_regression(
 def test_csr_polynomial_expansion_index_overflow(
     degree, n_features, interaction_only, include_bias, csr_container
 ):
+    # [FUNCTION DOC]
+    # Verifies index-dtype promotion edge cases: for a single non-zero in the last of
+    #   n_features columns, the output has the expected index dtype (int32 or int64 by
+    #   number of combinations), nnz, values at hand-computed degree-1/2/3 indices and
+    #   n_output_features_; configurations not indexable by intp must raise ValueError.
     """Tests known edge-cases to the dtype promotion strategy and custom
     Cython code, including a current bug in the upstream
     `scipy.sparse.hstack`.
@@ -1229,6 +1376,9 @@ def test_csr_polynomial_expansion_index_overflow(
 def test_csr_polynomial_expansion_too_large_to_index(
     interaction_only, include_bias, csr_container
 ):
+    # [FUNCTION DOC]
+    # Verifies fit and fit_transform raise the "too large to be indexed" ValueError when
+    #   n_features is half the int64 max with degree (2, 2).
     n_features = np.iinfo(np.int64).max // 2
     data = [1.0]
     row = [0]
@@ -1249,6 +1399,10 @@ def test_csr_polynomial_expansion_too_large_to_index(
 
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + CSC_CONTAINERS)
 def test_polynomial_features_behaviour_on_zero_degree(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies degree 0 or (0, 0) with include_bias=False raises ValueError, and degree
+    #   0 with include_bias=True outputs a single column of ones for dense and sparse
+    #   input.
     """Check that PolynomialFeatures raises error when degree=0 and include_bias=False,
     and output a single constant column when include_bias=True
     """
@@ -1279,6 +1433,9 @@ def test_polynomial_features_behaviour_on_zero_degree(sparse_container):
 
 
 def test_sizeof_LARGEST_INT_t():
+    # [FUNCTION DOC]
+    # Verifies the size of the Cython LARGEST_INT_t type is 8 bytes on Windows or 32-bit
+    #   (non-emscripten) platforms and 16 bytes otherwise.
     # On Windows, scikit-learn is typically compiled with MSVC that
     # does not support int128 arithmetic (at the time of writing):
     # https://stackoverflow.com/a/6761962/163740
@@ -1302,6 +1459,11 @@ def test_sizeof_LARGEST_INT_t():
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_csr_polynomial_expansion_windows_fail(csr_container):
+    # [FUNCTION DOC]
+    # Verifies degree-3 CSR expansion where intermediate index arithmetic overflows
+    #   int64 still gives 1.0 at the hand-computed degree 1/2/3 indices (requires int128
+    #   support; xfail on Windows), or raises the indexing ValueError on 32-bit
+    #   platforms.
     # Minimum needed to ensure integer overflow occurs while guaranteeing an
     # int64-indexable output.
     n_features = int(np.iinfo(np.int64).max ** (1 / 3) + 3)
@@ -1354,6 +1516,10 @@ def test_polynomial_features_array_api_compliance(
     device_name,
     dtype_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies PolynomialFeatures under array_api_dispatch gives the same values as
+    #   NumPy, and keeps the namespace, device and dtype of the input, for several
+    #   degree/bias/interaction settings.
     """Test array API compliance for PolynomialFeatures on 2 features up to degree 3."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     X, _ = two_features_degree3
@@ -1382,6 +1548,9 @@ def test_polynomial_features_array_api_compliance(
 def test_polynomial_features_array_api_raises_on_order_F(
     array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies transform with order="F" raises ValueError for non-NumPy array API
+    #   namespaces and succeeds for NumPy.
     """Test that PolynomialFeatures with order='F' raises ValueError on
     array API namespaces other than numpy."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)

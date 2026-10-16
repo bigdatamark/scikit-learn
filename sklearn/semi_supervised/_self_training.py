@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Self-training meta-estimator: wraps any supervised classifier exposing
+# predict_proba and iteratively pseudo-labels unlabeled samples (label -1) with
+# its confident predictions, refitting on the growing labeled set. Supports
+# metadata routing to the wrapped estimator.
 import warnings
 from numbers import Integral, Real
 
@@ -30,6 +35,16 @@ __all__ = ["SelfTrainingClassifier"]
 
 
 class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-estimator holding the unfitted estimator and selection settings.
+    # Fitted attributes: estimator_ (clone, refit at the end on all labeled and
+    # pseudo-labeled samples), transduction_, labeled_iter_, n_iter_,
+    # termination_condition_, classes_. Prediction methods are exposed only when
+    # the wrapped estimator has them (available_if) and delegate to estimator_
+    # after validating X. Sparse support tag mirrors the wrapped estimator.
+    # KNOWN ISSUE: docstrings of predict_proba, decision_function and
+    # predict_log_proba state the output shape as (n_samples, n_features); it is
+    # really (n_samples, n_classes) (or (n_samples,) for binary decision_function).
     """Self-training classifier.
 
     This :term:`metaestimator` allows a given supervised classifier to function as a
@@ -169,6 +184,9 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         max_iter=10,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters unchanged. The default estimator=None is not valid
+        # at fit (constraint requires an object with a fit method).
         self.estimator = estimator
         self.threshold = threshold
         self.criterion = criterion
@@ -177,6 +195,8 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         self.verbose = verbose
 
     def _get_estimator(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns an unfitted clone of self.estimator.
         """Get the estimator.
 
         Returns
@@ -191,6 +211,34 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Self-training loop. Steps: reject routed params when routing is disabled;
+        # clone estimator into estimator_; validate X (csr/csc/lil/dok, finiteness check
+        # skipped) and y. Labeled mask = y != -1. Warn if nothing is unlabeled, and,
+        # for k_best, if k_best exceeds the number of unlabeled samples. Resolve routed
+        # fit params. Initialize transduction_ as a copy of y, labeled_iter_ as -1 with
+        # 0 for initially labeled samples, n_iter_ = 0. While some sample is unlabeled
+        # and (max_iter is None or n_iter_ < max_iter): increment n_iter_, fit on the
+        # labeled rows, predict_proba on unlabeled rows, take argmax class and max
+        # probability. Selection: "threshold" keeps probabilities strictly above
+        # threshold; "k_best" keeps all if k_best >= count, else the k_best highest
+        # (argpartition, ties arbitrary). Map selected positions back to sample indices,
+        # write pseudo-labels into transduction_, mark them labeled and record n_iter_
+        # in labeled_iter_. If nothing was selected, set termination "no_change" and
+        # stop; else optionally print progress when verbose. After the loop, set
+        # termination "max_iter" if n_iter_ equals max_iter, then "all_labeled" if every
+        # sample is labeled (overrides). Finally refit estimator_ on all labeled rows
+        # and copy its classes_.
+        # Inputs: X - (n_samples, n_features), dense or sparse; y - (n_samples,), -1
+        # marks unlabeled; params - routed fit metadata (routing enabled only).
+        # Outputs: self.
+        # Exceptions: ValueError for string dtype y (unicode/bytes; object dtype
+        # required); parameter validation errors; routing errors from _raise_for_params.
+        # Side effects: sets the fitted attributes; emits UserWarnings; prints when
+        # verbose.
+        # KNOWN ISSUE: a "no_change" stop on the last allowed iteration (n_iter_ ==
+        # max_iter) is overwritten with "max_iter". With max_iter=0 and unlabeled data
+        # the condition is "max_iter" even though no self-training happened.
         """
         Fit self-training classifier using `X`, `y` as training data.
 
@@ -327,6 +375,11 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
 
     @available_if(_estimator_has("predict"))
     def predict(self, X, **params):
+        # [FUNCTION DOC]
+        # Checks fitted, rejects/routes params, validates X (any sparse format, no
+        # finiteness check, feature count checked), and returns estimator_.predict.
+        # Outputs: ndarray (n_samples,) of labels.
+        # Exceptions: NotFittedError; validation/routing errors.
         """Predict the classes of `X`.
 
         Parameters
@@ -369,6 +422,9 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
 
     @available_if(_estimator_has("predict_proba"))
     def predict_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # Same flow as predict but delegates to estimator_.predict_proba.
+        # Outputs: ndarray (n_samples, n_classes).
         """Predict probability for each possible outcome.
 
         Parameters
@@ -412,6 +468,9 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
 
     @available_if(_estimator_has("decision_function"))
     def decision_function(self, X, **params):
+        # [FUNCTION DOC]
+        # Same flow as predict but delegates to estimator_.decision_function.
+        # Outputs: decision scores as returned by the wrapped estimator.
         """Call decision function of the `estimator`.
 
         Parameters
@@ -457,6 +516,9 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
 
     @available_if(_estimator_has("predict_log_proba"))
     def predict_log_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # Same flow as predict but delegates to estimator_.predict_log_proba.
+        # Outputs: ndarray (n_samples, n_classes) of log probabilities.
         """Predict log probability for each possible outcome.
 
         Parameters
@@ -502,6 +564,10 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
 
     @available_if(_estimator_has("score"))
     def score(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Same flow as predict but returns estimator_.score(X, y); y is passed through
+        # unvalidated.
+        # Outputs: float score of the wrapped estimator (accuracy for classifiers).
         """Call score on the `estimator`.
 
         Parameters
@@ -546,6 +612,12 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return self.estimator_.score(X, y, **routed_params.estimator.score)
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter routing each public method to the same-named method
+        # of the wrapped estimator; additionally maps caller "fit" to callee "score".
+        # Outputs: MetadataRouter.
+        # KNOWN ISSUE: fit never calls estimator.score, so the fit-to-score mapping
+        # routes metadata that is never consumed.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -576,6 +648,9 @@ class SelfTrainingClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags, copying the sparse-input support flag from the wrapped
+        # (unfitted) estimator's tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         return tags

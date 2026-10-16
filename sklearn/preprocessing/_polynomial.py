@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Polynomial-based feature generators: PolynomialFeatures (all monomials of the input
+# features up to a degree, with dense, CSR and CSC code paths) and SplineTransformer
+# (per-feature B-spline basis expansion built on scipy BSpline).
+# Public contents: PolynomialFeatures, SplineTransformer. Private helper:
+# _create_expansion (CSR expansion of one degree via the Cython routine in
+# _csr_polynomial_expansion).
+# Side effects at import: none beyond importing numpy/scipy and sklearn utilities.
 """
 This file contains preprocessing tools based on polynomials.
 """
@@ -45,6 +53,22 @@ __all__ = [
 
 
 def _create_expansion(X, interaction_only, deg, n_features, cumulative_size=0):
+    # [FUNCTION DOC]
+    # HELPER: Builds the CSR block holding all monomials of exactly degree deg for a CSR
+    # matrix X, using the compiled _csr_polynomial_expansion routine (K-simplex numbers
+    # method).
+    # Steps: compute total non-zeros and number of output columns; return None if no
+    # column would be produced; choose int32 indices unless indices or indptr would
+    # overflow int32, else int64; allocate data/indices/indptr buffers, fill them via
+    # the compiled routine and wrap them in a CSR array of shape (n_samples,
+    # expanded_col) with X's dtype.
+    # Inputs: X - CSR matrix (n_samples, n_features); interaction_only - bool, skip
+    # powers of the same feature; deg - int degree >= 2; n_features - int;
+    # cumulative_size - int, default 0.
+    # Outputs: CSR array (aligned to the configured sparse API) or None when the block
+    # is empty.
+    # Side effects: none.
+    # KNOWN ISSUE: cumulative_size is accepted but never used in the body.
     """Helper function for creating and appending sparse expansion matrices"""
 
     total_nnz = _calc_total_nnz(X.indptr, interaction_only, deg)
@@ -90,6 +114,13 @@ def _create_expansion(X, interaction_only, deg, n_features, cumulative_size=0):
 
 
 class PolynomialFeatures(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer mapping each sample to the vector of all products of input features
+    # whose total degree lies in [min_degree, max_degree] (optionally only products of
+    # distinct features), optionally preceded by a constant bias column.
+    # fit stores _min_degree, _max_degree, n_output_features_ and _n_out_full; transform
+    # dispatches on input type (dense array-API, CSR, CSC). Output column order follows
+    # the combinations generator (_combinations).
     """Generate polynomial and interaction features.
 
     Generate a new feature matrix consisting of all polynomial combinations
@@ -194,6 +225,12 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
     def __init__(
         self, degree=2, *, interaction_only=False, include_bias=True, order="C"
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged (scikit-learn convention, validation
+        # is deferred to fit).
+        # Inputs: degree - int or (min, max) pair; interaction_only, include_bias -
+        # bools; order - 'C' or 'F'.
+        # Side effects: sets the same-named attributes on self.
         self.degree = degree
         self.interaction_only = interaction_only
         self.include_bias = include_bias
@@ -203,6 +240,15 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
     def _combinations(
         n_features, min_degree, max_degree, interaction_only, include_bias
     ):
+        # [FUNCTION DOC]
+        # HELPER: Returns a lazy iterator over the feature-index tuples defining each
+        # output column.
+        # For each degree i from max(1, min_degree) to max_degree, yields combinations
+        # (interaction_only) or combinations with replacement of range(n_features) of
+        # size i; if include_bias, an empty tuple is prepended for the bias column.
+        # Inputs: n_features - int; min_degree, max_degree - ints; interaction_only,
+        # include_bias - bools.
+        # Outputs: iterator of tuples of int feature indices. Side effects: none.
         comb = combinations if interaction_only else combinations_w_r
         start = max(1, min_degree)
         iter = chain.from_iterable(
@@ -216,6 +262,15 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
     def _num_combinations(
         n_features, min_degree, max_degree, interaction_only, include_bias
     ):
+        # [FUNCTION DOC]
+        # HELPER: Counts output columns in closed form, without enumerating
+        # combinations.
+        # interaction_only: sum of binomial(n_features, i) for i from max(1, min_degree)
+        # to min(max_degree, n_features). Otherwise: binomial(n_features + max_degree,
+        # max_degree) - 1 (all non-constant monomials up to max_degree), minus
+        # binomial(n_features + min_degree - 1, min_degree - 1) - 1 when min_degree > 0
+        # (monomials below min_degree). Adds 1 for the bias.
+        # Inputs: same as _combinations. Outputs: Python int (exact, may exceed int64).
         """Calculate number of terms in polynomial expansion
 
         This should be equivalent to counting the number of terms returned by
@@ -242,6 +297,12 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
 
     @property
     def powers_(self):
+        # [FUNCTION DOC]
+        # Property returning the exponent matrix of shape (n_output_features_,
+        # n_features_in_): for each combination tuple, counts how many times each
+        # feature index occurs.
+        # Exceptions: NotFittedError if not fitted. Side effects: none (recomputed each
+        # access).
         """Exponent for each of the inputs in the output."""
         check_is_fitted(self)
 
@@ -257,6 +318,15 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
         )
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Builds a name per output column from powers_: features with non-zero exponent
+        # are joined by spaces, rendered as the name alone for exponent 1 or 'name^exp'
+        # otherwise; the bias column is named '1'.
+        # Inputs: input_features - optional array-like of str, validated by
+        # _check_feature_names_in.
+        # Outputs: object ndarray of str, length n_output_features_.
+        # Exceptions: NotFittedError (via powers_); ValueError for mismatching
+        # input_features.
         """Get output feature names for transformation.
 
         Parameters
@@ -297,6 +367,17 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (dense or sparse) and resolves degree into
+        # _min_degree/_max_degree, then computes n_output_features_ and _n_out_full
+        # (count with min_degree 0).
+        # Exceptions: ValueError if degree is 0 (or (0, 0)) with include_bias False; if
+        # a tuple degree is not two non-negative ints with min <= max; if degree is
+        # neither int nor length-2 iterable; if n_output_features_ exceeds the platform
+        # intp max (message mentions 32-bit runtime when relevant).
+        # Side effects: sets n_features_in_, feature_names_in_ (via validate_data),
+        # _min_degree, _max_degree, n_output_features_, _n_out_full.
+        # Outputs: self.
         """
         Compute number of output features.
 
@@ -393,6 +474,28 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Computes the polynomial features of X, validated with reset=False and cast to
+        # a supported float dtype.
+        # CSR input: if max_degree > 3, recurse on CSC and convert back to CSR;
+        # otherwise horizontally stack a ones column (bias), X itself (when degree 1 is
+        # in range), and one _create_expansion block per degree from max(2, min_degree)
+        # to max_degree; an empty CSR of width 0 if nothing is stacked.
+        # CSC input with max_degree < 4: recurse on CSR and convert result to CSC.
+        # Other sparse (CSC, degree >= 4): build each column by multiplying selected
+        # columns of X per combination (ones column for bias), hstack to CSC.
+        # Dense: allocate XP with _n_out_full columns (honouring order for numpy; order
+        # 'F' rejected for non-numpy namespaces), fill bias, copy degree-1 block, then
+        # for each higher degree and each feature multiply the previous-degree block
+        # starting at that feature's offset (skipping self-products when
+        # interaction_only) by that feature column, tracking per-feature start offsets
+        # in index. Finally, if min_degree > 1, drop the low-degree columns, keeping
+        # bias in front when include_bias.
+        # Inputs: X - array-like or sparse (n_samples, n_features_in_).
+        # Outputs: dense array (namespace of X) or sparse matrix (n_samples,
+        # n_output_features_).
+        # Exceptions: NotFittedError; ValueError from validation or order='F' with non-
+        # numpy arrays.
         """Transform data to polynomial features.
 
         Parameters
@@ -577,6 +680,9 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
         return _align_api_if_sparse(XP)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support and array API support on top of parent tags.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.array_api_support = True
@@ -584,6 +690,12 @@ class PolynomialFeatures(TransformerMixin, BaseEstimator):
 
 
 class SplineTransformer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer expanding each feature independently into a B-spline basis. fit builds
+    # one scipy BSpline per feature with an identity coefficient matrix (so evaluating
+    # it yields the basis functions); transform evaluates them and applies the
+    # extrapolation policy and missing-value handling, outputting n_splines columns per
+    # feature (one fewer when include_bias is False).
     """Generate univariate B-spline bases for features.
 
     Generate a new feature matrix consisting of
@@ -744,6 +856,9 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
         handle_missing="error",
         sparse_output=False,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged; validation deferred to fit.
+        # Side effects: sets the same-named attributes on self.
         self.n_knots = n_knots
         self.degree = degree
         self.knots = knots
@@ -755,6 +870,16 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _get_base_knot_positions(X, n_knots=10, knots="uniform", sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Computes the base (boundary-inclusive) knot grid per feature.
+        # 'quantile': n_knots evenly spaced percentile ranks in [0, 100]; uses
+        # nanpercentile when unweighted, else _weighted_percentile with sample_weight.
+        # 'uniform' (any other value): for each feature, min and max over rows with
+        # positive weight (all rows if unweighted), ignoring NaN; an all-NaN feature
+        # keeps min = max = 0; then n_knots linearly spaced points between them.
+        # Inputs: X - float ndarray (n_samples, n_features), may contain NaN; n_knots -
+        # int, default 10; knots - str; sample_weight - optional (n_samples,) array.
+        # Outputs: float64 ndarray (n_knots, n_features). Side effects: none.
         """Calculate base knot positions for `knots` either "uniform" or "quantile".
 
         Base knots such that first knot <= feature <= last knot. For the
@@ -803,6 +928,12 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
         return knots
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Generates names '<feature>_sp_<j>' for each input feature and each retained
+        # spline index j (n_splines, or n_splines - 1 without bias).
+        # Inputs: input_features - optional array-like of str.
+        # Outputs: object ndarray of str of length n_features_out_.
+        # Exceptions: NotFittedError; ValueError for mismatching input_features.
         """Get output feature names for transformation.
 
         Parameters
@@ -834,6 +965,23 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates X (dense, at least 2 samples; NaN allowed only when
+        # handle_missing='zeros'), determines base knots (computed from data, or user
+        # array checked to have >= 2 rows, n_features columns, strictly increasing),
+        # then extends them by degree knots on each side: periodic shifts of the
+        # opposite end knots by the period, otherwise linear continuation using the
+        # first/last knot spacing. Builds one BSpline per feature with an identity
+        # coefficient matrix (periodic: first degree rows appended to wrap the basis)
+        # and extrapolate enabled for 'periodic' and 'continue'.
+        # Inputs: X - array-like (n_samples, n_features); y - ignored; sample_weight -
+        # optional (n_samples,) weights.
+        # Outputs: self.
+        # Exceptions: ValueError with a dedicated message when X has NaN and
+        # handle_missing='error'; ValueError for bad user knots; ValueError if periodic
+        # and n_knots <= degree.
+        # Side effects: sets n_features_in_, feature_names_in_, bsplines_,
+        # n_features_out_.
         """Compute knot positions of splines.
 
         Parameters
@@ -977,6 +1125,30 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Evaluates the per-feature spline bases. Output dtype is X's float dtype or
+        # float64.
+        # For each feature: with 'continue', 'error' or 'periodic', map x into the base
+        # period for periodic (or zeros if the period is degenerate), evaluate dense via
+        # the BSpline or sparse via BSpline.design_matrix (NaNs replaced by an in-range
+        # value first), fold the last degree columns onto the first for periodic sparse
+        # output, then zero rows that were NaN. With 'constant' or 'linear', evaluate
+        # only in-range values (NaN and out-of-range rows stay zero). Then per policy:
+        # 'error' raises if any output is NaN; 'constant' fills out-of-range rows of the
+        # first/last degree basis functions with their boundary values; 'linear' extends
+        # the first/last degree (at least 2 when degree <= 1) basis functions linearly
+        # using boundary values and first derivatives. Sparse blocks are converted to
+        # CSR and hstacked. Finally drops every n_splines-th column (the last spline per
+        # feature) when include_bias is False.
+        # Inputs: X - array-like (n_samples, n_features_in_).
+        # Outputs: ndarray (in self.order) or CSR matrix, shape (n_samples,
+        # n_features_out_).
+        # Exceptions: NotFittedError; ValueError from validation (NaN with
+        # handle_missing='error') or out-of-range values with extrapolation='error'.
+        # KNOWN ISSUE: with sparse_output and NaNs under 'continue'/'error'/'periodic',
+        # XBS is set to the single-feature LIL block but zeroed at global column offsets
+        # n_splines*feature_idx + spline_idx, which is wrong (or out of bounds) for
+        # feature_idx > 0.
         """Transform each feature data to B-splines.
 
         Parameters
@@ -1252,6 +1424,9 @@ class SplineTransformer(TransformerMixin, BaseEstimator):
             return XBS[:, indices]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Allows NaN input in tags only when handle_missing='zeros'.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = self.handle_missing == "zeros"
         return tags

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for BernoulliRBM: fit/partial_fit quality on the digits dataset rescaled to
+#   [0, 1] (module-level Xdigits), transform consistency, sparse input support,
+#   sampling, Gibbs steps, pseudo-likelihood, verbose output, dtype preservation and
+#   feature names.
 import re
 import sys
 from io import StringIO
@@ -21,6 +26,9 @@ Xdigits /= Xdigits.max()
 
 
 def test_fit():
+    # [FUNCTION DOC]
+    # Fits on digits (64 components, 7 epochs, seed 9) and checks the mean pseudo-
+    #   likelihood rounds to -21; also checks the input array was not modified in place.
     X = Xdigits.copy()
 
     rbm = BernoulliRBM(
@@ -35,6 +43,9 @@ def test_fit():
 
 
 def test_partial_fit():
+    # [FUNCTION DOC]
+    # Calls partial_fit on array_split chunks for 7 passes and checks mean pseudo-
+    #   likelihood about -21 and that X is unchanged.
     X = Xdigits.copy()
     rbm = BernoulliRBM(
         n_components=64, learning_rate=0.1, batch_size=20, random_state=9
@@ -52,6 +63,8 @@ def test_partial_fit():
 
 
 def test_transform():
+    # [FUNCTION DOC]
+    # Checks transform equals the private _mean_hiddens on the same data.
     X = Xdigits[:100]
     rbm1 = BernoulliRBM(n_components=16, batch_size=5, n_iter=5, random_state=42)
     rbm1.fit(X)
@@ -64,6 +77,8 @@ def test_transform():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_small_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Smoke test: fitting on a 4-row CSR matrix/array must not raise.
     # BernoulliRBM should work on small sparse matrices.
     X = csr_container(Xdigits[:4])
     BernoulliRBM().fit(X)  # no exception
@@ -71,6 +86,9 @@ def test_small_sparse(csr_container):
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_small_sparse_partial_fit(sparse_container):
+    # [FUNCTION DOC]
+    # Checks partial_fit on sparse (CSC/CSR) and dense versions of the same data with
+    #   the same seed give the same mean pseudo-likelihood to 0 decimals.
     X_sparse = sparse_container(Xdigits[:100])
     X = Xdigits[:100].copy()
 
@@ -90,6 +108,9 @@ def test_small_sparse_partial_fit(sparse_container):
 
 
 def test_sample_hiddens():
+    # [FUNCTION DOC]
+    # Checks that averaging 100 binary samples from _sample_hiddens approximates
+    #   _mean_hiddens to 1 decimal for one sample.
     rng = np.random.RandomState(0)
     X = Xdigits[:100]
     rbm1 = BernoulliRBM(n_components=2, batch_size=5, n_iter=5, random_state=42)
@@ -103,6 +124,10 @@ def test_sample_hiddens():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_fit_gibbs(csc_container):
+    # [FUNCTION DOC]
+    # Seed-dependent regression test on a 1-feature, 2-sample dataset: checks fitted
+    #   components_ against hard-coded values and that one gibbs step reproduces the
+    #   input, both for dense and CSC input, and that both fits agree.
     # XXX: this test is very seed-dependent! It probably needs to be rewritten.
 
     # Gibbs on the RBM hidden layer should be able to recreate [[0], [1]]
@@ -131,6 +156,10 @@ def test_fit_gibbs(csc_container):
 
 
 def test_gibbs_smoke():
+    # [FUNCTION DOC]
+    # Checks gibbs on the full digits data returns finite values and that two
+    #   successive calls differ in at least one feature per sample (randomness
+    #   progresses).
     # Check if we don't get NaNs sampling the full digits dataset.
     # Also check that sampling again will yield different results.
     X = Xdigits
@@ -144,6 +173,11 @@ def test_gibbs_smoke():
 
 @pytest.mark.parametrize("lil_containers", LIL_CONTAINERS)
 def test_score_samples(lil_containers):
+    # [FUNCTION DOC]
+    # Checks pseudo-likelihoods on an all-zeros/all-ones dataset are below -300 (no
+    #   clipping), that dense and LIL inputs give equal scores when random_state is
+    #   reset to 42 before each call, and that large inputs do not raise (numerical
+    #   stability regression #2785).
     # Test score_samples (pseudo-likelihood) method.
     # Assert that pseudo-likelihood is computed without clipping.
     # See Fabian's blog, http://bit.ly/1iYefRk
@@ -169,6 +203,9 @@ def test_score_samples(lil_containers):
 
 @pytest.mark.thread_unsafe  # manually captured stdout
 def test_rbm_verbose():
+    # [FUNCTION DOC]
+    # Smoke test: fit with verbose output redirected to a StringIO must not raise.
+    #   Marked thread unsafe because it swaps sys.stdout.
     rbm = BernoulliRBM(n_iter=2, verbose=10)
     old_stdout = sys.stdout
     sys.stdout = StringIO()
@@ -180,6 +217,9 @@ def test_rbm_verbose():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_sparse_and_verbose(csc_container, capsys):
+    # [FUNCTION DOC]
+    # Checks verbose fit on CSC input prints a line matching the expected iteration /
+    #   pseudo-likelihood / time format.
     # Make sure RBM works with sparse input when verbose=True
     X = csc_container([[0.0], [1.0]])
     rbm = BernoulliRBM(
@@ -200,6 +240,9 @@ def test_sparse_and_verbose(csc_container, capsys):
     [(np.float32, np.float32), (np.float64, np.float64), (int, np.float64)],
 )
 def test_transformer_dtypes_casting(dtype_in, dtype_out):
+    # [FUNCTION DOC]
+    # Checks fit_transform output dtype: float32 stays float32, float64 stays float64,
+    #   int becomes float64.
     X = Xdigits[:100].astype(dtype_in)
     rbm = BernoulliRBM(n_components=16, batch_size=5, n_iter=5, random_state=42)
     Xt = rbm.fit_transform(X)
@@ -211,6 +254,9 @@ def test_transformer_dtypes_casting(dtype_in, dtype_out):
 
 
 def test_convergence_dtype_consistency():
+    # [FUNCTION DOC]
+    # Checks float32 and float64 fits with the same seed produce close transforms,
+    #   intercepts, components and h_samples_ under per-attribute relative tolerances.
     # float 64 transformer
     X_64 = Xdigits[:100].astype(np.float64)
     rbm_64 = BernoulliRBM(n_components=16, batch_size=5, n_iter=5, random_state=42)
@@ -235,6 +281,9 @@ def test_convergence_dtype_consistency():
 
 @pytest.mark.parametrize("method", ["fit", "partial_fit"])
 def test_feature_names_out(method):
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out after fit or partial_fit returns bernoullirbm0 ..
+    #   bernoullirbm9.
     """Check `get_feature_names_out` for `BernoulliRBM`."""
     n_components = 10
     rbm = BernoulliRBM(n_components=n_components)

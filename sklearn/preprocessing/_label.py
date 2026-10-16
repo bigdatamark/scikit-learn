@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Target (label) encoding utilities: LabelEncoder (labels to 0..n_classes-1),
+#   LabelBinarizer and the label_binarize function (one-vs-all indicator matrices),
+#   MultiLabelBinarizer (iterables of label sets to indicator matrices), and private
+#   helpers that invert binarization. Several paths support the array API (non-NumPy
+#   namespaces) for dense data; sparse paths are NumPy/SciPy only.
+# Side effects at import: none.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -38,6 +45,10 @@ __all__ = [
 
 
 class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
+    # [CLASS DOC]
+    # Maps 1D target labels to integer codes given by their position in the sorted
+    #   unique labels. Fitted attribute: classes_ (sorted unique labels). Operates on y,
+    #   not X; output wrapping for set_output is disabled.
     """Encode target labels with value between 0 and n_classes-1.
 
     This transformer should be used to encode target values, *i.e.* `y`, and
@@ -88,6 +99,9 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
     """
 
     def fit(self, y):
+        # [FUNCTION DOC]
+        # Converts y to 1D (warning on column vectors) and stores sorted unique values
+        #   in classes_. Returns self.
         """Fit label encoder.
 
         Parameters
@@ -105,6 +119,9 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
         return self
 
     def fit_transform(self, y):
+        # [FUNCTION DOC]
+        # Same as fit but also returns the integer code of each sample (inverse indices
+        #   from the unique computation), as an integer array of shape (n_samples,).
         """Fit label encoder and return encoded labels.
 
         Parameters
@@ -122,6 +139,11 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
         return y
 
     def transform(self, y):
+        # [FUNCTION DOC]
+        # Requires fit. Converts y to 1D with the dtype of classes_; empty input returns
+        #   an empty array of the input namespace; otherwise encodes each label as its
+        #   index in classes_.
+        # Exceptions: ValueError from _encode when y contains unseen labels.
         """Transform labels to normalized encoding.
 
         Parameters
@@ -144,6 +166,11 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
         return _encode(y, uniques=self.classes_)
 
     def inverse_transform(self, y):
+        # [FUNCTION DOC]
+        # Requires fit. Converts y to 1D; empty input returns an empty array. Checks
+        #   every code is within 0..n_classes-1 and returns classes_ gathered at those
+        #   codes.
+        # Exceptions: ValueError listing codes outside the valid range.
         """Transform labels back to original encoding.
 
         Parameters
@@ -174,6 +201,9 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
         return xp.take(self.classes_, y, axis=0)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares array API support, 1D label input (no 2D X) and one_d_labels target
+        #   tag. Returns the tags.
         tags = super().__sklearn_tags__()
         tags.array_api_support = True
         tags.input_tags.two_d_array = False
@@ -182,6 +212,11 @@ class LabelEncoder(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
 
 
 class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
+    # [CLASS DOC]
+    # Object wrapper around label_binarize: fit records the target type (y_type_),
+    #   whether input was sparse (sparse_input_) and classes_;
+    #   transform/inverse_transform convert between labels and indicator matrices using
+    #   neg_label/pos_label/sparse_output.
     """Binarize labels in a one-vs-all fashion.
 
     Several regression and binary classification algorithms are
@@ -277,12 +312,20 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
     }
 
     def __init__(self, *, neg_label=0, pos_label=1, sparse_output=False):
+        # [FUNCTION DOC]
+        # Stores neg_label, pos_label and sparse_output verbatim.
         self.neg_label = neg_label
         self.pos_label = pos_label
         self.sparse_output = sparse_output
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, y):
+        # [FUNCTION DOC]
+        # Validates options and the target, then records y_type_, sparse_input_ and
+        #   classes_ (unique_labels of y). Returns self.
+        # Exceptions: ValueError if neg_label >= pos_label; if sparse_output is
+        #   requested with pos_label 0 or non-zero neg_label; if sparse_output is used
+        #   with a non-NumPy array API namespace; for multioutput targets; for empty y.
         """Fit label binarizer.
 
         Parameters
@@ -332,6 +375,8 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
         return self
 
     def fit_transform(self, y):
+        # [FUNCTION DOC]
+        # Convenience: fit on y then transform y. Returns the binarized matrix.
         """Fit label binarizer/transform multi-class labels to binary labels.
 
         The output of transform is sometimes referred to as
@@ -354,6 +399,13 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
         return self.fit(y).transform(y)
 
     def transform(self, y):
+        # [FUNCTION DOC]
+        # Requires fit. Rejects sparse_output with non-NumPy array API input and
+        #   multilabel input when not fitted on multilabel data (ValueError), then
+        #   delegates to label_binarize with the fitted classes_ and the configured
+        #   labels.
+        # Outputs: (n_samples, n_classes) array or sparse matrix; (n_samples, 1) for
+        #   binary targets.
         """Transform multi-class labels to binary labels.
 
         The output of transform is sometimes referred to by some authors as
@@ -397,6 +449,14 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
         )
 
     def inverse_transform(self, Y, threshold=None):
+        # [FUNCTION DOC]
+        # Requires fit. threshold defaults to the midpoint between pos_label and
+        #   neg_label. Multiclass targets are decoded by row argmax; other types
+        #   (binary, multilabel) by thresholding. The result is converted to a CSR
+        #   sparse matrix when the training y was sparse, and densified when the helper
+        #   returned a sparse matrix otherwise.
+        # Exceptions: ValueError when fitted on sparse input but Y is a non-NumPy array
+        #   API array; errors from the helpers.
         """Transform binary labels back to multi-class labels.
 
         Parameters
@@ -456,6 +516,8 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
         return y_inv
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares 1D label input and the one_d_labels target tag.
         tags = super().__sklearn_tags__()
         tags.input_tags.two_d_array = False
         tags.target_tags.one_d_labels = True
@@ -473,6 +535,27 @@ class LabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
     prefer_skip_nested_validation=True,
 )
 def label_binarize(y, *, classes, neg_label=0, pos_label=1, sparse_output=False):
+    # [FUNCTION DOC]
+    # Functional one-vs-all binarization of y against an explicit classes list.
+    # Behavior: validate y (lists only checked for emptiness); check neg_label <
+    #   pos_label and sparse constraints; if pos_label is 0, temporarily use -neg_label
+    #   as pos label and swap back later (pos_switch). Determine target type; binary
+    #   with one class returns a column of neg_label (or empty sparse); binary with 3+
+    #   classes is treated as multiclass. Multilabel input must have as many columns as
+    #   classes. For binary/multiclass, build a CSR matrix with pos_label at the sorted-
+    #   class index of each known label (unknown labels give all-zero rows), then
+    #   densify if needed. For multilabel, copy and replace non-zeros with pos_label.
+    #   Dense outputs replace zeros by neg_label, undo pos_switch, and cast to y's
+    #   signed int dtype or the namespace indexing dtype; sparse data is cast to int.
+    #   Columns are reordered to the given classes order; binary keeps only the last
+    #   column.
+    # Inputs: y - labels (1D, or multilabel indicator); classes - array-like of all
+    #   classes; neg_label, pos_label - ints; sparse_output - bool.
+    # Outputs: (n_samples, n_classes) or (n_samples, 1) array or CSR sparse array.
+    # Exceptions: ValueError for empty list y, invalid label combination,
+    #   multioutput/unknown/unsupported target types, sparse_output with non-NumPy
+    #   namespaces, classes not representable in the namespace, and multilabel class-
+    #   count mismatch.
     """Binarize labels in a one-vs-all fashion.
 
     Several regression and binary classification algorithms are
@@ -698,6 +781,20 @@ def label_binarize(y, *, classes, neg_label=0, pos_label=1, sparse_output=False)
 
 
 def _inverse_binarize_multiclass(y, classes, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Decodes a multiclass indicator/score matrix into labels by taking, per
+    #   row, the column of the maximum value.
+    # Sparse branch (NumPy): computes the row maxima, finds the first stored entry equal
+    #   to the max in each row; all-zero rows map to column 0; rows whose max is 0 but
+    #   have negative stored values pick the first implicit-zero column. Dense branch:
+    #   argmax per row (clipped to the class range).
+    # Inputs: y - (n_samples, n_classes) dense or sparse; classes - labels; xp -
+    #   optional namespace.
+    # Outputs: 1D array of labels.
+    # KNOWN ISSUE: in the negative-values sparse case it stores a class label (classes
+    #   indexed by the missing column) into y_i_argmax, which holds column indices, and
+    #   then indexes classes with it again; this is only correct when classes are 0..n-1
+    #   integers.
     """Inverse label binarization transformation for multiclass.
 
     Multiclass uses the maximal score instead of a threshold.
@@ -745,6 +842,20 @@ def _inverse_binarize_multiclass(y, classes, xp=None):
 
 
 def _inverse_binarize_thresholding(y, output_type, classes, threshold, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Decodes binary or multilabel indicator/score matrices by thresholding.
+    # Behavior: values greater than threshold become 1, else 0 (sparse input stays
+    #   sparse when threshold > 0, otherwise densified). For binary output: a 2-column
+    #   matrix uses column 1 to index classes; with a single class, repeats that class;
+    #   otherwise indexes classes with the flattened 0/1 values. For multilabel returns
+    #   the 0/1 matrix.
+    # Inputs: y - scores; output_type - target type string; classes; threshold - float;
+    #   xp - optional namespace.
+    # Exceptions: ValueError if binary output has more than 2 columns, if a non-binary y
+    #   has a column count different from the number of classes, or for unsupported
+    #   output types.
+    # Side effects: sparse y in CSR/CSC format is mutated in place (data replaced, zeros
+    #   eliminated).
     """Inverse label binarization transformation using thresholding."""
 
     if output_type == "binary" and y.ndim == 2 and y.shape[1] > 2:
@@ -800,6 +911,11 @@ def _inverse_binarize_thresholding(y, output_type, classes, threshold, xp=None):
 
 
 class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys=None):
+    # [CLASS DOC]
+    # Converts between sequences of label sets and a (n_samples, n_classes) binary
+    #   indicator matrix. Fitted attribute classes_ (given classes order, or sorted
+    #   union of labels). Keeps a private _cached_dict label-to-column mapping built
+    #   lazily in transform.
     """Transform between iterable of iterables and a multilabel format.
 
     Although a list of sets or tuples is a very intuitive format for multilabel
@@ -870,11 +986,19 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
     }
 
     def __init__(self, *, classes=None, sparse_output=False):
+        # [FUNCTION DOC]
+        # Stores classes and sparse_output verbatim.
         self.classes = classes
         self.sparse_output = sparse_output
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, y):
+        # [FUNCTION DOC]
+        # Resets the mapping cache; classes_ is the sorted union of all labels in y
+        #   unless the classes parameter is given (kept in user order). classes_ is an
+        #   int array if all classes are ints, else an object array (safe for tuples).
+        # Exceptions: ValueError if the classes parameter contains duplicates.
+        # Outputs: self.
         """Fit the label sets binarizer, storing :term:`classes_`.
 
         Parameters
@@ -908,6 +1032,14 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, y):
+        # [FUNCTION DOC]
+        # If classes is given, equivalent to fit then transform. Otherwise does a single
+        #   pass: builds a mapping that assigns new column indices on first sight,
+        #   transforms with it, then sorts the classes and remaps the CSR column indices
+        #   to sorted positions (keeping the index dtype). Densifies unless
+        #   sparse_output.
+        # Outputs: indicator matrix (n_samples, n_classes). Side effects: sets classes_
+        #   and resets _cached_dict.
         """Fit the label sets binarizer and transform the given label sets.
 
         Parameters
@@ -951,6 +1083,10 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
         return yt
 
     def transform(self, y):
+        # [FUNCTION DOC]
+        # Requires fit. Transforms with the cached class-to-index mapping; unknown
+        #   labels are ignored with a warning. Returns a dense array unless
+        #   sparse_output.
         """Transform the given label sets.
 
         Parameters
@@ -977,12 +1113,23 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
         return yt
 
     def _build_cache(self):
+        # [FUNCTION DOC]
+        # HELPER: Lazily builds and returns the dict mapping each class in classes_ to
+        #   its column index, caching it in _cached_dict.
         if self._cached_dict is None:
             self._cached_dict = dict(zip(self.classes_, range(len(self.classes_))))
 
         return self._cached_dict
 
     def _transform(self, y, class_mapping):
+        # [FUNCTION DOC]
+        # HELPER: Builds a CSR indicator matrix from label sets using class_mapping
+        #   (label to column). Duplicate labels in a set count once; labels missing from
+        #   the mapping are collected and reported in a single UserWarning, then
+        #   ignored.
+        # Inputs: y - iterable of iterables; class_mapping - dict-like (may be an auto-
+        #   incrementing defaultdict).
+        # Outputs: CSR array of ones with shape (n_samples, len(class_mapping)).
         """Transforms the label sets with a given mapping.
 
         Parameters
@@ -1025,6 +1172,12 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
         )
 
     def inverse_transform(self, yt):
+        # [FUNCTION DOC]
+        # Requires fit. Checks the column count equals the number of classes and that
+        #   entries are only 0/1, then returns, for each row, a tuple of the classes
+        #   whose indicator is set (sparse input converted to CSR).
+        # Outputs: list of tuples. Exceptions: ValueError on shape mismatch or non-
+        #   binary values.
         """Transform the given indicator matrix into label sets.
 
         Parameters
@@ -1066,6 +1219,8 @@ class MultiLabelBinarizer(TransformerMixin, BaseEstimator, auto_wrap_output_keys
             return [tuple(self.classes_.compress(indicators)) for indicators in yt]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares that input is not a 2D X and that the target is 2D labels.
         tags = super().__sklearn_tags__()
         tags.input_tags.two_d_array = False
         tags.target_tags.two_d_labels = True

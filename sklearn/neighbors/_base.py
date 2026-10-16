@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Shared machinery for nearest-neighbor estimators: metric whitelists per algorithm
+# (VALID_METRICS, VALID_METRICS_SPARSE, SCIPY_METRICS adjusted by installed SciPy
+# version), distance-to-weight conversion, helpers for precomputed sparse neighbor
+# graphs, the NeighborsBase fitting logic (input validation, effective metric
+# resolution, algorithm selection and tree construction) and the KNeighborsMixin /
+# RadiusNeighborsMixin query APIs (kneighbors, radius_neighbors and their graphs).
+# Side effects at import: metric lists are built once, depending on the SciPy version.
 """Base and mixin classes for nearest neighbors."""
 
 # Authors: The scikit-learn developers
@@ -72,6 +80,19 @@ VALID_METRICS_SPARSE = dict(
 
 
 def _get_weights(dist, weights):
+    # [FUNCTION DOC]
+    # HELPER: Converts neighbor distances into neighbor weights.
+    # Behavior: None or "uniform" gives None (equal weights). "distance" gives inverse
+    # distances; for a 2D float array, any row containing a zero distance gets weight 1
+    # for the zero-distance entries and 0 elsewhere. For object arrays (ragged rows from
+    # radius queries), each row is processed the same way individually. A callable is
+    # applied to dist and its result returned.
+    # Inputs: dist - float array (n_queries, n_neighbors) or object array of 1D arrays;
+    # weights - None, "uniform", "distance" or callable (assumed already validated).
+    # Outputs: None or array with the same structure as dist.
+    # Side effects: for object arrays, dist is modified in place (its rows are
+    # replaced).
+    # KNOWN ISSUE: any other weights value silently returns None.
     """Get the weights from an array of distances and a parameter ``weights``.
 
     Assume weights have already been validated.
@@ -118,6 +139,14 @@ def _get_weights(dist, weights):
 
 
 def _is_sorted_by_data(graph):
+    # [FUNCTION DOC]
+    # HELPER: Checks whether every row of a CSR graph stores its data in non-decreasing
+    # order. Finds all positions where data decreases from one stored entry to the next
+    # and
+    # verifies that every such decrease occurs exactly at a row boundary.
+    # Inputs: graph - CSR sparse matrix (asserted).
+    # Outputs: bool.
+    # Exceptions: AssertionError if not CSR.
     """Return whether the graph's non-zero entries are sorted by data.
 
     The non-zero entries are stored in graph.data and graph.indices.
@@ -145,6 +174,17 @@ def _is_sorted_by_data(graph):
 
 
 def _check_precomputed(X):
+    # [FUNCTION DOC]
+    # HELPER: Validates a precomputed distance matrix. Dense input is checked to be a
+    # non-negative array and returned. Sparse input must be CSR, CSC, COO or LIL; it is
+    # converted to non-negative CSR (copy when converting) and sorted per row by
+    # distance
+    # via sort_graph_by_row_values (in place when the conversion already copied).
+    # Inputs: X - dense or sparse (n_queries, n_samples_fit) distances.
+    # Outputs: validated array or CSR matrix sorted by row values.
+    # Exceptions: TypeError for unsupported sparse formats; ValueError for negatives.
+    # Side effects: EfficiencyWarning when the sparse graph was not sorted; may sort a
+    # CSR input in place.
     """Check precomputed distance matrix.
 
     If the precomputed distance matrix is sparse, it checks that the non-zero
@@ -194,6 +234,21 @@ def _check_precomputed(X):
     prefer_skip_nested_validation=True,
 )
 def sort_graph_by_row_values(graph, copy=False, warn_when_not_sorted=True):
+    # [FUNCTION DOC]
+    # Public: sorts each row of a sparse distance graph by increasing value.
+    # Steps: return immediately if already CSR and sorted. Otherwise optionally warn,
+    # reject unsupported formats, convert non-CSR to CSR (requires copy=True) or copy a
+    # CSR
+    # when copy=True. If all rows have the same number of stored entries, sort all rows
+    # at
+    # once with a stable argsort on the reshaped data, offsetting indices per row; else
+    # stable-sort each row segment individually. Permute data and indices accordingly.
+    # Inputs: graph - sparse (n_samples, n_samples); copy - bool; warn_when_not_sorted -
+    # bool.
+    # Outputs: CSR matrix sorted per row (may be the same object as the input).
+    # Exceptions: TypeError on unsupported format; ValueError on non-CSR with
+    # copy=False.
+    # Side effects: EfficiencyWarning; modifies graph in place when CSR and copy=False.
     """Sort a sparse graph such that each row is stored with increasing values.
 
     .. versionadded:: 1.2
@@ -285,6 +340,15 @@ def sort_graph_by_row_values(graph, copy=False, warn_when_not_sorted=True):
 
 
 def _kneighbors_from_graph(graph, n_neighbors, return_distance):
+    # [FUNCTION DOC]
+    # HELPER: Extracts the first n_neighbors stored entries of each row of a sorted CSR
+    # neighbor graph as dense (n_samples, n_neighbors) arrays.
+    # Inputs: graph - CSR with rows sorted by distance; n_neighbors - int;
+    # return_distance
+    # - bool.
+    # Outputs: (distances, indices) or indices only.
+    # Exceptions: ValueError if some row has fewer than n_neighbors entries;
+    # AssertionError if not CSR.
     """Decompose a nearest neighbors sparse graph into distances and indices.
 
     Parameters
@@ -322,6 +386,13 @@ def _kneighbors_from_graph(graph, n_neighbors, return_distance):
         )
 
     def extract(a):
+        # [FUNCTION DOC]
+        # HELPER: Takes the first n_neighbors entries of each row from a flat CSR
+        # data/indices
+        # array: a reshape when all rows have equal length, otherwise gather positions
+        # indptr[row] + 0..n_neighbors-1 per row.
+        # Inputs: a - flat array aligned with graph.data. Outputs: (n_samples,
+        # n_neighbors).
         # if each sample has the same number of provided neighbors
         if row_nnz.max() == row_nnz_min:
             return a.reshape(n_samples, -1)[:, :n_neighbors]
@@ -337,6 +408,16 @@ def _kneighbors_from_graph(graph, n_neighbors, return_distance):
 
 
 def _radius_neighbors_from_graph(graph, radius, return_distance):
+    # [FUNCTION DOC]
+    # HELPER: Converts a CSR neighbor graph into per-row object arrays of neighbors
+    # within
+    # radius. If the maximum stored value is within radius no filtering is done;
+    # otherwise
+    # entries above radius are dropped and indptr recomputed from the cumulative mask.
+    # Indices are cast to intp, then data/indices are split per row.
+    # Inputs: graph - CSR; radius - float; return_distance - bool.
+    # Outputs: (neigh_dist, neigh_ind) object arrays of 1D arrays, or neigh_ind only.
+    # Exceptions: AssertionError if not CSR.
     """Decompose a nearest neighbors sparse graph into distances and indices.
 
     Parameters
@@ -385,6 +466,12 @@ def _radius_neighbors_from_graph(graph, radius, return_distance):
 
 
 class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for neighbor estimators. Holds the common hyper-parameters and the
+    # _fit
+    # logic which stores the training data (_fit_X), chooses a search method
+    # (_fit_method: brute, kd_tree or ball_tree), builds the tree (_tree) and resolves
+    # effective_metric_ / effective_metric_params_.
     """Base class for nearest neighbors estimators."""
 
     _parameter_constraints: dict = {
@@ -410,6 +497,10 @@ class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Abstract constructor storing n_neighbors, radius, algorithm, leaf_size,
+        # metric, p,
+        # metric_params, n_jobs unchanged.
         self.n_neighbors = n_neighbors
         self.radius = radius
         self.algorithm = algorithm
@@ -420,6 +511,19 @@ class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         self.n_jobs = n_jobs
 
     def _check_algorithm_metric(self):
+        # [FUNCTION DOC]
+        # HELPER: Validates the metric against the algorithm. For algorithm "auto" the
+        # algorithm used for the check is brute for precomputed, ball_tree for
+        # callables,
+        # ball_tree metrics or DistanceMetric instances, else brute.
+        # Exceptions: ValueError for a callable metric with kd_tree, or a string metric
+        # not in
+        # VALID_METRICS for the checked algorithm.
+        # Side effects: SyntaxWarning if p is given both in metric_params and as p (not
+        # None).
+        # KNOWN ISSUE: the kd_tree/callable error message lacks spaces between
+        # concatenated
+        # string pieces.
         if self.algorithm == "auto":
             if self.metric == "precomputed":
                 alg_check = "brute"
@@ -465,6 +569,42 @@ class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
                 )
 
     def _fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Core fit shared by all neighbor estimators.
+        # Steps: (1) Validate X (and y when the estimator requires targets) unless X is
+        # already a KDTree, BallTree or fitted NeighborsBase. For classifiers, record
+        # outputs_2d_ (warning on column-vector y), encode each output column into
+        # integer
+        # codes, storing classes_ (list per output, or a single array) and _y; for
+        # others store
+        # y as _y. (2) Check algorithm/metric. (3) Build effective_metric_params_ from
+        # metric_params; for minkowski, replace by manhattan, euclidean or chebyshev
+        # when p is
+        # 1, 2 or inf without weights w, else keep generic minkowski with p and w. (4)
+        # If X is
+        # a fitted estimator or tree, reuse its data/tree/method and return. (5)
+        # Precomputed X
+        # is validated and must be square. (6) Empty X is rejected. Sparse X forces
+        # brute
+        # (warning if a tree was requested) and the metric must support sparse input.
+        # (7) For "auto", choose brute when precomputed, more than 15 features, or
+        # n_neighbors
+        # >= half the training size; else brute for minkowski p<1, ball_tree for
+        # weighted
+        # minkowski, kd_tree if the metric supports it, ball_tree for callables or
+        # ball_tree
+        # metrics, else brute. (8) Minkowski with p<1 warns with brute, errors with
+        # trees.
+        # (9) Build BallTree/KDTree with leaf_size and effective metric, or no tree for
+        # brute.
+        # Inputs: X - array, sparse, tree or fitted estimator; y - targets or None.
+        # Outputs: self.
+        # Exceptions: ValueError for non-square precomputed matrix, zero samples,
+        # sparse-
+        # incompatible metric, p<1 with trees, kd_tree with weighted minkowski.
+        # Side effects: sets _fit_X, _tree, _fit_method, n_samples_fit_,
+        # effective_metric_,
+        # effective_metric_params_, _y, classes_, outputs_2d_, n_features_in_; warnings.
         ensure_all_finite = "allow-nan" if get_tags(self).input_tags.allow_nan else True
         if self.__sklearn_tags__().target_tags.required:
             if not isinstance(X, (KDTree, BallTree, NeighborsBase)):
@@ -699,6 +839,10 @@ class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse support; pairwise and positive_only when metric is
+        # precomputed; and
+        # allow_nan when metric is nan_euclidean.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         # For cross-validation routines to split data correctly
@@ -710,9 +854,23 @@ class NeighborsBase(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
 
 
 class KNeighborsMixin:
+    # [CLASS DOC]
+    # Mixin providing k-nearest-neighbor queries (kneighbors, kneighbors_graph) on top
+    # of
+    # the attributes set by NeighborsBase._fit.
     """Mixin for k-neighbors searches."""
 
     def _kneighbors_reduce_func(self, dist, start, n_neighbors, return_distance):
+        # [FUNCTION DOC]
+        # HELPER: Callback for pairwise_distances_chunked. For a chunk of distances,
+        # partially
+        # select the n_neighbors smallest per row, then sort them by distance. Returns
+        # distances (square-rooted when the effective metric is euclidean, since squared
+        # distances were computed) and indices.
+        # Inputs: dist - (n_chunk, n_samples_fit); start - unused chunk offset;
+        # n_neighbors;
+        # return_distance - bool.
+        # Outputs: (dist, ind) each (n_chunk, n_neighbors), or ind only.
         """Reduce a chunk of distances to the nearest neighbors.
 
         Callback to :func:`sklearn.metrics.pairwise.pairwise_distances_chunked`
@@ -754,6 +912,34 @@ class KNeighborsMixin:
         return result
 
     def kneighbors(self, X=None, n_neighbors=None, return_distance=True):
+        # [FUNCTION DOC]
+        # Finds the n_neighbors nearest training points of each query point.
+        # Steps: check fitted; default n_neighbors to self.n_neighbors. If X is None,
+        # query
+        # the training set with one extra neighbor (removed later). Otherwise validate X
+        # (or
+        # check it as precomputed). Reject n_neighbors greater than n_samples_fit_.
+        # Dispatch:
+        # brute with ArgKmin when usable; precomputed sparse graph via
+        # _kneighbors_from_graph;
+        # other brute via chunked pairwise distances with _kneighbors_reduce_func
+        # (squared
+        # euclidean for speed); trees via thread-parallel tree.query over even slices.
+        # Stack
+        # chunk results. When querying the training set, drop each sample's own index
+        # from
+        # its row (or the first entry if the sample is not among its neighbors because
+        # of
+        # duplicates) and reshape to n_neighbors-1 columns.
+        # Inputs: X - None, array/sparse (n_queries, n_features) or precomputed
+        # distances;
+        # n_neighbors - int or None; return_distance - bool.
+        # Outputs: (neigh_dist, neigh_ind) both (n_queries, n_neighbors), or neigh_ind
+        # only.
+        # Exceptions: ValueError for n_neighbors <= 0, too many neighbors, sparse input
+        # with
+        # tree methods, unknown _fit_method; TypeError for non-integer n_neighbors.
+        # Side effects: none on self.
         """Find the K-neighbors of a point.
 
         Returns indices of and distances to the neighbors of each point.
@@ -958,6 +1144,17 @@ class KNeighborsMixin:
             return neigh_ind
 
     def kneighbors_graph(self, X=None, n_neighbors=None, mode="connectivity"):
+        # [FUNCTION DOC]
+        # Builds a CSR (n_queries, n_samples_fit) k-neighbor graph. connectivity mode
+        # stores 1
+        # for each neighbor; distance mode stores the neighbor distance. Each row has
+        # exactly
+        # n_neighbors entries; indptr is a regular arange with step n_neighbors.
+        # Inputs: X - as in kneighbors; n_neighbors - int or None; mode - "connectivity"
+        # or
+        # "distance".
+        # Outputs: sparse matrix/array (type aligned with the configured sparse API).
+        # Exceptions: ValueError for unknown mode; those of kneighbors.
         """Compute the (weighted) graph of k-Neighbors for points in X.
 
         Parameters
@@ -1042,9 +1239,22 @@ class KNeighborsMixin:
 
 
 class RadiusNeighborsMixin:
+    # [CLASS DOC]
+    # Mixin providing radius-based neighbor queries (radius_neighbors and its graph) on
+    # top of the attributes set by NeighborsBase._fit.
     """Mixin for radius-based neighbors searches."""
 
     def _radius_neighbors_reduce_func(self, dist, start, radius, return_distance):
+        # [FUNCTION DOC]
+        # HELPER: Callback for pairwise_distances_chunked. For each row in the chunk
+        # keep the
+        # indices with distance <= radius; distances are square-rooted for euclidean
+        # (radius
+        # was squared by the caller).
+        # Inputs: dist - (n_chunk, n_samples_fit); start - unused; radius;
+        # return_distance.
+        # Outputs: (list of distance arrays, list of index arrays) or list of index
+        # arrays.
         """Reduce a chunk of distances to the nearest neighbors.
 
         Callback to :func:`sklearn.metrics.pairwise.pairwise_distances_chunked`
@@ -1086,6 +1296,28 @@ class RadiusNeighborsMixin:
     def radius_neighbors(
         self, X=None, radius=None, return_distance=True, sort_results=False
     ):
+        # [FUNCTION DOC]
+        # Finds all training points within radius of each query.
+        # Steps: check fitted; sort_results requires return_distance. Use training data
+        # if X
+        # is None, else validate (or check precomputed). Default radius to self.radius.
+        # Dispatch: RadiusNeighbors reduction for usable brute cases; precomputed sparse
+        # via
+        # _radius_neighbors_from_graph; other brute via chunked pairwise distances
+        # (squared
+        # euclidean with squared radius), concatenated into object arrays and optionally
+        # stably sorted; trees via thread-parallel query_radius over slices (per-sample
+        # radius
+        # sliced when radius is an array). When querying the training set, remove each
+        # sample's own index (and distance) from its row.
+        # Inputs: X - None or (n_queries, n_features)/precomputed; radius - float or
+        # None;
+        # return_distance - bool; sort_results - bool.
+        # Outputs: (neigh_dist, neigh_ind) object arrays of 1D arrays, or neigh_ind
+        # only.
+        # Exceptions: ValueError when sort_results without return_distance, sparse input
+        # with
+        # trees, or unknown _fit_method.
         """Find the neighbors within a given radius of a point or points.
 
         Return the indices and distances of each point from the dataset
@@ -1309,6 +1541,16 @@ class RadiusNeighborsMixin:
     def radius_neighbors_graph(
         self, X=None, radius=None, mode="connectivity", sort_results=False
     ):
+        # [FUNCTION DOC]
+        # Builds a CSR (n_queries, n_samples_fit) graph of neighbors within radius, with
+        # ones
+        # (connectivity) or distances (distance) as values, rows of variable length;
+        # indptr is
+        # the cumulative count of neighbors per row.
+        # Inputs: X; radius - float or None; mode - "connectivity" or "distance";
+        # sort_results - bool, only used in distance mode.
+        # Outputs: sparse matrix/array.
+        # Exceptions: ValueError for unknown mode.
         """Compute the (weighted) graph of Neighbors for points in X.
 
         Neighborhoods are restricted the points at a distance lower than
@@ -1398,6 +1640,8 @@ class RadiusNeighborsMixin:
         return _align_api_if_sparse(csr)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Sets allow_nan when the metric is nan_euclidean.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = self.metric == "nan_euclidean"
         return tags

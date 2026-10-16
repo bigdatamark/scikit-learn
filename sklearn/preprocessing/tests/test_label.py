@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Test suite for the label utilities in sklearn.preprocessing._label: LabelBinarizer,
+#   LabelEncoder, MultiLabelBinarizer, label_binarize and the private inverse helpers
+#   _inverse_binarize_multiclass / _inverse_binarize_thresholding, including sparse
+#   containers, pandas nullable dtypes and array API (namespace/device) compliance.
+# Side effects: loads the iris dataset at import time into the module global iris.
+# KNOWN ISSUE: the module-level iris dataset is never used by any test; it only adds
+#   import cost.
 import numpy as np
 import pytest
 from scipy.sparse import issparse
@@ -42,12 +50,21 @@ iris = datasets.load_iris()
 
 
 def toarray(a):
+    # [FUNCTION DOC]
+    # HELPER: Densifies the input if it exposes toarray (sparse matrix/array), otherwise
+    #   returns it unchanged.
+    # Inputs: a - array-like or sparse container. Outputs: dense array or the original
+    #   object.
     if hasattr(a, "toarray"):
         a = a.toarray()
     return a
 
 
 def test_label_binarizer():
+    # [FUNCTION DOC]
+    # Verifies LabelBinarizer for one-class (all zeros column, dense and sparse output),
+    #   two-class (single column) and multi-class (one column per sorted class) inputs,
+    #   including classes_ and inverse_transform round trips.
     # one-class case defaults to negative label
     # For dense case:
     inp = ["pos", "pos", "pos", "pos"]
@@ -89,6 +106,8 @@ def test_label_binarizer():
 
 
 def test_label_binarizer_unseen_labels():
+    # [FUNCTION DOC]
+    # Verifies labels unseen during fit are encoded as all-zero rows by transform.
     lb = LabelBinarizer()
 
     expected = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -103,6 +122,9 @@ def test_label_binarizer_unseen_labels():
 
 
 def test_label_binarizer_set_label_encoding():
+    # [FUNCTION DOC]
+    # Verifies custom neg_label/pos_label values (-2/0 for binary, -2/2 for multi-class)
+    #   in fit_transform output and inverse_transform round trips.
     lb = LabelBinarizer(neg_label=-2, pos_label=0)
 
     # two-class case with pos_label=0
@@ -133,6 +155,10 @@ def test_label_binarizer_set_label_encoding():
 @pytest.mark.parametrize("dtype", ["Int64", "Float64", "boolean"])
 @pytest.mark.parametrize("unique_first", [True, False])
 def test_label_binarizer_pandas_nullable(dtype, unique_first):
+    # [FUNCTION DOC]
+    # Non-regression for gh-25637: LabelBinarizer fits on pandas nullable dtypes (Int64,
+    #   Float64, boolean), either as a Series or as the pandas array returned by unique,
+    #   and transforms [1, 0] to [[1], [0]]. Skipped without pandas.
     """Checks that LabelBinarizer works with pandas nullable dtypes.
 
     Non-regression test for gh-25637.
@@ -151,6 +177,12 @@ def test_label_binarizer_pandas_nullable(dtype, unique_first):
 
 
 def test_label_binarizer_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueErrors: legacy multi-label sequences in transform/fit_transform, use
+    #   before fit, neg_label not strictly less than pos_label, sparse_output with non-
+    #   zero neg_label, 2-D y with output_type "binary" in
+    #   _inverse_binarize_thresholding, and multioutput targets in fit and
+    #   label_binarize.
     # Check that invalid arguments yield ValueError
     one_class = np.array([0, 0, 0, 0])
     lb = LabelBinarizer().fit(one_class)
@@ -210,6 +242,12 @@ def test_label_binarizer_errors():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_label_binarizer_sparse_errors(csr_container):
+    # [FUNCTION DOC]
+    # Verifies _inverse_binarize_thresholding on sparse input raises for an unsupported
+    #   output_type and for a class count differing from the number of columns.
+    # KNOWN ISSUE: the second case also passes output_type "foo", so it only checks the
+    #   class-count message wins; it does not isolate that check with a valid
+    #   output_type.
     # Fail on y_type
     err_msg = "foo format is not supported"
     with pytest.raises(ValueError, match=err_msg):
@@ -249,6 +287,14 @@ def test_label_binarizer_sparse_errors(csr_container):
 def test_label_binarizer_array_api_compliance(
     y, classes, expected, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies LabelBinarizer under array_api_dispatch: for non-NumPy namespaces,
+    #   sparse_output=True fit/transform and inverse_transform after a sparse fit raise
+    #   ValueError; otherwise fit_transform, classes_ and inverse_transform keep the
+    #   namespace, device and an integer dtype and match expected values.
+    # Inputs: y, classes, expected - labels, expected classes_ and indicator matrix;
+    #   array_namespace, device_name, dtype_name - array API combination.
+    # Side effects: sets lb_sparse.sparse_input_ manually to simulate a sparse fit.
     """Test that :class:`LabelBinarizer` works correctly with the array API for binary
     and multi-class inputs for numerical labels and non-sparse outputs.
     """
@@ -332,6 +378,10 @@ def test_label_binarizer_array_api_compliance(
     ids=["int64", "object", "str"],
 )
 def test_label_encoder(values, classes, unknown):
+    # [FUNCTION DOC]
+    # Verifies LabelEncoder fit/classes_, transform, inverse_transform and fit_transform
+    #   on int64, object and str arrays, and that transforming an unseen label raises
+    #   ValueError.
     # Test LabelEncoder's transform, fit_transform and
     # inverse_transform methods
     le = LabelEncoder()
@@ -348,6 +398,9 @@ def test_label_encoder(values, classes, unknown):
 
 
 def test_label_encoder_negative_ints():
+    # [FUNCTION DOC]
+    # Verifies LabelEncoder sorts and encodes negative integers correctly, inverts them,
+    #   and raises ValueError on an unseen label.
     le = LabelEncoder()
     le.fit([1, 1, 4, 5, -1, 0])
     assert_array_equal(le.classes_, [-1, 0, 1, 4, 5])
@@ -361,6 +414,9 @@ def test_label_encoder_negative_ints():
 
 @pytest.mark.parametrize("dtype", ["str", "object"])
 def test_label_encoder_str_bad_shape(dtype):
+    # [FUNCTION DOC]
+    # Verifies transform on a scalar string raises "should be a 1d array" for str and
+    #   object fitted classes.
     le = LabelEncoder()
     le.fit(np.array(["apple", "orange"], dtype=dtype))
     msg = "should be a 1d array"
@@ -369,6 +425,10 @@ def test_label_encoder_str_bad_shape(dtype):
 
 
 def test_label_encoder_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueErrors for transform/inverse_transform before fit, inverse_transform
+    #   with codes outside the fitted range, and inverse_transform on a scalar empty
+    #   string.
     # Check that invalid arguments yield ValueError
     le = LabelEncoder()
     with pytest.raises(ValueError):
@@ -401,6 +461,9 @@ def test_label_encoder_errors():
     ids=["int64", "object", "str"],
 )
 def test_label_encoder_empty_array(values):
+    # [FUNCTION DOC]
+    # Verifies transform and inverse_transform of an empty list return empty arrays
+    #   after fitting on int64, object or str labels.
     le = LabelEncoder()
     le.fit(values)
     # test empty transform
@@ -412,6 +475,11 @@ def test_label_encoder_empty_array(values):
 
 
 def test_sparse_output_multilabel_binarizer():
+    # [FUNCTION DOC]
+    # Verifies MultiLabelBinarizer with lists, sets and iterators of label sets, for
+    #   sparse and dense output, via fit_transform and fit+transform: indicator matrix,
+    #   classes_, inverse_transform, and that sparse output has matching indices/indptr
+    #   dtypes.
     # test input as iterable of iterables
     inputs = [
         lambda: [(2, 3), (1,), (1, 2)],
@@ -450,6 +518,9 @@ def test_sparse_output_multilabel_binarizer():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_output_multilabel_binarizer_errors(csr_container):
+    # [FUNCTION DOC]
+    # Verifies inverse_transform raises ValueError for a sparse indicator containing a
+    #   non-binary value.
     inp = iter([iter((2, 3)), iter((1,)), {1, 2}])
     mlb = MultiLabelBinarizer(sparse_output=False)
     mlb.fit(inp)
@@ -460,6 +531,9 @@ def test_sparse_output_multilabel_binarizer_errors(csr_container):
 
 
 def test_multilabel_binarizer():
+    # [FUNCTION DOC]
+    # Verifies MultiLabelBinarizer dense output, classes_ and inverse_transform for
+    #   list, set and iterator inputs via fit_transform and fit+transform.
     # test input as iterable of iterables
     inputs = [
         lambda: [(2, 3), (1,), (1, 2)],
@@ -485,6 +559,8 @@ def test_multilabel_binarizer():
 
 
 def test_multilabel_binarizer_empty_sample():
+    # [FUNCTION DOC]
+    # Verifies an empty label set yields an all-zero row.
     mlb = MultiLabelBinarizer()
     y = [[1, 2], [1], []]
     Y = np.array([[1, 1], [1, 0], [0, 0]])
@@ -492,6 +568,12 @@ def test_multilabel_binarizer_empty_sample():
 
 
 def test_multilabel_binarizer_unknown_class():
+    # [FUNCTION DOC]
+    # Verifies transform warns that unknown classes are ignored, with inferred classes
+    #   and with explicit classes, and that the explicit-classes output ignores the
+    #   unknown label.
+    # KNOWN ISSUE: the result of the first (inferred classes) transform and the first Y
+    #   are never asserted.
     mlb = MultiLabelBinarizer()
     y = [[1, 2]]
     Y = np.array([[1, 0], [0, 1]])
@@ -507,6 +589,10 @@ def test_multilabel_binarizer_unknown_class():
 
 
 def test_multilabel_binarizer_given_classes():
+    # [FUNCTION DOC]
+    # Verifies explicit classes control column order, extra classes give zero columns,
+    #   fit does not consume an iterator when classes are given, and duplicate classes
+    #   raise ValueError.
     inp = [(2, 3), (1,), (1, 2)]
     indicator_mat = np.array([[0, 1, 1], [1, 0, 0], [1, 0, 1]])
     # fit_transform()
@@ -542,6 +628,9 @@ def test_multilabel_binarizer_given_classes():
 
 
 def test_multilabel_binarizer_multiple_calls():
+    # [FUNCTION DOC]
+    # Verifies changing the classes parameter between fit_transform calls changes the
+    #   column order of the output.
     inp = [(2, 3), (1,), (1, 2)]
     indicator_mat = np.array([[0, 1, 1], [1, 0, 0], [1, 0, 1]])
 
@@ -556,6 +645,9 @@ def test_multilabel_binarizer_multiple_calls():
 
 
 def test_multilabel_binarizer_same_length_sequence():
+    # [FUNCTION DOC]
+    # Verifies equal-length label sequences are not interpreted as a 2-D array and
+    #   round-trip through inverse_transform.
     # Ensure sequences of the same length are not interpreted as a 2-d array
     inp = [[1], [0], [2]]
     indicator_mat = np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]])
@@ -571,6 +663,9 @@ def test_multilabel_binarizer_same_length_sequence():
 
 
 def test_multilabel_binarizer_non_integer_labels():
+    # [FUNCTION DOC]
+    # Verifies string and tuple labels (object arrays) are binarized and inverted
+    #   correctly, and that unhashable dict labels raise TypeError.
     tuple_classes = _to_object_array([(1,), (2,), (3,)])
     inputs = [
         ([("2", "3"), ("1",), ("1", "2")], ["1", "2", "3"]),
@@ -600,6 +695,8 @@ def test_multilabel_binarizer_non_integer_labels():
 
 
 def test_multilabel_binarizer_non_unique():
+    # [FUNCTION DOC]
+    # Verifies duplicate labels within one sample give a single 1 per class.
     inp = [(1, 1, 1, 0)]
     indicator_mat = np.array([[1, 1]])
     mlb = MultiLabelBinarizer()
@@ -607,6 +704,9 @@ def test_multilabel_binarizer_non_unique():
 
 
 def test_multilabel_binarizer_inverse_validation():
+    # [FUNCTION DOC]
+    # Verifies inverse_transform accepts binary indicator rows but raises ValueError for
+    #   non-binary values or a wrong number of columns.
     inp = [(1, 1, 1, 0)]
     mlb = MultiLabelBinarizer()
     mlb.fit_transform(inp)
@@ -626,6 +726,8 @@ def test_multilabel_binarizer_inverse_validation():
 
 
 def test_label_binarize_with_class_order():
+    # [FUNCTION DOC]
+    # Verifies label_binarize respects the order of the classes argument for columns.
     out = label_binarize([1, 6], classes=[1, 2, 4, 6])
     expected = np.array([[1, 0, 0, 0], [0, 0, 0, 1]])
     assert_array_equal(out, expected)
@@ -641,6 +743,15 @@ def test_label_binarize_with_class_order():
 
 
 def check_binarized_results(y, classes, pos_label, neg_label, expected):
+    # [FUNCTION DOC]
+    # HELPER: For sparse and dense output, checks label_binarize and LabelBinarizer give
+    #   expected (or raise ValueError when sparse output is requested with pos_label 0
+    #   or non-zero neg_label), and that the inverse via _inverse_binarize_multiclass or
+    #   _inverse_binarize_thresholding (threshold midway between labels) and
+    #   LabelBinarizer.inverse_transform reproduce y, preserving sparsity of y.
+    # Inputs: y - labels or indicator matrix (dense/sparse); classes - class list;
+    #   pos_label, neg_label - ints; expected - dense expected output.
+    # Exceptions: assertion errors on mismatch.
     for sparse_output in [True, False]:
         if (pos_label == 0 or neg_label != 0) and sparse_output:
             with pytest.raises(ValueError):
@@ -692,6 +803,10 @@ def check_binarized_results(y, classes, pos_label, neg_label, expected):
 
 
 def test_label_binarize_binary():
+    # [FUNCTION DOC]
+    # Verifies binary label_binarize/LabelBinarizer with pos_label=2, neg_label=-1
+    #   (sparse rejected) and pos_label=3, neg_label=0 (sparse allowed), using
+    #   check_binarized_results.
     y = [0, 1, 0]
     classes = [0, 1]
     pos_label = 2
@@ -711,6 +826,9 @@ def test_label_binarize_binary():
 
 
 def test_label_binarize_multiclass():
+    # [FUNCTION DOC]
+    # Verifies multi-class binarization with pos_label=2 via check_binarized_results and
+    #   that sparse output with neg_label=-1 raises ValueError.
     y = [0, 1, 2]
     classes = [0, 1, 2]
     pos_label = 2
@@ -735,6 +853,9 @@ def test_label_binarize_multiclass():
     + LIL_CONTAINERS,
 )
 def test_label_binarize_multilabel(arr_type):
+    # [FUNCTION DOC]
+    # Verifies multilabel indicator input in dense and every sparse format is scaled by
+    #   pos_label, round-trips, and sparse output with neg_label=-1 raises ValueError.
     y_ind = np.array([[0, 1, 0], [1, 1, 1], [0, 0, 0]])
     classes = [0, 1, 2]
     pos_label = 2
@@ -751,6 +872,9 @@ def test_label_binarize_multilabel(arr_type):
 
 
 def test_invalid_input_label_binarize():
+    # [FUNCTION DOC]
+    # Verifies label_binarize raises ValueError for pos_label 0 with neg_label 1,
+    #   continuous targets, and a multilabel row whose width mismatches classes.
     with pytest.raises(ValueError):
         label_binarize([0, 2], classes=[0, 2], pos_label=0, neg_label=1)
     with pytest.raises(ValueError, match="continuous target data is not "):
@@ -779,6 +903,11 @@ def test_invalid_input_label_binarize():
 def test_label_binarize_array_api_compliance(
     y, classes, expected, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies label_binarize under array_api_dispatch: integer y and classes produce an
+    #   integer indicator in the input namespace/device equal to expected (and
+    #   sparse_output raises for non-NumPy); string classes raise an unsupported-dtype
+    #   ValueError for non-NumPy namespaces. Labels absent from classes give zero rows.
     """Test that :func:`label_binarize` works correctly with the array API for binary
     and multi-class inputs for numerical labels and non-sparse outputs.
     """
@@ -821,6 +950,10 @@ def test_label_binarize_array_api_compliance(
 def test_label_binarize_unsigned_integer_overflow(
     array_namespace, device_name, dtype_name, classes
 ):
+    # [FUNCTION DOC]
+    # Verifies label_binarize with neg_label=-1 on unsigned integer y (uint8, plus
+    #   uint16/32/64 except torch) matches the signed-integer baseline, i.e. -1 does not
+    #   wrap around.
     """Ensure label_binarize does not overflow when y has unsigned integer dtype.
 
     In particular, verify that label_binarize does not wrap -1 to the maximum value
@@ -856,6 +989,9 @@ def test_label_binarize_unsigned_integer_overflow(
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_inverse_binarize_multiclass(csr_container):
+    # [FUNCTION DOC]
+    # Verifies _inverse_binarize_multiclass on a sparse score matrix picks the argmax
+    #   column per row (including rows of negatives and all-zero rows).
     got = _inverse_binarize_multiclass(
         csr_container([[0, 1, 0], [-1, 0, -1], [0, 0, 0]]), np.arange(3)
     )
@@ -863,6 +999,9 @@ def test_inverse_binarize_multiclass(csr_container):
 
 
 def test_nan_label_encoder():
+    # [FUNCTION DOC]
+    # Non-regression for #22628: LabelEncoder fitted with NaN encodes NaN to its sorted
+    #   index (last).
     """Check that label encoder encodes nans in transform.
 
     Non-regression test for #22628.
@@ -878,6 +1017,9 @@ def test_nan_label_encoder():
     "encoder", [LabelEncoder(), LabelBinarizer(), MultiLabelBinarizer()]
 )
 def test_label_encoders_do_not_have_set_output(encoder):
+    # [FUNCTION DOC]
+    # Non-regression for #26854: label encoders do not expose set_output and
+    #   fit_transform accepts y as a keyword with the same result as positional.
     """Check that label encoders do not define set_output and work with y as a kwarg.
 
     Non-regression test for #26854.
@@ -903,6 +1045,10 @@ def test_label_encoders_do_not_have_set_output(encoder):
 def test_label_encoder_array_api_compliance(
     y, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies LabelEncoder fit/transform/inverse_transform and fit_transform under
+    #   array_api_dispatch keep the input namespace for outputs and classes_ and match
+    #   NumPy results.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     xp_y = xp.asarray(y, device=device)
     with config_context(array_api_dispatch=True):

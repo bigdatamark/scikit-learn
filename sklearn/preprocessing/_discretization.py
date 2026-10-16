@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Defines KBinsDiscretizer, which bins each continuous feature into intervals (uniform,
+#   quantile or 1D k-means edges) and encodes bin indices as ordinal values or one-hot
+#   columns via an internal OneHotEncoder.
+# Side effects at import: none (KMeans is imported lazily inside fit to avoid import
+#   cycles).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +28,13 @@ from sklearn.utils.validation import (
 
 
 class KBinsDiscretizer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Per-feature binning transformer. fit learns bin_edges_ (object array of 1D float
+    #   edge arrays) and n_bins_ (int array, possibly reduced after merging tiny bins),
+    #   and for one-hot encodings a pre-fitted private _encoder (OneHotEncoder with
+    #   categories 0..n_bins_-1).
+    # KNOWN ISSUE: the docstring mentions "ignored features" with empty edge arrays, but
+    #   no feature-ignoring mechanism exists in the code.
     """
     Bin continuous data into intervals.
 
@@ -227,6 +240,8 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
         subsample=200_000,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters verbatim; validation happens in fit.
         self.n_bins = n_bins
         self.encode = encode
         self.strategy = strategy
@@ -237,6 +252,35 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Behavior: validate X as numeric; choose output dtype (self.dtype or X.dtype);
+        #   validate sample_weight; if subsample is set and n_samples exceeds it,
+        #   resample X with replacement (weighted by sample_weight, using random_state)
+        #   and drop the weights afterwards. Resolve per-feature n_bins via
+        #   _validate_n_bins.
+        # For each feature: compute min/max (ignoring zero-weight samples for non-
+        #   quantile strategies); constant features warn, get n_bins 1 and edges [-inf,
+        #   inf]. 'uniform': evenly spaced edges from min to max. 'quantile':
+        #   percentiles at evenly spaced levels (np.percentile with quantile_method
+        #   unless 'linear', or _weighted_percentile with average for
+        #   'averaged_inverted_cdf' when weighted). 'kmeans': 1D KMeans with centers
+        #   initialised at uniform bin midpoints, sorted centers, edges at midpoints
+        #   between centers plus min and max. For quantile/kmeans, drop edges closer
+        #   than 1e-8 to the previous one and warn if the bin count shrank.
+        # Inputs: X (n_samples, n_features) numeric; y ignored; sample_weight optional
+        #   (n_samples,).
+        # Outputs: self. Sets bin_edges_, n_bins_, n_features_in_, feature_names_in_,
+        #   and _encoder when encode contains 'onehot' (fitted on a single zero row).
+        # Exceptions: ValueError for weighted quantile with an unsupported
+        #   quantile_method, and from _validate_n_bins.
+        # Side effects: UserWarnings for constant features and removed bins; randomness
+        #   via random_state when subsampling (KMeans has no random_state but init is
+        #   deterministic).
+        # KNOWN ISSUE: constant features get edges [-inf, inf], so inverse_transform
+        #   produces NaN (mean of -inf and inf) for them.
+        # KNOWN ISSUE: refitting with encode='ordinal' after a one-hot fit leaves the
+        #   old _encoder attribute, so get_feature_names_out would still return one-hot
+        #   names.
         """
         Fit the estimator.
 
@@ -405,6 +449,13 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
         return self
 
     def _validate_n_bins(self, n_features):
+        # [FUNCTION DOC]
+        # HELPER: Expands n_bins into an int array of length n_features.
+        # Inputs: n_features - int. Outputs: int ndarray (n_features,); a scalar n_bins
+        #   is broadcast.
+        # Exceptions: ValueError if the array form is not 1D of length n_features, or
+        #   contains values < 2 or non-integral values (detected by comparing the int-
+        #   cast copy with the original).
         """Returns n_bins_, the number of bins per feature."""
         orig_bins = self.n_bins
         if isinstance(orig_bins, Integral):
@@ -430,6 +481,18 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
         return n_bins
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X (reset=False, copy, float dtype self.dtype or float64/float32).
+        #   For each feature, replaces values with the bin index found by right-sided
+        #   binary search into the interior edges (so out-of-range values map to the
+        #   first/last bin). Returns the float ordinal array for 'ordinal'; otherwise
+        #   one-hot encodes it, temporarily setting _encoder.dtype to the data dtype and
+        #   restoring the original in a finally block.
+        # Outputs: dense float array (ordinal or 'onehot-dense') or sparse matrix
+        #   ('onehot').
+        # KNOWN ISSUE: the encoder dtype is temporarily set to the input dtype, so the
+        #   configured output dtype passed to the encoder at fit is effectively
+        #   overridden by the validated data dtype.
         """
         Discretize the data.
 
@@ -469,6 +532,13 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
         return Xt_enc
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # For one-hot encodings, first decodes X with _encoder.inverse_transform.
+        #   Converts to a float copy, checks the column count, then maps each bin index
+        #   (cast to int64) to the midpoint of its bin edges.
+        # Outputs: float ndarray (n_samples, n_features).
+        # Exceptions: ValueError on wrong number of features; IndexError for out-of-
+        #   range bin indices.
         """
         Transform discretized data back to original feature space.
 
@@ -508,6 +578,10 @@ class KBinsDiscretizer(TransformerMixin, BaseEstimator):
         return Xinv
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Requires n_features_in_. Resolves input names via _check_feature_names_in;
+        #   returns the encoder's one-hot names when _encoder exists, otherwise the
+        #   input names (ordinal encoding).
         """Get output feature names.
 
         Parameters

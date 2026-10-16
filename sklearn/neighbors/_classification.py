@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Neighbor-based classifiers: KNeighborsClassifier (vote among the k nearest training
+# points) and RadiusNeighborsClassifier (vote among training points within a radius,
+# with optional outlier label). Both support multi-output targets and uniform,
+# distance or callable weights, and use fast pairwise-distance-reduction backends
+# (ArgKminClassMode / RadiusNeighborsClassMode) when applicable.
+# Side effects at import: none.
 """Nearest Neighbor Classification"""
 
 # Authors: The scikit-learn developers
@@ -33,6 +40,16 @@ from sklearn.utils.validation import (
 
 
 def _adjusted_metric(metric, metric_kwargs, p=None):
+    # [FUNCTION DOC]
+    # HELPER: Maps (metric, metric_params, p) to the metric/kwargs expected by the
+    # pairwise distance reductions: for minkowski, sets kwargs["p"] to p and switches to
+    # "euclidean" when p is 2.
+    # Inputs: metric - str or callable; metric_kwargs - dict or None; p - float or None.
+    # Outputs: tuple (metric, metric_kwargs dict).
+    # Side effects: when metric_kwargs is a dict it is mutated in place.
+    # KNOWN ISSUE: callers pass self.metric_params, so the estimator's user-supplied
+    # dict
+    # gets a "p" key written into it (overriding any "p" the user put there).
     metric_kwargs = metric_kwargs or {}
     if metric == "minkowski":
         metric_kwargs["p"] = p
@@ -42,6 +59,10 @@ def _adjusted_metric(metric, metric_kwargs, p=None):
 
 
 class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
+    # [CLASS DOC]
+    # k-nearest-neighbors vote classifier; fit stores the training set via
+    # NeighborsBase._fit and prediction aggregates labels of neighbors (weighted or
+    # not).
     """Classifier implementing the k-nearest neighbors vote.
 
     Read more in the :ref:`User Guide <classification>`.
@@ -207,6 +228,9 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters (forwarding neighbor ones to NeighborsBase) and
+        # weights.
         super().__init__(
             n_neighbors=n_neighbors,
             algorithm=algorithm,
@@ -223,6 +247,10 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Delegates to NeighborsBase._fit, which validates data and encodes labels.
+        # Inputs: X - training data or precomputed distances; y - (n_samples,) or
+        # (n_samples, n_outputs). Outputs: self.
         """Fit the k-nearest neighbors classifier from the training dataset.
 
         Parameters
@@ -243,6 +271,19 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
         return self._fit(X, y)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts labels. With uniform weights and a usable brute-force fast path,
+        # takes
+        # argmax of predict_proba per output. Otherwise retrieves neighbors (distances
+        # only
+        # when needed for weighting), computes weights, and for each output takes the
+        # (weighted) mode of neighbor label codes, mapping codes back to classes_.
+        # Inputs: X - (n_queries, n_features), precomputed distances, or None for the
+        # training
+        # set (excluding each point itself).
+        # Outputs: array (n_queries,) or (n_queries, n_outputs).
+        # Exceptions: ValueError if all neighbors of some sample get zero weight;
+        # NotFitted.
         """Predict the class labels for the provided data.
 
         Parameters
@@ -312,6 +353,19 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
         return y_pred
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Class probability estimates. Uniform weights, brute method, single output and
+        # a
+        # usable ArgKminClassMode: validate X and compute directly with the reduction.
+        # Otherwise retrieve neighbors, compute weights (ones for uniform), and for each
+        # output
+        # accumulate weights per neighbor label into an (n_queries, n_classes) matrix,
+        # then
+        # normalize rows to sum 1.
+        # Inputs: X as in predict.
+        # Outputs: array (n_queries, n_classes) or list of such arrays per output.
+        # Exceptions: ValueError if all neighbor weights of a sample are zero.
+        # Side effects: via _adjusted_metric, may write "p" into self.metric_params.
         """Return probability estimates for the test data X.
 
         Parameters
@@ -419,6 +473,11 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
     # This function is defined here only to modify the parent docstring
     # and add information about X=None
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Delegates to ClassifierMixin.score (mean accuracy); overridden only for docs
+        # noting
+        # that X=None scores on the training set with leave-self-out neighbors.
+        # Outputs: float.
         """
         Return the mean accuracy on the given test data and labels.
 
@@ -450,6 +509,8 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
         return super().score(X, y, sample_weight)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks multi-label support and pairwise input when metric is precomputed.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_label = True
         tags.input_tags.pairwise = self.metric == "precomputed"
@@ -457,6 +518,11 @@ class KNeighborsClassifier(KNeighborsMixin, ClassifierMixin, NeighborsBase):
 
 
 class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, NeighborsBase):
+    # [CLASS DOC]
+    # Radius-based vote classifier; queries with no neighbors within radius are
+    # outliers,
+    # handled through outlier_label (None raises, "most_frequent", or explicit
+    # label(s)).
     """Classifier implementing a vote among neighbors within a given radius.
 
     Read more in the :ref:`User Guide <classification>`.
@@ -633,6 +699,10 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters (forwarding neighbor ones to NeighborsBase), weights
+        # and
+        # outlier_label.
         super().__init__(
             radius=radius,
             algorithm=algorithm,
@@ -650,6 +720,19 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits via NeighborsBase._fit, then resolves outlier_label_: None; per-output
+        # most
+        # frequent training class when "most_frequent"; or the given label(s) broadcast
+        # to one
+        # per output, each checked to be a scalar with a dtype compatible with that
+        # output's
+        # classes.
+        # Inputs: X, y as for KNeighborsClassifier.fit. Outputs: self.
+        # Exceptions: ValueError if an array outlier_label length differs from the
+        # number of
+        # outputs; TypeError for non-scalar or dtype-incompatible labels.
+        # Side effects: sets outlier_label_ plus fitted attributes from _fit.
         """Fit the radius neighbors classifier from the training dataset.
 
         Parameters
@@ -721,6 +804,11 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Calls predict_proba, then per output picks the argmax class; samples whose
+        # probabilities are all zero (outliers whose label is unknown to training) get
+        # outlier_label_ for that output.
+        # Outputs: array (n_queries,) or (n_queries, n_outputs).
         """Predict the class labels for the provided data.
 
         Parameters
@@ -765,6 +853,27 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
         return y_pred
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Fast path: uniform weights, brute, single output and usable reduction ->
+        # compute
+        # with RadiusNeighborsClassMode. Otherwise get radius neighbors; outliers are
+        # rows
+        # with no neighbors (error if outlier_label_ is None). For each output, inliers
+        # get
+        # (weighted) bincounts of neighbor label codes; outliers get probability 1 on
+        # the
+        # outlier label's class if it is a training class, else stay all-zero with a
+        # warning.
+        # Rows are normalized (zero rows kept at zero).
+        # Outputs: (n_queries, n_classes) array or list per output.
+        # Exceptions: ValueError when outliers exist and outlier_label_ is None.
+        # Side effects: UserWarning for unknown outlier labels; may write "p" into
+        # self.metric_params via _adjusted_metric.
+        # KNOWN ISSUE: the fast path passes the raw outlier_label parameter rather than
+        # the
+        # resolved outlier_label_ attribute, so its behavior relies on the reduction
+        # handling
+        # values such as "most_frequent" itself.
         """Return probability estimates for the test data X.
 
         Parameters
@@ -887,6 +996,9 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
     # This function is defined here only to modify the parent docstring
     # and add information about X=None
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Delegates to ClassifierMixin.score; overridden only to document X=None.
+        # Outputs: float.
         """
         Return the mean accuracy on the given test data and labels.
 
@@ -918,6 +1030,8 @@ class RadiusNeighborsClassifier(RadiusNeighborsMixin, ClassifierMixin, Neighbors
         return super().score(X, y, sample_weight)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks multi-label support.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_label = True
         return tags

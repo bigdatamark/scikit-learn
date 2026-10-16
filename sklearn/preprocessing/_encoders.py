@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Categorical feature encoders: the private _BaseEncoder (shared column validation,
+#   category learning, unknown handling and infrequent-category grouping), OneHotEncoder
+#   (indicator columns, optional drop) and OrdinalEncoder (integer codes per feature,
+#   with dedicated values for unknown and missing).
+# Side effects at import: none.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -31,6 +37,12 @@ __all__ = ["OneHotEncoder", "OrdinalEncoder"]
 
 
 class _BaseEncoder(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Base class for the encoders. Fitted attributes it sets: categories_ (list
+    #   of per-feature category arrays, sorted unless user-given), n_features_in_,
+    #   feature_names_in_, and when infrequent grouping is enabled _infrequent_enabled,
+    #   _infrequent_indices and _default_to_infrequent_mappings. Subclasses must define
+    #   categories, handle_unknown, and optionally min_frequency / max_categories.
     """
     Base class for encoders that includes the code to categorize and
     transform the input features.
@@ -38,6 +50,16 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
     """
 
     def _check_X(self, X, ensure_all_finite=True):
+        # [FUNCTION DOC]
+        # HELPER: Splits X into a list of validated 1D columns while preserving per-
+        #   column dtypes.
+        # Behavior: non-DataFrame inputs go through check_array (dtype preserved);
+        #   inputs without a dtype that become numpy strings are re-validated as object.
+        #   2D DataFrames (detected via iloc and ndim) are not converted; each column is
+        #   validated individually, checking finiteness only then.
+        # Inputs: X - array-like or DataFrame (n_samples, n_features); ensure_all_finite
+        #   - bool or 'allow-nan'.
+        # Outputs: (list of 1D arrays, n_samples, n_features).
         """
         Perform custom check_array:
         - convert list of strings to object dtype
@@ -82,6 +104,25 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
         return_counts=False,
         return_and_ignore_missing_for_infrequent=False,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Learns categories_ for each feature.
+        # Behavior: refresh the infrequent-enabled flag; record feature names; validate
+        #   columns. With categories 'auto', categories are the sorted unique values
+        #   (with counts when needed). With user categories: convert to the column dtype
+        #   (string columns to object), and require: no bytes categories for non-bytes
+        #   data, NaN only last, no duplicates, numeric categories sorted, and (if
+        #   handle_unknown is 'error') every value of X present. Optionally returns
+        #   counts and indices of NaN categories, and fits the infrequent mapping when
+        #   enabled.
+        # Inputs: X; handle_unknown - str; ensure_all_finite; return_counts - bool;
+        #   return_and_ignore_missing_for_infrequent - bool (if True, NaN categories are
+        #   excluded from infrequent detection and reported).
+        # Outputs: dict with n_samples, and optionally category_counts and
+        #   missing_indices.
+        # Exceptions: ValueError for categories length mismatch and any of the user-
+        #   category violations above.
+        # Side effects: sets categories_, n_features_in_, feature_names_in_,
+        #   _infrequent_enabled and infrequent attributes.
         self._check_infrequent_enabled()
         validate_data(self, X=X, reset=True, skip_check_array=True)
         X_list, n_samples, n_features = self._check_X(
@@ -199,6 +240,19 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
         warn_on_unknown=False,
         ignore_category_indices=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Encodes X into integer category indices with a validity mask.
+        # Behavior: per feature, find values not in categories_. With handle_unknown
+        #   'error' raise ValueError; otherwise mark them invalid in the mask, replace
+        #   them by the first category (casting string arrays to avoid truncation) and
+        #   encode. Optionally warn once listing the columns with unknowns (message
+        #   depends on 'infrequent_if_exist'). Finally maps infrequent categories.
+        # Inputs: X; handle_unknown; ensure_all_finite; warn_on_unknown - bool;
+        #   ignore_category_indices - dict feature index to category index left
+        #   untouched by infrequent remapping.
+        # Outputs: X_int int array (n_samples, n_features) and X_mask bool array of the
+        #   same shape (True means known/valid).
+        # Side effects: UserWarning on unknowns when requested.
         X_list, n_samples, n_features = self._check_X(
             X, ensure_all_finite=ensure_all_finite
         )
@@ -266,6 +320,10 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
 
     @property
     def infrequent_categories_(self):
+        # [FUNCTION DOC]
+        # Property: per feature, the array of categories grouped as infrequent, or None
+        #   if none. Raises AttributeError if infrequent grouping was not fitted (no
+        #   _infrequent_indices).
         """Infrequent categories for each feature."""
         # raises an AttributeError if `_infrequent_indices` is not defined
         infrequent_indices = self._infrequent_indices
@@ -275,6 +333,9 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
         ]
 
     def _check_infrequent_enabled(self):
+        # [FUNCTION DOC]
+        # HELPER: Sets _infrequent_enabled to True when max_categories (>= 1) or
+        #   min_frequency is set on the estimator (missing attributes count as None).
         """
         This functions checks whether _infrequent_enabled is True or False.
         This has to be called after parameter validation in the fit function.
@@ -286,6 +347,16 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
         ) or min_frequency is not None
 
     def _identify_infrequent(self, category_count, n_samples, col_idx):
+        # [FUNCTION DOC]
+        # HELPER: Returns the indices of infrequent categories for one feature.
+        # Behavior: categories with counts below min_frequency (absolute for ints,
+        #   fraction of n_samples for floats) are infrequent. If max_categories is
+        #   smaller than the resulting number of output categories (frequent plus one
+        #   infrequent group), additionally mark the lowest-count categories (stable
+        #   sort) so only max_categories - 1 frequent ones remain; max_categories 1
+        #   makes all infrequent.
+        # Inputs: category_count - int array; n_samples - int; col_idx - unused.
+        # Outputs: int array of indices, or None if there are none.
         """Compute the infrequent indices.
 
         Parameters
@@ -333,6 +404,16 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
     def _fit_infrequent_category_mapping(
         self, n_samples, category_counts, missing_indices
     ):
+        # [FUNCTION DOC]
+        # HELPER: Computes _infrequent_indices and _default_to_infrequent_mappings.
+        # Behavior: drop the NaN category from counts for features in missing_indices;
+        #   find infrequent indices per feature; for each feature with infrequent
+        #   categories build a mapping from original category index to new index, where
+        #   frequent categories keep their relative order (0..k-1) and all infrequent
+        #   ones map to k.
+        # Inputs: n_samples; category_counts - list of count arrays; missing_indices -
+        #   dict feature to NaN category index.
+        # Side effects: sets the two attributes on self.
         """Fit infrequent categories.
 
         Defines the private attribute: `_default_to_infrequent_mappings`. For
@@ -413,6 +494,15 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
             self._default_to_infrequent_mappings.append(mapping)
 
     def _map_infrequent_categories(self, X_int, X_mask, ignore_category_indices):
+        # [FUNCTION DOC]
+        # HELPER: Rewrites X_int in place to the grouped encoding.
+        # Behavior: no-op if infrequent grouping is disabled. For features with
+        #   infrequent categories, invalid (unknown) entries are set to the first
+        #   infrequent index and, for handle_unknown 'infrequent_if_exist' or 'warn',
+        #   marked valid in X_mask. Then every feature with a mapping is remapped,
+        #   skipping rows whose code equals ignore_category_indices for that feature
+        #   (used for the missing category).
+        # Side effects: mutates X_int and X_mask.
         """Map infrequent categories to integer representing the infrequent category.
 
         This modifies X_int in-place. Values that were invalid based on `X_mask`
@@ -465,6 +555,8 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
             X_int[rows_to_update, i] = np.take(mapping, X_int[rows_to_update, i])
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds categorical and allow_nan input tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.categorical = True
         tags.input_tags.allow_nan = True
@@ -472,6 +564,11 @@ class _BaseEncoder(TransformerMixin, BaseEstimator):
 
 
 class OneHotEncoder(_BaseEncoder):
+    # [CLASS DOC]
+    # One-hot encoder. Additional fitted attributes: drop_idx_ (per feature index into
+    #   categories_ of the dropped category, or None), private _drop_idx_after_grouping
+    #   (index after infrequent grouping) and _n_features_outs (output column count per
+    #   feature). Output is CSR (sparse_output) or dense with the given dtype.
     """
     Encode categorical features as a one-hot numeric array.
 
@@ -776,6 +873,8 @@ class OneHotEncoder(_BaseEncoder):
         max_categories=None,
         feature_name_combiner="concat",
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters verbatim.
         self.categories = categories
         self.sparse_output = sparse_output
         self.dtype = dtype
@@ -786,6 +885,12 @@ class OneHotEncoder(_BaseEncoder):
         self.feature_name_combiner = feature_name_combiner
 
     def _map_drop_idx_to_infrequent(self, feature_idx, drop_idx):
+        # [FUNCTION DOC]
+        # HELPER: Converts a drop index in categories_ space to the grouped (infrequent)
+        #   index space.
+        # Inputs: feature_idx - int; drop_idx - int category index. Outputs: mapped
+        #   index (unchanged when no grouping applies).
+        # Exceptions: ValueError if the category to drop is infrequent.
         """Convert `drop_idx` into the index for infrequent categories.
 
         If there are no infrequent categories, then `drop_idx` is
@@ -810,6 +915,22 @@ class OneHotEncoder(_BaseEncoder):
         return default_to_infrequent[drop_idx]
 
     def _set_drop_idx(self):
+        # [FUNCTION DOC]
+        # HELPER: Computes drop_idx_ and _drop_idx_after_grouping from the drop
+        #   parameter.
+        # Behavior: None means no drop. 'first' drops index 0 of each feature.
+        #   'if_binary' drops index 0 only for features with exactly 2 output columns
+        #   after grouping. An array gives one category per feature, located by equality
+        #   (NaN matched to a trailing NaN category) and mapped to grouped space.
+        #   drop_idx_ is then mapped back to the original category index (first original
+        #   category with that grouped index).
+        # Exceptions: ValueError if the array length differs from n_features, if a drop
+        #   value is not among the categories, or if it is infrequent.
+        # KNOWN ISSUE: the error message for missing drop values formats each pair as
+        #   "Category: <feature index>, Feature: <value>", i.e. the labels are swapped.
+        # KNOWN ISSUE: when 'first' is combined with infrequent grouping, mapping back
+        #   to drop_idx_ uses the first original category whose grouped index is 0,
+        #   which may not be categories_ index 0.
         """Compute the drop indices associated with `self.categories_`.
 
         If `self.drop` is:
@@ -926,6 +1047,11 @@ class OneHotEncoder(_BaseEncoder):
             self.drop_idx_ = np.asarray(drop_idx_, dtype=object)
 
     def _compute_transformed_categories(self, i, remove_dropped=True):
+        # [FUNCTION DOC]
+        # HELPER: Output categories of feature i: categories_ with infrequent ones
+        #   replaced by a single trailing "infrequent_sklearn" entry; the dropped
+        #   category removed if remove_dropped. Returns an array (object dtype when
+        #   grouping applies).
         """Compute the transformed categories used for column `i`.
 
         1. If there are infrequent categories, the category is named
@@ -949,6 +1075,9 @@ class OneHotEncoder(_BaseEncoder):
         return cats
 
     def _remove_dropped_categories(self, categories, i):
+        # [FUNCTION DOC]
+        # HELPER: Returns categories without the entry at _drop_idx_after_grouping[i],
+        #   or unchanged if nothing is dropped for feature i.
         """Remove dropped categories."""
         if (
             self._drop_idx_after_grouping is not None
@@ -958,6 +1087,10 @@ class OneHotEncoder(_BaseEncoder):
         return categories
 
     def _compute_n_features_outs(self):
+        # [FUNCTION DOC]
+        # HELPER: Number of output columns per feature: category count, minus one if a
+        #   category is dropped, minus (number of infrequent categories - 1) when
+        #   grouped. Returns a list of ints.
         """Compute the n_features_out for each input feature."""
         output = [len(cats) for cats in self.categories_]
 
@@ -980,6 +1113,9 @@ class OneHotEncoder(_BaseEncoder):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Learns categories (NaN allowed; unknown check uses handle_unknown), drop
+        #   indices and output column counts. Returns self.
         """
         Fit OneHotEncoder to X.
 
@@ -1007,6 +1143,17 @@ class OneHotEncoder(_BaseEncoder):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Builds the one-hot matrix.
+        # Behavior: refuses sparse_output with pandas/polars output (ValueError). 'warn'
+        #   is treated as 'infrequent_if_exist' with warnings; for
+        #   'ignore'/'infrequent_if_exist' with drop set, unknowns also warn. Encode to
+        #   X_int/X_mask; if dropping, mask out cells equal to the dropped index and
+        #   shift higher codes down by one. Column index of each kept cell is its code
+        #   plus the feature's column offset; assemble a CSR array of ones with the
+        #   configured dtype, rows with no valid cell being all zero.
+        # Outputs: CSR array (int32 indices, sparse_output) or dense array (n_samples,
+        #   sum of _n_features_outs).
         """
         Transform X using one-hot encoding.
 
@@ -1094,6 +1241,17 @@ class OneHotEncoder(_BaseEncoder):
             return out.toarray()
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (CSR accepted) and checks total column count. For
+        #   each feature takes its column block, decodes the argmax column to the output
+        #   category (including "infrequent_sklearn"). All-zero rows: with unknown-
+        #   tolerant handling (or no infrequent group) they map to the dropped category
+        #   if any, otherwise None (result upcast to object); otherwise they map to the
+        #   dropped category, or raise ValueError if drop is None. Features whose only
+        #   category was dropped are filled with that category.
+        # Outputs: ndarray (n_samples, n_features) with dtype the common category dtype
+        #   or object.
+        # Exceptions: ValueError on wrong shape or non-invertible all-zero rows.
         """
         Convert the data back to the original representation.
 
@@ -1213,6 +1371,10 @@ class OneHotEncoder(_BaseEncoder):
         return X_tr
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Requires fit. For each feature and each output category, combines the input
+        #   feature name and category with the configured combiner. Returns an object
+        #   array of names.
         """Get output feature names for transformation.
 
         Parameters
@@ -1248,6 +1410,11 @@ class OneHotEncoder(_BaseEncoder):
         return np.array(feature_names, dtype=object)
 
     def _check_get_feature_name_combiner(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the name-combining callable: for 'concat', a function giving
+        #   "<feature>_<category>"; for a user callable, validates via a dry run on
+        #   ("feature", "category") that it returns a str, then returns it.
+        # Exceptions: TypeError if the dry run does not return a str.
         if self.feature_name_combiner == "concat":
             return lambda feature, category: feature + "_" + str(category)
         else:  # callable
@@ -1261,6 +1428,11 @@ class OneHotEncoder(_BaseEncoder):
 
 
 class OrdinalEncoder(OneToOneFeatureMixin, _BaseEncoder):
+    # [CLASS DOC]
+    # Ordinal encoder. Additional private fitted attribute _missing_indices (feature
+    #   index to index of its NaN category). Output codes use the configured dtype;
+    #   missing values get encoded_missing_value, unknowns get unknown_value when
+    #   handle_unknown is 'use_encoded_value'.
     """
     Encode categorical features as an integer array.
 
@@ -1464,6 +1636,8 @@ class OrdinalEncoder(OneToOneFeatureMixin, _BaseEncoder):
         min_frequency=None,
         max_categories=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters verbatim.
         self.categories = categories
         self.dtype = dtype
         self.handle_unknown = handle_unknown
@@ -1474,6 +1648,20 @@ class OrdinalEncoder(OneToOneFeatureMixin, _BaseEncoder):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates unknown_value against handle_unknown (NaN requires float dtype;
+        #   otherwise must be int; must be None unless 'use_encoded_value'), learns
+        #   categories (NaN excluded from infrequent detection), then computes per-
+        #   feature cardinality (excluding infrequent categories and NaN) and checks
+        #   that unknown_value and a non-NaN encoded_missing_value do not collide with
+        #   codes of known categories.
+        # Outputs: self. Sets _missing_indices in addition to base attributes.
+        # Exceptions: TypeError / ValueError for the invalid combinations above,
+        #   including missing values with non-float dtype and NaN encoded_missing_value.
+        # KNOWN ISSUE: the infrequent cardinality adjustment subtracts the number of
+        #   infrequent categories without adding back one for the grouped category, so
+        #   the collision check for unknown_value / encoded_missing_value can miss a
+        #   clash with the infrequent code.
         """
         Fit the OrdinalEncoder to X.
 
@@ -1582,6 +1770,12 @@ class OrdinalEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires categories_. Encodes to integer codes (infrequent remapping skips the
+        #   missing category), casts to dtype, writes encoded_missing_value where the
+        #   code is the missing category, and unknown_value where the mask is False when
+        #   handle_unknown is 'use_encoded_value'.
+        # Outputs: array (n_samples, n_features) of dtype.
         """
         Transform X to ordinal codes.
 
@@ -1614,6 +1808,19 @@ class OrdinalEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return X_trans
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (NaN allowed) and the column count. Per feature:
+        #   replaces encoded_missing_value entries by the NaN category index; with
+        #   infrequent grouping, rows equal to the grouped code are marked infrequent
+        #   and remaining codes index the frequent categories; with 'use_encoded_value',
+        #   unknown_value rows are excluded. Other rows map codes to categories. Result
+        #   becomes object when unknowns or infrequent groups exist; unknowns set to
+        #   None and grouped rows to "infrequent_sklearn".
+        # Exceptions: ValueError on wrong column count; IndexError for out-of-range
+        #   codes.
+        # KNOWN ISSUE: replacing missing-value codes writes into the columns of X after
+        #   check_array, which does not copy, so the caller's float array can be
+        #   modified in place.
         """
         Convert the data back to the original representation.
 

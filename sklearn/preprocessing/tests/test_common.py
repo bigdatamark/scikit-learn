@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Cross-estimator tests for the scaling/normalising transformers (MaxAbsScaler,
+# MinMaxScaler, StandardScaler, PowerTransformer, QuantileTransformer, RobustScaler) and
+# their function counterparts, focused on NaN pass-through and pandas nullable-integer
+# input.
+# Side effects at import: loads the iris dataset into the module-level iris.
 import warnings
 
 import numpy as np
@@ -35,6 +41,10 @@ iris = load_iris()
 
 
 def _get_valid_samples_by_column(X, col):
+    # [FUNCTION DOC]
+    # HELPER: Returns column col of X as an (n_valid, 1) array keeping only rows where
+    # that column is not NaN.
+    # Inputs: X - 2d float array; col - int column index. Outputs: 2d array.
     """Get non NaN samples in column of X"""
     return X[:, [col]][~np.isnan(X[:, col])]
 
@@ -56,6 +66,17 @@ def _get_valid_samples_by_column(X, col):
 def test_missing_value_handling(
     est, func, support_sparse, strictly_positive, omit_kwargs
 ):
+    # [FUNCTION DOC]
+    # Verifies NaNs pass through each estimator: injects 50 NaNs into iris (shifted
+    # positive for box-cox), splits, makes the first test column all NaN, and checks
+    # with RuntimeWarnings turned into errors that: transform keeps exactly the NaN
+    # positions; the function counterpart (with omit_kwargs removed from get_params)
+    # matches the class output; inverse_transform restores NaN positions and values;
+    # fitting a single NaN-free column gives the same transform as the full fit; and for
+    # sparse-capable estimators every sparse container gives the same transform and
+    # inverse as dense input.
+    # Inputs: est, func, support_sparse, strictly_positive, omit_kwargs - from
+    # parametrize.
     # check that the preprocessing method let pass nan
     rng = np.random.RandomState(42)
     X = iris.data.copy()
@@ -167,6 +188,11 @@ def test_missing_value_handling(
     ],
 )
 def test_missing_value_pandas_na_support(est, func):
+    # [FUNCTION DOC]
+    # Verifies that fitting on a pandas DataFrame with nullable Int16 columns containing
+    # pd.NA (plus one plain int column) gives the same fit_transform result as the
+    # equivalent float array with NaN. Skipped without pandas.
+    # KNOWN ISSUE: the func parameter is never used.
     # Test pandas IntegerArray with pd.NA
     pd = pytest.importorskip("pandas")
 

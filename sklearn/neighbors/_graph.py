@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Functions and transformers producing sparse nearest-neighbor graphs:
+# kneighbors_graph / radius_neighbors_graph (one-shot functions building a
+# NearestNeighbors model unless given a fitted one) and KNeighborsTransformer /
+# RadiusNeighborsTransformer (pipeline-friendly estimators whose transform output is
+# the CSR neighbor graph, usable as precomputed input for downstream estimators).
+# Side effects at import: none.
 """Nearest Neighbors graph functions"""
 
 # Authors: The scikit-learn developers
@@ -24,6 +31,14 @@ from sklearn.utils.validation import check_is_fitted
 
 
 def _check_params(X, metric, p, metric_params):
+    # [FUNCTION DOC]
+    # HELPER: Ensures that metric, p and metric_params passed to a graph function match
+    # the
+    # parameters of an already fitted neighbors estimator.
+    # Inputs: X - fitted neighbors estimator; metric, p, metric_params - requested
+    # values.
+    # Outputs: None.
+    # Exceptions: ValueError naming the first parameter that differs.
     """Check the validity of the input parameters"""
     params = zip(["metric", "p", "metric_params"], [metric, p, metric_params])
     est_params = X.get_params()
@@ -36,6 +51,14 @@ def _check_params(X, metric, p, metric_params):
 
 
 def _query_include_self(X, include_self, mode):
+    # [FUNCTION DOC]
+    # HELPER: Decides the query passed to the graph method. include_self "auto" means
+    # True
+    # in connectivity mode and False in distance mode. Returns X when including self,
+    # else
+    # None (so the estimator queries its training set excluding each point itself).
+    # Inputs: X - training data; include_self - bool or "auto"; mode - str.
+    # Outputs: X or None.
     """Return the query based on include_self param"""
     if include_self == "auto":
         include_self = mode == "connectivity"
@@ -71,6 +94,18 @@ def kneighbors_graph(
     include_self=False,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Public: builds the k-neighbor graph of X. If X is not already a KNeighborsMixin,
+    # fit
+    # a NearestNeighbors with the given n_neighbors, metric, p, metric_params, n_jobs;
+    # otherwise verify the metric parameters match. Query with the training data or None
+    # according to include_self, and return the estimator's kneighbors_graph.
+    # Inputs: X - array/sparse (n_samples, n_features) or fitted estimator; n_neighbors
+    # -
+    # int >= 1; mode, metric, p, metric_params, include_self, n_jobs as documented.
+    # Outputs: CSR (n_samples, n_samples) graph.
+    # Exceptions: parameter validation errors; ValueError from _check_params.
+    # Side effects: none (n_jobs is ignored when a fitted estimator is passed).
     """Compute the (weighted) graph of k-Neighbors for points in X.
 
     Read more in the :ref:`User Guide <unsupervised_neighbors>`.
@@ -176,6 +211,12 @@ def radius_neighbors_graph(
     include_self=False,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Public: same as kneighbors_graph but with neighbors within radius, delegating to
+    # radius_neighbors_graph of a (possibly newly fitted) NearestNeighbors.
+    # Inputs: X; radius - float >= 0; other parameters as in kneighbors_graph.
+    # Outputs: CSR (n_samples, n_samples) graph.
+    # Exceptions: parameter validation errors; ValueError from _check_params.
     """Compute the (weighted) graph of Neighbors for points in X.
 
     Neighborhoods are restricted the points at a distance lower than
@@ -263,6 +304,9 @@ def radius_neighbors_graph(
 class KNeighborsTransformer(
     ClassNamePrefixFeaturesOutMixin, KNeighborsMixin, TransformerMixin, NeighborsBase
 ):
+    # [CLASS DOC]
+    # Transformer whose output is the k-neighbor graph of the input against the training
+    # data; the number of output features is n_samples_fit_.
     """Transform X into a (weighted) graph of k nearest neighbors.
 
     The transformed data is a sparse graph as returned by kneighbors_graph.
@@ -403,6 +447,8 @@ class KNeighborsTransformer(
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards neighbor parameters to NeighborsBase (radius None) and stores mode.
         super().__init__(
             n_neighbors=n_neighbors,
             radius=None,
@@ -420,6 +466,10 @@ class KNeighborsTransformer(
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via NeighborsBase._fit and records _n_features_out = n_samples_fit_ (used
+        # for
+        # output feature names). Outputs: self.
         """Fit the k-nearest neighbors transformer from the training dataset.
 
         Parameters
@@ -440,6 +490,12 @@ class KNeighborsTransformer(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns kneighbors_graph(X) with mode; in distance mode one extra neighbor is
+        # requested so that, when transforming training data, each sample's zero-
+        # distance self
+        # match is included alongside n_neighbors other neighbors.
+        # Inputs: X - (n_queries, n_features). Outputs: CSR (n_queries, n_samples_fit).
         """Compute the (weighted) graph of Neighbors for points in X.
 
         Parameters
@@ -462,6 +518,8 @@ class KNeighborsTransformer(
         )
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on X then transforms X. Outputs: CSR graph (n_samples, n_samples).
         """Fit to data, then transform it.
 
         Fits transformer to X and y with optional parameters fit_params
@@ -492,6 +550,9 @@ class RadiusNeighborsTransformer(
     TransformerMixin,
     NeighborsBase,
 ):
+    # [CLASS DOC]
+    # Transformer whose output is the radius-neighbor graph of the input against the
+    # training data; the number of output features is n_samples_fit_.
     """Transform X into a (weighted) graph of neighbors nearer than a radius.
 
     The transformed data is a sparse graph as returned by
@@ -628,6 +689,9 @@ class RadiusNeighborsTransformer(
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards neighbor parameters to NeighborsBase (n_neighbors None) and stores
+        # mode.
         super().__init__(
             n_neighbors=None,
             radius=radius,
@@ -645,6 +709,9 @@ class RadiusNeighborsTransformer(
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via NeighborsBase._fit and records _n_features_out = n_samples_fit_.
+        # Outputs: self.
         """Fit the radius neighbors transformer from the training dataset.
 
         Parameters
@@ -666,6 +733,9 @@ class RadiusNeighborsTransformer(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns radius_neighbors_graph(X) with mode and rows sorted by distance.
+        # Outputs: CSR (n_queries, n_samples_fit).
         """Compute the (weighted) graph of Neighbors for points in X.
 
         Parameters
@@ -685,6 +755,8 @@ class RadiusNeighborsTransformer(
         return self.radius_neighbors_graph(X, mode=self.mode, sort_results=True)
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on X then transforms X. Outputs: CSR graph.
         """Fit to data, then transform it.
 
         Fits transformer to X and y with optional parameters fit_params

@@ -1,3 +1,10 @@
+# [PACKAGE DOC]
+# Public entry point of the support vector machine package. Re-exports the
+# libsvm-based estimators SVC, NuSVC, SVR, NuSVR, OneClassSVM, the
+# liblinear-based LinearSVC and LinearSVR (all from _classes), and the helper
+# l1_min_c (from _bounds); __all__ lists exactly these names.
+# Import-time side effects: imports the private submodules, which load the
+# compiled libsvm/liblinear extension modules.
 """Support vector machine algorithms."""
 
 # See http://scikit-learn.sourceforge.net/modules/svm.html for complete

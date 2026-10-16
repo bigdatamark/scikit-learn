@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Implements BernoulliRBM, a restricted Boltzmann machine with binary visible and
+#   hidden units trained by persistent contrastive divergence (stochastic maximum
+#   likelihood) and used as an unsupervised transformer to hidden-unit probabilities.
+# Side effects at import: none.
 """Restricted Boltzmann Machine"""
 
 # Authors: The scikit-learn developers
@@ -23,6 +28,14 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer estimator. Model: P(h_j=1|v) = logistic(v . W_j + b_hidden_j),
+    #   P(v_i=1|h) = logistic(h . W[:, i] + b_visible_i), where W is components_
+    #   (n_components x n_features).
+    # Training (fit/partial_fit) runs mini-batch PCD updates via _fit; persistent
+    #   negative chains are kept in h_samples_. Hyperparameters are validated through
+    #   _parameter_constraints (n_components >= 1, learning_rate > 0, batch_size >= 1,
+    #   n_iter >= 0).
     """Bernoulli Restricted Boltzmann Machine (RBM).
 
     A Restricted Boltzmann Machine with binary visible units and
@@ -147,6 +160,12 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         verbose=0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged (sklearn estimator convention, no
+        #   validation here).
+        # Inputs: n_components int (256); keyword-only learning_rate float (0.1),
+        #   batch_size int (10), n_iter int (10), verbose int (0), random_state
+        #   int/RandomState/None.
         self.n_components = n_components
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -155,6 +174,13 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         self.random_state = random_state
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns hidden-unit activation probabilities for X.
+        # Inputs: X - dense or sparse (converted to CSR) of shape (n_samples,
+        #   n_features); float64 or float32 kept.
+        # Outputs: ndarray (n_samples, n_components).
+        # Exceptions: NotFittedError if not fitted; ValueError on feature count
+        #   mismatch.
         """Compute the hidden layer activation probabilities, P(h=1|v=X).
 
         Parameters
@@ -175,6 +201,12 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return self._mean_hiddens(X)
 
     def _mean_hiddens(self, v):
+        # [FUNCTION DOC]
+        # HELPER: Computes logistic(v times components_ transposed plus
+        #   intercept_hidden_).
+        # Inputs: v - dense or sparse (n_samples, n_features).
+        # Outputs: dense ndarray (n_samples, n_components) of probabilities (computed
+        #   in place in a fresh buffer).
         """Computes the probabilities P(h=1|v).
 
         Parameters
@@ -192,6 +224,12 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return expit(p, out=p)
 
     def _sample_hiddens(self, v, rng):
+        # [FUNCTION DOC]
+        # HELPER: Draws binary hidden states: each unit is True where a uniform draw
+        #   is below its mean activation.
+        # Inputs: v - visible layer; rng - RandomState.
+        # Outputs: boolean ndarray (n_samples, n_components).
+        # Side effects: advances rng.
         """Sample from the distribution P(h|v).
 
         Parameters
@@ -211,6 +249,13 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return rng.uniform(size=p.shape) < p
 
     def _sample_visibles(self, h, rng):
+        # [FUNCTION DOC]
+        # HELPER: Draws binary visible states from P(v|h): probabilities are
+        #   logistic(h times components_ plus intercept_visible_), then compared with
+        #   uniform draws.
+        # Inputs: h - (n_samples, n_components); rng - RandomState.
+        # Outputs: boolean ndarray (n_samples, n_features).
+        # Side effects: advances rng.
         """Sample from the distribution P(v|h).
 
         Parameters
@@ -232,6 +277,12 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return rng.uniform(size=p.shape) < p
 
     def _free_energy(self, v):
+        # [FUNCTION DOC]
+        # HELPER: Free energy per sample: minus v . intercept_visible_ minus the sum
+        #   over hidden units of log(1 + exp(v . W_j + b_hidden_j)) (computed stably
+        #   with logaddexp).
+        # Inputs: v - dense or sparse (n_samples, n_features).
+        # Outputs: ndarray (n_samples,).
         """Computes the free energy F(v) = - log sum_h exp(-E(v,h)).
 
         Parameters
@@ -249,6 +300,13 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         ).sum(axis=1)
 
     def gibbs(self, v):
+        # [FUNCTION DOC]
+        # Performs one Gibbs step v -> sampled h -> sampled v.
+        # Inputs: v - ndarray (n_samples, n_features); not validated.
+        # Outputs: boolean ndarray (n_samples, n_features).
+        # Exceptions: NotFittedError if not fitted.
+        # Side effects: creates self.random_state_ from random_state on first use and
+        #   advances it.
         """Perform one Gibbs sampling step.
 
         Parameters
@@ -271,6 +329,19 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Incremental fit on one chunk of data, treated as a single mini-batch
+        #   (batch_size is not used to split it). On the first call validates X with
+        #   reset (sets n_features_in_), creates random_state_, initialises components_
+        #   from N(0, 0.01) in Fortran order, zero hidden and visible intercepts and
+        #   zero h_samples_ of shape (batch_size, n_components); then calls _fit once.
+        # Inputs: X - array or sparse (converted to CSR float64); y ignored.
+        # Outputs: None.
+        # Side effects: sets/updates fitted attributes and _n_features_out; advances
+        #   random_state_.
+        # KNOWN ISSUE: docstring says it returns self, but the method has no return
+        #   statement and returns None, so chaining like partial_fit(X).transform(X)
+        #   fails.
         """Fit the model to the partial segment of the data X.
 
         Parameters
@@ -312,6 +383,23 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         self._fit(X, self.random_state_)
 
     def _fit(self, v_pos, rng):
+        # [FUNCTION DOC]
+        # HELPER: One PCD update on a mini-batch. Steps: positive hidden probabilities
+        #   from v_pos; negative visibles sampled from the persistent h_samples_ and
+        #   their hidden probabilities h_neg; lr = learning_rate / batch rows;
+        #   components_ += lr * (h_pos^T v_pos - h_neg^T v_neg); intercept_hidden_ += lr
+        #   * (column sums of h_pos - column sums of h_neg); intercept_visible_ += lr *
+        #   (column sums of v_pos - column sums of v_neg); finally h_neg is binarised by
+        #   sampling (units set to 1 where uniform < prob, then floored) and stored as
+        #   h_samples_.
+        # Inputs: v_pos - dense or sparse batch (n_batch, n_features); rng -
+        #   RandomState.
+        # Outputs: None.
+        # Side effects: mutates components_, intercepts, h_samples_; advances rng.
+        # KNOWN ISSUE: lr divides by the rows of v_pos while the negative statistics
+        #   are summed over the batch_size persistent chains; when the batch is
+        #   smaller (last uneven batch, partial_fit chunks) the two terms are scaled
+        #   inconsistently.
         """Inner fit for one mini-batch.
 
         Adjust the parameters to maximize the likelihood of v using
@@ -342,6 +430,19 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         self.h_samples_ = np.floor(h_neg, h_neg)
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Pseudo-likelihood proxy: for each sample flips one randomly chosen feature
+        #   (x -> 1 - x; for sparse input by adding a CSR delta of 1 - 2x at that entry,
+        #   as matrix or array matching the input type), computes free energies of the
+        #   original and corrupted data and returns n_features times
+        #   log(logistic(fe_corrupted - fe_original)).
+        # Inputs: X - array or sparse (n_samples, n_features), assumed binary but not
+        #   checked.
+        # Outputs: ndarray (n_samples,).
+        # Exceptions: NotFittedError; ValueError on feature mismatch.
+        # Side effects: none persistent; randomness comes from a fresh
+        #   check_random_state(random_state), so an int seed gives deterministic results
+        #   while None does not.
         """Compute the pseudo-likelihood of X.
 
         Parameters
@@ -384,6 +485,19 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Full fit from scratch. Validates X (CSR allowed, float64/float32 preserved),
+        #   draws components_ from N(0, 0.01) in X's dtype (Fortran order), zero
+        #   intercepts and h_samples_ of shape (batch_size, n_components); splits the
+        #   n_samples rows into ceil(n_samples / batch_size) even contiguous slices and,
+        #   for n_iter epochs, calls _fit on each slice in order (no shuffling). With
+        #   verbose, after each epoch prints the mean pseudo-likelihood and elapsed
+        #   time.
+        # Inputs: X - (n_samples, n_features); y ignored.
+        # Outputs: self.
+        # Side effects: sets components_, intercept_hidden_, intercept_visible_,
+        #   h_samples_, _n_features_out, n_features_in_ (and feature_names_in_); prints
+        #   if verbose. Does not set random_state_ (uses a local rng).
         """Fit the model to the data X.
 
         Parameters
@@ -439,6 +553,10 @@ class BernoulliRBM(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support and that float64/float32 dtypes are preserved
+        #   by transform.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]

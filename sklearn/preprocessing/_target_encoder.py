@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Defines TargetEncoder, a supervised categorical encoder that replaces each category by
+# a smoothed (shrunk towards the global mean) estimate of the target mean, per class for
+# multiclass targets. Fitting reuses _BaseEncoder category discovery; the per-category
+# statistics are computed by the compiled helpers in _target_encoder_fast. fit_transform
+# uses internal cross fitting with an optionally metadata-routed CV splitter.
+# Side effects at import: none.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -32,6 +39,12 @@ from sklearn.utils.validation import (
 
 
 class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
+    # [CLASS DOC]
+    # Encoder state after fitting: categories_ (from _BaseEncoder._fit), target_type_,
+    # classes_, target_mean_ (scalar, or per-class vector for multiclass), encodings_
+    # (one array per output column, indexed by ordinal category code). Unknown
+    # categories (and, at transform, any value flagged unknown by _transform) are
+    # encoded with the relevant target mean.
     """Target Encoder for regression and classification targets.
 
     Each category is encoded based on a shrunk estimate of the average target
@@ -246,6 +259,10 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         shuffle="deprecated",
         random_state="deprecated",
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged; shuffle and random_state default to
+        # the sentinel 'deprecated'.
+        # Side effects: sets same-named attributes on self.
         self.categories = categories
         self.smooth = smooth
         self.target_type = target_type
@@ -255,6 +272,12 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Learns categories and encodings on the full data via _fit_encodings_all,
+        # discarding the intermediate arrays.
+        # Inputs: X - array-like (n_samples, n_features); y - array-like (n_samples,).
+        # Outputs: self. Exceptions: those of _fit_encodings_all.
+        # Side effects: sets all fitted attributes.
         """Fit the :class:`TargetEncoder` to X and y.
 
         It is discouraged to use this method because it can introduce data leakage.
@@ -283,6 +306,30 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Fits on all data (setting encodings_ for later transform) and returns a cross-
+        # fitted encoding of X: for each CV split, encodings are learned on the train
+        # rows (with the train-fold target mean) and applied to the test rows.
+        # Steps: _fit_encodings_all; emit FutureWarning if shuffle or random_state were
+        # set explicitly; build the splitter with check_cv (stratified unless
+        # continuous, shuffle defaulting to True); route params when metadata routing is
+        # enabled, else use empty splitter params; for splitters other than KFold,
+        # StratifiedKFold, GroupKFold, StratifiedGroupKFold verify that test folds cover
+        # each sample exactly once; allocate float64 output (n_features * n_classes
+        # columns for multiclass) and fill it fold by fold.
+        # Inputs: X, y as in fit; params - metadata routed to the splitter's split (e.g.
+        # groups), only allowed with routing enabled.
+        # Outputs: float64 ndarray (n_samples, n_features) or (n_samples, n_features *
+        # n_classes).
+        # Exceptions: ValueError from _raise_for_params when params are passed without
+        # routing; ValueError if test folds overlap or miss samples; errors from
+        # _fit_encodings_all.
+        # Side effects: sets fitted attributes; FutureWarning; may consume CV
+        # randomness.
+        # KNOWN ISSUE: with routing enabled, params['groups'] is indexed directly, so
+        # calling without groups raises KeyError instead of passing empty params.
+        # KNOWN ISSUE: the overlap check uses X.shape[0], which fails for list inputs
+        # when a custom cv is used.
         """Fit :class:`TargetEncoder` and transform `X` with the target encoding.
 
         This method uses a :term:`cross fitting` scheme to prevent target leakage
@@ -423,6 +470,14 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return X_out
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Encodes X with encodings_ learned on all training data. Unknown categories
+        # (flagged by _transform with handle_unknown='ignore') receive target_mean_ (per
+        # class for multiclass).
+        # Inputs: X - array-like (n_samples, n_features_in_); NaN allowed as a category.
+        # Outputs: float64 ndarray (n_samples, n_features) or (n_samples, n_features *
+        # n_classes).
+        # Exceptions: NotFittedError; ValueError on feature mismatch.
         """Transform X with the target encoding.
 
         This method internally uses the `encodings_` attribute learnt during
@@ -468,6 +523,21 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return X_out
 
     def _fit_encodings_all(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Shared fitting logic. Checks consistent length, fits categories (_fit,
+        # NaN allowed, unknowns ignored), resolves target_type_ (inferred with
+        # type_of_target, only binary/multiclass/continuous accepted), encodes y
+        # (LabelEncoder for binary, LabelBinarizer one-hot matrix for multiclass,
+        # numeric validation for continuous), sets classes_ (None for continuous) and
+        # target_mean_ (mean over axis 0), ordinal-encodes X, computes per-feature
+        # category counts and learns encodings_ on all rows.
+        # Inputs: X - array-like (n_samples, n_features); y - array-like (n_samples,).
+        # Outputs: tuple (X_ordinal int array, X_known_mask bool array, encoded y,
+        # n_categories int64 array of length n_features).
+        # Exceptions: ValueError for inconsistent lengths or unsupported inferred target
+        # type; validation errors for non-numeric continuous y.
+        # Side effects: sets categories_, n_features_in_, feature_names_in_,
+        # target_type_, classes_, target_mean_, encodings_.
         """Fit a target encoding with all the data."""
         # avoid circular import
         from sklearn.preprocessing import LabelBinarizer, LabelEncoder
@@ -531,6 +601,13 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
     def _fit_encoding_binary_or_continuous(
         self, X_ordinal, y, n_categories, target_mean
     ):
+        # [FUNCTION DOC]
+        # HELPER: Learns one encoding array per feature for a single numeric target
+        # column. With smooth='auto' uses the empirical Bayes variant fed with the
+        # variance of y; otherwise the fixed-smoothing variant with self.smooth.
+        # Inputs: X_ordinal - int array (n_samples, n_features); y - 1d numeric array;
+        # n_categories - int64 array; target_mean - float.
+        # Outputs: list of float arrays, one per feature, of length n_categories[i].
         """Learn target encodings."""
         if self.smooth == "auto":
             y_variance = np.var(y)
@@ -552,6 +629,14 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return encodings
 
     def _fit_encoding_multiclass(self, X_ordinal, y, n_categories, target_mean):
+        # [FUNCTION DOC]
+        # HELPER: Runs the binary/continuous learner once per class on the corresponding
+        # column of the binarized y (with that class's mean), concatenates results
+        # (class-major), then reorders into feature-major order so the encoding for
+        # feature f and class c sits at index f * n_classes + c.
+        # Inputs: X_ordinal; y - (n_samples, n_classes) binary indicator matrix;
+        # n_categories; target_mean - (n_classes,) array.
+        # Outputs: list of length n_features * n_classes of float arrays.
         """Learn multiclass encodings.
 
         Learn encodings for each class (c) then reorder encodings such that
@@ -591,6 +676,21 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         encodings,
         target_mean,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Fills X_out in place. For each encoding (output column), writes
+        # encoding values looked up by the ordinal codes of the selected rows, then
+        # overwrites rows whose category is unknown with the target mean (class-specific
+        # for multiclass, where the source feature is e_idx // n_classes and class is
+        # e_idx % n_classes).
+        # Inputs: X_out - float array to write into; X_ordinal - int codes;
+        # X_unknown_mask - bool array (n_samples, n_features); row_indices - index array
+        # or slice of rows to fill; encodings - list of arrays; target_mean - scalar or
+        # (n_classes,) array.
+        # Outputs: None. Side effects: mutates X_out.
+        # KNOWN ISSUE: the unknown-mask overwrite applies to all rows, not only
+        # row_indices; during cross fitting, unknown rows (possible when user-given
+        # categories omit observed values) end up with the last fold's train mean rather
+        # than their own fold's.
         """Transform X_ordinal using encodings.
 
         In the multiclass case, `X_ordinal` and `X_unknown_mask` have column
@@ -617,6 +717,13 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
                 X_out[X_unknown_mask[:, e_idx], e_idx] = target_mean
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns the input feature names (validated via _check_feature_names_in), or
+        # for multiclass the expanded names '<feature>_<class>' in feature-major order.
+        # Outputs: ndarray of str (object array for multiclass).
+        # Exceptions: NotFittedError; ValueError if input_features mismatch.
+        # KNOWN ISSUE: docstring says input_features is not used, but it is validated
+        # and returned; it also refers to type_of_target_ instead of target_type_.
         """Get output feature names for transformation.
 
         Parameters
@@ -646,6 +753,10 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
             return feature_names
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter with self.cv registered as 'splitter', mapping
+        # fit_transform to the splitter's split method.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -673,6 +784,9 @@ class TargetEncoder(OneToOneFeatureMixin, _BaseEncoder):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks the target as required in estimator tags.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.target_tags.required = True
         return tags

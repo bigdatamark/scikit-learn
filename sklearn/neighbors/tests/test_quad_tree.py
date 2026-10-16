@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the Cython _QuadTree used by Barnes-Hut t-SNE: tree building on edge
+# cases with internal coherence checks, pickling, duplicate handling and the
+# summarize routine.
 import pickle
 
 import numpy as np
@@ -8,6 +12,9 @@ from sklearn.utils import check_random_state
 
 
 def test_quadtree_boundary_computation():
+    # [FUNCTION DOC]
+    # Builds 2D trees on random, all-zero, all-negative and tiny-magnitude point pairs
+    # and checks _check_coherence passes.
     # Introduce a point into a quad tree with boundaries not easy to compute.
     Xs = []
 
@@ -27,6 +34,10 @@ def test_quadtree_boundary_computation():
 
 
 def test_quadtree_similar_point():
+    # [FUNCTION DOC]
+    # Builds 2D trees on pairs of points that are equal or nearly equal along one or
+    # both axes (down to float32 precision) and checks coherence; a regression would
+    # manifest as a hang.
     # Introduce a point into a quad tree where a similar point already exists.
     # Test will hang if it doesn't complete.
     Xs = []
@@ -63,6 +74,9 @@ def test_quadtree_similar_point():
 @pytest.mark.parametrize("n_dimensions", (2, 3))
 @pytest.mark.parametrize("protocol", (0, 1, 2))
 def test_quad_tree_pickle(n_dimensions, protocol):
+    # [FUNCTION DOC]
+    # Checks a pickled tree (2D/3D, protocols 0-2) returns the same cell for every
+    # training point as the original.
     rng = check_random_state(0)
 
     X = rng.random_sample((10, n_dimensions))
@@ -81,6 +95,10 @@ def test_quad_tree_pickle(n_dimensions, protocol):
 
 @pytest.mark.parametrize("n_dimensions", (2, 3))
 def test_qt_insert_duplicate(n_dimensions):
+    # [FUNCTION DOC]
+    # Inserts 10 points plus near-duplicates (noise below the tree's 1e-6 epsilon) of
+    # the first 5 and checks each point's cell is a leaf of cumulative size 2 for the
+    # first 5 and 1 for the rest.
     rng = check_random_state(0)
 
     X = rng.random_sample((10, n_dimensions))
@@ -106,6 +124,13 @@ def test_qt_insert_duplicate(n_dimensions):
 
 
 def test_summarize():
+    # [FUNCTION DOC]
+    # Checks _py_summarize from the far point: with angle 0.9 the other three points
+    # are summarized as one node of size 3 at the squared distance to their
+    # barycenter; with angle 0 there are three size-1 nodes at the squared distances to
+    # each point. Summary entries are laid out in blocks of n_dimensions+2 values.
+    # KNOWN ISSUE: the barycenter/ds2c recomputation before the angle-0 loop is dead
+    # code (overwritten inside the loop).
     # Simple check for quad tree's summarize
 
     angle = 0.9
