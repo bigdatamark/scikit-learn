@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._user_interface: _message_with_time formatting and the
+# _print_elapsed_time context manager.
 import string
 import timeit
 
@@ -26,6 +29,13 @@ from sklearn.utils._user_interface import _message_with_time, _print_elapsed_tim
     ],
 )
 def test_message_with_time(source, message, is_long, time, time_str):
+    # [FUNCTION DOC]
+    # Verifies the layout of _message_with_time: '[source] ' prefix, dot padding, a
+    # space, the message, ', total=' and a right-aligned time string (seconds below 60
+    # s, otherwise minutes); total length exactly 70 for short content (non-ASCII
+    # included), longer with no dots when content overflows.
+    # Inputs: source, message, is_long - paired; time, time_str - paired elapsed seconds
+    # and expected formatting.
     out = _message_with_time(source, message, time)
     if is_long:
         assert len(out) > 70
@@ -59,6 +69,11 @@ def test_message_with_time(source, message, is_long, time, time_str):
     ],
 )
 def test_print_elapsed_time(message, expected, capsys, monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies _print_elapsed_time prints the formatted message with 0.1 s elapsed
+    # (timer monkeypatched from 0 to 0.1) followed by a newline, and prints nothing when
+    # message is None.
+    # Inputs: message; expected - output string; capsys, monkeypatch - pytest fixtures.
     monkeypatch.setattr(timeit, "default_timer", lambda: 0)
     with _print_elapsed_time("ABC", message):
         monkeypatch.setattr(timeit, "default_timer", lambda: 0.1)

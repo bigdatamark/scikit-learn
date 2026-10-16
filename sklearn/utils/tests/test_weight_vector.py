@@ -23,7 +23,7 @@ def test_type_invariance(dtype, WeightVector):
     # arrays they wrap: builds random float32/float64 arrays of length 100, wraps them,
     # and asserts the w and aw memoryviews convert back to arrays of the same dtype.
     # Inputs: dtype - numpy float dtype; WeightVector - matching Cython class
-    #   (parametrized).
+    # (parametrized).
     # Side effects: uses the global numpy RNG (unseeded).
     """Check the `dtype` consistency of `WeightVector`."""
     weights = np.random.rand(100).astype(dtype)

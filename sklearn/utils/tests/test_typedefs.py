@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests that the Cython type aliases in sklearn.utils._typedefs map to the expected
+# NumPy dtypes.
 import numpy as np
 import pytest
 
@@ -19,6 +22,10 @@ from sklearn.utils._typedefs import testing_make_array_from_typed_val
     ],
 )
 def test_types(type_t, value, expected_dtype):
+    # [FUNCTION DOC]
+    # Verifies that the helper testing_make_array_from_typed_val for each typedef name
+    # builds an array whose dtype equals the expected NumPy dtype.
+    # Inputs: type_t - typedef name; value - scalar; expected_dtype - NumPy dtype.
     """Check that the types defined in _typedefs correspond to the expected
     numpy dtypes.
     """

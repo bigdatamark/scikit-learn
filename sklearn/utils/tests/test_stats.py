@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.stats._weighted_percentile: agreement with median and NumPy
+# percentile/quantile methods ('inverted_cdf' for average=False, 'averaged_inverted_cdf'
+# for average=True), handling of zero weights, NaNs, 2D inputs, frequency-weight and
+# scale-invariance semantics, and array API consistency.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -18,6 +23,11 @@ from sklearn.utils.stats import _weighted_percentile
 @pytest.mark.parametrize("average", [True, False])
 @pytest.mark.parametrize("size", [10, 15])
 def test_weighted_percentile_matches_median(size, average):
+    # [FUNCTION DOC]
+    # Verifies that with unit weights the 50th percentile equals the median, except for
+    # even sizes with average=False where the lower middle value is returned (so it must
+    # differ from the median).
+    # Inputs: size - 10 or 15; average - bool.
     """Ensure `_weighted_percentile` matches `median` when expected.
 
     With unit `sample_weight`, `_weighted_percentile` should match the median except
@@ -43,6 +53,11 @@ def test_weighted_percentile_matches_median(size, average):
 def test_weighted_percentile_matches_numpy(
     global_random_seed, size, percentile_rank, average
 ):
+    # [FUNCTION DOC]
+    # Verifies with unit weights on random integer data that results equal np.percentile
+    # with method 'averaged_inverted_cdf' (average=True) or 'inverted_cdf'
+    # (average=False), for scalar and list percentile ranks.
+    # Inputs: global_random_seed; size; percentile_rank - scalar or list; average.
     """Check `_weighted_percentile` with unit weights is correct.
 
     `average=True` results should be the same as `np.percentile`'s
@@ -70,6 +85,11 @@ def test_weighted_percentile_matches_numpy(
 
 @pytest.mark.parametrize("percentile_rank", [50, 100])
 def test_weighted_percentile_plus_one_clip_max(percentile_rank):
+    # [FUNCTION DOC]
+    # Verifies that with average=True, when the percentile index is already the last
+    # index, the 'plus one' index is clipped so the result is the last value (1.0) for
+    # both columns of a 2D input.
+    # Inputs: percentile_rank - 50 or 100.
     """Check `j+1` index is clipped to max, when `average=True`.
 
     `percentile_plus_one_indices` can exceed max index when `percentile_indices`
@@ -92,6 +112,8 @@ def test_weighted_percentile_plus_one_clip_max(percentile_rank):
 
 
 def test_weighted_percentile_equal():
+    # [FUNCTION DOC]
+    # Verifies that all-zero data with unit weights gives a 50th percentile of 0.
     """Check `weighted_percentile` with unit weights and all 0 values in `array`."""
     y = np.zeros(102, dtype=np.float64)
     sw = np.ones(102, dtype=np.float64)
@@ -100,6 +122,8 @@ def test_weighted_percentile_equal():
 
 
 def test_weighted_percentile_all_zero_weights():
+    # [FUNCTION DOC]
+    # Verifies that all-zero sample weights produce NaN.
     """Check `weighted_percentile` with all weights equal to 0 returns `np.nan`."""
     y = np.arange(10)
     sw = np.zeros(10)
@@ -112,6 +136,11 @@ def test_weighted_percentile_all_zero_weights():
 def test_weighted_percentile_ignores_zero_weight(
     average, percentile_rank, expected_value
 ):
+    # [FUNCTION DOC]
+    # Verifies leading, middle and trailing zero-weight observations are ignored
+    # (#20528): on 2 identical columns with weights [0,0,1,1,0,1,0], ranks 0, 50, 100
+    # give 2, 3, 5 for both average settings.
+    # Inputs: average; percentile_rank, expected_value - paired.
     """Check leading, trailing and middle 0 weights behave correctly.
 
     Check that leading zero-weight observations are ignored when `percentile_rank=0`.
@@ -131,6 +160,10 @@ def test_weighted_percentile_ignores_zero_weight(
 
 
 def test_weighted_percentile_average_zero_weight_plateau():
+    # [FUNCTION DOC]
+    # Verifies that a zero-weight value between two weighted values does not affect the
+    # averaged median: [1, 2, 3] with weights [3, 0, 3] equals [1, 3] with weights [3,
+    # 3]. Uses default percentile_rank.
     """Check zero weights just before `max_index` handled correctly."""
     score_without_zeros = _weighted_percentile([1, 3], [3, 3], average=True)
     score_with_zeros = _weighted_percentile([1, 2, 3], [3, 0, 3], average=True)
@@ -142,6 +175,11 @@ def test_weighted_percentile_average_zero_weight_plateau():
 def test_weighted_percentile_frequency_weight_semantics(
     global_random_seed, percentile_rank, average
 ):
+    # [FUNCTION DOC]
+    # Verifies integer weights are equivalent to repeating each value weight times (unit
+    # weights on the repeated data), and for rank 50 with average=True equal the median
+    # of the repeated data.
+    # Inputs: global_random_seed; percentile_rank; average.
     """Check integer weights give the same result as repeating values."""
     rng = np.random.RandomState(global_random_seed)
     x = rng.randint(20, size=10)
@@ -166,6 +204,10 @@ def test_weighted_percentile_frequency_weight_semantics(
 def test_weighted_percentile_constant_multiplier(
     global_random_seed, percentile_rank, average, constant
 ):
+    # [FUNCTION DOC]
+    # Verifies scale invariance: multiplying integer weights by an integer constant does
+    # not change the result, for scalar and list ranks.
+    # Inputs: global_random_seed; percentile_rank; average; constant - 5 or 8.
     """Check multiplying weights by a constant does not change the result.
 
     Note scale invariance does not always hold when multiplying by a
@@ -186,6 +228,11 @@ def test_weighted_percentile_constant_multiplier(
 @pytest.mark.parametrize("percentile_rank", [50, [20, 35, 50]])
 @pytest.mark.parametrize("average", [True, False])
 def test_weighted_percentile_2d(global_random_seed, percentile_rank, average):
+    # [FUNCTION DOC]
+    # Verifies 2D input is processed column-wise: results equal per-column 1D calls,
+    # first with 1D weights shared by all columns, then with 2D per-column weights;
+    # output shape is (n_columns,) for a scalar rank or (n_columns, n_ranks) for a list.
+    # Inputs: global_random_seed; percentile_rank - scalar or list; average.
     """Check `_weighted_percentile` behaviour is correct when `array` is 2D."""
     # Check for when array 2D and sample_weight 1D
     rng = np.random.RandomState(global_random_seed)
@@ -298,6 +345,14 @@ def test_weighted_percentile_array_api_consistency(
     weights,
     percentile,
 ):
+    # [FUNCTION DOC]
+    # Verifies that with array_api_dispatch the result for each namespace/device/dtype
+    # matches the NumPy result in value, dtype and shape, stays on the input device and
+    # namespace, and has float32 dtype for float32 data (else float64). Data and weights
+    # may be callables taking an rng. xfails rank 0 when xp.nextafter is broken on the
+    # device.
+    # Inputs: global_random_seed; array_namespace, device_name, dtype_name; data,
+    # weights, percentile.
     """Check `_weighted_percentile` gives consistent results with array API."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
@@ -342,6 +397,11 @@ def test_weighted_percentile_array_api_consistency(
 def test_weighted_percentile_nan_filtered(
     global_random_seed, sample_weight_ndim, average
 ):
+    # [FUNCTION DOC]
+    # Verifies NaNs are ignored: on 100x10 data with about half NaNs, the 30th
+    # percentile per column equals computing it on the NaN-filtered column with matching
+    # weights, for 1D (broadcast) and 2D weights.
+    # Inputs: global_random_seed; sample_weight_ndim - 1 or 2; average.
     """Test `_weighted_percentile` ignores NaNs.
 
     Calling `_weighted_percentile` on an array with nan values returns the same
@@ -396,6 +456,11 @@ def test_weighted_percentile_nan_filtered(
     ],
 )
 def test_weighted_percentile_all_nan_column(percentile_rank, expected):
+    # [FUNCTION DOC]
+    # Verifies that an all-NaN column yields NaN while a partly-NaN column yields the
+    # percentile of its non-NaN values, for scalar and list ranks (list output shape
+    # (n_ranks, n_columns) per expected values).
+    # Inputs: percentile_rank; expected.
     """Check that nans are ignored in general, except for all NaN columns."""
 
     array = np.array(
@@ -427,6 +492,11 @@ def test_weighted_percentile_all_nan_column(percentile_rank, expected):
 def test_weighted_percentile_like_numpy_quantile(
     percentile, average, uniform_weight, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies equality with np.quantile along axis 0 using weights (or none for uniform
+    # weights) and the corresponding method; skipped for NumPy < 2.0 and for
+    # average=True with non-uniform weights, which NumPy does not support.
+    # Inputs: percentile; average; uniform_weight; global_random_seed.
     """Check `_weighted_percentile` is equivalent to `np.quantile` with weights."""
     # TODO: remove the following skip once no longer applicable.
     if average and not uniform_weight:
@@ -465,6 +535,10 @@ def test_weighted_percentile_like_numpy_quantile(
 def test_weighted_percentile_like_numpy_nanquantile(
     percentile, average, uniform_weight, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Same as the np.quantile comparison but on data with about half NaNs against
+    # np.nanquantile.
+    # Inputs: percentile; average; uniform_weight; global_random_seed.
     """Check `_weighted_percentile` equivalent to `np.nanquantile` with weights."""
     # TODO: remove the following skip once no longer applicable.
     if average and not uniform_weight:
