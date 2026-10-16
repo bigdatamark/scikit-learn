@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Small utilities to detect missing-value markers (float NaN scalars and
+# pandas.NA) without failing on non-numeric inputs. No import-time side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -7,6 +10,13 @@ from contextlib import suppress
 
 
 def is_scalar_nan(x):
+    # [FUNCTION DOC]
+    # Returns True only for real, non-integral scalars that are NaN (Python float,
+    # numpy floating). Integers, bools, strings, None and containers return False.
+    # Inputs: x - any object.
+    # Outputs: bool.
+    # Exceptions: none; non-numeric types short-circuit before math.isnan is called.
+    # Side effects: none.
     """Test if x is NaN.
 
     This function is meant to overcome the issue that np.isnan does not allow
@@ -45,6 +55,13 @@ def is_scalar_nan(x):
 
 
 def is_pandas_na(x):
+    # [FUNCTION DOC]
+    # Returns True when x is the pandas.NA singleton (identity check). If pandas
+    # cannot be imported, returns False.
+    # Inputs: x - any object.
+    # Outputs: bool.
+    # Exceptions: ImportError from pandas is suppressed.
+    # Side effects: may import pandas lazily.
     """Test if x is pandas.NA.
 
     We intentionally do not use this function to return `True` for `pd.NA` in
