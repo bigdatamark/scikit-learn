@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Bisecting K-Means: divisive hierarchical clustering that starts from one cluster
+# and repeatedly splits the selected leaf (by largest inertia or size) in two with
+# k-means (k=2), until n_clusters leaves exist. The binary tree of splits is kept for
+# hierarchical prediction.
 """Bisecting K-means clustering."""
 
 # Authors: The scikit-learn developers
@@ -28,9 +33,16 @@ from sklearn.utils.validation import (
 
 
 class _BisectingTree:
+    # [CLASS DOC]
+    # HELPER: Binary tree node of BisectingKMeans: center, sample indices (only while
+    # fitting), score used to choose the next split, left/right children, and label
+    # (set on leaves after fit).
     """Tree structure representing the hierarchical clusters of BisectingKMeans."""
 
     def __init__(self, center, indices, score):
+        # [FUNCTION DOC]
+        # Stores center (n_features,), indices (int array into the training data) and score
+        # (float); no children.
         """Create a new cluster node in the tree.
 
         The node holds the center of this cluster and the indices of the data points
@@ -44,6 +56,12 @@ class _BisectingTree:
         self.right = None
 
     def split(self, labels, centers, scores):
+        # [FUNCTION DOC]
+        # Creates left and right children from the samples labelled 0 and 1 with the given
+        # centers and scores, then drops self.indices.
+        # Inputs: labels - (n_node_samples,) 0/1 array; centers - (2, n_features);
+        # scores - length-2 sequence.
+        # Side effects: mutates self.
         """Split the cluster node into two subclusters."""
         self.left = _BisectingTree(
             indices=self.indices[labels == 0], center=centers[0], score=scores[0]
@@ -56,6 +74,10 @@ class _BisectingTree:
         self.indices = None
 
     def get_cluster_to_bisect(self):
+        # [FUNCTION DOC]
+        # Returns the leaf with the highest score (first one on ties, in left-to-right leaf
+        # order).
+        # Outputs: _BisectingTree leaf.
         """Return the cluster node to bisect next.
 
         It's based on the score of the cluster, which can be either the number of
@@ -72,6 +94,8 @@ class _BisectingTree:
         return best_cluster_leaf
 
     def iter_leaves(self):
+        # [FUNCTION DOC]
+        # Generator of leaves, depth-first, left before right.
         """Iterate over all the cluster leaves in the tree."""
         if self.left is None:
             yield self
@@ -81,6 +105,10 @@ class _BisectingTree:
 
 
 class BisectingKMeans(_BaseKMeans):
+    # [CLASS DOC]
+    # Estimator built on _BaseKMeans (shared init, predict-side validation, transform,
+    # score). Fitted attributes: cluster_centers_, labels_, inertia_, plus the private
+    # _bisecting_tree used by predict.
     """Bisecting K-Means clustering.
 
     Read more in the :ref:`User Guide <bisect_k_means>`.
@@ -239,6 +267,9 @@ class BisectingKMeans(_BaseKMeans):
         algorithm="lloyd",
         bisecting_strategy="biggest_inertia",
     ):
+        # [FUNCTION DOC]
+        # Forwards common k-means parameters to _BaseKMeans and stores copy_x, algorithm and
+        # bisecting_strategy.
         super().__init__(
             n_clusters=n_clusters,
             init=init,
@@ -254,6 +285,9 @@ class BisectingKMeans(_BaseKMeans):
         self.bisecting_strategy = bisecting_strategy
 
     def _warn_mkl_vcomp(self, n_active_threads):
+        # [FUNCTION DOC]
+        # Emits a UserWarning about the known MKL/vcomp memory leak on Windows and suggests
+        # OMP_NUM_THREADS=n_active_threads (hook called by _BaseKMeans._check_mkl_vcomp).
         """Warn when vcomp and mkl are both present"""
         warnings.warn(
             "BisectingKMeans is known to have a memory leak on Windows "
@@ -263,6 +297,11 @@ class BisectingKMeans(_BaseKMeans):
         )
 
     def _inertia_per_cluster(self, X, centers, labels, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Weighted sum of squared distances of the samples of each cluster to its
+        # center, using the dense or sparse Cython inertia with single_label.
+        # Inputs: X - (n, d); centers - (2, d); labels - (n,); sample_weight - (n,).
+        # Outputs: ndarray (n_clusters,).
         """Calculate the sum of squared errors (inertia) per cluster.
 
         Parameters
@@ -296,6 +335,15 @@ class BisectingKMeans(_BaseKMeans):
         return inertia_per_cluster
 
     def _bisect(self, X, x_squared_norms, sample_weight, cluster_to_bisect):
+        # [FUNCTION DOC]
+        # HELPER: Splits one leaf: restricts X, squared norms and weights to its samples,
+        # runs n_init k-means with 2 centroids (init from self.init, shared random state),
+        # keeps the run with the lowest inertia (requiring a relative improvement > 1e-6),
+        # optionally prints the centers, computes scores (per-cluster inertia or sample
+        # counts with at least 2 bins) and splits the node.
+        # Inputs: X, x_squared_norms, sample_weight - full training arrays;
+        # cluster_to_bisect - leaf node.
+        # Side effects: mutates the tree; consumes randomness.
         """Split a cluster into 2 subsclusters.
 
         Parameters
@@ -363,6 +411,21 @@ class BisectingKMeans(_BaseKMeans):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR or C-ordered float, copied if copy_x), checks parameters, sets
+        # _random_state, sample weights and thread count, picks Lloyd (also forced when
+        # n_clusters is 1, with the MKL check) or Elkan. For dense X, centers the data in
+        # place on its mean (_X_mean). Builds the root node and performs n_clusters-1
+        # bisections. Assigns leaf order as labels, collects centers (un-centered), restores
+        # X by adding the mean back, and computes inertia_.
+        # Inputs: X - (n_samples, n_features); y ignored; sample_weight - optional (n,).
+        # Outputs: self.
+        # Sets: labels_ (int32), cluster_centers_, inertia_, _n_features_out,
+        # _bisecting_tree, _X_mean (dense only), _kmeans_single, _n_threads, _random_state.
+        # Side effects: with copy_x=False the caller's dense X is modified and restored,
+        # possibly with floating point rounding differences.
+        # KNOWN ISSUE: _X_mean is never deleted, so refitting on sparse data after a dense
+        # fit leaves a stale mean that _predict_recursive still adds to the tree centers.
         """Compute bisecting k-means clustering.
 
         Parameters
@@ -456,6 +519,10 @@ class BisectingKMeans(_BaseKMeans):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Validates X and labels each sample by descending the bisection tree with unit
+        # weights.
+        # Outputs: int32 ndarray (n_samples,).
         """Predict which cluster each sample in X belongs to.
 
         Prediction is made by going down the hierarchical tree
@@ -488,6 +555,12 @@ class BisectingKMeans(_BaseKMeans):
         return labels
 
     def _predict_recursive(self, X, sample_weight, cluster_node):
+        # [FUNCTION DOC]
+        # HELPER: At a leaf, returns its label for all rows. Otherwise assigns each row to
+        # the nearer of the two child centers (shifted back by _X_mean when present) and
+        # recurses on each subset.
+        # Inputs: X - (n, d); sample_weight - (n,); cluster_node - tree node.
+        # Outputs: int32 ndarray (n,).
         """Predict recursively by going down the hierarchical tree.
 
         Parameters
@@ -539,6 +612,8 @@ class BisectingKMeans(_BaseKMeans):
         return labels
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse support and float64/float32 preservation.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]

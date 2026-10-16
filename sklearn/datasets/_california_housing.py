@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# California housing regression dataset fetcher. Defines the remote archive metadata
+# (ARCHIVE: figshare URL with SHA256 checksum), a module logger, and
+# fetch_california_housing, which downloads once and caches a compressed pickle in the
+# data home.
 """California housing dataset.
 
 The original database is available from StatLib
@@ -73,6 +78,29 @@ def fetch_california_housing(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Loads the dataset, downloading and caching it if needed.
+    # Behavior: resolve the data home; if the cached 'cal_housing.pkz' is missing (and
+    # download is allowed) download the tgz with retries, read
+    # CaliforniaHousing/cal_housing.data, reorder columns so the target (median house
+    # value) comes first followed by income, age, total rooms, total bedrooms,
+    # population, households, latitude, longitude, dump it with joblib (compress 6) and
+    # delete the archive; else load the cache. Then derive features: rooms and bedrooms
+    # divided by households, households column replaced by population / households
+    # (average occupancy), target divided by 100000.
+    # Inputs: data_home - str/PathLike/None; download_if_missing - bool; return_X_y -
+    # bool; as_frame - bool (pandas output); n_retries - int >= 1; delay - float > 0
+    # seconds.
+    # Outputs: (X, y) if return_X_y, else a Bunch with data (20640, 8), target (20640,),
+    # frame (DataFrame or None), target_names ['MedHouseVal'], feature_names, DESCR.
+    # Exceptions: OSError if the data is absent and download_if_missing is False;
+    # network or checksum errors from _fetch_remote; parameter validation errors.
+    # Side effects: network I/O, writes the cache file, removes the archive, logs at
+    # INFO.
+    # KNOWN ISSUE: after reordering, the column used as the divisor (index 5 of data) is
+    # households, which is then overwritten with average occupancy, so the original
+    # households count is not exposed; this is intentional but the comment naming may
+    # mislead.
     """Load the California housing dataset (regression).
 
     ==============   ==============

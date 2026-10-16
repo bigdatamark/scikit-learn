@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for FastICA / fastica and the private _gs_decorrelation helper: source
+# recovery on simple mixtures, dtype preservation, whitening options and solvers,
+# output shapes, inverse_transform, warnings and parameter validation errors.
 """
 Test the fastica algorithm.
 """
@@ -17,6 +21,13 @@ from sklearn.utils._testing import assert_allclose, ignore_warnings
 
 
 def center_and_norm(x, axis=-1):
+    # [FUNCTION DOC]
+    # HELPER: Centers and scales x in place so that, along the given axis, each slice
+    # has zero mean and unit standard deviation (rolls the axis to the front, then
+    # subtracts the mean and divides by the std over axis 0 of the rolled view).
+    # Inputs: x - float ndarray (modified in place); axis - int, default -1.
+    # Outputs: None.
+    # Side effects: mutates x through the rolled view.
     """Centers and norms x **in place**
 
     Parameters
@@ -33,6 +44,11 @@ def center_and_norm(x, axis=-1):
 
 
 def test_gs(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies _gs_decorrelation (Gram-Schmidt): with a random 10x10 orthogonal W,
+    # decorrelating a random w against all 10 rows leaves (near) zero norm (checked on
+    # the in-place mutated w), and decorrelating against the first 5 rows gives a
+    # vector orthogonal to those 5 rows.
     # Test gram schmidt orthonormalization
     # generate a random orthogonal  matrix
     rng = np.random.RandomState(global_random_seed)
@@ -47,6 +63,10 @@ def test_gs(global_random_seed):
 
 
 def test_fastica_attributes_dtypes(global_dtype):
+    # [FUNCTION DOC]
+    # Checks that FastICA fitted attributes components_, mixing_, mean_ and
+    # whitening_ keep the input dtype (global_dtype fixture) with unit-variance
+    # whitening.
     rng = np.random.RandomState(0)
     X = rng.random_sample((100, 10)).astype(global_dtype, copy=False)
     fica = FastICA(
@@ -59,6 +79,9 @@ def test_fastica_attributes_dtypes(global_dtype):
 
 
 def test_fastica_return_dtypes(global_dtype):
+    # [FUNCTION DOC]
+    # Checks that the function fastica returns K, mixing and sources arrays in the
+    # same dtype as the input (global_dtype).
     rng = np.random.RandomState(0)
     X = rng.random_sample((100, 10)).astype(global_dtype, copy=False)
     k_, mixing_, s_ = fastica(
@@ -71,6 +94,18 @@ def test_fastica_return_dtypes(global_dtype):
 
 @pytest.mark.parametrize("add_noise", [True, False])
 def test_fastica_simple(add_noise, global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Recovers two non-Gaussian sources (square wave, Student-t) mixed by a rotation,
+    # optionally with added noise. For every combination of algorithm (parallel,
+    # deflation), nonlinearity (logcosh, exp, cube, custom callable g_test) and whiten
+    # option (arbitrary, unit, False with PCA pre-whitening): runs fastica, checks a
+    # non-conforming callable (np.tanh) raises ValueError, checks the
+    # mixing_ * K * m reconstruction of sources when whitening, then aligns
+    # order/sign and asserts the estimated sources correlate ~1 with the true ones.
+    # Finally checks the FastICA class matches fastica, has expected shapes, transform
+    # matches fit_transform, and fun=np.tanh raises ValueError on fit.
+    # Xfails a known unstable configuration on Ubuntu Atlas float32 builds.
+    # Inputs: add_noise - bool parameter; global_random_seed, global_dtype fixtures.
     if (
         global_random_seed == 20
         and global_dtype == np.float32
@@ -107,6 +142,10 @@ def test_fastica_simple(add_noise, global_random_seed, global_dtype):
 
     # function as fun arg
     def g_test(x):
+        # [FUNCTION DOC]
+        # HELPER: Custom FastICA nonlinearity (cube): returns x cubed element-wise and
+        # the mean of its derivative 3 x squared over the last axis.
+        # Inputs: x - ndarray. Outputs: tuple (g(x), mean g'(x)).
         return x**3, (3 * x**2).mean(axis=-1)
 
     algos = ["parallel", "deflation"]
@@ -178,6 +217,9 @@ def test_fastica_simple(add_noise, global_random_seed, global_dtype):
 
 
 def test_fastica_nowhiten():
+    # [FUNCTION DOC]
+    # Regression test for issue #697: FastICA with whiten=False and n_components set
+    # warns that n_components is ignored and still fits, defining mixing_.
     m = [[0, 1], [1, 0]]
 
     # test for issue #697
@@ -189,6 +231,9 @@ def test_fastica_nowhiten():
 
 
 def test_fastica_convergence_fail(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that FastICA with tol=0 and max_iter=2 on a 6-channel mixture of two
+    # sources emits a ConvergenceWarning with the expected message.
     # Test the FastICA algorithm on very simple data
     # (see test_non_square_fastica).
     # Ensure a ConvergenceWarning raised if the tolerance is sufficiently low.
@@ -220,6 +265,12 @@ def test_fastica_convergence_fail(global_random_seed):
 
 @pytest.mark.parametrize("add_noise", [True, False])
 def test_non_square_fastica(global_random_seed, add_noise):
+    # [FUNCTION DOC]
+    # Recovers 2 sources from 6 mixed channels (non-square mixing) with fastica and
+    # n_components=2: checks the mixing model reconstruction of sources and, when no
+    # noise is added, that the order/sign-aligned estimates correlate ~1 with the
+    # true sources.
+    # Inputs: global_random_seed fixture; add_noise - bool parameter.
     # Test the FastICA algorithm on very simple data.
     rng = np.random.RandomState(global_random_seed)
 
@@ -265,6 +316,13 @@ def test_non_square_fastica(global_random_seed, add_noise):
 
 
 def test_fit_transform(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Regression test for bug #13056: for (unit-variance, 5 components) and
+    # (no whitening, all components), fit_transform output equals fit then transform,
+    # with expected component and output shapes; RuntimeWarnings are turned into
+    # errors to catch sqrt of negative values, convergence warnings ignored.
+    # KNOWN ISSUE: "if global_dtype" is always true (a dtype object is truthy), so the
+    # float64 branch with atol=0 is dead code; the intent was likely a float32 check.
     """Test unit variance of transformed data using FastICA algorithm.
 
     Check that `fit_transform` gives the same result as applying
@@ -329,6 +387,11 @@ def test_fit_transform(global_random_seed, global_dtype):
 def test_inverse_transform(
     whiten, n_components, expected_mixing_shape, global_random_seed, global_dtype
 ):
+    # [FUNCTION DOC]
+    # Checks FastICA.inverse_transform for each whiten option and n_components: the
+    # mixing_ shape matches the expected one, the round trip returns the input shape,
+    # and, when n_components equals n_features, recovers X up to a tolerance.
+    # KNOWN ISSUE: "if global_dtype" is always true, so the atol=0 branch is dead.
     # Test FastICA.inverse_transform
     n_samples = 100
     rng = np.random.RandomState(global_random_seed)
@@ -359,6 +422,9 @@ def test_inverse_transform(
 
 
 def test_fastica_errors():
+    # [FUNCTION DOC]
+    # Checks fastica validation errors: fun_args alpha outside [1, 2] and a w_init
+    # with the wrong shape both raise ValueError with the expected messages.
     n_features = 3
     n_samples = 10
     rng = np.random.RandomState(0)
@@ -373,6 +439,9 @@ def test_fastica_errors():
 
 
 def test_fastica_whiten_unit_variance(global_random_seed):
+    # [FUNCTION DOC]
+    # Regression test for bug #13056: with whiten="unit-variance" and all components
+    # kept, the transformed data has overall variance approximately 1.
     """Test unit variance of transformed data using FastICA algorithm.
 
     Bug #13056
@@ -390,6 +459,10 @@ def test_fastica_whiten_unit_variance(global_random_seed):
 @pytest.mark.parametrize("return_X_mean", [True, False])
 @pytest.mark.parametrize("return_n_iter", [True, False])
 def test_fastica_output_shape(whiten, return_X_mean, return_n_iter):
+    # [FUNCTION DOC]
+    # Checks fastica returns a tuple of length 3 plus one per enabled return_X_mean
+    # and return_n_iter flag, and that the first element (K) is None when whiten is
+    # False.
     n_features = 3
     n_samples = 10
     rng = np.random.RandomState(0)
@@ -408,6 +481,10 @@ def test_fastica_output_shape(whiten, return_X_mean, return_n_iter):
 
 @pytest.mark.parametrize("add_noise", [True, False])
 def test_fastica_simple_different_solvers(add_noise, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks FastICA with unit-variance whitening yields (near) identical sources
+    # for whiten_solver "svd" and "eigh" on a randomly rotated two-source mixture,
+    # with and without noise, and has the expected output shapes.
     """Test FastICA is consistent between whiten_solvers."""
     rng = np.random.RandomState(global_random_seed)
     n_samples = 1000
@@ -442,6 +519,9 @@ def test_fastica_simple_different_solvers(add_noise, global_random_seed):
 
 
 def test_fastica_eigh_low_rank_warning(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks the eigh whitening solver emits a UserWarning about small singular
+    # values when fitting rank-2 10x10 data (convergence warnings suppressed).
     """Test FastICA eigh solver raises warning for low-rank data."""
     rng = np.random.RandomState(global_random_seed)
     A = rng.randn(10, 2)

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for sklearn.decomposition.FactorAnalysis and its private _ortho_rotation
+# helper: covariance recovery, log-likelihood behaviour, svd_method agreement,
+# convergence warnings, covariance/precision consistency and varimax rotation.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +17,24 @@ from sklearn.utils._testing import assert_almost_equal, assert_array_almost_equa
 
 
 def test_factor_analysis(global_random_seed):
+    # [FUNCTION DOC]
+    # End-to-end check of FactorAnalysis on synthetic data X = h W + heteroscedastic
+    # noise (20 samples, 5 features, 3 latent components, seeded by global_random_seed).
+    # Verifies, for both svd_method "randomized" and "lapack": transform output shape,
+    # last loglike_ equals summed score_samples, score equals mean score_samples, the
+    # model covariance is close to the sample covariance, and a noise_variance_init of
+    # the wrong length raises ValueError. Then checks both methods agree in absolute
+    # value on loglike_, components_ and noise_variance_; max_iter=1 emits
+    # ConvergenceWarning; get_covariance times get_precision is identity for
+    # n_components 0, 2 and n_features; rotations None/varimax/quartimax give
+    # different transforms but similar covariances; and _ortho_rotation varimax matches
+    # reference values from R's psych::principal (up to sign).
+    # Inputs: global_random_seed - pytest fixture integer seed.
+    # KNOWN ISSUE: the "log likelihood increases" check computes np.all of the diffs,
+    # which is a boolean, so it only asserts that no consecutive diff is exactly zero,
+    # not that the log-likelihood is monotonically increasing.
+    # KNOWN ISSUE: the covariance/precision loop reuses the estimator built with
+    # noise_variance_init (from the last loop iteration), not one of the fitted fas.
     # Test FactorAnalysis ability to recover the data covariance structure
     rng = np.random.RandomState(global_random_seed)
     n_samples, n_features, n_components = 20, 5, 3
@@ -58,6 +80,11 @@ def test_factor_analysis(global_random_seed):
             fa.fit(X[:, :2])
 
     def f(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Returns the element-wise absolute value of attribute y of object x, so
+        # that sign-ambiguous fitted attributes can be compared across solvers.
+        # Inputs: x - fitted estimator; y - attribute name string.
+        # Outputs: numpy array of absolute values.
         return np.abs(getattr(x, y))  # sign will not be equal
 
     fa1, fa2 = fas

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Non-negative matrix factorization X ~ W H with W, H >= 0. Provides the functional API
+# non_negative_factorization, the estimators NMF (coordinate descent 'cd' or
+# multiplicative update 'mu' solvers) and MiniBatchNMF (online multiplicative updates),
+# their shared base _BaseNMF, and private helpers for initialization (random / NNDSVD
+# variants), beta-divergence evaluation, and the solver iterations. The CD inner loop is
+# the Cython _update_cdnmf_fast.
+# Module constant EPSILON: float32 machine epsilon, used as a floor to avoid division by
+# zero / negative powers of zero. Side effects at import: none.
 """Non-negative matrix factorization."""
 
 # Authors: The scikit-learn developers
@@ -33,6 +42,9 @@ EPSILON = np.finfo(np.float32).eps
 
 
 def norm(x):
+    # [FUNCTION DOC]
+    # HELPER: Frobenius (L2) norm of an array: square root of the sum of squared entries
+    #   (via squared_norm). Input: x array. Output: float.
     """Dot product-based Euclidean norm implementation.
 
     See: http://fa.bianp.net/blog/2011/computing-the-vector-norm/
@@ -46,6 +58,9 @@ def norm(x):
 
 
 def trace_dot(X, Y):
+    # [FUNCTION DOC]
+    # HELPER: Trace of X transposed times Y, computed as the dot product of the
+    #   flattened arrays. Inputs: X, Y arrays of equal shape. Output: scalar.
     """Trace of np.dot(X, Y.T).
 
     Parameters
@@ -59,6 +74,15 @@ def trace_dot(X, Y):
 
 
 def _check_init(A, shape, whom):
+    # [FUNCTION DOC]
+    # HELPER: Validates a user-supplied W or H: converts with check_array, checks each
+    #   dimension against shape (a dimension given as 'auto' is not checked), requires
+    #   non-negative values and at least one strictly positive entry.
+    # Inputs: A array-like; shape 2-tuple of ints or 'auto'; whom str for messages.
+    #   Outputs: none.
+    # Exceptions: ValueError for wrong dimensions, negative values, or all-zero arrays.
+    # KNOWN ISSUE: the converted array is discarded, so callers keep using the original
+    #   object (which may be a list, not an ndarray).
     A = check_array(A)
     if shape[0] != "auto" and A.shape[0] != shape[0]:
         raise ValueError(
@@ -76,6 +100,24 @@ def _check_init(A, shape, whom):
 
 
 def _beta_divergence(X, W, H, beta, square_root=False):
+    # [FUNCTION DOC]
+    # HELPER: Computes the beta-divergence between X and W H. Converts a string loss to
+    #   its float. Frobenius (beta 2): half the squared Frobenius norm of X - WH,
+    #   computed without densifying WH for sparse X via norms and trace identities.
+    #   Otherwise restricts to entries where X > EPSILON (WH taken only at X's non-zeros
+    #   for sparse X) and floors WH at EPSILON; beta 1 (generalized KL): sum of X
+    #   log(X/WH) plus sum(WH) minus sum(X); beta 0 (Itakura-Saito): sum of X/WH minus
+    #   the number of entries of X minus sum of log(X/WH); other beta: (sum X^beta -
+    #   beta sum X WH^(beta-1) + (beta-1) sum WH^beta) / (beta (beta-1)), with sum
+    #   WH^beta looped over columns for sparse X.
+    # Inputs: X (n_samples, n_features) dense or sparse (or scalar); W (n_samples,
+    #   n_components); H (n_components, n_features); beta float or string; square_root
+    #   bool.
+    # Outputs: float divergence, or sqrt(2 * divergence) (clipped at 0) when
+    #   square_root.
+    # KNOWN ISSUE: for Itakura-Saito the constant subtracted is the total number of
+    #   entries of X, while the other terms skip zero entries of X; this is only
+    #   consistent when X has no zeros (which the estimators enforce for beta <= 0).
     """Compute the beta-divergence of X and dot(W, H).
 
     Parameters
@@ -183,6 +225,12 @@ def _beta_divergence(X, W, H, beta, square_root=False):
 
 
 def _special_sparse_dot(W, H, X):
+    # [FUNCTION DOC]
+    # HELPER: Computes W H only at the non-zero positions of a sparse X, in batches over
+    #   the non-zeros (row of W dotted with column of H), returning a CSR matrix with
+    #   X's shape; for dense X returns the full dense product.
+    # Inputs: W (n_samples, n_components), H (n_components, n_features), X. Outputs: CSR
+    #   matrix or ndarray (n_samples, n_features).
     """Computes np.dot(W, H), only where X is non zero."""
     if sp.issparse(X):
         ii, jj = X.nonzero()
@@ -204,6 +252,10 @@ def _special_sparse_dot(W, H, X):
 
 
 def _beta_loss_to_float(beta_loss):
+    # [FUNCTION DOC]
+    # HELPER: Maps 'frobenius' to 2, 'kullback-leibler' to 1, 'itakura-saito' to 0; non-
+    #   strings pass through unchanged.
+    # Exceptions: KeyError for an unknown string.
     """Convert string beta_loss to float."""
     beta_loss_map = {"frobenius": 2, "kullback-leibler": 1, "itakura-saito": 0}
     if isinstance(beta_loss, str):
@@ -212,6 +264,23 @@ def _beta_loss_to_float(beta_loss):
 
 
 def _initialize_nmf(X, n_components, init=None, eps=1e-6, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Computes initial W, H. Checks X is non-negative; rejects NNDSVD-type inits
+    #   when n_components exceeds min(n_samples, n_features); init None resolves to
+    #   'nndsvda' when possible else 'random'. 'random': absolute values of standard
+    #   normals scaled by sqrt(mean(X)/n_components). NNDSVD: randomized SVD of X; the
+    #   first component uses sqrt(s0) times the absolute leading singular vectors; for
+    #   each further component splits the singular vector pair into positive and
+    #   negative parts, keeps the pair with the larger product of norms, normalises it
+    #   and scales by sqrt(s_j times that product); values below eps are zeroed;
+    #   'nndsvda' fills zeros with mean(X), 'nndsvdar' with small random values |mean(X)
+    #   * N(0,1) / 100|.
+    # Inputs: X (n_samples, n_features); n_components int; init str or None; eps float
+    #   threshold; random_state.
+    # Outputs: tuple W (n_samples, n_components), H (n_components, n_features).
+    # Exceptions: ValueError for negative X, too many components with an NNDSVD init, or
+    #   an unknown init string.
+    # Side effects: consumes randomness.
     """Algorithms for NMF initialization.
 
     Computes an initial guess for the non-negative
@@ -367,6 +436,17 @@ def _initialize_nmf(X, n_components, init=None, eps=1e-6, random_state=None):
 
 
 def _update_coordinate_descent(X, W, Ht, l1_reg, l2_reg, shuffle, random_state):
+    # [FUNCTION DOC]
+    # HELPER: One coordinate-descent sweep updating W with Ht fixed: forms HHt = Ht^T Ht
+    #   and XHt = X Ht, adds l2_reg to the diagonal of HHt and subtracts l1_reg from
+    #   XHt, chooses the coordinate order (random permutation when shuffle), and calls
+    #   the Cython _update_cdnmf_fast.
+    # Inputs: X (n_samples, n_features); W (n_samples, n_components) updated in place;
+    #   Ht (n_features, n_components); l1_reg, l2_reg floats; shuffle bool; random_state
+    #   RandomState.
+    # Outputs: float violation (sum of projected-gradient magnitudes) from the Cython
+    #   routine.
+    # Side effects: mutates W in place; consumes randomness when shuffle.
     """Helper function for _fit_coordinate_descent.
 
     Update W to minimize the objective function, iterating once over all
@@ -411,6 +491,19 @@ def _fit_coordinate_descent(
     shuffle=False,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Coordinate-descent NMF solver. Makes W and H transposed C-contiguous and
+    #   converts CSC X to CSR, then for up to max_iter iterations updates W, and if
+    #   update_H updates Ht using X transposed; records the first iteration's violation,
+    #   stops immediately if it is zero, else stops when the violation relative to the
+    #   initial one is at most tol (printing progress when verbose).
+    # Inputs: X (n_samples, n_features); W, H initial factors; tol; max_iter; l1/l2
+    #   regularizations for W and H; update_H bool; verbose; shuffle; random_state.
+    # Outputs: tuple (W, H, number of iterations run).
+    # Side effects: may mutate the passed W in place when already contiguous; prints
+    #   when verbose; consumes randomness.
+    # KNOWN ISSUE: the verbose message "Converged at iteration" prints n_iter + 1, one
+    #   more than the actual iteration.
     """Compute Non-negative Matrix Factorization (NMF) with Coordinate Descent
 
     The objective function is minimized with an alternating minimization of W
@@ -531,6 +624,22 @@ def _multiplicative_update_w(
     XHt=None,
     update_H=True,
 ):
+    # [FUNCTION DOC]
+    # HELPER: One multiplicative update of W (Fevotte & Idier). Frobenius: numerator X
+    #   H^T (reused from XHt if given, copied when H is fixed), denominator W (H H^T).
+    #   Other betas: compute WH (only at X's non-zeros for sparse X), floor it at
+    #   EPSILON where needed, form X times WH^(beta-2) (division for KL, squared inverse
+    #   for IS), numerator is that times H^T; denominator is the row sums of H for KL,
+    #   else WH^(beta-1) times H^T (computed row by row for sparse X). Adds l1_reg_W to
+    #   the denominator and l2_reg_W times W, replaces zero denominators with EPSILON,
+    #   raises the ratio to power gamma if gamma != 1, and multiplies W by it.
+    # Inputs: X; W (n_samples, n_components); H (n_components, n_features); beta_loss
+    #   float; l1_reg_W, l2_reg_W; gamma exponent in (0, 1]; H_sum, HHt, XHt optional
+    #   cached quantities; update_H bool (whether caches may be consumed).
+    # Outputs: tuple (W updated, H_sum, HHt, XHt) so caches can be reused when H is
+    #   fixed.
+    # Side effects: mutates W in place; may overwrite the cached XHt when update_H is
+    #   True.
     """Update W in Multiplicative Update NMF."""
     if beta_loss == 2:
         # Numerator
@@ -629,6 +738,19 @@ def _multiplicative_update_w(
 def _multiplicative_update_h(
     X, W, H, beta_loss, l1_reg_H, l2_reg_H, gamma, A=None, B=None, rho=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: One multiplicative update of H, mirroring _multiplicative_update_w with
+    #   roles transposed (numerator W^T X or W^T (X WH^(beta-2)); denominator W^T W H,
+    #   column sums of W (zeros replaced by 1) for KL, or W^T WH^(beta-1) computed
+    #   column by column for sparse X), plus l1/l2 regularization and EPSILON flooring.
+    #   Batch mode: H is multiplied by (numerator/denominator)^gamma. Online mode (A and
+    #   B given): H is raised to 1/gamma, numerator times H is accumulated into A and
+    #   the denominator into B after both are scaled by rho, and H becomes (A/B)^gamma.
+    # Inputs: X; W; H; beta_loss; l1_reg_H; l2_reg_H; gamma; A, B optional running
+    #   numerator/denominator arrays (n_components, n_features); rho forgetting factor.
+    # Outputs: updated H (same object in batch mode, a new array in online mode).
+    # Side effects: mutates H in place (batch mode, and the 1/gamma power in online
+    #   mode); mutates A and B in place.
     """update H in Multiplicative Update NMF."""
     if beta_loss == 2:
         numerator = safe_sparse_dot(W.T, X)
@@ -737,6 +859,18 @@ def _fit_multiplicative_update(
     update_H=True,
     verbose=0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Multiplicative-update NMF solver. Sets the MM exponent gamma (1/(2-beta)
+    #   for beta<1, 1/(beta-1) for beta>2, else 1); computes the initial sqrt beta-
+    #   divergence; then for up to max_iter iterations updates W (reusing cached H
+    #   products when H is fixed), zeroes tiny W entries for beta<1, updates H when
+    #   update_H and zeroes tiny H entries for beta<=1; every 10 iterations (if tol>0)
+    #   recomputes the error, optionally prints it, and stops when the decrease relative
+    #   to the initial error is below tol.
+    # Inputs: X; W, H initial factors; beta_loss; max_iter; tol; l1/l2 regularizations;
+    #   update_H; verbose.
+    # Outputs: tuple (W, H, number of iterations).
+    # Side effects: W and H are updated in place; prints timing when verbose.
     """Compute Non-negative Matrix Factorization with Multiplicative Update.
 
     The objective function is _beta_divergence(X, WH) and is minimized with an
@@ -916,6 +1050,20 @@ def non_negative_factorization(
     verbose=0,
     shuffle=False,
 ):
+    # [FUNCTION DOC]
+    # Functional API: builds an NMF estimator from the arguments, validates its
+    # parameters, validates X (CSR/CSC, float32/64) and runs NMF._fit_transform under
+    # assume_finite.
+    # Inputs: X (n_samples, n_features); W, H optional initial/fixed factors;
+    #   n_components; init; update_H (False solves only for W with H fixed); solver;
+    #   beta_loss; tol; max_iter; alpha_W; alpha_H; l1_ratio; random_state; verbose;
+    #   shuffle.
+    # Outputs: tuple (W (n_samples, n_components), H (n_components, n_features),
+    #   n_iter).
+    # Exceptions: InvalidParameterError and ValueErrors/TypeErrors from validation and
+    #   _fit_transform.
+    # Side effects: ConvergenceWarning/RuntimeWarning/UserWarning as in NMF; consumes
+    #   randomness.
     """Compute Non-negative Matrix Factorization (NMF).
 
     Find two non-negative matrices (W, H) whose product approximates the non-
@@ -1127,6 +1275,12 @@ def non_negative_factorization(
 
 
 class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator, ABC):
+    # [CLASS DOC]
+    # Abstract base for NMF and MiniBatchNMF: holds common hyperparameters and parameter
+    # constraints, resolves n_components and beta_loss, checks/initialises W and H,
+    # computes the scaled regularization strengths, and provides fit, inverse_transform,
+    # feature-name and tag support. Subclasses implement fit_transform, _fit_transform
+    # and transform.
     """Base class for NMF and MiniBatchNMF."""
 
     _parameter_constraints: dict = {
@@ -1166,6 +1320,10 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         l1_ratio=0.0,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Stores common hyperparameters (n_components, init, beta_loss, tol, max_iter,
+        # random_state, alpha_W, alpha_H, l1_ratio, verbose) as attributes without
+        # validation.
         self.n_components = n_components
         self.init = init
         self.beta_loss = beta_loss
@@ -1178,6 +1336,12 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         self.verbose = verbose
 
     def _check_params(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Resolves private settings: _n_components from n_components (None
+        #   becomes n_features; 'auto' is kept and resolved later in _check_w_h) and
+        #   _beta_loss as a float.
+        # Inputs: X (n_samples, n_features). Side effects: sets _n_components and
+        #   _beta_loss.
         # n_components
         self._n_components = self.n_components
         if self._n_components is None:
@@ -1187,6 +1351,21 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         self._beta_loss = _beta_loss_to_float(self.beta_loss)
 
     def _check_w_h(self, X, W, H, update_H):
+        # [FUNCTION DOC]
+        # HELPER: Prepares W and H. Custom init with update_H: validates both against
+        #   expected shapes and dtype of X, inferring _n_components from H if 'auto'.
+        #   With update_H False: warns that W is ignored, validates H (shape/dtype),
+        #   infers _n_components, and initialises W to sqrt(mean(X)/n_components)
+        #   everywhere for solver 'mu' or zeros otherwise. Otherwise: warns if W or H
+        #   were given, resolves 'auto' to n_features and calls _initialize_nmf.
+        # Inputs: X; W, H arrays or None; update_H bool.
+        # Outputs: tuple (W, H).
+        # Exceptions: ValueError from _check_init; TypeError when dtypes differ from X.
+        # Side effects: may set _n_components; RuntimeWarning for ignored inputs;
+        #   consumes randomness.
+        # KNOWN ISSUE: the update_H=False branch reads self.solver, which only NMF
+        #   defines; MiniBatchNMF would raise AttributeError there (it never takes this
+        #   path because its transform uses _solve_W).
         """Check W and H, or initialize them."""
         n_samples, n_features = X.shape
 
@@ -1247,6 +1426,11 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         return W, H
 
     def _compute_regularization(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns (l1_reg_W, l1_reg_H, l2_reg_W, l2_reg_H): alpha_W scaled by
+        #   n_features and alpha_H (equal to alpha_W when 'same') scaled by n_samples,
+        #   each split by l1_ratio into L1 and (1 - l1_ratio) into L2 parts.
+        # Inputs: X used only for its shape.
         """Compute scaled regularization terms."""
         n_samples, n_features = X.shape
         alpha_W = self.alpha_W
@@ -1260,6 +1444,8 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         return l1_reg_W, l1_reg_H, l2_reg_W, l2_reg_H
 
     def fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits by calling fit_transform(X, **params) and returns self.
         """Learn a NMF model for the data X.
 
         Parameters
@@ -1286,6 +1472,11 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
         return self
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Reconstructs data as X times components_.
+        # Inputs: X (n_samples, n_components) dense or sparse. Outputs: (n_samples,
+        #   n_features).
+        # Exceptions: NotFittedError. Note X is not validated.
         """Transform data back to its original space.
 
         .. versionadded:: 0.18
@@ -1306,10 +1497,16 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the row count of
+        #   components_.
         """Number of transformed output features."""
         return self.components_.shape[0]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: non-negative input only, sparse accepted, float64/float32
+        # preserved.
         tags = super().__sklearn_tags__()
         tags.input_tags.positive_only = True
         tags.input_tags.sparse = True
@@ -1318,6 +1515,10 @@ class _BaseNMF(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator,
 
 
 class NMF(_BaseNMF):
+    # [CLASS DOC]
+    # Batch NMF estimator adding the solver ('cd' or 'mu') and shuffle hyperparameters.
+    # Fitting sets components_, n_components_, reconstruction_err_, n_iter_ and
+    # n_features_in_.
     """Non-Negative Matrix Factorization (NMF).
 
     Find two non-negative matrices, i.e. matrices with all non-negative elements, (W, H)
@@ -1546,6 +1747,8 @@ class NMF(_BaseNMF):
         verbose=0,
         shuffle=False,
     ):
+        # [FUNCTION DOC]
+        # Passes the common hyperparameters to _BaseNMF and stores solver and shuffle.
         super().__init__(
             n_components=n_components,
             init=init,
@@ -1563,6 +1766,12 @@ class NMF(_BaseNMF):
         self.shuffle = shuffle
 
     def _check_params(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Runs the base checks, then rejects non-Frobenius losses for the 'cd'
+        #   solver and warns when 'mu' is combined with init 'nndsvd' (zeros cannot be
+        #   updated).
+        # Outputs: self. Exceptions: ValueError. Side effects: UserWarning; sets
+        #   _n_components and _beta_loss.
         super()._check_params(X)
 
         # solver
@@ -1587,6 +1796,13 @@ class NMF(_BaseNMF):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None, W=None, H=None):
+        # [FUNCTION DOC]
+        # Validates X, runs _fit_transform under assume_finite, and stores
+        # reconstruction_err_ (sqrt beta-divergence), n_components_, components_ and
+        # n_iter_.
+        # Inputs: X (n_samples, n_features); y ignored; W, H optional custom
+        #   initialisations. Outputs: W (n_samples, n_components).
+        # Exceptions/side effects: as in _fit_transform.
         """Learn a NMF model for the data X and returns the transformed data.
 
         This is more efficient than calling fit followed by transform.
@@ -1631,6 +1847,18 @@ class NMF(_BaseNMF):
         return W
 
     def _fit_transform(self, X, y=None, W=None, H=None, update_H=True):
+        # [FUNCTION DOC]
+        # HELPER: Core solver dispatch: checks params, rejects X containing zeros when
+        #   beta_loss <= 0, prepares W/H via _check_w_h, computes regularization, runs
+        #   _fit_coordinate_descent or _fit_multiplicative_update, and warns when
+        #   max_iter was reached with tol > 0.
+        # Inputs: X validated; y ignored; W, H optional; update_H bool.
+        # Outputs: tuple (W, H, n_iter).
+        # Exceptions: ValueError for invalid beta_loss/solver combinations or zeros with
+        #   beta_loss <= 0; errors from _check_w_h.
+        # Side effects: ConvergenceWarning; sets _n_components/_beta_loss.
+        # KNOWN ISSUE: the final else branch raising "Invalid solver parameter" is
+        #   unreachable because parameter validation restricts solver to 'cd' or 'mu'.
         """Learn a NMF model for the data X and returns the transformed data.
 
         Parameters
@@ -1729,6 +1957,11 @@ class NMF(_BaseNMF):
         return W, H, n_iter
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X (non-negative, same features) and solves for W with H fixed to
+        # components_ via _fit_transform(update_H=False).
+        # Outputs: W (n_samples, n_components). Exceptions: NotFittedError; ValueError
+        #   on negative values. Side effects: may emit ConvergenceWarning.
         """Transform the data X according to the fitted NMF model.
 
         Parameters
@@ -1759,6 +1992,13 @@ class NMF(_BaseNMF):
 
 
 class MiniBatchNMF(_BaseNMF):
+    # [CLASS DOC]
+    # Online NMF estimator processing mini-batches with multiplicative updates and
+    # running numerator/denominator statistics for H (Lefevre et al.). Adds batch_size,
+    # max_no_improvement, forget_factor, fresh_restarts, fresh_restarts_max_iter and
+    # transform_max_iter; fitting also sets n_steps_ and private state
+    # (_components_numerator, _components_denominator, _ewa_cost, _ewa_cost_min,
+    # _no_improvement, _batch_size, _rho, _gamma, _transform_max_iter).
     """Mini-Batch Non-Negative Matrix Factorization (NMF).
 
     .. versionadded:: 1.1
@@ -1992,6 +2232,9 @@ class MiniBatchNMF(_BaseNMF):
         random_state=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Passes common hyperparameters to _BaseNMF and stores the mini-batch specific
+        # ones without validation.
         super().__init__(
             n_components=n_components,
             init=init,
@@ -2013,6 +2256,12 @@ class MiniBatchNMF(_BaseNMF):
         self.transform_max_iter = transform_max_iter
 
     def _check_params(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Base checks plus derived settings: _batch_size = min(batch_size,
+        #   n_samples); _rho = forget_factor raised to (_batch_size / n_samples); the MM
+        #   exponent _gamma as in the batch solver; _transform_max_iter defaulting to
+        #   max_iter.
+        # Outputs: self. Side effects: sets the listed private attributes.
         super()._check_params(X)
 
         # batch_size
@@ -2039,6 +2288,13 @@ class MiniBatchNMF(_BaseNMF):
         return self
 
     def _solve_W(self, X, H, max_iter):
+        # [FUNCTION DOC]
+        # HELPER: Solves for W with H fixed: initialises W to
+        #   sqrt(mean(X)/_n_components) everywhere, then applies up to max_iter
+        #   multiplicative W updates, stopping when the relative Frobenius change of W
+        #   is at most tol (if tol > 0).
+        # Inputs: X (n_samples, n_features); H (n_components, n_features); max_iter int.
+        # Outputs: W (n_samples, n_components).
         """Minimize the objective function w.r.t W.
 
         Update W with H being fixed, until convergence. This is the heart
@@ -2066,6 +2322,22 @@ class MiniBatchNMF(_BaseNMF):
         return W
 
     def _minibatch_step(self, X, W, H, update_H):
+        # [FUNCTION DOC]
+        # HELPER: Processes one mini-batch: computes regularization (scaled by this
+        #   batch's shape), solves W from scratch when fresh_restarts or W is None, else
+        #   applies one multiplicative W update (in place); zeroes tiny W entries for
+        #   beta<1; computes the batch cost (beta-divergence plus L1/L2 penalties)
+        #   divided by the batch size; if update_H, performs the online H update with
+        #   the running statistics and rho, writing into H in place, and zeroes tiny
+        #   entries for beta<=1.
+        # Inputs: X batch; W batch rows (view) or None; H (n_components, n_features);
+        #   update_H bool.
+        # Outputs: float batch cost (computed before the H update).
+        # Side effects: mutates W (view into the full W) and H in place; updates
+        #   _components_numerator and _components_denominator.
+        # KNOWN ISSUE: when a fresh W is solved it is not written back into the caller's
+        #   W rows, so with fresh_restarts the full W only becomes consistent through
+        #   the final _solve_W in _fit_transform.
         """Perform the update of W and H for one minibatch."""
         batch_size = X.shape[0]
 
@@ -2117,6 +2389,17 @@ class MiniBatchNMF(_BaseNMF):
     def _minibatch_convergence(
         self, X, batch_cost, H, H_buffer, n_samples, step, n_steps
     ):
+        # [FUNCTION DOC]
+        # HELPER: Early-stopping check after a mini-batch. Skips the first step (returns
+        #   False). Updates the exponentially weighted average cost with weight
+        #   min(batch_size/(n_samples+1), 1); prints progress when verbose; returns True
+        #   when the relative change of H versus H_buffer is at most tol (tol > 0);
+        #   otherwise tracks the best EWA cost and returns True once max_no_improvement
+        #   consecutive steps fail to improve it.
+        # Inputs: X batch; batch_cost float; H current; H_buffer previous H; n_samples
+        #   total; step zero-based index; n_steps total planned steps.
+        # Outputs: bool. Side effects: updates _ewa_cost, _ewa_cost_min,
+        #   _no_improvement; prints when verbose.
         """Helper function to encapsulate the early stopping logic"""
         batch_size = X.shape[0]
 
@@ -2176,6 +2459,11 @@ class MiniBatchNMF(_BaseNMF):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None, W=None, H=None):
+        # [FUNCTION DOC]
+        # Validates X, runs _fit_transform under assume_finite, and stores
+        # reconstruction_err_, n_components_, components_, n_iter_ and n_steps_.
+        # Inputs: X; y ignored; W, H optional custom initialisations. Outputs: W
+        #   (n_samples, n_components).
         """Learn a NMF model for the data X and returns the transformed data.
 
         This is more efficient than calling fit followed by transform.
@@ -2220,6 +2508,20 @@ class MiniBatchNMF(_BaseNMF):
         return W
 
     def _fit_transform(self, X, W=None, H=None, update_H=True):
+        # [FUNCTION DOC]
+        # HELPER: Mini-batch fitting loop: checks non-negativity and params, rejects
+        #   zeros in X when beta_loss <= 0, prepares W/H, initialises running statistics
+        #   (numerator copy of H, denominator ones) and EWA state, then cycles over
+        #   batches for up to max_iter epochs' worth of steps, calling _minibatch_step
+        #   and (when update_H) stopping early via _minibatch_convergence; finally re-
+        #   solves W fully when fresh_restarts and computes the epoch count as
+        #   ceil(steps / steps per epoch).
+        # Inputs: X; W, H optional; update_H bool.
+        # Outputs: tuple (W, H, n_iter, n_steps).
+        # Exceptions: ValueError for negative X or zeros with beta_loss <= 0; errors
+        #   from _check_w_h.
+        # Side effects: sets private online state; ConvergenceWarning when n_iter
+        #   reaches max_iter with tol > 0; prints when verbose.
         """Learn a NMF model for the data X and returns the transformed data.
 
         Parameters
@@ -2317,6 +2619,11 @@ class MiniBatchNMF(_BaseNMF):
         return W, H, n_iter, n_steps
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X and solves for W with H fixed to components_ via _solve_W with
+        # _transform_max_iter iterations.
+        # Outputs: W (n_samples, n_components). Exceptions: NotFittedError.
+        # KNOWN ISSUE: unlike NMF.transform, X is not checked for non-negativity.
         """Transform the data X according to the fitted MiniBatchNMF model.
 
         Parameters
@@ -2344,6 +2651,19 @@ class MiniBatchNMF(_BaseNMF):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None, W=None, H=None):
+        # [FUNCTION DOC]
+        # Online update with one chunk. On the first call validates X (resetting feature
+        # info), checks params, initialises H (via _check_w_h; W is discarded) and the
+        # running statistics and sets n_steps_ to 0; on later calls reuses components_.
+        # Then runs one _minibatch_step with a freshly solved W, stores components_ and
+        # n_components_, and increments n_steps_.
+        # Inputs: X (n_samples, n_features); y ignored; W, H used only on the first call
+        #   with init='custom'.
+        # Outputs: self.
+        # Side effects: updates components_ in place, running statistics, n_steps_.
+        # KNOWN ISSUE: derived settings (_batch_size, _rho) are computed from the first
+        #   chunk only, and non-negativity of X is only checked on the first call
+        #   (inside initialisation).
         """Update the model using the data in `X` as a mini-batch.
 
         This method is expected to be called several times consecutively

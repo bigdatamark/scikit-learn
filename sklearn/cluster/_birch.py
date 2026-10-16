@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# BIRCH clustering: incrementally builds a Clustering Feature (CF) tree whose leaf
+# subclusters summarize the data (count, linear sum, squared sum), then optionally
+# clusters the leaf subcluster centroids globally (AgglomerativeClustering by
+# default, or any user clusterer). Contains the tree node/subcluster helpers and the
+# Birch estimator.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -26,6 +32,11 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 def _iterate_sparse_X(X):
+    # [FUNCTION DOC]
+    # HELPER: Generator yielding each row of a CSR matrix as a new dense float64 1-D
+    # array (zeros filled with the row's stored values), avoiding per-row sparse slicing.
+    # Inputs: X - CSR matrix (n_samples, n_features).
+    # Outputs: yields ndarray (n_features,) per row.
     """This little hack returns a densified row when iterating over a sparse
     matrix, instead of constructing a sparse matrix for every row that is
     expensive.
@@ -44,6 +55,16 @@ def _iterate_sparse_X(X):
 
 
 def _split_node(node, threshold, branching_factor):
+    # [FUNCTION DOC]
+    # HELPER: Splits an overfull CF node in two. Creates two new nodes (same leaf status,
+    # dtype) each owned by a new empty subcluster; for leaves, splices the two new nodes
+    # into the doubly linked leaf list in place of node. Finds the pair of subcluster
+    # centroids with the largest squared distance, and assigns every subcluster to the
+    # new node whose seed centroid is strictly closer (ties go to node2, except seed 1
+    # itself which is forced to node1), updating the owning subcluster statistics.
+    # Inputs: node - _CFNode to split; threshold - float; branching_factor - int.
+    # Outputs: (new_subcluster1, new_subcluster2) wrapping the new nodes.
+    # Side effects: rewires neighbour leaves' prev/next pointers.
     """The node has to be split if there is no place for a new subcluster
     in the node.
     1. Two empty nodes and two empty subclusters are initialized.
@@ -107,6 +128,11 @@ def _split_node(node, threshold, branching_factor):
 
 
 class _CFNode:
+    # [CLASS DOC]
+    # HELPER: CF tree node holding up to branching_factor subclusters plus preallocated
+    # buffers (one extra slot for overflow before split) for their centroids and squared
+    # norms; centroids_ and squared_norm_ are views on the used part. Leaves are chained
+    # through prev_leaf_/next_leaf_.
     """Each node in a CFTree is called a CFNode.
 
     The CFNode can have a maximum of branching_factor
@@ -155,6 +181,13 @@ class _CFNode:
     """
 
     def __init__(self, *, threshold, branching_factor, is_leaf, n_features, dtype):
+        # [FUNCTION DOC]
+        # Initializes empty subcluster list, zeroed (branching_factor + 1)-row centroid and
+        # squared-norm buffers of the given dtype, and no leaf neighbours.
+        # Inputs: threshold, branching_factor, is_leaf, n_features, dtype - keyword-only.
+        # KNOWN ISSUE: centroids_ is only created on the first append_subcluster, while
+        # squared_norm_ starts as an empty list; accessing centroids_ on an empty node raises
+        # AttributeError.
         self.threshold = threshold
         self.branching_factor = branching_factor
         self.is_leaf = is_leaf
@@ -170,6 +203,10 @@ class _CFNode:
         self.next_leaf_ = None
 
     def append_subcluster(self, subcluster):
+        # [FUNCTION DOC]
+        # Appends a subcluster, writes its centroid and squared norm in the next buffer slot
+        # and refreshes the centroids_/squared_norm_ views to cover all subclusters.
+        # Inputs: subcluster - _CFSubcluster. Outputs: None.
         n_samples = len(self.subclusters_)
         self.subclusters_.append(subcluster)
         self.init_centroids_[n_samples] = subcluster.centroid_
@@ -182,6 +219,11 @@ class _CFNode:
         self.squared_norm_ = self.init_sq_norm_[: n_samples + 1]
 
     def update_split_subclusters(self, subcluster, new_subcluster1, new_subcluster2):
+        # [FUNCTION DOC]
+        # Replaces subcluster (located by identity/equality in the list) with
+        # new_subcluster1 in place, updating its buffer slot, and appends new_subcluster2.
+        # Outputs: None.
+        # Exceptions: ValueError if subcluster is not in this node.
         """Remove a subcluster from a node and update it with the
         split subclusters.
         """
@@ -192,6 +234,18 @@ class _CFNode:
         self.append_subcluster(new_subcluster2)
 
     def insert_cf_subcluster(self, subcluster):
+        # [FUNCTION DOC]
+        # Inserts a subcluster recursively. Empty node: append. Otherwise find the closest
+        # subcluster by squared euclidean distance between centroids (computed without the
+        # constant query norm). If it has a child: recurse; if the child did not split, add
+        # the statistics to the closest subcluster and refresh its buffer slot; if it split,
+        # split the child with _split_node, replace the closest subcluster by the two new
+        # ones, and report a split if this node now exceeds branching_factor. If it is a
+        # leaf entry: try to merge within threshold; otherwise append, reporting a split when
+        # the node was already full.
+        # Inputs: subcluster - _CFSubcluster.
+        # Outputs: bool - True if this node overflowed and must be split by its parent.
+        # Side effects: mutates the tree.
         """Insert a new subcluster into the node."""
         if not self.subclusters_:
             self.append_subcluster(subcluster)
@@ -262,6 +316,9 @@ class _CFNode:
 
 
 class _CFSubcluster:
+    # [CLASS DOC]
+    # HELPER: Clustering feature of a group of samples: n_samples_, linear_sum_,
+    # squared_sum_, centroid_, sq_norm_ and optional child_ node.
     """Each subcluster in a CFNode is called a CFSubcluster.
 
     A CFSubcluster can have a CFNode has its child.
@@ -298,6 +355,12 @@ class _CFSubcluster:
     """
 
     def __init__(self, *, linear_sum=None):
+        # [FUNCTION DOC]
+        # Empty subcluster when linear_sum is None (counts 0, sums 0, centroid 0); otherwise
+        # a one-sample subcluster where centroid_ and linear_sum_ refer to the same sample
+        # array and squared_sum_ and sq_norm_ are its squared norm.
+        # Inputs: linear_sum - 1-D array or None.
+        # KNOWN ISSUE: an empty subcluster has no sq_norm_ attribute until update is called.
         if linear_sum is None:
             self.n_samples_ = 0
             self.squared_sum_ = 0.0
@@ -311,6 +374,11 @@ class _CFSubcluster:
         self.child_ = None
 
     def update(self, subcluster):
+        # [FUNCTION DOC]
+        # Adds another subcluster's count, linear sum and squared sum, then recomputes
+        # centroid_ and sq_norm_.
+        # Inputs: subcluster - _CFSubcluster. Side effects: mutates self (linear_sum_ in
+        # place once it is an array).
         self.n_samples_ += subcluster.n_samples_
         self.linear_sum_ += subcluster.linear_sum_
         self.squared_sum_ += subcluster.squared_sum_
@@ -318,6 +386,12 @@ class _CFSubcluster:
         self.sq_norm_ = np.dot(self.centroid_, self.centroid_)
 
     def merge_subcluster(self, nominee_cluster, threshold):
+        # [FUNCTION DOC]
+        # Computes the statistics of the union with nominee_cluster and its squared radius
+        # (mean squared norm minus squared centroid norm); if that is <= threshold squared,
+        # adopts the merged statistics.
+        # Inputs: nominee_cluster - _CFSubcluster; threshold - float.
+        # Outputs: bool - whether the merge happened.
         """Check if a cluster is worthy enough to be merged. If
         yes then merge.
         """
@@ -350,6 +424,10 @@ class _CFSubcluster:
 
     @property
     def radius(self):
+        # [FUNCTION DOC]
+        # Radius of the subcluster: square root of mean squared norm minus squared centroid
+        # norm, clipped at 0 for numerical safety.
+        # Outputs: float. Exceptions: ZeroDivisionError for an empty subcluster.
         """Return radius of the subcluster"""
         # Because of numerical issues, this could become negative
         sq_radius = self.squared_sum_ / self.n_samples_ - self.sq_norm_
@@ -359,6 +437,10 @@ class _CFSubcluster:
 class Birch(
     ClassNamePrefixFeaturesOutMixin, ClusterMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Estimator implementing BIRCH with fit, partial_fit (online updates of the CF tree),
+    # predict (label of the nearest subcluster centroid), and transform (distances to
+    # subcluster centroids).
     """Implements the BIRCH clustering algorithm.
 
     It is a memory-efficient, online-learning algorithm provided as an
@@ -495,6 +577,8 @@ class Birch(
         n_clusters=3,
         compute_labels=True,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyper-parameters unchanged.
         self.threshold = threshold
         self.branching_factor = branching_factor
         self.n_clusters = n_clusters
@@ -502,6 +586,10 @@ class Birch(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Builds a new CF tree from X and runs the global clustering (delegates to _fit with
+        # partial=False).
+        # Outputs: self.
         """
         Build a CF Tree for the input data.
 
@@ -521,6 +609,17 @@ class Birch(
         return self._fit(X, partial=False)
 
     def _fit(self, X, partial):
+        # [FUNCTION DOC]
+        # Validates X (dense or CSR, float64/float32; feature checks reset only on a first
+        # call). On fit or the first partial_fit, creates a leaf root and a dummy leaf
+        # pointing to it (head of the leaf list). Inserts each sample (densified rows for
+        # sparse) as a one-sample subcluster into the root; if the root overflows, splits it
+        # and creates a new non-leaf root holding the two halves. Then collects all leaf
+        # centroids into subcluster_centers_, sets _n_features_out, and calls
+        # _global_clustering(X).
+        # Inputs: X - (n_samples, n_features); partial - bool.
+        # Sets: root_, dummy_leaf_, subcluster_centers_, _n_features_out and everything set
+        # by _global_clustering.
         has_root = getattr(self, "root_", None)
         first_call = not (partial and has_root)
 
@@ -592,6 +691,9 @@ class Birch(
         return self
 
     def _get_leaves(self):
+        # [FUNCTION DOC]
+        # HELPER: Walks the linked list of leaves starting after dummy_leaf_.
+        # Outputs: list of _CFNode leaves in order.
         """
         Retrieve the leaves of the CF Node.
 
@@ -609,6 +711,13 @@ class Birch(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X=None, y=None):
+        # [FUNCTION DOC]
+        # Online update: with X, inserts samples into the existing tree (or starts one) and
+        # reclusters; with X=None, only reruns the global clustering on current subclusters
+        # (no labels computed).
+        # Outputs: self.
+        # KNOWN ISSUE: partial_fit(None) before any fit fails with AttributeError on
+        # subcluster_centers_ rather than a NotFittedError.
         """
         Online learning. Prevents rebuilding of CFTree from scratch.
 
@@ -635,6 +744,9 @@ class Birch(
             return self._fit(X, partial=True)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted, validates X with reset=False and delegates to _predict.
+        # Outputs: labels ndarray (n_samples,).
         """
         Predict data using the ``centroids_`` of subclusters.
 
@@ -655,6 +767,10 @@ class Birch(
         return self._predict(X)
 
     def _predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: For each sample finds the nearest subcluster centroid (euclidean, using
+        # cached squared norms) and returns that subcluster's global label.
+        # Outputs: ndarray (n_samples,).
         """Predict data using the ``centroids_`` of subclusters."""
         kwargs = {"Y_norm_squared": self._subcluster_norms}
 
@@ -665,6 +781,10 @@ class Birch(
         return self.subcluster_labels_[argmin]
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns the euclidean distance of every sample to every subcluster centroid.
+        # Outputs: ndarray (n_samples, n_subclusters).
+        # Exceptions: NotFittedError; validation errors.
         """
         Transform X into subcluster centroids dimension.
 
@@ -687,6 +807,17 @@ class Birch(
             return euclidean_distances(X, self.subcluster_centers_)
 
     def _global_clustering(self, X=None):
+        # [FUNCTION DOC]
+        # HELPER: Clusters the subcluster centroids. An int n_clusters becomes an
+        # AgglomerativeClustering; if there are fewer centroids than n_clusters, each
+        # subcluster keeps its own label and a ConvergenceWarning is emitted. With
+        # n_clusters None, labels are the subcluster indices; otherwise the clusterer's
+        # fit_predict on the centroids gives subcluster_labels_. Caches squared centroid
+        # norms in _subcluster_norms. If X is given and compute_labels, sets labels_ via
+        # _predict.
+        # Inputs: X - validated data or None.
+        # Side effects: sets subcluster_labels_, _subcluster_norms, possibly labels_; fits a
+        # user clusterer instance in place when one is given.
         """
         Global clustering for the subclusters obtained after fitting
         """
@@ -724,6 +855,8 @@ class Birch(
             self.labels_ = self._predict(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares float64/float32 dtype preservation for transform and sparse support.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         tags.input_tags.sparse = True

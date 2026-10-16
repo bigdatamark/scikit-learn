@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# ARFF parsing back-ends used by fetch_openml: a pure-Python LIAC-ARFF parser (dense,
+# sparse COO or pandas output) and a faster pandas.read_csv based parser, plus the
+# dispatcher load_arff_from_gzip_file and helpers for sparse column selection and frame
+# splitting.
 """Implementation of ARFF parsers: via LIAC-ARFF and pandas."""
 
 # Authors: The scikit-learn developers
@@ -23,6 +28,13 @@ from sklearn.utils.fixes import pd_fillna
 def _split_sparse_columns(
     arff_data: ArffSparseDataType, include_columns: List
 ) -> ArffSparseDataType:
+    # [FUNCTION DOC]
+    # HELPER: Filters a sparse ARFF triplet (values, row indices, column indices) to the
+    # entries whose column is in include_columns, renumbering the columns to their
+    # position in include_columns.
+    # Inputs: arff_data - tuple of three lists; include_columns - list of column
+    # indices.
+    # Outputs: new triplet of lists. Side effects: none.
     """Obtains several columns from sparse ARFF representation. Additionally,
     the column indices are re-labelled, given the columns that are not
     included. (e.g., when including [1, 2, 3], the columns will be relabelled
@@ -58,6 +70,14 @@ def _split_sparse_columns(
 def _sparse_data_to_array(
     arff_data: ArffSparseDataType, include_columns: List
 ) -> np.ndarray:
+    # [FUNCTION DOC]
+    # HELPER: Densifies the selected columns of a sparse ARFF triplet into a float64
+    # array of shape (max row index + 1, len(include_columns)), writing each stored
+    # value at its row and renumbered column.
+    # Inputs: arff_data - triplet; include_columns - list of column indices.
+    # Outputs: ndarray.
+    # KNOWN ISSUE: the array is created with np.empty, so cells without a stored (non-
+    # zero) entry hold uninitialized memory instead of 0.
     # turns the sparse data back into an array (can't use toarray() function,
     # as this does only work on numeric data)
     num_obs = max(arff_data[1]) + 1
@@ -74,6 +94,11 @@ def _sparse_data_to_array(
 
 
 def _post_process_frame(frame, feature_names, target_names):
+    # [FUNCTION DOC]
+    # HELPER: Splits a DataFrame into X (the feature_names columns) and y: a DataFrame
+    # for two or more targets, a Series for one, None for zero.
+    # Inputs: frame - DataFrame; feature_names, target_names - lists of str.
+    # Outputs: (X, y).
     """Post process a dataframe to select the desired columns in `X` and `y`.
 
     Parameters
@@ -113,6 +138,29 @@ def _liac_arff_parser(
     target_names_to_select,
     shape=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Parses a gzip ARFF stream with LIAC-ARFF.
+    # Behavior: decode lines lazily; load as COO when output is 'sparse', else a dense
+    # row generator (nominals encoded as ints unless output is 'pandas'). Collect
+    # nominal categories of selected columns. For 'pandas': build DataFrames in chunks
+    # sized from the memory of the first row, keep only selected columns, align the
+    # first chunk's dtypes to the second, concatenate, replace None with NaN, cast
+    # OpenML integer columns to Int64 and nominal ones to category, split into X/y.
+    # Otherwise: map selected names to column indices; dense generators are read with
+    # np.fromiter into the given shape and sliced; sparse tuples become a CSR X and
+    # dense y. If all targets are nominal, map the integer codes back to category labels
+    # (object array); a 1-column y is raveled, 0 columns give None.
+    # Inputs: gzip_file - binary file object; output_arrays_type - 'numpy', 'sparse' or
+    # 'pandas'; openml_columns_info - dict name to OpenML feature info ('index',
+    # 'data_type'); feature/target_names_to_select - lists; shape - (n_samples,
+    # n_columns), required for dense numpy output (first dim may be -1).
+    # Outputs: (X, y, frame or None, categories dict or None).
+    # Exceptions: ValueError when shape is missing for a generator, for an unexpected
+    # data type, or for a mix of nominal and numeric targets; pandas import error.
+    # Side effects: consumes the file stream.
+    # KNOWN ISSUE: is_classification is built as a set of booleans, so it only works
+    # because emptiness/all/any are evaluated on at most two distinct values; a list was
+    # likely intended.
     """ARFF parser using the LIAC-ARFF library coded purely in Python.
 
     This parser is quite slow but consumes a generator. Currently it is needed
@@ -161,6 +209,9 @@ def _liac_arff_parser(
     """
 
     def _io_to_generator(gzip_file):
+        # [FUNCTION DOC]
+        # HELPER: Yields each line of the binary file decoded as UTF-8. Inputs:
+        # gzip_file - iterable of bytes lines. Outputs: generator of str.
         for line in gzip_file:
             yield line.decode("utf-8")
 
@@ -317,6 +368,21 @@ def _pandas_arff_parser(
     target_names_to_select,
     read_csv_kwargs=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Parses a gzip ARFF stream with pandas.read_csv.
+    # Behavior: skip lines up to and including '@data'; build positional dtypes (Int64
+    # for integer, category for nominal columns); call read_csv with ARFF-friendly
+    # defaults ('?' as only NA value, '%' comments, double-quote quoting, initial-space
+    # skipping, backslash escape) overridden by read_csv_kwargs; assign OpenML column
+    # names; keep only selected columns; strip surrounding single quotes from category
+    # labels; split into X and y. Non-pandas output converts X and y to numpy and
+    # returns categories per categorical column.
+    # Inputs: as _liac_arff_parser plus read_csv_kwargs - optional dict.
+    # Outputs: (X, y, frame or None, categories or None).
+    # Exceptions: pandas ParserError when the column count differs from OpenML metadata.
+    # Side effects: consumes the file stream.
+    # KNOWN ISSUE: for non-pandas output with no target columns y is None and
+    # y.to_numpy() raises AttributeError.
     """ARFF parser using `pandas.read_csv`.
 
     This parser uses the metadata fetched directly from OpenML and skips the metadata
@@ -432,6 +498,10 @@ def _pandas_arff_parser(
     single_quote_pattern = re.compile(r"^'(?P<contents>.*)'$")
 
     def strip_single_quotes(input_string):
+        # [FUNCTION DOC]
+        # HELPER: Returns the inner text if the string is wrapped in single quotes, else
+        # the string unchanged.
+        # Inputs: input_string - str. Outputs: str.
         match = re.search(single_quote_pattern, input_string)
         if match is None:
             return input_string
@@ -471,6 +541,12 @@ def load_arff_from_gzip_file(
     shape=None,
     read_csv_kwargs=None,
 ):
+    # [FUNCTION DOC]
+    # Dispatches to _liac_arff_parser ('liac-arff') or _pandas_arff_parser ('pandas')
+    # with the given arguments (shape only used by liac, read_csv_kwargs only by
+    # pandas).
+    # Outputs: the parser's (X, y, frame, categories) tuple.
+    # Exceptions: ValueError for an unknown parser name.
     """Load a compressed ARFF file using a given parser.
 
     Parameters

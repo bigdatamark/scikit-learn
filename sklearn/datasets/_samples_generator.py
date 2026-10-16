@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Synthetic dataset generators (no I/O): classification (make_classification,
+# make_multilabel_classification, make_hastie_10_2, make_circles, make_moons,
+# make_blobs, make_gaussian_quantiles), regression (make_regression, make_friedman1/2/3,
+# make_sparse_uncorrelated), matrix generators (make_low_rank_matrix,
+# make_sparse_coded_signal, make_spd_matrix, make_sparse_spd_matrix), manifolds
+# (make_swiss_roll, make_s_curve) and biclustering (make_biclusters, make_checkerboard).
+# All randomness flows through check_random_state(random_state); public functions are
+# wrapped with validate_params. No import-time side effects.
 """
 Generate samples of synthetic data sets.
 """
@@ -28,6 +37,18 @@ from sklearn.utils.random import sample_without_replacement
 
 
 def _generate_hypercube(samples, dimensions, rng):
+    # [FUNCTION DOC]
+    # HELPER: Draws distinct binary vectors (hypercube vertices) of the given length.
+    # Steps: for more than 30 dimensions, generate the extra leading dimensions as
+    # independent random bits and recurse for the last 30 (so distinctness is only
+    # guaranteed on those 30). Otherwise sample distinct integers in [0, 2**dimensions)
+    # without replacement, view them as big-endian 32-bit, unpack to bits and keep the
+    # last dimensions columns.
+    # Inputs: samples - number of vectors (must be <= 2**dimensions for d <= 30);
+    # dimensions - int; rng - RandomState.
+    # Outputs: integer 0/1 array of shape (samples, dimensions).
+    # Exceptions: ValueError from sample_without_replacement when samples exceeds the
+    # population.
     """Returns distinct binary samples of length dimensions."""
     if dimensions > 30:
         return np.hstack(
@@ -83,6 +104,38 @@ def make_classification(
     random_state=None,
     return_X_y=True,
 ):
+    # [FUNCTION DOC]
+    # Generates a Gaussian-cluster classification problem (Guyon's Madelon design).
+    # Steps: validate feature counts (informative + redundant + repeated <= n_features)
+    # and that n_classes * n_clusters_per_class <= 2**n_informative. Build class weights
+    # (completing the last one when n_classes - 1 are given). Distribute samples to
+    # clusters proportionally to weight / n_clusters_per_class, giving leftovers round-
+    # robin. Place cluster centroids at distinct hypercube vertices scaled to +/-
+    # class_sep (randomly scaled per cluster and per feature when hypercube is False).
+    # Draw informative features from a standard normal; for each cluster multiply its
+    # block by a random uniform(-1,1) matrix and add its centroid; cluster k gets label
+    # k mod n_classes. Redundant features are random linear combinations of informative
+    # ones; repeated features copy randomly chosen informative/redundant columns;
+    # remaining features are standard normal noise. Flip a fraction flip_y of labels to
+    # random classes. Add shift and multiply by scale (random per feature when None). If
+    # shuffle, permute samples and features.
+    # Inputs: n_samples, n_features, n_informative, n_redundant, n_repeated, n_classes,
+    # n_clusters_per_class - ints; weights - sequence of length n_classes or n_classes -
+    # 1, or None; flip_y - float in [0, 1]; class_sep - float > 0; hypercube - bool;
+    # shift, scale - float, array of length n_features or None; shuffle - bool;
+    # random_state; return_X_y - bool, default True.
+    # Outputs: (X float array (n_samples, n_features), y int array (n_samples,)) or a
+    # Bunch with DESCR, parameters (the input values, with generated shift/scale),
+    # feature_info (per output column: informative, redundant, repeated or random), X,
+    # y.
+    # Exceptions: ValueError for inconsistent feature counts, too few informative
+    # features, or wrong weights length.
+    # KNOWN ISSUE: the error message says the feature counts must sum to "less than"
+    # n_features, but equality is accepted.
+    # KNOWN ISSUE: the condition flip_y >= 0 is always true since validation restricts
+    # flip_y to [0, 1].
+    # KNOWN ISSUE: weights given as a tuple of length n_classes fails, because tuples
+    # have no copy method.
     """Generate a random n-class classification problem.
 
     This initially creates clusters of points normally distributed (std=1)
@@ -415,6 +468,21 @@ def make_multilabel_classification(
     return_distributions=False,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a random multilabel bag-of-words problem.
+    # Steps: draw class priors p_c and per-class word distributions p_w_c (columns
+    # normalized). For each sample (via sample_example) draw the label set and a
+    # document of word ids; accumulate them into CSR arrays with value 1 per word
+    # occurrence, then sum duplicates so entries are word counts. Densify unless sparse.
+    # Convert label lists to an indicator matrix (dense or sparse) with
+    # MultiLabelBinarizer when return_indicator is truthy.
+    # Inputs: n_samples, n_features, n_classes - ints; n_labels - Poisson mean of labels
+    # per sample; length - Poisson mean document length; allow_unlabeled - bool; sparse
+    # - bool; return_indicator - "dense", "sparse" or bool; return_distributions - bool;
+    # random_state.
+    # Outputs: (X, Y) or (X, Y, p_c, p_w_c); X (n_samples, n_features) dense or sparse
+    # counts; Y indicator matrix (n_samples, n_classes) or list of label lists when
+    # return_indicator is False.
     """Generate a random multilabel classification problem.
 
     For each sample, the generative process is:
@@ -514,6 +582,14 @@ def make_multilabel_classification(
     p_w_c /= np.sum(p_w_c, axis=0)
 
     def sample_example():
+        # [FUNCTION DOC]
+        # HELPER: Draws one sample's labels and words.
+        # Steps: draw the number of labels from Poisson(n_labels), rejecting values
+        # above n_classes and, when unlabeled samples are not allowed, zero. Add classes
+        # drawn from p_c until that many distinct ones are collected. Draw a document
+        # length from Poisson(length) rejecting 0. With no labels, draw words uniformly;
+        # otherwise draw words from the sum of the selected classes' word distributions.
+        # Outputs: (word id array of length n_words, list of class ids).
         _, n_classes = p_w_c.shape
 
         # pick a nonzero number of labels per document by rejection sampling
@@ -579,6 +655,11 @@ def make_multilabel_classification(
     prefer_skip_nested_validation=True,
 )
 def make_hastie_10_2(n_samples=12000, *, random_state=None):
+    # [FUNCTION DOC]
+    # Generates the Hastie et al. example 10.2 binary problem: 10 standard normal
+    # features, label 1 when the squared norm exceeds 9.34 (chi-square median), else -1.
+    # Inputs: n_samples - int, default 12000; random_state.
+    # Outputs: (X float array (n_samples, 10), y float array of +1/-1).
     """Generate data for binary classification used in Hastie et al. 2009, Example 10.2.
 
     The ten features are standard independent Gaussian and
@@ -667,6 +748,19 @@ def make_regression(
     coef=False,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a random linear regression problem.
+    # Steps: clip n_informative to n_features. Draw X as standard normal, or as a low-
+    # rank matrix via make_low_rank_matrix when effective_rank is given. Build a
+    # coefficient matrix whose first n_informative rows are uniform in [0, 100) and the
+    # rest zero; y is X times coefficients plus bias, plus Gaussian noise of std noise.
+    # If shuffle, permute samples and features (permuting coefficients accordingly).
+    # Squeeze y and coefficients.
+    # Inputs: n_samples, n_features, n_informative, n_targets - ints; bias - float;
+    # effective_rank - int or None; tail_strength - float in [0, 1]; noise - float >= 0;
+    # shuffle - bool; coef - bool; random_state.
+    # Outputs: (X, y) or (X, y, coef); y has shape (n_samples,) or (n_samples,
+    # n_targets); coef shape (n_features,) or (n_features, n_targets).
     """Generate a random regression problem.
 
     The input set can either be well conditioned (by default) or have a low
@@ -815,6 +909,16 @@ def make_regression(
 def make_circles(
     n_samples=100, *, shuffle=True, noise=None, random_state=None, factor=0.8
 ):
+    # [FUNCTION DOC]
+    # Generates two concentric circles in 2D (outer radius 1 label 0, inner radius
+    # factor label 1).
+    # Steps: split n_samples (outer gets the floor half) or take the (outer, inner)
+    # tuple; place points at evenly spaced angles without repeating the endpoint;
+    # optionally shuffle; then add Gaussian noise of std noise if given.
+    # Inputs: n_samples - int or 2-tuple; shuffle; noise - float or None; random_state;
+    # factor - float in [0, 1).
+    # Outputs: (X float array (n, 2), y intp array).
+    # Exceptions: ValueError for a tuple not of length 2.
     """Make a large circle containing a smaller circle in 2d.
 
     A simple toy dataset to visualize clustering and classification
@@ -909,6 +1013,15 @@ def make_circles(
     prefer_skip_nested_validation=True,
 )
 def make_moons(n_samples=100, *, shuffle=True, noise=None, random_state=None):
+    # [FUNCTION DOC]
+    # Generates two interleaving half circles in 2D: an upper unit half circle (label 0)
+    # and a lower half circle shifted by (1, -0.5) (label 1), points evenly spaced
+    # including endpoints; optionally shuffled then perturbed with Gaussian noise.
+    # Inputs: n_samples - int or 2-tuple (outer, inner); shuffle; noise - float or None;
+    # random_state.
+    # Outputs: (X float array (n, 2), y intp array).
+    # Exceptions: ValueError when a non-int n_samples cannot be unpacked into two
+    # values.
     """Make two interleaving half circles.
 
     A simple toy dataset to visualize clustering and classification
@@ -1010,6 +1123,22 @@ def make_blobs(
     random_state=None,
     return_centers=False,
 ):
+    # [FUNCTION DOC]
+    # Generates isotropic Gaussian blobs.
+    # Steps: if n_samples is an int: centers defaults to 3; an int number of centers is
+    # drawn uniformly inside center_box, otherwise centers is validated as an array and
+    # fixes n_features. If n_samples is a sequence (per-center counts): the number of
+    # centers equals its length; centers are drawn if None, else must be array-like of
+    # matching length. Check cluster_std length when it is a sequence; broadcast a
+    # scalar to all centers. Split an int n_samples evenly with leftovers to the first
+    # centers. For each center draw its samples from a normal with that center as mean
+    # and its std; label by center index. Optionally shuffle.
+    # Inputs: n_samples - int or array-like of ints; n_features - int; centers - int,
+    # array (n_centers, n_features) or None; cluster_std - float or sequence; center_box
+    # - (min, max); shuffle; random_state; return_centers - bool.
+    # Outputs: (X (n, n_features), y int) or with centers array appended.
+    # Exceptions: ValueError for non-iterable centers or length mismatches with
+    # n_samples or cluster_std.
     """Generate isotropic Gaussian blobs for clustering.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -1176,6 +1305,12 @@ def make_blobs(
     prefer_skip_nested_validation=True,
 )
 def make_friedman1(n_samples=100, n_features=10, *, noise=0.0, random_state=None):
+    # [FUNCTION DOC]
+    # Generates Friedman #1: X uniform in [0, 1] with n_features columns; y = 10 sin(pi
+    # x0 x1) + 20 (x2 - 0.5)^2 + 10 x3 + 5 x4 + noise times standard normal. Only the
+    # first 5 features matter.
+    # Inputs: n_samples; n_features (>= 5); noise - float; random_state.
+    # Outputs: (X (n_samples, n_features), y (n_samples,)).
     """Generate the "Friedman #1" regression problem.
 
     This dataset is described in Friedman [1] and Breiman [2].
@@ -1259,6 +1394,11 @@ def make_friedman1(n_samples=100, n_features=10, *, noise=0.0, random_state=None
     prefer_skip_nested_validation=True,
 )
 def make_friedman2(n_samples=100, *, noise=0.0, random_state=None):
+    # [FUNCTION DOC]
+    # Generates Friedman #2: four features scaled to x0 in [0, 100], x1 in [40 pi, 560
+    # pi], x2 in [0, 1], x3 in [1, 11]; y = sqrt(x0^2 + (x1 x2 - 1/(x1 x3))^2) + noise
+    # times standard normal.
+    # Inputs: n_samples; noise; random_state. Outputs: (X (n_samples, 4), y).
     """Generate the "Friedman #2" regression problem.
 
     This dataset is described in Friedman [1] and Breiman [2].
@@ -1343,6 +1483,10 @@ def make_friedman2(n_samples=100, *, noise=0.0, random_state=None):
     prefer_skip_nested_validation=True,
 )
 def make_friedman3(n_samples=100, *, noise=0.0, random_state=None):
+    # [FUNCTION DOC]
+    # Generates Friedman #3: same feature ranges as Friedman #2; y = arctan((x1 x2 -
+    # 1/(x1 x3)) / x0) + noise times standard normal.
+    # Inputs: n_samples; noise; random_state. Outputs: (X (n_samples, 4), y).
     """Generate the "Friedman #3" regression problem.
 
     This dataset is described in Friedman [1] and Breiman [2].
@@ -1436,6 +1580,15 @@ def make_low_rank_matrix(
     tail_strength=0.5,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a matrix with a bell-shaped singular value profile.
+    # Steps: n = min(n_samples, n_features); obtain random orthonormal bases u
+    # (n_samples x n) and v (n_features x n) by QR of Gaussian matrices; singular value
+    # k is (1 - tail_strength) exp(-(k/effective_rank)^2) + tail_strength exp(-0.1 k /
+    # effective_rank); return u diag(s) v transposed.
+    # Inputs: n_samples, n_features, effective_rank - ints; tail_strength - float in [0,
+    # 1]; random_state.
+    # Outputs: float array (n_samples, n_features).
     """Generate a mostly low rank matrix with bell-shaped singular values.
 
     Most of the variance can be explained by a bell-shaped curve of width
@@ -1542,6 +1695,17 @@ def make_sparse_coded_signal(
     n_nonzero_coefs,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates signals as sparse combinations of a random dictionary.
+    # Steps: draw dictionary D (n_features x n_components) from a standard normal and
+    # normalize columns to unit norm; for each sample choose n_nonzero_coefs random
+    # atoms and draw standard normal coefficients; Y = D X. Transpose all three so
+    # samples are rows and squeeze singleton dimensions.
+    # Inputs: n_samples, n_components, n_features, n_nonzero_coefs - ints; random_state.
+    # Outputs: data (n_samples, n_features), dictionary (n_components, n_features), code
+    # (n_samples, n_components).
+    # KNOWN ISSUE: the three arrays are returned as a lazy map object rather than a
+    # tuple; unpacking works but indexing the result does not.
     """Generate a signal as a sparse combination of dictionary elements.
 
     Returns matrices `Y`, `D` and `X` such that `Y = XD` where `X` is of shape
@@ -1630,6 +1794,12 @@ def make_sparse_coded_signal(
     prefer_skip_nested_validation=True,
 )
 def make_sparse_uncorrelated(n_samples=100, n_features=10, *, random_state=None):
+    # [FUNCTION DOC]
+    # Generates a regression problem with standard normal independent features where y
+    # is normal with mean x0 + 2 x1 - 2 x2 - 1.5 x3 and unit variance; other features
+    # are irrelevant.
+    # Inputs: n_samples; n_features (>= 4); random_state. Outputs: (X (n_samples,
+    # n_features), y (n_samples,)).
     """Generate a random regression problem with sparse uncorrelated design.
 
     This dataset is described in Celeux et al [1]. as::
@@ -1697,6 +1867,14 @@ def make_sparse_uncorrelated(n_samples=100, n_features=10, *, random_state=None)
     prefer_skip_nested_validation=True,
 )
 def make_spd_matrix(n_dim, *, random_state=None):
+    # [FUNCTION DOC]
+    # Generates a random symmetric positive-definite matrix.
+    # Steps: draw A uniform (n_dim x n_dim); take the SVD of A transposed times A (U
+    # equals V for this symmetric matrix); return U times (1 + diag(uniform)) times Vt.
+    # Inputs: n_dim - int; random_state. Outputs: float array (n_dim, n_dim).
+    # KNOWN ISSUE: adding the scalar 1.0 to the diagonal matrix adds 1 to every entry (a
+    # matrix of ones plus a diagonal), not only to the diagonal; the result is still SPD
+    # but its eigenvalues are not simply 1 + uniform values as the expression suggests.
     """Generate a random symmetric, positive-definite matrix.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -1761,6 +1939,18 @@ def make_sparse_spd_matrix(
     sparse_format=None,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a sparse symmetric positive-definite (precision) matrix.
+    # Steps: start a Cholesky-like factor as minus the identity; draw a sparse random
+    # matrix with density 1 - alpha and values uniform in [smallest_coef, largest_coef],
+    # keep its strictly lower triangle, permute rows and columns with the same random
+    # permutation, and add it to the factor. The result is factor transposed times
+    # factor. If norm_diag, rescale symmetrically so the diagonal is 1. Return dense or
+    # in the requested sparse format.
+    # Inputs: n_dim - int; alpha - float in [0, 1] (probability of zero coefficient);
+    # norm_diag - bool; smallest_coef, largest_coef - floats; sparse_format - bsr, coo,
+    # csc, csr, dia, dok, lil or None; random_state.
+    # Outputs: array or sparse matrix (n_dim, n_dim).
     """Generate a sparse symmetric definite positive matrix.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -1865,6 +2055,15 @@ def make_sparse_spd_matrix(
     prefer_skip_nested_validation=True,
 )
 def make_swiss_roll(n_samples=100, *, noise=0.0, random_state=None, hole=False):
+    # [FUNCTION DOC]
+    # Generates the 3D swiss roll manifold.
+    # Steps: without hole, t is uniform in [1.5 pi, 4.5 pi] and height y uniform in [0,
+    # 21]. With hole, the (t, y) parameter rectangle is split into a 3x3 grid of cells
+    # of size pi x 7 and the central cell is excluded; each sample picks one of the 8
+    # cells uniformly and a uniform position inside it. Points are (t cos t, y, t sin t)
+    # plus Gaussian noise of std noise.
+    # Inputs: n_samples; noise - float; random_state; hole - bool.
+    # Outputs: (X (n_samples, 3), t (n_samples,) univariate position).
     """Generate a swiss roll dataset.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -1949,6 +2148,11 @@ def make_swiss_roll(n_samples=100, *, noise=0.0, random_state=None, hole=False):
     prefer_skip_nested_validation=True,
 )
 def make_s_curve(n_samples=100, *, noise=0.0, random_state=None):
+    # [FUNCTION DOC]
+    # Generates the 3D S-curve manifold: t uniform in [-1.5 pi, 1.5 pi]; points (sin t,
+    # uniform [0, 2], sign(t)(cos t - 1)) plus Gaussian noise.
+    # Inputs: n_samples; noise; random_state. Outputs: (X (n_samples, 3), t
+    # (n_samples,)).
     """Generate an S curve dataset.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -2019,6 +2223,16 @@ def make_gaussian_quantiles(
     shuffle=True,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates classes as nested shells of an isotropic Gaussian.
+    # Steps: draw samples from a multivariate normal with given mean (origin by default)
+    # and covariance cov times identity; sort by squared distance from the mean; assign
+    # labels in blocks of n_samples // n_classes, with leftover (outermost) samples
+    # given the last class; optionally shuffle.
+    # Inputs: mean - array (n_features,) or None; cov - float; n_samples; n_features;
+    # n_classes; shuffle; random_state.
+    # Outputs: (X (n_samples, n_features), y int (n_samples,)).
+    # Exceptions: ValueError if n_samples < n_classes.
     r"""Generate isotropic Gaussian and label samples by quantile.
 
     This classification dataset is constructed by taking a multi-dimensional
@@ -2118,6 +2332,10 @@ def make_gaussian_quantiles(
 
 
 def _shuffle(data, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Randomly permutes rows and columns of a 2-D array.
+    # Inputs: data - 2-D array; random_state. Outputs: (permuted copy, row permutation,
+    # column permutation).
     generator = check_random_state(random_state)
     n_rows, n_cols = data.shape
     row_idx = generator.permutation(n_rows)
@@ -2148,6 +2366,20 @@ def make_biclusters(
     shuffle=True,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a matrix with constant block-diagonal biclusters.
+    # Steps: draw one constant per cluster uniformly in [minval, maxval]; split rows and
+    # columns into n_clusters groups with multinomial sizes; add cluster i's constant to
+    # cells whose row and column both belong to group i; add Gaussian noise if noise >
+    # 0; optionally shuffle rows and columns, permuting the labels accordingly. Build
+    # boolean indicator matrices per cluster.
+    # Inputs: shape - (n_rows, n_cols); n_clusters - int; noise; minval; maxval;
+    # shuffle; random_state.
+    # Outputs: (X (n_rows, n_cols), rows bool (n_clusters, n_rows), cols bool
+    # (n_clusters, n_cols)).
+    # KNOWN ISSUE: the shuffle step passes the original random_state instead of the
+    # already-created generator, so with an int seed the permutation comes from a
+    # freshly reseeded RNG (correlated with the earlier draws).
     """Generate a constant block diagonal structure array for biclustering.
 
     Read more in the :ref:`User Guide <sample_generators>`.
@@ -2270,6 +2502,17 @@ def make_checkerboard(
     shuffle=True,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Generates a matrix with checkerboard bicluster structure.
+    # Steps: n_clusters gives the numbers of row and column clusters (one int for both,
+    # or a pair). Split rows and columns into groups with multinomial sizes; for every
+    # (row group, column group) pair add a constant drawn uniformly in [minval, maxval];
+    # add noise; optionally shuffle as in make_biclusters. Indicator matrices enumerate
+    # all n_row_clusters * n_col_clusters biclusters (row-group-major).
+    # Inputs: shape; n_clusters - int or pair; noise; minval; maxval; shuffle;
+    # random_state.
+    # Outputs: (X, rows bool (n_biclusters, n_rows), cols bool (n_biclusters, n_cols)).
+    # KNOWN ISSUE: same reseeding issue as make_biclusters in the shuffle step.
     """Generate an array with block checkerboard structure for biclustering.
 
     Read more in the :ref:`User Guide <sample_generators>`.

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# OPTICS (Ordering Points To Identify the Clustering Structure): the OPTICS estimator,
+# the public compute_optics_graph (ordering, core distances, reachability and
+# predecessors), and the two public cluster extraction methods cluster_optics_dbscan
+# (fixed eps cut) and cluster_optics_xi (Xi-steep areas), plus private helpers
+# implementing core distances, reachability updates and the steep-area search.
 """Ordering Points To Identify the Clustering Structure (OPTICS)
 
 These routines execute the OPTICS algorithm, and implement various
@@ -31,6 +37,12 @@ from sklearn.utils.validation import check_memory, validate_data
 
 
 class OPTICS(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator combining compute_optics_graph with either Xi or DBSCAN-style extraction.
+    # Hyper-parameters are stored as given and validated against _parameter_constraints
+    # at fit time. Fitted attributes: ordering_, core_distances_, reachability_,
+    # predecessor_, labels_, cluster_hierarchy_ (xi only), n_features_in_,
+    # feature_names_in_.
     """Estimate clustering structure from vector array.
 
     OPTICS (Ordering Points To Identify the Clustering Structure), closely
@@ -282,6 +294,8 @@ class OPTICS(ClusterMixin, BaseEstimator):
         memory=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all keyword-only hyper-parameters as attributes without validation.
         self.max_eps = max_eps
         self.min_samples = min_samples
         self.min_cluster_size = min_cluster_size
@@ -302,6 +316,22 @@ class OPTICS(ClusterMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Steps: if the metric is a boolean pairwise metric, warn (DataConversionWarning)
+        # when X is not already boolean and validate X as bool, else as float; accept CSR.
+        # For a sparse precomputed matrix, copy it, write its diagonal explicitly (so each
+        # point is its own neighbor, silencing SparseEfficiencyWarning) and re-sort rows by
+        # value. Run compute_optics_graph through the memory cache. Then extract labels: for
+        # "xi" call cluster_optics_xi and also store cluster_hierarchy_; for "dbscan" use eps
+        # (defaulting to max_eps) and call cluster_optics_dbscan.
+        # Inputs: X - array or sparse (n_samples, n_features) or (n_samples, n_samples) when
+        # metric="precomputed"; y - ignored. Outputs: self.
+        # Exceptions: ValueError if eps > max_eps for dbscan; ValueError from size checks;
+        # parameter/data validation errors.
+        # Side effects: sets ordering_, core_distances_, reachability_, predecessor_, labels_
+        # (and cluster_hierarchy_); may write to the joblib memory cache; may warn.
+        # KNOWN ISSUE: X.dtype is read before validate_data, so a list input with a boolean
+        # metric raises AttributeError instead of being converted.
         """Perform OPTICS clustering.
 
         Extracts an ordered list of points and reachability distances, and
@@ -397,6 +427,10 @@ class OPTICS(ClusterMixin, BaseEstimator):
 
 
 def _validate_size(size, n_samples, param_name):
+    # [FUNCTION DOC]
+    # HELPER: Raises ValueError if size exceeds n_samples, naming param_name in the
+    # message. Inputs: size - int or float fraction; n_samples - int; param_name - str.
+    # Outputs: None.
     if size > n_samples:
         raise ValueError(
             "%s must be no greater than the number of samples (%d). Got %d"
@@ -406,6 +440,14 @@ def _validate_size(size, n_samples, param_name):
 
 # OPTICS helper functions
 def _compute_core_distances_(X, neighbors, min_samples, working_memory):
+    # [FUNCTION DOC]
+    # HELPER: Computes, for each sample, the distance to its min_samples-th nearest
+    # neighbor (the sample itself counts as the first), querying in row chunks sized from
+    # working_memory (16 bytes per neighbor per row). Inputs: X - training data;
+    # neighbors - fitted NearestNeighbors; min_samples - int; working_memory - MiB or None.
+    # Outputs: float array (n_samples,).
+    # KNOWN ISSUE: the docstring says never-core points get inf; this function returns
+    # finite kNN distances, the inf capping happens in compute_optics_graph.
     """Compute the k-th nearest neighbor of each sample.
 
     Equivalent to neighbors.kneighbors(X, self.min_samples)[0][:, -1]
@@ -461,6 +503,23 @@ def _compute_core_distances_(X, neighbors, min_samples, working_memory):
 def compute_optics_graph(
     X, *, min_samples, max_eps, metric, p, metric_params, algorithm, leaf_size, n_jobs
 ):
+    # [FUNCTION DOC]
+    # Steps: check min_samples <= n_samples; convert a fractional min_samples to
+    # max(2, int(fraction * n_samples)); initialize reachability to inf and predecessor
+    # to -1; fit NearestNeighbors with the given metric settings; compute core distances,
+    # set those above max_eps to inf and round them to the dtype precision. Main loop,
+    # n_samples times: among unprocessed points pick the one with smallest reachability
+    # (lowest index on ties, including all-inf), mark it processed, append it to the
+    # ordering, and if it is a core point update its unprocessed neighbors' reachability
+    # with _set_reach_dist. Warn if every reachability is inf.
+    # Inputs: X - ndarray or sparse; min_samples - int > 1 or fraction; max_eps - float;
+    # metric, p, metric_params, algorithm, leaf_size, n_jobs - neighbor search settings.
+    # Outputs: ordering (int, n_samples), core_distances_ (float), reachability_ (float,
+    # first point inf), predecessor_ (int, -1 for seeds), all indexed by sample index
+    # except ordering.
+    # Exceptions: ValueError if min_samples > n_samples; parameter validation errors.
+    # Side effects: UserWarning when all reachabilities are inf.
+    # KNOWN ISSUE: p is validated here as (0, inf] while OPTICS requires p >= 1.
     """Compute the OPTICS reachability graph.
 
     Read more in the :ref:`User Guide <optics>`.
@@ -684,6 +743,16 @@ def _set_reach_dist(
     p,
     max_eps,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For the point point_index, finds neighbors within max_eps, keeps the
+    # unprocessed ones, computes their distances to the point (reading the row of a
+    # precomputed matrix, or pairwise_distances with metric_params, adding p for
+    # minkowski unless already given), takes the elementwise maximum with the point's core
+    # distance, rounds to dtype precision, and wherever this is strictly smaller than the
+    # current reachability, overwrites reachability_ and sets predecessor_ to point_index.
+    # Inputs: arrays core_distances_, reachability_, predecessor_, processed (bool);
+    # X; fitted nbrs; metric settings; max_eps.
+    # Outputs: None. Side effects: mutates reachability_ and predecessor_ in place.
     P = X[point_index : point_index + 1]
     # Assume that radius_neighbors is faster without distances
     # and we don't need all distances, nevertheless, this means
@@ -727,6 +796,16 @@ def _set_reach_dist(
     prefer_skip_nested_validation=True,
 )
 def cluster_optics_dbscan(*, reachability, core_distances, ordering, eps):
+    # [FUNCTION DOC]
+    # DBSCAN-like extraction at a given eps: a point starts a new cluster when its
+    # reachability exceeds eps and its core distance is at most eps; walking the ordering,
+    # labels are the running count of such starts minus one; points whose reachability
+    # and core distance both exceed eps are labelled -1.
+    # Inputs: reachability, core_distances - float arrays (n_samples,) by sample index;
+    # ordering - int array; eps - float >= 0. Outputs: int labels (n_samples,).
+    # KNOWN ISSUE: a non-core point reachable within eps that precedes every cluster
+    # start in the ordering gets label -1 from the cumulative count, coinciding with
+    # the noise label.
     """Perform DBSCAN extraction for an arbitrary epsilon.
 
     Extracting the clusters runs in linear time. Note that this results in
@@ -820,6 +899,17 @@ def cluster_optics_xi(
     xi=0.05,
     predecessor_correction=True,
 ):
+    # [FUNCTION DOC]
+    # Normalizes min_samples and min_cluster_size (each checked against n_samples,
+    # fractions converted to max(2, int(fraction * n_samples)), min_cluster_size defaults
+    # to min_samples), runs _xi_cluster on the reachability and predecessor arrays
+    # reordered by ordering, and derives flat labels with _extract_xi_labels.
+    # Inputs: reachability, predecessor - arrays by sample index; ordering - int array;
+    # min_samples - int > 1 or fraction; min_cluster_size - int, fraction or None;
+    # xi - float in [0, 1]; predecessor_correction - bool.
+    # Outputs: (labels int array (n_samples,), clusters int array (n_clusters, 2) of
+    # inclusive [start, end] positions in the ordering, smaller clusters first).
+    # Exceptions: ValueError when sizes exceed n_samples; parameter validation errors.
     """Automatically extract clusters according to the Xi-steep method.
 
     Parameters
@@ -922,6 +1012,15 @@ def cluster_optics_xi(
 
 
 def _extend_region(steep_point, xward_point, start, min_samples):
+    # [FUNCTION DOC]
+    # HELPER: Starting at start, scans forward to find the end of a maximal steep area:
+    # each steep point resets the counter of non-steep points and becomes the new end; a
+    # point that goes in the opposite direction (xward_point) ends the scan; other points
+    # are counted, and the scan stops once more than min_samples consecutive such points
+    # are seen. Inputs: steep_point, xward_point - bool arrays; start - int;
+    # min_samples - int. Outputs: int index of the last steep point (inclusive end).
+    # KNOWN ISSUE: the docstring documents two return values (index, end) but only end
+    # is returned.
     """Extend the area until it's maximal.
 
     It's the same function for both upward and downward reagions, depending on
@@ -985,6 +1084,13 @@ def _extend_region(steep_point, xward_point, start, min_samples):
 
 
 def _update_filter_sdas(sdas, mib, xi_complement, reachability_plot):
+    # [FUNCTION DOC]
+    # HELPER: Given the current maximum-in-between value mib, returns [] if mib is
+    # infinite; otherwise keeps only steep down areas whose start reachability times
+    # xi_complement is at least mib, and raises each kept area's "mib" to max(own, mib).
+    # Inputs: sdas - list of dicts with start, end, mib; mib - float; xi_complement -
+    # 1 - xi; reachability_plot - reachability in ordering order (with trailing inf).
+    # Outputs: filtered list. Side effects: mutates the "mib" entry of kept dicts.
     """Update steep down areas (SDAs) using the new maximum in between (mib)
     value, and the given complement of xi, i.e. ``1 - xi``.
     """
@@ -999,6 +1105,12 @@ def _update_filter_sdas(sdas, mib, xi_complement, reachability_plot):
 
 
 def _correct_predecessor(reachability_plot, predecessor_plot, ordering, s, e):
+    # [FUNCTION DOC]
+    # HELPER: Predecessor correction (Schubert and Gertz, Algorithm 2) on a candidate
+    # cluster [s, e] in ordering positions: while s < e, accept if reachability at s
+    # exceeds that at e, or if the predecessor of the point at e is among the points at
+    # positions s..e-1; otherwise shrink e by one. Outputs: (s, e) when accepted, else
+    # (None, None).
     """Correct for predecessors.
 
     Applies Algorithm 2 of [1]_.
@@ -1029,6 +1141,25 @@ def _xi_cluster(
     min_cluster_size,
     predecessor_correction,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Xi-steep cluster extraction (roughly Figure 19 of the OPTICS paper, with
+    # the paper's Definition 9 and 11 errata corrected). Appends inf to the reachability
+    # plot; computes the ratio of each value to its successor and flags steep upward
+    # (ratio <= 1 - xi), steep downward (ratio >= 1 / (1 - xi)), downward (> 1) and
+    # upward (< 1). Iterates over steep indices not already consumed, maintaining mib
+    # (max reachability since the last area). A steep-down start filters the SDA list,
+    # extends the area and records it with mib 0. A steep-up start filters SDAs, extends
+    # the up area, then for each SDA forms a candidate [SDA start, up end]: skip if the
+    # value after the end times (1 - xi) is below the SDA mib; trim the start rightwards
+    # or the end leftwards per Definition 11 criterion 4 depending on which side is
+    # higher; optionally apply predecessor correction; reject if smaller than
+    # min_cluster_size, if the start is past the SDA end, or if the end is before the up
+    # start. Accepted candidates for one up area are appended in reverse so that smaller
+    # nested clusters precede larger ones.
+    # Inputs: reachability_plot, predecessor_plot - arrays in ordering order; ordering;
+    # xi; min_samples; min_cluster_size - ints; predecessor_correction - bool.
+    # Outputs: int array (n_clusters, 2) of inclusive [start, end] positions (shape (0,)
+    # when empty).
     """Automatically extract clusters according to the Xi-steep method.
 
     This is rouphly an implementation of Figure 19 of the OPTICS paper.
@@ -1176,6 +1307,12 @@ def _xi_cluster(
 
 
 def _extract_xi_labels(ordering, clusters):
+    # [FUNCTION DOC]
+    # HELPER: Walks clusters (smaller first) and assigns a new label to the positions of a
+    # cluster only when none of them is labelled yet, so the smallest (leaf) clusters win
+    # and enclosing clusters only label otherwise-unlabelled spans; finally maps labels
+    # from ordering positions back to sample indices. Inputs: ordering - int array;
+    # clusters - (n_clusters, 2) array. Outputs: int labels (n_samples,), -1 for noise.
     """Extracts the labels from the clusters returned by `_xi_cluster`.
     We rely on the fact that clusters are stored
     with the smaller clusters coming before the larger ones.

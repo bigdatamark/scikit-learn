@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for PLSRegression, PLSCanonical, CCA and PLSSVD: algebraic properties
+# (orthogonality, reconstruction), reference values from R packages, convergence and
+# constant-target handling, copy semantics, scale invariance and numerical stability,
+# n_components bounds, private helper equivalences, coef_/predict behavior, feature
+# names and pandas output. Most tests use the Linnerud dataset.
 import warnings
 
 import numpy as np
@@ -20,11 +26,19 @@ from sklearn.utils.extmath import svd_flip
 
 
 def assert_matrix_orthogonal(M):
+    # [FUNCTION DOC]
+    # HELPER: Asserts the columns of M are mutually orthogonal, i.e. M transposed times
+    # M is (almost) diagonal. Inputs: M - 2-D array.
     K = np.dot(M.T, M)
     assert_array_almost_equal(K, np.diag(np.diag(K)))
 
 
 def test_pls_canonical_basics():
+    # [FUNCTION DOC]
+    # Verifies for PLSCanonical with full components on
+    # Linnerud: weights and scores are orthogonal, the centered/scaled X and y equal
+    # scores times loadings transposed, transform reproduces training scores, and
+    # inverse_transform recovers X and y.
     # Basic checks for PLSCanonical
     d = load_linnerud()
     X = d.data
@@ -65,6 +79,10 @@ def test_pls_canonical_basics():
 
 
 def test_sanity_check_pls_regression():
+    # [FUNCTION DOC]
+    # Verifies PLSRegression's fit_transform x scores equal x_scores_ and that
+    # weights/loadings match R reference values up to sign, with signs consistent
+    # between weights and loadings.
     # Sanity check for PLSRegression
     # The results were checked against the R-packages plspm, misOmics and pls
 
@@ -128,6 +146,10 @@ def test_sanity_check_pls_regression():
 
 
 def test_sanity_check_pls_regression_constant_column_y():
+    # [FUNCTION DOC]
+    # Verifies PLSRegression with a constant first y column matches plsdepot reference
+    # weights/loadings up to consistent signs, with zero y loadings for the constant
+    # column.
     # Check behavior when the first column of y is constant
     # The results are checked against a modified version of plsreg2
     # from the R-package plsdepot
@@ -178,6 +200,9 @@ def test_sanity_check_pls_regression_constant_column_y():
 
 
 def test_sanity_check_pls_canonical():
+    # [FUNCTION DOC]
+    # Verifies PLSCanonical weights and rotations match R plspm values up to consistent
+    # signs and weights/scores are orthogonal.
     # Sanity check for PLSCanonical
     # The results were checked against the R-package plspm
 
@@ -240,6 +265,9 @@ def test_sanity_check_pls_canonical():
 
 
 def test_sanity_check_pls_canonical_random():
+    # [FUNCTION DOC]
+    # Same checks as test_sanity_check_pls_canonical on synthetic data with two shared
+    # latent variables plus noise columns, 3 components.
     # Sanity check for PLSCanonical on random data
     # The results were checked against the R-package plspm
     n = 500
@@ -344,6 +372,8 @@ def test_sanity_check_pls_canonical_random():
 
 
 def test_convergence_fail():
+    # [FUNCTION DOC]
+    # Verifies PLSCanonical with max_iter=2 emits ConvergenceWarning.
     # Make sure ConvergenceWarning is raised if max_iter is too small
     d = load_linnerud()
     X = d.data
@@ -355,6 +385,9 @@ def test_convergence_fail():
 
 @pytest.mark.parametrize("Est", (PLSSVD, PLSRegression, PLSCanonical))
 def test_attributes_shapes(Est):
+    # [FUNCTION DOC]
+    # Verifies x_weights_ and y_weights_ have n_components (2) columns for PLSSVD,
+    # PLSRegression and PLSCanonical.
     # Make sure attributes are of the correct shape depending on n_components
     d = load_linnerud()
     X = d.data
@@ -369,6 +402,9 @@ def test_attributes_shapes(Est):
 
 @pytest.mark.parametrize("Est", (PLSRegression, PLSCanonical, CCA))
 def test_univariate_equivalence(Est):
+    # [FUNCTION DOC]
+    # Verifies fitting with 1-D y gives the same coef_ (shape and values) as with a
+    # single-column 2-D y.
     # Ensure 2D y with 1 column is equivalent to 1D y
     d = load_linnerud()
     X = d.data
@@ -384,6 +420,11 @@ def test_univariate_equivalence(Est):
 
 @pytest.mark.parametrize("Est", (PLSRegression, PLSCanonical, CCA, PLSSVD))
 def test_copy(Est):
+    # [FUNCTION DOC]
+    # Verifies copy=True leaves X unchanged during fit, copy=False modifies it (detected
+    # by an AssertionError inside pytest.raises), and for non-PLSSVD estimators that
+    # transform/predict with copy=False modify X in place yet give the same results as
+    # copy=True.
     # check that the "copy" keyword works
     d = load_linnerud()
     X = d.data
@@ -422,6 +463,12 @@ def test_copy(Est):
 
 
 def _generate_test_scale_and_stability_datasets():
+    # [FUNCTION DOC]
+    # HELPER: Generator of (X, y) pairs for test_scale_and_stability: a large-scale
+    # correlated dataset (issue 7818), Linnerud with a constant feature, a tiny
+    # handcrafted 4x3 set, and two random 4x3 seeds that previously broke CCA (issue
+    # 18746).
+    # Outputs: yields tuples of ndarrays.
     """Generate dataset for test_scale_and_stability"""
     # dataset for non-regression 7818
     rng = np.random.RandomState(0)
@@ -456,6 +503,10 @@ def _generate_test_scale_and_stability_datasets():
 @pytest.mark.parametrize("Est", (CCA, PLSCanonical, PLSRegression, PLSSVD))
 @pytest.mark.parametrize("X, y", _generate_test_scale_and_stability_datasets())
 def test_scale_and_stability(Est, X, y):
+    # [FUNCTION DOC]
+    # Verifies scale=True on raw data gives the same x and y scores as scale=False on
+    # pre-centered/scaled data, for every estimator and dataset (also a cross-platform
+    # stability check). Inputs are copied to avoid side effects.
     """scale=True is equivalent to scale=False on centered/scaled data
     This allows to check numerical stability over platforms as well"""
     # Avoid in-place modification of X and y to avoid side effects in other tests.
@@ -471,6 +522,9 @@ def test_scale_and_stability(Est, X, y):
 
 @pytest.mark.parametrize("Estimator", (PLSSVD, PLSRegression, PLSCanonical, CCA))
 def test_n_components_upper_bounds(Estimator):
+    # [FUNCTION DOC]
+    # Verifies every estimator raises ValueError when n_components (10) exceeds the rank
+    # bound for 10x5 X and 10x3 y.
     """Check the validation of `n_components` upper bounds for `PLS` regressors."""
     rng = np.random.RandomState(0)
     X = rng.randn(10, 5)
@@ -482,6 +536,9 @@ def test_n_components_upper_bounds(Estimator):
 
 
 def test_n_components_upper_PLSRegression():
+    # [FUNCTION DOC]
+    # Verifies PLSRegression's bound is min(n, p) (20 here) and not limited by the
+    # number of targets.
     """Check the validation of `n_components` upper bounds for PLSRegression."""
     rng = np.random.RandomState(0)
     X = rng.randn(20, 64)
@@ -494,6 +551,9 @@ def test_n_components_upper_PLSRegression():
 
 @pytest.mark.parametrize("n_samples, n_features", [(100, 10), (100, 200)])
 def test_singular_value_helpers(n_samples, n_features, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies the power method (with normalized y weights) and the SVD helper give the
+    # same first singular vectors after sign flipping, for tall and wide X.
     # Make sure SVD and power method give approximately the same results
     X, y = make_regression(
         n_samples, n_features, n_targets=5, random_state=global_random_seed
@@ -511,6 +571,9 @@ def test_singular_value_helpers(n_samples, n_features, global_random_seed):
 
 
 def test_one_component_equivalence(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies PLSSVD, PLSRegression and PLSCanonical give the same transform with one
+    # component.
     # PLSSVD, PLSRegression and PLSCanonical should all be equivalent when
     # n_components is 1
     X, y = make_regression(100, 10, n_targets=5, random_state=global_random_seed)
@@ -525,6 +588,9 @@ def test_one_component_equivalence(global_random_seed):
 
 
 def test_svd_flip_1d():
+    # [FUNCTION DOC]
+    # Verifies _svd_flip_1d flips signs in place exactly like svd_flip on reshaped
+    # inputs.
     # Make sure svd_flip_1d is equivalent to svd_flip
     u = np.array([1, -4, 2])
     v = np.array([1, 2, 3])
@@ -540,6 +606,10 @@ def test_svd_flip_1d():
 
 
 def test_loadings_converges(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression (issue 19549): CCA with 10 components fits without
+    # ConvergenceWarning (turned into error) and all x loadings have absolute value
+    # below 1.
     """Test that CCA converges. Non-regression test for #19549."""
     X, y = make_regression(
         n_samples=200, n_features=20, n_targets=20, random_state=global_random_seed
@@ -557,6 +627,9 @@ def test_loadings_converges(global_random_seed):
 
 
 def test_pls_constant_y():
+    # [FUNCTION DOC]
+    # Non-regression (issue 19831): a constant y triggers the 'y residual is constant at
+    # iteration' warning and leaves x_rotations_ all zero.
     """Checks warning when y is constant. Non-regression test for #19831"""
     rng = np.random.RandomState(42)
     x = rng.rand(100, 3)
@@ -573,6 +646,8 @@ def test_pls_constant_y():
 
 @pytest.mark.parametrize("PLSEstimator", [PLSRegression, PLSCanonical, CCA])
 def test_pls_coef_shape(PLSEstimator):
+    # [FUNCTION DOC]
+    # Verifies coef_ has shape (n_targets, n_features).
     """Check the shape of `coef_` attribute.
 
     Non-regression test for:
@@ -591,6 +666,9 @@ def test_pls_coef_shape(PLSEstimator):
 @pytest.mark.parametrize("scale", [True, False])
 @pytest.mark.parametrize("PLSEstimator", [PLSRegression, PLSCanonical, CCA])
 def test_pls_prediction(PLSEstimator, scale):
+    # [FUNCTION DOC]
+    # Verifies, with and without scaling, intercept_ equals the y mean and predict
+    # equals centered X times coef_ transposed plus intercept_.
     """Check the behaviour of the prediction function."""
     d = load_linnerud()
     X = d.data
@@ -608,6 +686,9 @@ def test_pls_prediction(PLSEstimator, scale):
 
 @pytest.mark.parametrize("Klass", [CCA, PLSSVD, PLSRegression, PLSCanonical])
 def test_pls_feature_names_out(Klass):
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns lowercase class name followed by component
+    # index for each component.
     """Check `get_feature_names_out` cross_decomposition module."""
     X, y = load_linnerud(return_X_y=True)
 
@@ -624,6 +705,10 @@ def test_pls_feature_names_out(Klass):
 
 @pytest.mark.parametrize("Klass", [CCA, PLSSVD, PLSRegression, PLSCanonical])
 def test_pls_set_output(Klass):
+    # [FUNCTION DOC]
+    # Verifies with pandas output that transform returns a DataFrame for X with columns
+    # matching get_feature_names_out, while y scores remain an ndarray (skipped if
+    # pandas is missing).
     """Check `set_output` in cross_decomposition module."""
     pd = pytest.importorskip("pandas")
     X, y = load_linnerud(return_X_y=True, as_frame=True)
@@ -636,6 +721,9 @@ def test_pls_set_output(Klass):
 
 
 def test_pls_regression_fit_1d_y():
+    # [FUNCTION DOC]
+    # Verifies PLSRegression fitted on 1-D y predicts 1-D output, also inside a
+    # VotingRegressor, and matches the exact targets.
     """Check that when fitting with 1d `y`, prediction should also be 1d.
 
     Non-regression test for Issue #26549.
@@ -657,6 +745,9 @@ def test_pls_regression_fit_1d_y():
 
 
 def test_pls_regression_scaling_coef():
+    # [FUNCTION DOC]
+    # Verifies with scale=True and enough components that coef_ is expressed in original
+    # units (equals the true coefficients) and predict reproduces y exactly.
     """Check that when using `scale=True`, the coefficients are using the std. dev. from
     both `X` and `y`.
 

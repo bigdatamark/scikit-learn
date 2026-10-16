@@ -1,3 +1,12 @@
+# [PACKAGE DOC]
+# Package sklearn.datasets: loaders for bundled toy datasets, fetchers for downloadable
+# real-world datasets (cached under the data home), synthetic data generators and
+# svmlight I/O. It re-exports the public functions from the private submodules (_base,
+# _california_housing, _covtype, _kddcup99, _lfw, _olivetti_faces, _openml, _rcv1,
+# _samples_generator, _species_distributions, _svmlight_format_io, _twenty_newsgroups)
+# and lists them in __all__. Import-time side effects: imports all those submodules (no
+# downloads). A module-level __getattr__ gives an explanatory ImportError for the
+# removed load_boston.
 """Utilities to load popular datasets and artificial data generators."""
 
 # Authors: The scikit-learn developers
@@ -110,6 +119,13 @@ __all__ = [
 
 
 def __getattr__(name):
+    # [FUNCTION DOC]
+    # Module attribute hook (PEP 562) called for names not found normally.
+    # Inputs: name - str attribute name.
+    # Outputs: the module global of that name if present.
+    # Exceptions: ImportError with a long explanation (ethical issues, alternatives) for
+    # 'load_boston'; AttributeError for any other unknown name (turned into ImportError
+    # by 'from ... import').
     if name == "load_boston":
         msg = textwrap.dedent(
             """

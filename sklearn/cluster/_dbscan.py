@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# DBSCAN density-based clustering: a function interface and the DBSCAN estimator.
+# Neighbourhoods within eps are computed with NearestNeighbors; core samples have at
+# least min_samples (weighted) neighbours including themselves; clusters are grown
+# from core samples by the Cython dbscan_inner; non-reachable samples are noise (-1).
 """
 DBSCAN: Density-Based Spatial Clustering of Applications with Noise
 """
@@ -39,6 +44,13 @@ def dbscan(
     sample_weight=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Function interface: builds a DBSCAN estimator with the given parameters, fits it on
+    # X with sample_weight and returns its results.
+    # Inputs: see docstring (note defaults metric="minkowski", p=2, equivalent to the
+    # estimator's euclidean default).
+    # Outputs: (core_sample_indices_ (n_core,), labels_ (n_samples,)).
+    # Exceptions: parameter validation errors.
     """Perform DBSCAN clustering from vector array or distance matrix.
 
     This function is a wrapper around :class:`~cluster.DBSCAN`, suitable for
@@ -199,6 +211,9 @@ def dbscan(
 
 
 class DBSCAN(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator for DBSCAN. Fitted attributes: core_sample_indices_, components_ (copies
+    # of the core samples' rows) and labels_.
     """Perform DBSCAN clustering from vector array or distance matrix.
 
     DBSCAN - Density-Based Spatial Clustering of Applications with Noise.
@@ -381,6 +396,8 @@ class DBSCAN(ClusterMixin, BaseEstimator):
         p=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyper-parameters unchanged.
         self.eps = eps
         self.min_samples = min_samples
         self.metric = metric
@@ -395,6 +412,19 @@ class DBSCAN(ClusterMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates X (dense or CSR) and optional sample weights. For a sparse precomputed
+        # distance graph, copies it, makes the diagonal explicit (each point is its own
+        # neighbour) and re-sorts rows by value. Fits NearestNeighbors with radius eps and
+        # the configured algorithm/metric, queries radius neighbourhoods of all samples
+        # (including self), counts neighbours (or sums their weights), marks core samples
+        # where the count >= min_samples, and runs dbscan_inner to label clusters (noise -1).
+        # Inputs: X - (n_samples, n_features) or (n_samples, n_samples) if precomputed; y
+        # ignored; sample_weight - optional (n_samples,), may be negative.
+        # Outputs: self.
+        # Sets: core_sample_indices_, labels_ (intp), components_ (empty (0, n_features)
+        # array when there are no core samples).
+        # Side effects: memory can grow as O(n^2) for dense neighbourhoods.
         """Perform DBSCAN clustering from features, or distance matrix.
 
         Parameters
@@ -476,6 +506,9 @@ class DBSCAN(ClusterMixin, BaseEstimator):
         return self
 
     def fit_predict(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits (forwarding sample_weight) and returns labels_.
+        # Outputs: ndarray (n_samples,).
         """Compute clusters from a data or distance matrix and predict labels.
 
         This method fits the model and returns the cluster labels in a single step.
@@ -508,6 +541,8 @@ class DBSCAN(ClusterMixin, BaseEstimator):
         return self.labels_
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks pairwise input when metric is "precomputed" and declares sparse support.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = self.metric == "precomputed"
         tags.input_tags.sparse = True
