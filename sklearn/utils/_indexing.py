@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Indexing utilities that select rows/items/columns uniformly across NumPy arrays,
+# Array API arrays, scipy sparse matrices, pandas and other narwhals-compatible
+# dataframes/series, pyarrow arrays and Python lists, plus resample/shuffle built on
+# top of them. No import-time side effects beyond importing narwhals.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -30,6 +35,19 @@ from sklearn.utils.validation import (
 
 
 def _array_indexing(array, key, key_dtype, axis):
+    # [FUNCTION DOC]
+    # HELPER: Indexes an array-like with a "shape" along axis 0 or 1.
+    # Steps: for Array API (non-NumPy namespaces handled through the compat layer) the
+    # key is moved to the array's namespace/device (ints and slices pass through);
+    # integer-dtype keys use take along axis, boolean keys are converted to integer
+    # positions via an arange then take. Otherwise (NumPy, sparse, or key without
+    # dtype), for sparse arrays boolean keys become ndarrays and, on SciPy < 1.12, an
+    # integer scalar key is wrapped into a list; tuple keys become lists; finally
+    # plain getitem is used on rows (axis 0, with ellipsis) or columns (axis 1).
+    # Inputs: array - ndarray, Array API array or sparse matrix; key - int, slice,
+    # array-like of int/bool; key_dtype - result of _determine_key_type; axis - 0 or 1.
+    # Outputs: indexed subset of the same container type.
+    # Side effects: none.
     """Index an array or scipy.sparse consistently across NumPy version."""
     xp, is_array_api, device_ = get_namespace_and_device(array)
     if is_array_api:
@@ -63,6 +81,18 @@ def _array_indexing(array, key, key_dtype, axis):
 
 
 def _narwhals_indexing(X, key, key_dtype, axis):
+    # [FUNCTION DOC]
+    # HELPER: Indexes a dataframe/series supported by narwhals (e.g. polars, pyarrow).
+    # Keys that are not list, slice or None are converted to Python lists. For axis 1:
+    # boolean keys select the columns whose flag is true; other keys use positional
+    # column getitem; native object is returned. For axis 0: boolean keys filter rows,
+    # others use row getitem. With a scalar key, a series input returns the scalar
+    # item directly, a dataframe input returns a 1d NumPy array of the row's values;
+    # otherwise the native subset is returned.
+    # Inputs: X - native dataframe or series; key, key_dtype, axis as in
+    # _array_indexing.
+    # Outputs: native dataframe/series, scalar, or ndarray (scalar row of a frame).
+    # Side effects: none.
     """Index a narwhals dataframe or series."""
     X = nw.from_native(X, allow_series=True)
     if not (isinstance(key, (list, slice)) or key is None):
@@ -94,6 +124,14 @@ def _narwhals_indexing(X, key, key_dtype, axis):
 
 
 def _pandas_indexing(X, key, key_dtype, axis):
+    # [FUNCTION DOC]
+    # HELPER: Indexes a pandas DataFrame/Series. Array-like keys become ndarrays.
+    # Integer array keys use take along axis (to return a real copy); scalars, slices
+    # and non-integer keys use iloc for "int" keys and loc otherwise (str/bool), on
+    # columns if axis is 1 else rows.
+    # Inputs: X - pandas object; key, key_dtype, axis as in _array_indexing.
+    # Outputs: pandas object or scalar value.
+    # Side effects: none.
     """Index a pandas dataframe or a series."""
     if _is_arraylike_not_scalar(key):
         key = np.asarray(key)
@@ -109,6 +147,13 @@ def _pandas_indexing(X, key, key_dtype, axis):
 
 
 def _list_indexing(X, key, key_dtype):
+    # [FUNCTION DOC]
+    # HELPER: Indexes a Python list along its only axis. Scalars/slices use getitem;
+    # boolean keys keep elements where the mask is true; integer array-likes gather
+    # elements in order.
+    # Inputs: X - list; key - scalar, slice or array-like; key_dtype - "bool"/"int"/None.
+    # Outputs: element or new list.
+    # Side effects: none.
     """Index a Python list."""
     if np.isscalar(key) or isinstance(key, slice):
         # key is a slice or a scalar
@@ -121,6 +166,22 @@ def _list_indexing(X, key, key_dtype):
 
 
 def _determine_key_type(key, accept_slice=True):
+    # [FUNCTION DOC]
+    # HELPER: Infers whether a key is integer-, string- or boolean-based.
+    # Rules: None -> None. Python int/str/bool or np.bool_ scalars map by exact type
+    # (subclasses not listed raise ValueError). Slices: if not accept_slice raise
+    # TypeError; full slice -> None; otherwise recursively type start and stop, which
+    # must agree when both set, and return whichever is set. Lists/tuples: type each
+    # unique element; empty -> None; mixed types -> ValueError. Objects with dtype: for
+    # non-NumPy Array API arrays bool -> "bool", integral -> "int", else ValueError; for
+    # NumPy-like dtypes map kind i/u -> int, b -> bool, O/U/S -> str, else ValueError.
+    # Anything else -> ValueError.
+    # Inputs: key - scalar, slice, list/tuple or array; accept_slice - bool, default True.
+    # Outputs: "int", "str", "bool" or None.
+    # Exceptions: ValueError (unsupported/mixed key), TypeError (slice not accepted).
+    # KNOWN ISSUE: docstring says accept_slice controls "whether to raise"; actually an
+    # error is raised when accept_slice is False. Object-dtype arrays are always
+    # reported as "str" regardless of their content.
     """Determine the data type of key.
 
     Parameters
@@ -203,6 +264,20 @@ def _determine_key_type(key, accept_slice=True):
 
 
 def _safe_indexing(X, indices, *, axis=0):
+    # [FUNCTION DOC]
+    # Dispatches row/column selection to the right backend helper.
+    # Steps: None indices returns X unchanged. Validate axis in (0, 1); infer the key
+    # type; reject string keys on axis 0, axis 1 on lists, axis 1 on non-2D inputs, and
+    # string keys on axis 1 for non-dataframes. Then dispatch: objects with iloc ->
+    # _pandas_indexing; narwhals-compatible frames/series -> _narwhals_indexing;
+    # pyarrow arrays are wrapped into a ChunkedArray, indexed via narwhals, and a
+    # ChunkedArray result is combined back into a single array; objects with shape ->
+    # _array_indexing; otherwise -> _list_indexing.
+    # Inputs: X - data container; indices - see docstring; axis - 0 or 1 keyword-only.
+    # Outputs: subset of X (container type preserved where possible).
+    # Exceptions: ValueError for invalid axis/key/X combinations, propagated from
+    # _determine_key_type and backend indexing errors.
+    # Side effects: none.
     """Return rows, items or columns of X using indices.
 
     .. warning::
@@ -317,6 +392,14 @@ def _safe_indexing(X, indices, *, axis=0):
 
 
 def _safe_assign(X, values, *, row_indexer=None, column_indexer=None):
+    # [FUNCTION DOC]
+    # HELPER: Assigns values into a 2D container in place. Missing row/column indexers
+    # default to full slices. pandas objects use iloc assignment while silencing
+    # FutureWarning; NumPy/sparse use getitem-style assignment.
+    # Inputs: X - 2D ndarray, sparse matrix or DataFrame; values - array of
+    # compatible shape; row_indexer, column_indexer - 1d int/bool arrays or None.
+    # Outputs: None.
+    # Side effects: mutates X in place; suppresses pandas FutureWarning locally.
     """Safe assignment to a numpy array, sparse matrix, or pandas dataframe.
 
     Parameters
@@ -354,6 +437,13 @@ def _safe_assign(X, values, *, row_indexer=None, column_indexer=None):
 
 
 def _get_column_indices_for_bool_or_int(key, n_columns):
+    # [FUNCTION DOC]
+    # HELPER: Converts an int/bool column key into a list of column positions by
+    # indexing an arange of n_columns with the key (negative ints are kept as their
+    # resolved positive positions).
+    # Inputs: key - int, bool mask, slice or list of ints; n_columns - int.
+    # Outputs: list of int.
+    # Exceptions: ValueError (chained from IndexError) when a position is out of range.
     # Convert key into list of positive integer indexes
     try:
         idx = _safe_indexing(np.arange(n_columns), key)
@@ -365,6 +455,22 @@ def _get_column_indices_for_bool_or_int(key, n_columns):
 
 
 def _get_column_indices(X, key):
+    # [FUNCTION DOC]
+    # HELPER: Resolves a column key into a list of integer column positions for X.
+    # Steps: infer key type; for narwhals-compatible dataframes obtain shape and column
+    # names (duplicate names raise in narwhals). Empty list/tuple -> []. int/bool keys
+    # -> _get_column_indices_for_bool_or_int. Otherwise (string keys, None key, or
+    # slice of strings) requires column names: string slices resolve start by name and
+    # inclusive stop by name (step must be 1 or None); scalar/list of names map each
+    # name to its position.
+    # Inputs: X - 2D array or dataframe; key - see _safe_indexing for axis 1.
+    # Outputs: list of int positions.
+    # Exceptions: ValueError (strings on non-dataframes, unknown column names),
+    # NotImplementedError (slice step other than 1/None), ValueError from list.index for
+    # unknown slice bounds.
+    # KNOWN ISSUE: a key of None or a full slice (key type None) falls into the
+    # string branch: it fails on non-dataframes, and on dataframes a None key leads
+    # to iterating None (TypeError) while a full slice selects all columns.
     """Get feature column indices for input data X and key.
 
     For accepted values of `key`, see the docstring of
@@ -433,6 +539,27 @@ def resample(
     stratify=None,
     sample_weight=None,
 ):
+    # [FUNCTION DOC]
+    # Draws a consistent random subset (bootstrap or permutation) of rows from all arrays.
+    # Steps: return None if no arrays. n_samples defaults to the length of the first
+    # array; error if it exceeds that length without replacement. Check consistent
+    # lengths. sample_weight is only allowed with replace=True and stratify=None.
+    # Without stratify: with replacement draw indices uniformly or with probabilities
+    # proportional to validated sample_weight; without replacement shuffle all
+    # positions and keep the first n_samples. With stratify: multi-column labels are
+    # collapsed into one string per row; compute per-class counts and sorted member
+    # indices, allocate per-class draw counts with _approximate_mode, draw from each
+    # class (with or without replacement) and randomly permute the concatenation.
+    # Sparse inputs are converted to CSR and every array is indexed with
+    # _safe_indexing.
+    # Inputs: *arrays - indexable sequences with equal first dimension; replace - bool;
+    # n_samples - int >= 1 or None; random_state - seed/RandomState/None; stratify -
+    # labels array or None; sample_weight - 1d array or None.
+    # Outputs: single resampled array if one input, else list of resampled arrays.
+    # Exceptions: ValueError (n_samples too large without replacement, inconsistent
+    # lengths), NotImplementedError (sample_weight with replace=False or stratify),
+    # InvalidParameterError from validate_params.
+    # Side effects: consumes random_state; inputs are not modified.
     """Resample arrays or sparse matrices in a consistent way.
 
     The default strategy implements one step of the bootstrapping
@@ -613,6 +740,11 @@ def resample(
 
 
 def shuffle(*arrays, random_state=None, n_samples=None):
+    # [FUNCTION DOC]
+    # Thin wrapper returning resample(*arrays, replace=False, n_samples, random_state),
+    # i.e. a consistent random permutation (optionally truncated) of all arrays.
+    # Inputs/Outputs/Exceptions: as resample with replace fixed to False.
+    # Side effects: consumes random_state.
     """Shuffle arrays or sparse matrices in a consistent way.
 
     This is a convenience alias to ``resample(*arrays, replace=False)`` to do

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Export utilities for fitted decision trees: export_graphviz (GraphViz DOT text),
+# plot_tree (matplotlib rendering laid out with the Reingold-Tilford/Buchheim
+# algorithm) and export_text (ASCII rule report). Internally a shared
+# _BaseTreeExporter builds node label strings and fill colors, with _DOTTreeExporter
+# and _MPLTreeExporter subclasses for the two graphical back ends. Import-time side
+# effects: creates the module-level SENTINEL object; matplotlib is only imported
+# lazily when plotting.
 """
 This module defines export functions for decision trees.
 """
@@ -29,11 +37,23 @@ from sklearn.utils.validation import check_array, check_is_fitted
 
 
 def _rgb_to_hexstring(rgb):
+    # [FUNCTION DOC]
+    # HELPER: Formats an (r, g, b) sequence of 0-255 integers as a "#rrggbb" lowercase
+    # hex string with zero-padded two-digit channels.
     """Convert 8bit integer rgb color to html hexstring"""
     return "#%02x%02x%02x" % tuple(rgb)
 
 
 def _color_brew(n):
+    # [FUNCTION DOC]
+    # HELPER: Generates a palette of n RGB colors with hues equally spaced starting at
+    # 25 degrees, saturation 0.75 and value 0.9, converted from HSV to RGB with the
+    # standard chroma / sextant formula and scaled to integers in 0-255.
+    # Inputs: n - positive int. Outputs: list of [r, g, b] int lists.
+    # Exceptions: ZeroDivisionError if n is 0.
+    # KNOWN ISSUE: hues come from a floating-point arange that can include the stop
+    # value for some n, so the list may contain n + 1 colors (harmless since callers
+    # only index it).
     """Generate n colors with equally spaced hues.
 
     Parameters
@@ -76,7 +96,13 @@ def _color_brew(n):
 
 
 class Sentinel:
+    # [CLASS DOC]
+    # HELPER: Placeholder type whose repr is the string "tree.dot" (with quotes); its
+    # single instance SENTINEL is the default out_file of _DOTTreeExporter so the
+    # legacy default shows nicely in signatures.
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns the literal text "tree.dot" including double quotes.
         return '"tree.dot"'
 
 
@@ -117,6 +143,15 @@ def plot_tree(
     ax=None,
     fontsize=None,
 ):
+    # [FUNCTION DOC]
+    # Public API: validates the fitted state, builds an _MPLTreeExporter with all
+    # display options and returns the result of its export on the given axes.
+    # Inputs: see docstring; parameter types are enforced by validate_params.
+    # Outputs: list of matplotlib Annotation artists.
+    # Exceptions: NotFittedError if the tree is not fitted; InvalidParameterError for
+    # invalid arguments. Side effects: clears and draws on ax (or the current axes).
+    # KNOWN ISSUE: the docstring says rounded switches fonts to Helvetica; for the
+    # matplotlib exporter it only rounds the box corners.
     """Plot a decision tree.
 
     The sample counts that are shown are weighted with any sample_weights that
@@ -221,6 +256,12 @@ def plot_tree(
 
 
 class _BaseTreeExporter:
+    # [CLASS DOC]
+    # HELPER: Shared base of the DOT and matplotlib exporters. Stores display options
+    # and provides node label formatting (node_to_str) and fill color computation.
+    # Subclasses must define characters (a list of 7 markup strings: id prefix, subscript
+    # open/close, less-or-equal sign, line break, label end, label start) and colors
+    # (dict with a "bounds" entry).
     def __init__(
         self,
         max_depth=None,
@@ -235,6 +276,9 @@ class _BaseTreeExporter:
         precision=3,
         fontsize=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all display options unchanged as attributes (no validation).
+        # Inputs: same meanings as in plot_tree/export_graphviz.
         self.max_depth = max_depth
         self.feature_names = feature_names
         self.class_names = class_names
@@ -248,6 +292,17 @@ class _BaseTreeExporter:
         self.fontsize = fontsize
 
     def get_color(self, value):
+        # [FUNCTION DOC]
+        # HELPER: Converts a node value into a fill color blended against white.
+        # Classification (colors["bounds"] is None): picks the palette color of the argmax
+        # class and uses as opacity the gap between the largest and second largest value
+        # relative to one minus the second largest (0 when only one value). Regression or
+        # multi-output: uses the first palette color with opacity equal to the value
+        # linearly rescaled between the bounds. Each channel becomes alpha times the channel
+        # plus (1 - alpha) times 255, rounded.
+        # Inputs: value - class proportion array or scalar. Outputs: "#rrggbb" string.
+        # Exceptions: ZeroDivisionError/NaN if the top two class proportions are both 1 or
+        # the bounds are equal.
         # Find the appropriate color & intensity for a node
         if self.colors["bounds"] is None:
             # Classification tree
@@ -269,6 +324,15 @@ class _BaseTreeExporter:
         return _rgb_to_hexstring(color)
 
     def get_fill_color(self, tree, node_id):
+        # [FUNCTION DOC]
+        # HELPER: Returns the fill color of node node_id. On first call lazily initialises
+        # colors["rgb"] with a palette of n_classes[0] colors and, for multi-output trees,
+        # bounds from the negated max/min impurity; for regression with non-constant values,
+        # bounds from the min/max of all node values. Single output: uses the node's value
+        # row (unwrapped to a float for regression with bounds); multi-output: uses the
+        # negated node impurity.
+        # Inputs: tree - sklearn _tree.Tree; node_id - int.
+        # Side effects: mutates self.colors on first call.
         # Fetch appropriate color for node
         if "rgb" not in self.colors:
             # Initialize colors and bounds if required
@@ -300,6 +364,20 @@ class _BaseTreeExporter:
         return self.get_color(node_val)
 
     def node_to_str(self, tree, node_id, criterion):
+        # [FUNCTION DOC]
+        # HELPER: Builds the label of one node using the markup in self.characters:
+        # optional "node #id", the split test "feature <= threshold" (rounded to precision)
+        # for non-leaves, optional impurity labelled by criterion name (MSE criterion
+        # objects map to squared_error, other non-string criteria to "impurity"),
+        # samples (count or percentage of root), value (class counts weighted by
+        # weighted_n_node_samples unless proportion; ints when all whole numbers, otherwise
+        # rounded; brackets removed for single-output regression; multi-output rows joined
+        # with line breaks), and for single-output classification with class_names set the
+        # majority class name (or y[i] when class_names is True). Text labels ("name = ")
+        # are included at all nodes, only the root, or none according to label. A trailing
+        # line break is stripped and the closing character appended.
+        # Inputs: tree - _tree.Tree; node_id - int; criterion - str or Criterion object.
+        # Outputs: label string. Exceptions: IndexError if class_names is too short.
         # Generate the node content string
         if tree.n_outputs == 1:
             value = tree.value[node_id][0, :]
@@ -413,10 +491,17 @@ class _BaseTreeExporter:
         return node_string + characters[5]
 
     def str_escape(self, string):
+        # [FUNCTION DOC]
+        # HELPER: Hook for escaping names in labels; identity in the base class.
         return string
 
 
 class _DOTTreeExporter(_BaseTreeExporter):
+    # [CLASS DOC]
+    # HELPER: Writes a tree as GraphViz DOT text to a file-like out_file. Sets
+    # characters to HTML-like markup when special_characters is True, otherwise plain
+    # DOT escapes; keeps ranks (node ids per depth plus leaves) for leaves_parallel and
+    # the colors cache.
     def __init__(
         self,
         out_file=SENTINEL,
@@ -435,6 +520,11 @@ class _DOTTreeExporter(_BaseTreeExporter):
         precision=3,
         fontname="helvetica",
     ):
+        # [FUNCTION DOC]
+        # Stores options (via the base class plus leaves_parallel, out_file,
+        # special_characters, fontname, rotate) and initialises characters, ranks and colors.
+        # Inputs: out_file - writable text object (default SENTINEL, which is not writable);
+        # other options as in export_graphviz.
         super().__init__(
             max_depth=max_depth,
             feature_names=feature_names,
@@ -465,6 +555,16 @@ class _DOTTreeExporter(_BaseTreeExporter):
         self.colors = {"bounds": None}
 
     def export(self, decision_tree):
+        # [FUNCTION DOC]
+        # HELPER: Writes the full DOT document: header, all nodes and edges by recursion
+        # from the root, then the closing tail.
+        # Inputs: decision_tree - fitted tree estimator or raw _tree.Tree (then the
+        # criterion is shown as "impurity").
+        # Exceptions: ValueError if feature_names length differs from n_features_in_.
+        # Side effects: writes to out_file and fills ranks/colors.
+        # KNOWN ISSUE: the feature_names check reads n_features_in_, which a raw _tree.Tree
+        # lacks, so the _tree.Tree branch fails when feature_names is given; export_graphviz
+        # also rejects non-estimators earlier, making that branch effectively dead.
         # Check length of feature_names before getting into the tree node
         # Raise error if length of feature_names does not match
         # n_features_in_ in the decision_tree
@@ -485,6 +585,9 @@ class _DOTTreeExporter(_BaseTreeExporter):
         self.tail()
 
     def tail(self):
+        # [FUNCTION DOC]
+        # HELPER: If leaves_parallel, writes one "{rank=same ; ...}" line per rank key in
+        # sorted (string) order; then writes the closing brace.
         # If required, draw leaf nodes at same depth as each other
         if self.leaves_parallel:
             for rank in sorted(self.ranks):
@@ -494,6 +597,10 @@ class _DOTTreeExporter(_BaseTreeExporter):
         self.out_file.write("}")
 
     def head(self):
+        # [FUNCTION DOC]
+        # HELPER: Writes the DOT preamble: digraph opening, node style (box, optional
+        # filled/rounded style with black border, fontname), optional graph ranksep/spline
+        # line for leaves_parallel, edge font, and rankdir=LR when rotate is set.
         self.out_file.write("digraph Tree {\n")
 
         # Specify node aesthetics
@@ -521,6 +628,20 @@ class _DOTTreeExporter(_BaseTreeExporter):
             self.out_file.write("rankdir=LR ;\n")
 
     def recurse(self, tree, node_id, criterion, parent=None, depth=0):
+        # [FUNCTION DOC]
+        # HELPER: Depth-first pre-order writer. For nodes within max_depth: records the node
+        # id in ranks (leaves or its depth), writes the node with its label and optional fill
+        # color, writes the edge from parent (with True/False head labels and angles flipped
+        # when rotate for root children), then recurses into both children. Nodes beyond
+        # max_depth are written as grey-able "(...)" placeholders with an edge from the
+        # parent and are not expanded.
+        # Inputs: tree - _tree.Tree; node_id - int; criterion; parent - parent id or None;
+        # depth - int, default 0.
+        # Exceptions: ValueError if node_id equals TREE_LEAF.
+        # Side effects: writes to out_file, mutates ranks and colors.
+        # KNOWN ISSUE: the truncated-node branch formats a string with no placeholders
+        # using node_id; this only works because node_id is a numpy integer there (a plain
+        # Python int would raise TypeError).
         if node_id == _tree.TREE_LEAF:
             raise ValueError("Invalid node_id %s" % _tree.TREE_LEAF)
 
@@ -590,11 +711,17 @@ class _DOTTreeExporter(_BaseTreeExporter):
                 self.out_file.write("%d -> %d ;\n" % (parent, node_id))
 
     def str_escape(self, string):
+        # [FUNCTION DOC]
+        # HELPER: Escapes double quotes with a backslash for DOT labels.
         # override default escaping for graphviz
         return string.replace('"', r"\"")
 
 
 class _MPLTreeExporter(_BaseTreeExporter):
+    # [CLASS DOC]
+    # HELPER: Renders a tree on matplotlib axes: converts the tree to a
+    # _reingold_tilford.Tree of labels, lays it out with buchheim and draws one
+    # annotation per node with arrows to the parent.
     def __init__(
         self,
         max_depth=None,
@@ -609,6 +736,9 @@ class _MPLTreeExporter(_BaseTreeExporter):
         precision=3,
         fontsize=None,
     ):
+        # [FUNCTION DOC]
+        # Stores options, sets plain-text characters (newline as line break, no markup),
+        # bbox_args (round box style if rounded), and arrow_args with a "<-" arrow style.
         super().__init__(
             max_depth=max_depth,
             feature_names=feature_names,
@@ -636,6 +766,11 @@ class _MPLTreeExporter(_BaseTreeExporter):
         self.arrow_args = dict(arrowstyle="<-")
 
     def _make_tree(self, node_id, et, criterion, depth=0):
+        # [FUNCTION DOC]
+        # HELPER: Recursively converts _tree.Tree node node_id (et) into a
+        # _reingold_tilford.Tree whose label is node_to_str; children are included only for
+        # split nodes with depth <= max_depth, so nodes at depth max_depth + 1 become leaves.
+        # Outputs: _reingold_tilford.Tree.
         # traverses _tree.Tree recursively, builds intermediate
         # "_reingold_tilford.Tree" object
         name = self.node_to_str(et, node_id, criterion=criterion)
@@ -655,6 +790,15 @@ class _MPLTreeExporter(_BaseTreeExporter):
         return Tree(name, node_id, *children)
 
     def export(self, decision_tree, ax=None):
+        # [FUNCTION DOC]
+        # HELPER: Clears ax (current axes if None) and hides its axis, builds and lays out
+        # the tree, draws it via recurse in axes-fraction coordinates scaled by the layout
+        # extents plus 1, then updates annotation bounding boxes with the canvas renderer.
+        # When fontsize is None, rescales all fonts so the largest box fits the per-node
+        # spacing (minimum of horizontal and vertical ratios).
+        # Inputs: decision_tree - fitted estimator; ax - Axes or None.
+        # Outputs: list of Annotation artists on ax.
+        # Side effects: imports matplotlib, mutates the axes and font sizes.
         import matplotlib.pyplot as plt
         from matplotlib.text import Annotation
 
@@ -706,6 +850,15 @@ class _MPLTreeExporter(_BaseTreeExporter):
         return anns
 
     def recurse(self, node, tree, ax, max_x, max_y, depth=0):
+        # [FUNCTION DOC]
+        # HELPER: Draws node (a DrawTree) and, recursively, its children. Position is
+        # ((x + 0.5) / max_x, (max_y - y - 0.5) / max_y). Within max_depth it draws the
+        # label box (filled color or axes face color) with an arrow from the parent, and for
+        # the root's children a "True" (left child) or "False" edge label at the arrow
+        # midpoint. Beyond max_depth it draws a grey "(...)" box and stops. Z-order decreases
+        # with depth.
+        # Inputs: node - DrawTree; tree - _tree.Tree; ax; max_x, max_y - layout extents;
+        # depth - int. Side effects: adds annotations to ax.
         import matplotlib.pyplot as plt
 
         # kwargs for annotations without a bounding box
@@ -811,6 +964,16 @@ def export_graphviz(
     precision=3,
     fontname="helvetica",
 ):
+    # [FUNCTION DOC]
+    # Public API: optionally validates feature_names (all strings, converted to an
+    # array) and class_names (array unless a bool), checks the tree is fitted, opens
+    # out_file when given a path (utf-8, closed in a finally block) or uses a StringIO
+    # when None, and runs a _DOTTreeExporter.
+    # Outputs: DOT string when out_file is None, otherwise None.
+    # Exceptions: ValueError for non-string feature names or wrong feature_names length;
+    # NotFittedError / TypeError from check_is_fitted for unfitted or non-estimator
+    # input; InvalidParameterError for invalid options.
+    # Side effects: writes to out_file or a created file.
     """Export a decision tree in DOT format.
 
     This function generates a GraphViz representation of the decision tree,
@@ -961,6 +1124,10 @@ def export_graphviz(
 
 
 def _compute_depth(tree, node):
+    # [FUNCTION DOC]
+    # HELPER: Returns the depth of the subtree rooted at node, counting node itself as
+    # depth 1, by recursively visiting all descendants.
+    # Inputs: tree - _tree.Tree; node - int. Outputs: int >= 1.
     """
     Returns the depth of the subtree rooted in node.
     """
@@ -968,6 +1135,10 @@ def _compute_depth(tree, node):
     def compute_depth_(
         current_node, current_depth, children_left, children_right, depths
     ):
+        # [FUNCTION DOC]
+        # HELPER: Recursive visitor appending current_depth of every visited node to the
+        # depths list; descends into both children when both are not -1.
+        # Side effects: mutates depths.
         depths += [current_depth]
         left = children_left[current_node]
         right = children_right[current_node]
@@ -1006,6 +1177,20 @@ def export_text(
     decimals=2,
     show_weights=False,
 ):
+    # [FUNCTION DOC]
+    # Public API: builds an indented text report of the tree rules. Converts names to
+    # arrays, checks fitting, resolves class_names (defaults to classes_), picks the
+    # leaf format (weights and class for classifiers, value list for regressors) and
+    # generic feature_i names when none given, then walks the tree depth-first writing
+    # "name <= threshold" then the left subtree, "name >  threshold" then the right
+    # subtree. Nodes deeper than max_depth + 1 are written as a leaf if their subtree is
+    # a single node, otherwise as "truncated branch of depth d".
+    # Outputs: report string with one line per edge or leaf.
+    # Exceptions: ValueError for class_names or feature_names of wrong length;
+    # NotFittedError if unfitted; InvalidParameterError for invalid options.
+    # KNOWN ISSUE: right_child_fmt is used for the left (<=) branch and left_child_fmt
+    # for the right (>) branch, the names are swapped. The docstring says truncated
+    # branches are marked with "...", but the text "truncated branch of depth" is used.
     """Build a text report showing the rules of a decision tree.
 
     Note that backwards compatibility may not be supported.
@@ -1121,6 +1306,13 @@ def export_text(
     report = StringIO()
 
     def _add_leaf(value, weighted_n_node_samples, class_name, indent):
+        # [FUNCTION DOC]
+        # HELPER: Writes a leaf line. Classifiers: optional weights list (each proportion
+        # times the node weighted sample count, formatted with decimals) followed by
+        # " class: <name>". Regressors: list of output values formatted with decimals.
+        # Side effects: writes to report.
+        # KNOWN ISSUE: contains a no-op expression statement (weighted_n_node_samples on
+        # its own line).
         val = ""
         if isinstance(decision_tree, DecisionTreeClassifier):
             if show_weights:
@@ -1137,6 +1329,13 @@ def export_text(
         report.write(value_fmt.format(indent, "", val))
 
     def print_tree_recurse(report, node, depth):
+        # [FUNCTION DOC]
+        # HELPER: Recursive writer for node at depth (root is 1). Builds the indent from
+        # "|" plus spacing spaces per level, with the last segment replaced by dashes;
+        # determines the node value (first output for multi-output regressors' transposed
+        # values), majority class name for single-output classifiers, then writes split or
+        # leaf lines or truncation text as described in export_text.
+        # Inputs: report - StringIO; node - int; depth - int. Side effects: writes to report.
         indent = ("|" + (" " * spacing)) * depth
         indent = indent[:-spacing] + "-" * spacing
 

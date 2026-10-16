@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Docstring helpers shared by the HTML parameter/attribute tables: building
+# text-fragment links into the online docs and extracting per-item numpydoc
+# descriptions as HTML-escaped tooltip text.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -11,6 +15,17 @@ from sklearn.externals._numpydoc import docscrape
 
 
 def generate_link_to_param_doc(estimator_class, param_name, doc_link):
+    # [FUNCTION DOC]
+    # Builds a URL that scrolls to a parameter's entry in the online docs. Searches the
+    # class docstring for the first line 'param_name : <type>', strips backticks from
+    # the
+    # type, URL-quotes name and type and returns
+    # 'doc_link#:~:text=<name>,-<type>'.
+    # Inputs: estimator_class - class; param_name - str; doc_link - base URL str.
+    # Outputs: str URL, or None if the docstring is missing or has no match.
+    # KNOWN ISSUE: param_name is inserted into the regex unescaped, so names with regex
+    # metacharacters could mis-match; the pattern also matches a longer name ending with
+    # param_name (e.g. 'alpha' inside 'l1_alpha') since there is no left anchor.
     """URL to the relevant section of the docstring using a Text Fragment
 
     https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment/Text_fragments
@@ -34,10 +49,22 @@ def generate_link_to_param_doc(estimator_class, param_name, doc_link):
 
 @lru_cache
 def scrape_estimator_docstring(docstring):
+    # [FUNCTION DOC]
+    # HELPER: Parses a docstring string into a numpydoc NumpyDocString.
+    # Inputs: docstring - str. Outputs: NumpyDocString.
+    # Side effects: results cached without bound by lru_cache keyed on the string.
     return docscrape.NumpyDocString(docstring)
 
 
 def get_docstring(estimator_class, section_name, item):
+    # [FUNCTION DOC]
+    # Looks up item in the given numpydoc section of the class docstring (via
+    # inspect.getdoc, so inherited docs count) and returns 'name: type<br><br>' followed
+    # by
+    # the description lines joined by '<br>', each piece HTML-escaped.
+    # Outputs: str or None when no docstring or item not found.
+    # Exceptions: KeyError-like errors from numpydoc if section_name is not a valid
+    # section; parse warnings/errors from numpydoc propagate.
     """Extract and format docstring information for a specific item.
 
     Parses the estimator's docstring to retrieve documentation for a
