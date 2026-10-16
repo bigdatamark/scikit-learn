@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Top-level benchmark script (no functions). Part 1: on digits (70/30 random split)
+# compares test accuracy of LinearSVC, a degree-2 polynomial SVC, and
+# PolynomialCountSketch or Nystroem (degree-2 poly) followed by LinearSVC, for
+# n_components 20..380 averaged over 5 runs. Part 2: times fit_transform of both
+# approximations on 10000x100 Gaussian data for n_components 500..5500.
+# Side effects: unseeded randomness (split, sketches, data), plots shown.
+# KNOWN ISSUE: the docstring attributes reference [2] (Charikar et al., count
+# sketch) to Nystroem; it actually underlies PolynomialCountSketch. fakeDataY is
+# generated but never used.
 """
 ========================================================================
 Benchmark for explicit feature map approximation of polynomial kernels

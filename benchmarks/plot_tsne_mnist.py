@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Command-line script plotting a 2D t-SNE embedding saved by bench_tsne_mnist,
+# coloured by digit label. Options: --labels (.npy of labels, default 10000-sample
+# file), --embedding (.npy of shape (n, 2)). One scatter series per unique label.
+# Side effects: reads files, opens a matplotlib window.
+# KNOWN ISSUE: np.load is called without allow_pickle, but the labels written by
+# bench_tsne_mnist are an object array, so loading them raises ValueError.
 import argparse
 import os.path as op
 

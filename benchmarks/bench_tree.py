@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Benchmark script timing DecisionTreeClassifier and DecisionTreeRegressor fit plus
+# predict on random Gaussian data: first with 10 features and growing n_samples
+# (20000..110000), then with 100 samples and growing dimension (1000..5500). Results
+# are accumulated in module-level lists and plotted.
+# Side effects: unseeded randomness, prints, matplotlib window.
+# KNOWN ISSUE: the first plot's x axis is range(0, n*step, step) (0..90000) while
+# actual sample counts are 20000..110000.
 """
 To run this, you'll need to have installed.
 
@@ -28,6 +36,11 @@ mu_second = 0.0 + 10**6  # number of microseconds in a second
 
 
 def bench_scikit_tree_classifier(X, Y):
+    # [FUNCTION DOC]
+    # Fits a default DecisionTreeClassifier on (X, Y), predicts X, and appends the
+    # elapsed wall-clock seconds to scikit_classifier_results.
+    # Inputs: X (n_samples, n_features); Y class labels. Output: None.
+    # Side effects: mutates the global result list; gc.collect.
     """Benchmark with scikit-learn decision tree classifier"""
 
     from sklearn.tree import DecisionTreeClassifier
@@ -45,6 +58,9 @@ def bench_scikit_tree_classifier(X, Y):
 
 
 def bench_scikit_tree_regressor(X, Y):
+    # [FUNCTION DOC]
+    # Same as the classifier benchmark with DecisionTreeRegressor; appends to
+    # scikit_regressor_results. Inputs: X; Y continuous targets.
     """Benchmark with scikit-learn decision tree regressor"""
 
     from sklearn.tree import DecisionTreeRegressor

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Windows wheel build helper: copies vcomp140.dll and msvcp140.dll from System32
+# into sklearn/.libs of an unpacked wheel directory and writes
+# sklearn/_distributor_init.py that preloads them with ctypes.WinDLL on import.
+# Usage: script takes exactly one argument, the wheel directory.
 """Embed vcomp140.dll and msvcp140.dll."""
 
 import os
@@ -17,6 +22,11 @@ def make_distributor_init_64_bits(
     vcomp140_dll_filename,
     msvcp140_dll_filename,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Writes the _distributor_init.py source to distributor_init, with the two
+    # DLL file names substituted into paths relative to the package .libs folder.
+    # Inputs: distributor_init output path; DLL base names. Output: None.
+    # Side effects: overwrites the file.
     """Create a _distributor_init.py file for 64-bit architectures.
 
     This file is imported first when importing the sklearn package
@@ -56,6 +66,12 @@ def make_distributor_init_64_bits(
 
 
 def main(wheel_dirname):
+    # [FUNCTION DOC]
+    # Validates that both system DLLs and wheel_dirname exist, creates the .libs
+    # folder if needed, copies the DLLs and generates the distributor init file.
+    # Input: wheel_dirname path to an unpacked wheel.
+    # Exceptions: ValueError if a DLL is missing; RuntimeError if the directory is
+    # missing. Side effects: filesystem writes, prints.
     """Embed vcomp140.dll and msvcp140.dll."""
     if not op.exists(VCOMP140_SRC_PATH):
         raise ValueError(f"Could not find {VCOMP140_SRC_PATH}.")

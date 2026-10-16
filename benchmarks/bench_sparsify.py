@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Top-level script (meant for line_profiler via kernprof) comparing SGDRegressor
+# prediction time with dense coefficients vs sparsified coefficients on sparse-ish
+# input. Builds 5000x300 Gaussian data with most rows zeroed, a coefficient vector
+# with half its entries zeroed, fits an L1 SGDRegressor (alpha 0.2, 2000 iters) on
+# the first half, prints r^2 before/after sparsify and runs 300 predictions each way.
+# Side effects at import: seeds the global NumPy RNG (42), fits a model, prints.
+# KNOWN ISSUE: rows are zeroed using an index derived from n_features instead of
+# n_samples (keeps only 250 non-zero rows). np.random.normal((n_samples,)) treats the
+# tuple as the mean, so the "noise" is a constant offset near 50 instead of small
+# noise. benchmark_sparse_predict passes a sparse matrix while it is the
+# coefficients, not the input, that sparsify affects.
 """
 Benchmark SGD prediction time with dense/sparse coefficients.
 
@@ -53,6 +65,11 @@ np.random.seed(42)
 
 
 def sparsity_ratio(X):
+    # [FUNCTION DOC]
+    # HELPER: Fraction of non-zero entries in X, normalized by the global
+    # n_samples * n_features rather than X's own size.
+    # KNOWN ISSUE: wrong denominator for the coefficient vector and test subset, so the
+    # printed sparsities of those are not true ratios.
     return np.count_nonzero(X) / float(n_samples * n_features)
 
 
@@ -85,17 +102,24 @@ print("model sparsity: %f" % sparsity_ratio(clf.coef_))
 
 
 def benchmark_dense_predict():
+    # [FUNCTION DOC]
+    # Calls clf.predict on the dense global X_test 300 times (profiling target).
     for _ in range(300):
         clf.predict(X_test)
 
 
 def benchmark_sparse_predict():
+    # [FUNCTION DOC]
+    # Converts global X_test to CSR and calls clf.predict on it 300 times (profiling
+    # target).
     X_test_sparse = csr_matrix(X_test)
     for _ in range(300):
         clf.predict(X_test_sparse)
 
 
 def score(y_test, y_pred, case):
+    # [FUNCTION DOC]
+    # HELPER: Prints the r^2 score of y_pred vs y_test labeled with case. Returns None.
     r2 = r2_score(y_test, y_pred)
     print("r^2 on test data (%s) : %f" % (case, r2))
 

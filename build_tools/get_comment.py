@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# CI script for the "Comment on failed linting" GitHub Action: parses the linter
+# job log, builds a Markdown summary of failed checks (ruff check/format, pyrefly,
+# cython-lint, sphinx-lint, codespell, deprecation order, doctest directives,
+# joblib imports), and creates, updates or deletes the bot's PR comment and the
+# "CI:Linter failure" label. Configured through environment variables
+# GITHUB_REPOSITORY, GITHUB_TOKEN, PR_NUMBER, BRANCH_SHA, LOG_FILE, RUN_ID,
+# VERSIONS_FILE. If posting fails (message too long) it retries without details.
+# Exceptions: KeyError for missing variables; ValueError for empty values or
+# non-numeric PR_NUMBER. Side effects: GitHub API writes, prints.
+# KNOWN ISSUE: get_versions runs before the empty-value validation, and BRANCH_SHA
+# and VERSIONS_FILE are not included in that validation.
 # This script is used to generate a comment for a PR when linting issues are
 # detected. It is used by the `Comment on failed linting` GitHub Action.
 
@@ -8,6 +20,10 @@ from github import Auth, Github, GithubException
 
 
 def get_versions(versions_file):
+    # [FUNCTION DOC]
+    # HELPER: Reads "name=version" lines into a dict.
+    # Exceptions: ValueError if a line has no or several "=" (e.g. "pkg==1.0" or a
+    # blank line).
     """Get the versions of the packages used in the linter job.
 
     Parameters
@@ -25,6 +41,12 @@ def get_versions(versions_file):
 
 
 def get_step_message(log, start, end, title, message, details):
+    # [FUNCTION DOC]
+    # HELPER: Returns "" if the end marker is absent from the log; otherwise a
+    # section with a separator, a level-3 title and the message, plus (if details) the
+    # log text strictly between the start and end markers in a collapsible code block.
+    # KNOWN ISSUE: if start is missing, find returns -1 and the excerpt starts near
+    # the beginning of the log.
     """Get the message for a specific test.
 
     Parameters
@@ -67,6 +89,16 @@ def get_step_message(log, start, end, title, message, details):
 
 
 def get_message(log_file, repo_str, pr_number, sha, run_id, details, versions):
+    # [FUNCTION DOC]
+    # Builds the full PR comment. If the log lacks "### Linting completed ###", returns
+    # a message asking to merge upstream/main. Otherwise concatenates step sections for
+    # each failed check (using versions for tool versions), returns None if none
+    # failed, else prefixes a header (plus a merge hint when details is False) and
+    # appends a footer linking the commit and CI run.
+    # Inputs: log_file path; repo_str "owner/name"; pr_number; sha; run_id; details
+    # bool; versions dict. Output: Markdown string or None.
+    # Exceptions: KeyError if versions lacks ruff, pyrefly, cython-lint, sphinx-lint
+    # or codespell. Side effects: reads log_file.
     with open(log_file, "r") as f:
         log = f.read()
 
@@ -251,6 +283,9 @@ def get_message(log_file, repo_str, pr_number, sha, run_id, details, versions):
 
 
 def find_lint_bot_comments(issue):
+    # [FUNCTION DOC]
+    # Returns the first comment on the issue authored by github-actions[bot] whose body
+    # contains "❌ Linting issues", or None. Side effects: GitHub API reads.
     """Get the comment from the linting bot."""
 
     failed_comment = "❌ Linting issues"
@@ -264,6 +299,9 @@ def find_lint_bot_comments(issue):
 
 
 def create_or_update_comment(comment, message, issue):
+    # [FUNCTION DOC]
+    # Edits the given comment with message, or creates a new issue comment when comment
+    # is None. Exceptions: GithubException from the API. Side effects: API write, print.
     """Create a new comment or update the existing linting comment."""
 
     if comment is not None:
@@ -275,6 +313,10 @@ def create_or_update_comment(comment, message, issue):
 
 
 def update_linter_fails_label(linting_failed, issue):
+    # [FUNCTION DOC]
+    # Adds the "CI:Linter failure" label when linting failed, otherwise removes it,
+    # ignoring the error raised when the label is not present.
+    # Exceptions: re-raises other GithubException errors.
     """Add or remove the label indicating that the linting has failed."""
 
     label = "CI:Linter failure"

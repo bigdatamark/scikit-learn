@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Top-level benchmark script measuring run time (mean/std over 3 repeats) and peak
+# memory (memory_profiler) of CountVectorizer, TfidfVectorizer and HashingVectorizer
+# fit_transform on 1000 documents of 20 newsgroups, for word unigrams, word 1-2
+# grams, char 4-grams and char_wb 4-grams. Prints two tables (time and memory)
+# indexed by analyzer and ngram_range with one column per vectorizer.
+# Side effects at import: downloads the dataset, runs the benchmark, prints.
 """
 
 To run this benchmark, you will need,
@@ -27,7 +34,14 @@ n_repeat = 3
 
 
 def run_vectorizer(Vectorizer, X, **params):
+    # [FUNCTION DOC]
+    # HELPER: Returns a zero-argument closure that builds Vectorizer(**params) and
+    # fit-transforms X, for use with timeit and memory_usage.
+    # Inputs: Vectorizer class; X iterable of documents; params constructor kwargs.
     def f():
+        # [FUNCTION DOC]
+        # HELPER: Closure body: constructs the vectorizer and discards the result of
+        # fit_transform on X.
         vect = Vectorizer(**params)
         vect.fit_transform(X)
 

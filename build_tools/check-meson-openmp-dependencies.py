@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# CI check script: compares the set of Cython extensions that use OpenMP according
+# to source code (git grep for cython parallel or _openmp_helpers in .pyx files)
+# with the set built with OpenMP flags according to meson introspection. Raises if
+# they differ, listing extensions missing or wrongly having openmp_dep.
+# Side effects when run: runs "meson setup build/introspect --reconfigure",
+# "meson introspect" and "git grep" subprocesses.
 """
 Check that OpenMP dependencies are correctly defined in meson.build files.
 
@@ -14,10 +21,20 @@ from pathlib import Path
 
 
 def has_source_openmp_flags(target_source):
+    # [FUNCTION DOC]
+    # HELPER: True if any compiler/linker argument of a meson target source contains
+    # "openmp". Input: dict with a "parameters" list of strings.
     return any("openmp" in arg for arg in target_source["parameters"])
 
 
 def has_openmp_flags(target):
+    # [FUNCTION DOC]
+    # HELPER: Returns whether a meson target is built with OpenMP flags. If no source
+    # has OpenMP flags returns False; otherwise asserts there are exactly two sources
+    # (compiler then linker) and that both agree on OpenMP use.
+    # Input: meson introspect target dict. Output: bool.
+    # Exceptions: AssertionError on unexpected source layout or compiler/linker
+    # mismatch.
     """Return whether target sources use OpenMP flags.
 
     Make sure that both compiler and linker source use OpenMP.
@@ -51,6 +68,13 @@ def has_openmp_flags(target):
 
 
 def get_canonical_name_meson(target, build_path):
+    # [FUNCTION DOC]
+    # HELPER: Converts a target's shared library path into a path relative to the build
+    # directory with the Python ABI suffix (".cpython-..." or ".cp312-...") stripped,
+    # using forward slashes. Inputs: target dict; build_path Path.
+    # Output: string such as "sklearn/cluster/_k_means_elkan".
+    # Exceptions: AssertionError unless exactly one filename; ValueError if not under
+    # build_path.
     """Return a name based on generated shared library.
 
     The goal is to return a name that can be easily matched with the output
@@ -73,6 +97,9 @@ def get_canonical_name_meson(target, build_path):
 
 
 def get_canonical_name_git_grep(filename):
+    # [FUNCTION DOC]
+    # HELPER: Strips ".pyx" or ".pyx.tp" from a repository file path to match the
+    # meson canonical name. Output: string.
     """Return name based on filename.
 
     The goal is to return a name that can easily be matched with the output
@@ -82,6 +109,11 @@ def get_canonical_name_git_grep(filename):
 
 
 def get_meson_info():
+    # [FUNCTION DOC]
+    # Configures meson in build/introspect, reads the targets JSON, keeps those with
+    # OpenMP flags, and returns their canonical names. Output: list of strings.
+    # Exceptions: CalledProcessError if meson fails.
+    # Side effects: subprocesses, writes the build directory.
     """Return names of extension that use OpenMP based on meson introspect output.
 
     The meson introspect json info is a list of targets where a target is a dict
@@ -127,6 +159,11 @@ def get_meson_info():
 
 
 def get_git_grep_info():
+    # [FUNCTION DOC]
+    # Lists tracked files matching the OpenMP regex via git grep (Perl regex), keeps
+    # those containing ".pyx", and returns their canonical names.
+    # Output: list of strings. Exceptions: CalledProcessError if git grep fails
+    # (including when nothing matches).
     """Return names of extensions that use OpenMP based on git grep regex."""
     git_grep_filenames = subprocess.check_output(
         ["git", "grep", "-lP", "cython.*parallel|_openmp_helpers"], text=True
@@ -137,6 +174,10 @@ def get_git_grep_info():
 
 
 def main():
+    # [FUNCTION DOC]
+    # Computes both name sets, builds a message describing names only in git grep
+    # (missing openmp_dep) and only in meson (unnecessary openmp_dep).
+    # Exceptions: ValueError with that message when the sets differ.
     from_meson = set(get_meson_info())
     from_git_grep = set(get_git_grep_info())
 

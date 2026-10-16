@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# CI check (runs at import) that the installed scikit-learn wheel ships its license:
+# locates the first scikit_learn-*.dist-info in site-packages and asserts that
+# licenses/COPYING contains a copyright line and the bundled third-party section.
+# Exceptions: RuntimeError if no dist-info is found; AssertionError on missing text;
+# FileNotFoundError if COPYING is absent.
 """Checks the bundled license is installed with the wheel."""
 
 import platform

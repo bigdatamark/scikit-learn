@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Benchmark script timing lars_path / lars_path_gram against orthogonal_mp, with
+# and without a precomputed Gram matrix, on a grid of n_samples x n_features
+# sparse-coded signals. Plots the LARS/OMP time ratios as two heatmaps.
 """Benchmarks of orthogonal matching pursuit (:ref:`OMP`) versus least angle
 regression (:ref:`least_angle_regression`)
 
@@ -15,6 +19,17 @@ from sklearn.linear_model import lars_path, lars_path_gram, orthogonal_mp
 
 
 def compute_bench(samples_range, features_range):
+    # [FUNCTION DOC]
+    # For each (n_samples, n_features) pair builds a sparse coded signal with
+    # n_features//10 non-zero coefficients (random_state 0), transposes the dictionary
+    # into a Fortran-ordered design matrix, and times four solvers each limited to
+    # n_informative steps, calling gc.collect before each timing.
+    # Inputs: samples_range, features_range - sequences of ints.
+    # Output: dict mapping a label to a (len(features_range), len(samples_range)) array
+    # of LARS/OMP time ratios (with Gram and without Gram).
+    # Side effects: prints progress.
+    # KNOWN ISSUE: the __main__ plotting code prefixes tick labels with "" which
+    # assumes old matplotlib tick placement and may mislabel the heatmap axes.
     it = 0
 
     results = dict()

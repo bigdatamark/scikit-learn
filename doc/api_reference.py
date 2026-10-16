@@ -1,7 +1,20 @@
+# [MODULE DOC]
+# Sphinx configuration data for the API reference pages. Defines API_REFERENCE,
+# a dict mapping each public module name to short_summary, description and a list
+# of sections (title, optional description, autosummary entry names relative to the
+# module), and DEPRECATED_API_REFERENCE, mapping a removal version to autosummary
+# entries (currently empty). Consumed by doc/conf.py to render the API index and
+# per-module pages. Pure data plus two string-building helpers; no side effects.
 """Configuration for the API reference documentation."""
 
 
 def _get_guide(*refs, is_developer=False):
+    # [FUNCTION DOC]
+    # HELPER: Builds a bold "User guide." (or "Developer guide." when is_developer)
+    # sentence pointing to one or more :ref: targets, joined as "A section",
+    # "A and B sections" or "A, B, and C sections".
+    # Inputs: refs - one or more reference label strings; is_developer bool.
+    # Output: RST string. Exceptions: IndexError if no refs are given.
     """Get the rst to refer to user/developer guide.
 
     `refs` is several references that can be used in the :ref:`...` directive.
@@ -19,6 +32,10 @@ def _get_guide(*refs, is_developer=False):
 
 
 def _get_submodule(module_name, submodule_name):
+    # [FUNCTION DOC]
+    # HELPER: Returns RST with an automodule directive for module.submodule (pulling in
+    # its docstring) followed by a currentmodule directive resetting to module_name.
+    # Output: string with the two directives separated by a blank line.
     """Get the submodule docstring and automatically add the hook.
 
     `module_name` is e.g. `sklearn.feature_extraction`, and `submodule_name` is e.g.

@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Top-level benchmark script comparing convergence of logistic regression solvers
+# (liblinear primal/dual, sag, newton-cg, lbfgs, SGD log loss, and lightning SVRG/SAG
+# when installed and fit_intercept is False) on RCV1 "CCAT" vs rest (labels +/-1).
+# For increasing max_iter, records training loss, train/test accuracy and fit time,
+# then plots score/loss curves vs time. Train/test split swaps the LYRL2004 split
+# (first 23149 rows are the test set).
+# Side effects at import: downloads RCV1, fits models, creates a joblib cache in
+# the current directory, prints, shows plots.
+# KNOWN ISSUE: Memory(cachedir=...) is not accepted by recent joblib. The SGD
+# regularization uses n_samples of the full dataset while models train on the
+# smaller post-split X, and bench_one's C conversion uses that same global.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +34,12 @@ m = Memory(cachedir=".", verbose=0)
 
 # compute logistic loss
 def get_loss(w, intercept, myX, myy, C):
+    # [FUNCTION DOC]
+    # HELPER: L2-regularized logistic loss averaged over samples: mean of
+    # log(1 + exp(-y * (X w + intercept))) plus ||w||^2 / (2 C n_samples).
+    # Inputs: w coefficients (any shape, flattened); intercept scalar or array; myX
+    # (n_samples, n_features) dense or sparse; myy labels in {-1, +1}; C float.
+    # Output: float. Side effects: prints the data and penalty terms.
     n_samples = myX.shape[0]
     w = w.ravel()
     p = np.mean(np.log(1.0 + np.exp(-myy * (myX.dot(w) + intercept))))
@@ -35,6 +53,14 @@ def get_loss(w, intercept, myX, myy, C):
 # never changes.
 @m.cache()
 def bench_one(name, clf_type, clf_params, n_iter):
+    # [FUNCTION DOC]
+    # Builds an estimator from class and params, sets max_iter (or n_iter as fallback)
+    # and random_state 42, fits on global X, y, and measures fit time. Derives C from
+    # alpha for SGD-like models (1/(alpha*n_samples)) or uses clf.C.
+    # Inputs: name (cache key only), clf_type, clf_params dict, n_iter.
+    # Output: tuple (train_loss, train_score, test_score, duration).
+    # Side effects: reads globals X, y, X_test, y_test, n_samples; results cached by
+    # joblib without hashing the data.
     clf = clf_type(**clf_params)
     try:
         clf.set_params(max_iter=n_iter, random_state=42)
@@ -64,6 +90,10 @@ def bench_one(name, clf_type, clf_params, n_iter):
 
 
 def bench(clfs):
+    # [FUNCTION DOC]
+    # For each 7-tuple (name, estimator, iter_range, and four result lists), runs
+    # bench_one for every n_iter and appends the results to the tuple's lists.
+    # Output: the same clfs list. Side effects: mutates the result lists, prints.
     for (
         name,
         clf,
@@ -100,6 +130,9 @@ def bench(clfs):
 
 
 def plot_train_losses(clfs):
+    # [FUNCTION DOC]
+    # Plots train loss vs fit duration for each classifier in a new figure.
+    # Input: clfs list of 7-tuples as filled by bench.
     plt.figure()
     for name, _, _, train_losses, _, _, durations in clfs:
         plt.plot(durations, train_losses, "-o", label=name)
@@ -109,6 +142,9 @@ def plot_train_losses(clfs):
 
 
 def plot_train_scores(clfs):
+    # [FUNCTION DOC]
+    # Plots train accuracy vs fit duration per classifier; y range fixed to
+    # 0.92-0.96. Input: clfs list of 7-tuples.
     plt.figure()
     for name, _, _, _, train_scores, _, durations in clfs:
         plt.plot(durations, train_scores, "-o", label=name)
@@ -119,6 +155,9 @@ def plot_train_scores(clfs):
 
 
 def plot_test_scores(clfs):
+    # [FUNCTION DOC]
+    # Plots test accuracy vs fit duration per classifier; y range fixed to
+    # 0.92-0.96. Input: clfs list of 7-tuples.
     plt.figure()
     for name, _, _, _, _, test_scores, durations in clfs:
         plt.plot(durations, test_scores, "-o", label=name)
@@ -129,6 +168,10 @@ def plot_test_scores(clfs):
 
 
 def plot_dloss(clfs):
+    # [FUNCTION DOC]
+    # Takes the smallest final train loss over all classifiers as the reference and
+    # plots log10 of the absolute gap to it vs fit duration per classifier.
+    # Input: clfs list of 7-tuples. Side effects: new figure.
     plt.figure()
     pobj_final = []
     for name, _, _, train_losses, _, _, durations in clfs:
@@ -147,6 +190,9 @@ def plot_dloss(clfs):
 
 
 def get_max_squared_sum(X):
+    # [FUNCTION DOC]
+    # HELPER: Maximum over rows of the sum of squared entries. Input: X dense or
+    # sparse (n_samples, n_features). Output: float.
     """Get the maximum row-wise sum of squares"""
     return np.sum(X**2, axis=1).max()
 

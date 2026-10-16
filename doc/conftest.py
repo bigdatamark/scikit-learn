@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# pytest configuration for running doctests in the .rst documentation. Skips
+# dataset-dependent pages when data is not cached or network tests are disabled,
+# skips pages needing pandas, matplotlib or cupy when missing, forces the
+# matplotlib agg backend, clears doctest globals, and skips all doctests on
+# NumPy < 2 or SciPy < 1.14 because their reprs differ.
 import os
 from os import environ
 from os.path import exists, join
@@ -13,12 +19,17 @@ from sklearn.utils.fixes import np_base_version, parse_version, sp_version
 
 
 def setup_labeled_faces():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest unless the LFW data folder exists in the data home.
     data_home = get_data_home()
     if not exists(join(data_home, "lfw_home")):
         raise SkipTest("Skipping dataset loading doctests")
 
 
 def setup_rcv1():
+    # [FUNCTION DOC]
+    # HELPER: Skips when network tests are disabled (check_skip_network) or when the
+    # RCV1 folder is not in the data home.
     check_skip_network()
     # skip the test in rcv1.rst if the dataset is not already loaded
     rcv1_dir = join(get_data_home(), "RCV1")
@@ -27,12 +38,17 @@ def setup_rcv1():
 
 
 def setup_twenty_newsgroups():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest unless the 20 newsgroups pickle cache exists.
     cache_path = _pkl_filepath(get_data_home(), CACHE_NAME)
     if not exists(cache_path):
         raise SkipTest("Skipping dataset loading doctests")
 
 
 def setup_working_with_text_data():
+    # [FUNCTION DOC]
+    # HELPER: Skips when network tests are disabled or the 20 newsgroups cache is
+    # missing (for the text data tutorial).
     check_skip_network()
     cache_path = _pkl_filepath(get_data_home(), CACHE_NAME)
     if not exists(cache_path):
@@ -40,6 +56,9 @@ def setup_working_with_text_data():
 
 
 def setup_loading_other_datasets():
+    # [FUNCTION DOC]
+    # HELPER: Skips when pandas is missing or SKLEARN_SKIP_NETWORK_TESTS is not "0"
+    # (default "1", i.e. skip).
     try:
         import pandas  # noqa: F401
     except ImportError:
@@ -55,6 +74,8 @@ def setup_loading_other_datasets():
 
 
 def setup_compose():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest if pandas cannot be imported (compose.rst).
     try:
         import pandas  # noqa: F401
     except ImportError:
@@ -62,6 +83,8 @@ def setup_compose():
 
 
 def setup_impute():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest if pandas cannot be imported (impute.rst).
     try:
         import pandas  # noqa: F401
     except ImportError:
@@ -69,6 +92,8 @@ def setup_impute():
 
 
 def setup_grid_search():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest if pandas cannot be imported (grid_search.rst).
     try:
         import pandas  # noqa: F401
     except ImportError:
@@ -76,6 +101,8 @@ def setup_grid_search():
 
 
 def setup_preprocessing():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest if pandas cannot be imported (preprocessing.rst).
     try:
         import pandas  # noqa: F401
     except ImportError:
@@ -83,6 +110,9 @@ def setup_preprocessing():
 
 
 def skip_if_matplotlib_not_installed(fname):
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest naming the file's basename if matplotlib is missing.
+    # Input: fname path string.
     try:
         import matplotlib  # noqa: F401
     except ImportError:
@@ -91,6 +121,9 @@ def skip_if_matplotlib_not_installed(fname):
 
 
 def skip_if_cupy_not_installed(fname):
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest naming the file's basename if cupy is missing.
+    # Input: fname path string.
     try:
         import cupy  # noqa: F401
     except ImportError:
@@ -99,6 +132,14 @@ def skip_if_cupy_not_installed(fname):
 
 
 def pytest_runtest_setup(item):
+    # [FUNCTION DOC]
+    # pytest hook run before each item: normalizes the item path to forward slashes
+    # and calls the matching setup_* helper based on the file suffix, then applies the
+    # matplotlib skip for partial_dependence.rst/tree.rst and the cupy skip for
+    # array_api.rst. Exceptions: SkipTest from helpers.
+    # KNOWN ISSUE: datasets/index.rst always enters the first branch, so the
+    # "or is_index" conditions of the later elif branches are unreachable and index.rst
+    # only gets the labeled faces check.
     fname = item.fspath.strpath
     # normalize filename to use forward slashes on Windows for easier handling
     # later
@@ -135,6 +176,9 @@ def pytest_runtest_setup(item):
 
 
 def pytest_configure(config):
+    # [FUNCTION DOC]
+    # pytest hook selecting the matplotlib "agg" backend if matplotlib is installed.
+    # Side effects: global matplotlib backend change.
     # Use matplotlib agg backend during the tests including doctests
     try:
         import matplotlib
@@ -145,6 +189,10 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    # [FUNCTION DOC]
+    # pytest hook after collection: sets an empty globals dict for each doctest item
+    # and, when NumPy < 2 or SciPy < 1.14, adds a skip marker to all doctest items
+    # (the SciPy reason wins if both apply). Side effects: mutates collected items.
     """Called after collect is completed.
 
     Parameters

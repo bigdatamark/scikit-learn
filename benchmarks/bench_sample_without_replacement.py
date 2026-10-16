@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Command-line benchmark of sample_without_replacement methods (auto,
+# tracking_selection, reservoir_sampling, pool) against random.sample and a NumPy
+# permutation. For n_steps sample sizes evenly spaced in [0, n_population], times
+# each selected algorithm n_times, averages, prints arguments and plots time vs
+# n_samples / n_population. Options: --n-times, --n-population, --n-step,
+# --algorithm (comma-separated, validated against the default list).
+# Exceptions: ValueError for unknown algorithm names.
+# Side effects: unseeded randomness, prints, matplotlib window.
 """
 Benchmarks for sampling without replacement of integer.
 
@@ -17,12 +26,19 @@ from sklearn.utils.random import sample_without_replacement
 
 
 def compute_time(t_start, delta):
+    # [FUNCTION DOC]
+    # HELPER: Converts a timedelta to float seconds (seconds + microseconds/1e6).
+    # Inputs: t_start unused; delta timedelta.
+    # KNOWN ISSUE: ignores delta.days.
     mu_second = 0.0 + 10**6  # number of microseconds in a second
 
     return delta.seconds + delta.microseconds / mu_second
 
 
 def bench_sample(sampling, n_population, n_samples):
+    # [FUNCTION DOC]
+    # Times one call sampling(n_population, n_samples) with wall-clock time after a
+    # gc.collect. Output: float seconds.
     gc.collect()
     # start time
     t_start = datetime.now()

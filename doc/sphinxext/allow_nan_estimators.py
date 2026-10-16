@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Sphinx extension providing the "allow_nan_estimators" directive, which renders
+# bullet lists, per estimator type, of scikit-learn estimators whose tags declare
+# allow_nan for at least one of their test instances, each linked to its generated
+# API page.
 from contextlib import suppress
 
 from docutils import nodes
@@ -9,8 +14,18 @@ from sklearn.utils._testing import SkipTest
 
 
 class AllowNanEstimators(Directive):
+    # [CLASS DOC]
+    # docutils Directive with no arguments or content; run builds the nested list for
+    # cluster, regressor, classifier and transformer types.
     @staticmethod
     def make_paragraph_for_estimator_type(estimator_type):
+        # [FUNCTION DOC]
+        # HELPER: For one type, iterates all_estimators, constructs test instances (skipping
+        # estimators raising SkipTest) and keeps those where any instance has
+        # input_tags.allow_nan. Each kept estimator gets a link to
+        # ./generated/<top two module levels>.<ClassName>.html.
+        # Input: estimator_type string. Output: list with one list_item (bold intro,
+        # literal type name, nested bullet list) or None if no estimator qualifies.
         intro = nodes.list_item()
         intro += nodes.strong(text="Estimators that allow NaN values for type ")
         intro += nodes.literal(text=f"{estimator_type}")
@@ -44,6 +59,9 @@ class AllowNanEstimators(Directive):
         return [intro] if exists else None
 
     def run(self):
+        # [FUNCTION DOC]
+        # Builds and returns a single bullet list holding the non-empty per-type items.
+        # Output: list of docutils nodes.
         lst = nodes.bullet_list()
         for i in ["cluster", "regressor", "classifier", "transformer"]:
             item = self.make_paragraph_for_estimator_type(i)
@@ -53,6 +71,9 @@ class AllowNanEstimators(Directive):
 
 
 def setup(app):
+    # [FUNCTION DOC]
+    # Sphinx entry point registering the directive. Output: metadata dict with
+    # version 0.1 and parallel read/write safety flags.
     app.add_directive("allow_nan_estimators", AllowNanEstimators)
 
     return {

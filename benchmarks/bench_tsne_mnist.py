@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Command-line benchmark of sklearn TSNE (optionally vs the reference bhtsne binary)
+# on MNIST subsets of 100..10000 (or 70000 with --all) samples after optional PCA.
+# For each size and method it saves inputs, labels and embeddings as .npy files and
+# appends durations to a JSON log in mnist_tsne_output/, printing a 1-NN
+# neighbourhood-preservation score. Options: --order, --perplexity, --bhtsne, --all,
+# --profile (memory_profiler), --verbose, --pca-components.
+# Side effects at import: creates mnist_tsne_output/ and a joblib Memory cache there.
+# KNOWN ISSUE: TSNE is built with n_iter=1000, a parameter renamed to max_iter and
+# removed in recent scikit-learn. Labels are saved from a pandas categorical
+# Series, producing an object array that plot_tsne_mnist cannot load without
+# allow_pickle.
 """
 =============================
 MNIST dataset T-SNE benchmark
@@ -34,6 +46,13 @@ memory = Memory(os.path.join(LOG_DIR, "mnist_tsne_benchmark_data"), mmap_mode="r
 
 @memory.cache
 def load_data(dtype=np.float32, order="C", shuffle=True, seed=0):
+    # [FUNCTION DOC]
+    # Fetches MNIST (mnist_784) from OpenML, converts features to a contiguous array of
+    # the given dtype/order, optionally shuffles with seed, and scales to [0, 1].
+    # Inputs: dtype (default float32); order "C"/"F"; shuffle bool; seed int.
+    # Output: tuple (X (70000, 784), y labels Series).
+    # Side effects: network I/O; result cached on disk and memmapped read-only.
+    # KNOWN ISSUE: the docstring mentions a train/test split that is not performed.
     """Load the data, then cache and memmap the train/test split"""
     print("Loading dataset...")
     data = fetch_openml("mnist_784", as_frame=True)
@@ -50,6 +69,12 @@ def load_data(dtype=np.float32, order="C", shuffle=True, seed=0):
 
 
 def nn_accuracy(X, X_embedded, k=1):
+    # [FUNCTION DOC]
+    # Fraction of samples whose single nearest neighbour (excluding itself) is the same
+    # in the original space and the embedding.
+    # Inputs: X (n, d); X_embedded (n, 2); k unused. Output: float in [0, 1].
+    # KNOWN ISSUE: k is ignored (always 1) and the score measures neighbour
+    # preservation, not classification accuracy as the docstring suggests.
     """Accuracy of the first nearest neighbor"""
     knn = NearestNeighbors(n_neighbors=1, n_jobs=-1)
     _, neighbors_X = knn.fit(X).kneighbors()
@@ -58,11 +83,17 @@ def nn_accuracy(X, X_embedded, k=1):
 
 
 def tsne_fit_transform(model, data):
+    # [FUNCTION DOC]
+    # HELPER: Fit-transforms data with the given TSNE model and returns
+    # (embedding, model.n_iter_).
     transformed = model.fit_transform(data)
     return transformed, model.n_iter_
 
 
 def sanitize(filename):
+    # [FUNCTION DOC]
+    # HELPER: Makes a method name filename-safe by replacing "/" with "-" and spaces
+    # with "_".
     return filename.replace("/", "-").replace(" ", "_")
 
 
@@ -145,6 +176,9 @@ $ cd ..
             ) from e
 
         def bhtsne(X):
+            # [FUNCTION DOC]
+            # HELPER: Runs the reference bhtsne on X without its own PCA using the CLI
+            # perplexity and verbosity; returns (embedding, -1) since iterations are unknown.
             """Wrapper for the reference lvdmaaten/bhtsne implementation."""
             # PCA preprocessing is done elsewhere in the benchmark script
             n_iter = -1  # TODO find a way to report the number of iterations

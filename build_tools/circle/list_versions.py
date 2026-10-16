@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# [MODULE DOC]
+# Script (runs at import) generating the documentation "available versions" RST
+# page and the pydata-sphinx-theme version switcher JSON. Lists the
+# scikit-learn.github.io repository root via the GitHub API, and for each version
+# directory (digit-prefixed or dev/stable) reads the version from its index.html
+# title and the size of its downloadable docs archive; symlinked directories reuse
+# their target's data. Outputs dev, stable, then versions in decreasing order,
+# skipping duplicate version numbers; JSON keeps only the first 8 entries with
+# stable marked preferred. Required CLI args: --rst and --json output paths.
+# Exceptions: ValueError when a version cannot be parsed from a page; network
+# errors propagate. Side effects: HTTP requests, writes two files, prints.
+# KNOWN ISSUE: the JSON limit uses the loop index, which also counts skipped
+# duplicate entries, so fewer than 8 versions may be kept.
 
 # Write the available versions page (--rst) and the version switcher JSON (--json).
 # Version switcher see:
@@ -15,6 +28,9 @@ from sklearn.utils.fixes import parse_version
 
 
 def json_urlread(url):
+    # [FUNCTION DOC]
+    # HELPER: Fetches url and parses its body as UTF-8 JSON.
+    # Exceptions: re-raises any error after printing the url to stderr.
     try:
         return json.loads(urlopen(url).read().decode("utf8"))
     except Exception:
@@ -23,6 +39,12 @@ def json_urlread(url):
 
 
 def human_readable_data_quantity(quantity, multiple=1024):
+    # [FUNCTION DOC]
+    # HELPER: Formats a byte count with a binary (multiple 1024, KiB...) or decimal
+    # (1000, KB...) suffix; bytes as integer, larger units with one decimal.
+    # Inputs: quantity number; multiple 1000 or 1024. Output: string.
+    # Exceptions: KeyError for other multiples.
+    # KNOWN ISSUE: the quantity == 0 branch assigns +0, a no-op.
     # https://stackoverflow.com/questions/1094841/reusable-library-to-get-human-readable-version-of-file-size
     if quantity == 0:
         quantity = +0
@@ -38,6 +60,9 @@ def human_readable_data_quantity(quantity, multiple=1024):
 
 
 def get_file_extension(version):
+    # [FUNCTION DOC]
+    # HELPER: Returns the docs archive extension: "zip" for dev versions and versions
+    # >= 0.24, otherwise "pdf". Input: version string.
     if "dev" in version:
         # The 'dev' branch should be explicitly handled
         return "zip"
@@ -49,6 +74,11 @@ def get_file_extension(version):
 
 
 def get_file_size(version):
+    # [FUNCTION DOC]
+    # HELPER: Lists the _downloads folder of a version directory via the GitHub API and
+    # returns the human readable (decimal) size of scikit-learn-docs.<ext>, or None if
+    # absent. Input: directory name used for both the URL and the extension.
+    # Side effects: HTTP request; uses global ROOT_URL.
     api_url = ROOT_URL + "%s/_downloads" % version
     for path_details in json_urlread(api_url):
         file_extension = get_file_extension(version)

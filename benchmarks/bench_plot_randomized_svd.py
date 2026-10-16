@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Benchmark script for the power-iteration phase of randomized_svd (and fbpca if
+# installed). Three experiments: (a) time vs normalized reconstruction error for
+# each normalizer (none, LU, QR) over n_iter 0..5 per dataset; (b) error vs n_iter
+# on low-rank matrices of varying rank and n_components; (c) default configurations
+# across datasets. Errors are Frobenius (spectral optional via enable_spectral_norm).
+# Module globals: enable_spectral_norm flag, MAX_MEMORY threshold for batched norms,
+# CIFAR/SVHN local folders, dataset name lists. Side effects at import: tries to
+# import fbpca. Running downloads datasets, prints, and shows plots.
+# KNOWN ISSUE: several functions read the global random_state, which is only
+# defined inside the __main__ block, so they fail with NameError when imported.
 """
 Benchmarks on the power iterations phase in randomized SVD.
 
@@ -133,17 +144,33 @@ big_sparse_datasets = ["big sparse matrix", "rcv1"]
 
 
 def unpickle(file_name):
+    # [FUNCTION DOC]
+    # HELPER: Loads a CIFAR-10 pickle batch file (latin1 encoding) and returns its
+    # "data" array (10000, 3072). Side effects: file I/O.
     with open(file_name, "rb") as fo:
         return pickle.load(fo, encoding="latin1")["data"]
 
 
 def handle_missing_dataset(file_folder):
+    # [FUNCTION DOC]
+    # HELPER: Returns 0 and prints a skip message if the folder does not exist;
+    # otherwise returns None implicitly. Input: file_folder path string.
     if not os.path.isdir(file_folder):
         print("%s file folder not found. Test skipped." % file_folder)
         return 0
 
 
 def get_data(dataset_name):
+    # [FUNCTION DOC]
+    # Returns the data matrix for a named dataset: sklearn fetchers (lfw, 20newsgroups
+    # truncated to 100000 columns, olivetti, rcv1), local CIFAR batches stacked, local
+    # SVHN images flattened to 3072-vectors, synthetic low-rank (500x10000, rank 100) or
+    # sparse-uncorrelated matrices, a 1e6 x 1e4 random sparse CSR matrix with values
+    # repeated in groups of 10, or fetch_openml for any other name.
+    # Input: dataset_name string. Output: dense array or sparse matrix, or None when a
+    # local dataset folder is missing.
+    # Side effects: downloads/reads files, prints; uses global random_state and
+    # unseeded np.random for the big sparse matrix.
     print("Getting dataset: %s" % dataset_name)
 
     if dataset_name == "lfw_people":
@@ -198,6 +225,13 @@ def get_data(dataset_name):
 
 
 def plot_time_vs_s(time, norm, point_labels, title):
+    # [FUNCTION DOC]
+    # Line plot of normalized error vs running time per method, each point annotated
+    # with its label (number of power iterations). Non-fbpca lines get colors from a
+    # 3-element list; fbpca is red triangles.
+    # Inputs: time, norm - dicts method -> list of floats; point_labels - sequence;
+    # title - string. Side effects: new matplotlib figure.
+    # KNOWN ISSUE: more than three non-fbpca methods would exhaust the color list.
     plt.figure()
     colors = ["g", "b", "y"]
     for i, l in enumerate(sorted(norm.keys())):
@@ -222,6 +256,10 @@ def plot_time_vs_s(time, norm, point_labels, title):
 
 
 def scatter_time_vs_s(time, norm, point_labels, title):
+    # [FUNCTION DOC]
+    # Scatter plot of normalized error vs running time per method with rotated,
+    # arrowed annotations (below for sklearn, above for fbpca).
+    # Inputs as plot_time_vs_s; point_labels are dataset names. Side effects: figure.
     plt.figure()
     size = 100
     for i, l in enumerate(sorted(norm.keys())):
@@ -261,6 +299,10 @@ def scatter_time_vs_s(time, norm, point_labels, title):
 
 
 def plot_power_iter_vs_s(power_iter, s, title):
+    # [FUNCTION DOC]
+    # Plots normalized error vs number of power iterations, one line per label.
+    # Inputs: power_iter sequence (x values); s dict label -> list; title.
+    # Side effects: new matplotlib figure.
     plt.figure()
     for l in sorted(s.keys()):
         plt.plot(power_iter, s[l], label=l, marker="o")
@@ -273,6 +315,11 @@ def plot_power_iter_vs_s(power_iter, s, title):
 def svd_timing(
     X, n_comps, n_iter, n_oversamples, power_iteration_normalizer="auto", method=None
 ):
+    # [FUNCTION DOC]
+    # Times one truncated SVD: randomized_svd (given normalizer, transpose=False,
+    # global random_state) or fbpca.pca when method is "fbpca" (oversampling converted
+    # to fbpca's l = n_oversamples + n_comps). Runs gc.collect before timing.
+    # Outputs: tuple (U, s, V, seconds). Side effects: prints.
     """
     Measure time for decomposition
     """
@@ -303,6 +350,13 @@ def svd_timing(
 
 
 def norm_diff(A, norm=2, msg=True, random_state=None):
+    # [FUNCTION DOC]
+    # Computes the norm of A: for norm 2 the largest singular value via ARPACK svds
+    # with a reproducible start vector; otherwise scipy sparse or dense matrix norm.
+    # Inputs: A dense or sparse; norm 2 or "fro"; msg toggles a print; random_state
+    # for the ARPACK start vector.
+    # Output: for norm 2 a length-1 array, otherwise a float.
+    # KNOWN ISSUE: docstring mentions "*params" which do not exist.
     """
     Compute the norm diff with the original matrix, when randomized
     SVD is called with *params.
@@ -325,6 +379,12 @@ def norm_diff(A, norm=2, msg=True, random_state=None):
 
 
 def scalable_frobenius_norm_discrepancy(X, U, s, V):
+    # [FUNCTION DOC]
+    # Frobenius norm of X - U diag(s) V. Dense or small sparse inputs are reconstructed
+    # in one go; large sparse inputs are processed in row batches of 1000.
+    # Outputs: float.
+    # KNOWN ISSUE: the batched branch sums per-batch Frobenius norms and then takes a
+    # square root; it should sum squared norms, so the result is wrong for large data.
     if not sp.sparse.issparse(X) or (
         X.shape[0] * X.shape[1] * X.dtype.itemsize < MAX_MEMORY
     ):
@@ -344,6 +404,12 @@ def scalable_frobenius_norm_discrepancy(X, U, s, V):
 
 
 def bench_a(X, dataset_name, power_iter, n_oversamples, n_comps):
+    # [FUNCTION DOC]
+    # Experiment (a): for each n_iter in power_iter and each normalizer (none, LU, QR)
+    # and optionally fbpca, records runtime and error normalized by the norm of X, then
+    # plots error vs time annotated with n_iter.
+    # Inputs: X; dataset_name for titles; power_iter sequence; n_oversamples; n_comps.
+    # Side effects: prints, creates figures.
     all_time = defaultdict(list)
     if enable_spectral_norm:
         all_spectral = defaultdict(list)
@@ -399,6 +465,12 @@ def bench_a(X, dataset_name, power_iter, n_oversamples, n_comps):
 
 
 def bench_b(power_list):
+    # [FUNCTION DOC]
+    # Experiment (b): for ranks 10, 50, 100 builds a 1000x10000 low-rank matrix
+    # (tail_strength 0.7) and for n_components in rank/2, rank, 2*rank records the
+    # normalized error of LU-normalized randomized_svd for each n_iter in power_list.
+    # Side effects: prints, creates figures.
+    # KNOWN ISSUE: plotting uses the global power_iter instead of power_list.
     n_samples, n_features = 1000, 10000
     data_params = {
         "n_samples": n_samples,
@@ -445,6 +517,13 @@ def bench_b(power_list):
 
 
 def bench_c(datasets, n_comps):
+    # [FUNCTION DOC]
+    # Experiment (c): for each loadable dataset, runs sklearn (n_iter 2, oversamples
+    # 10) and fbpca (n_iter 2, oversamples 2) with n_comps capped by the smallest
+    # dimension, records time and normalized error, and scatter-plots them.
+    # Exceptions: ValueError if no dataset could be loaded.
+    # KNOWN ISSUE: annotations zip all dataset names with only the loaded results, so
+    # labels shift when a dataset was skipped; n_comps is overwritten cumulatively.
     all_time = defaultdict(list)
     if enable_spectral_norm:
         all_spectral = defaultdict(list)

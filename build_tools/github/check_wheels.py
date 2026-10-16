@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# CI script (runs at import) verifying that dist/ contains exactly one artifact per
+# entry of the build_wheels matrix in .github/workflows/wheels.yml plus one sdist.
+# Prints the found files on success; exits with status 1 and a message otherwise.
+# Side effects: reads files relative to the current directory.
 """Checks that dist/* contains the number of wheels built from the
 .github/workflows/wheels.yml config."""
 

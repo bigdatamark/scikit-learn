@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Benchmark of sklearn SAGA vs liblinear vs lightning SAGA logistic regression,
+# with l1 or l2 penalty, binary or multinomial targets, float64 and float32. For
+# increasing max_iter it records fit time, regularized train/test objective and test
+# accuracy, writes results to bench_saga.json and plots them to PNG files.
+# Side effects when run: downloads RCV1, writes JSON and figures/ directory.
+# KNOWN ISSUE: uses time.clock, removed in Python 3.8, so fit_single fails on
+# current Python.
 """
 Benchmarks of sklearn SAGA vs lightning SAGA vs Liblinear. Shows the gain
 in using multinomial logistic regression in term of learning time.
@@ -39,6 +47,19 @@ def fit_single(
     skip_slow=False,
     dtype=np.float64,
 ):
+    # [FUNCTION DOC]
+    # Fits one solver on a stratified train/test split (random_state 42) for max_iter
+    # 1, 3, 5, ... up to max_iter. Uses OneVsRest for binary targets or non sag/saga
+    # solvers, otherwise native multinomial. l2 sets alpha = 1/(C n_train) and
+    # l1_ratio 0; l1 sets beta = 1/(C n_train) and l1_ratio 1. Objective is the summed
+    # log loss divided by n_train plus 0.5 alpha ||coef||^2 + beta ||coef||_1.
+    # Inputs: solver ("saga", "liblinear", "lightning", ...); X, y; penalty "l1"/"l2";
+    # single_target bool; C; max_iter; skip_slow skips lightning with l1; dtype.
+    # Output: tuple (last estimator, times, train_scores, test_scores, accuracies),
+    # each list starting with a placeholder (0 time, score 1, chance accuracy), or None
+    # when skipped.
+    # Side effects: prints progress; imports lightning lazily.
+    # KNOWN ISSUE: the test objective is also divided by the training sample count.
     if skip_slow and solver == "lightning" and penalty == "l1":
         print("skip_slowping l1 logistic regression with solver lightning.")
         return
@@ -143,6 +164,12 @@ def fit_single(
 
 
 def _predict_proba(lr, X):
+    # [FUNCTION DOC]
+    # HELPER: Softmax of linear scores X coef^T (+ intercept_ if present) for
+    # lightning models lacking multiclass predict_proba.
+    # Output: array (n_samples, n_classes).
+    # KNOWN ISSUE: in-place addition into pred may fail or mutate if safe_sparse_dot
+    # returns a sparse/readonly result; the softmax helper also modifies its input.
     """Predict proba for lightning for n_classes >=3."""
     pred = safe_sparse_dot(X, lr.coef_.T)
     if hasattr(lr, "intercept_"):
@@ -160,6 +187,18 @@ def exp(
     n_jobs=1,
     skip_slow=False,
 ):
+    # [FUNCTION DOC]
+    # Loads a dataset (rcv1, digits, iris or 20newspaper), optionally binarizes the
+    # target, truncates to n_samples rows, and runs fit_single in parallel for every
+    # solver and dtype; stores per-run results as a list of dicts in bench_saga.json.
+    # Inputs: solvers list; penalty; single_target; n_samples (None for all); max_iter;
+    # dataset name; n_jobs; skip_slow.
+    # Side effects: network I/O, writes bench_saga.json in the working directory.
+    # KNOWN ISSUE: Parallel produces outputs in solver-major order while the result
+    # loop reads them in dtype-major order, so solver/dtype labels are mismatched.
+    # For 20newspaper the second assignment (y <= 16 set to 0) overrides the first,
+    # making almost all labels 0. RCV1 targets are multilabel, so inverse_transform
+    # of LabelBinarizer picks one label per row.
     dtypes_mapping = {
         "float64": np.float64,
         "float32": np.float32,
@@ -245,6 +284,15 @@ def exp(
 
 
 def plot(outname=None):
+    # [FUNCTION DOC]
+    # Reads bench_saga.json and, for each single_target group, draws a 4-panel figure:
+    # train objective vs time, test objective vs time, test accuracy vs time, and train
+    # objective vs iteration; saves it to outname (default derived from the name).
+    # Input: outname - output path or None.
+    # Side effects: file read and PNG write.
+    # KNOWN ISSUE: reads the global "penalty" set only in __main__ (NameError when
+    # imported); ylabels claim objectives are "relative to min" but raw values are
+    # plotted; with several groups the same outname is overwritten.
     import pandas as pd
 
     with open("bench_saga.json", "r") as f:

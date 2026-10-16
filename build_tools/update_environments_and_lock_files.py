@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Maintenance CLI (click) that regenerates CI environment specifications and lock
+# files from the declarative build_metadata_list. Each build entry has name, type
+# ("conda" or "pip"), tag, folder, and either platform/channels/conda_dependencies
+# (optionally pip_dependencies, virtual_package_spec) or python_version/
+# pip_dependencies, plus optional package_constraints overriding
+# default_package_constraints ("min" means look up the minimum version in
+# sklearn/_min_dependencies.py). Conda builds get <name>_environment.yml and a
+# conda-lock explicit lock file; pip builds get <name>_requirements.txt and a
+# pip-compile <name>_lock.txt produced in a dedicated conda env with the right
+# Python. Module-level state: a logger with a stream handler, a custom TRACE level,
+# and a jinja2 Environment registering the get_package_with_constraint filter.
 """Script to update CI environment files and associated lock files.
 
 To run it you need to be in the root folder of the scikit-learn repo:
@@ -99,6 +111,9 @@ default_package_constraints = {
 
 
 def remove_from(alist, to_remove):
+    # [FUNCTION DOC]
+    # HELPER: Returns a new list with the items of alist not present in to_remove,
+    # preserving order.
     return [each for each in alist if each not in to_remove]
 
 
@@ -529,6 +544,11 @@ build_metadata_list = [
 
 
 def execute_command(command_list):
+    # [FUNCTION DOC]
+    # HELPER: Runs a command (list of args) capturing stdout/stderr, decoded with
+    # replacement of invalid bytes. Output: stdout string.
+    # Exceptions: RuntimeError with exit code, command, stdout and stderr on non-zero
+    # exit. Side effects: subprocess; logs the command (DEBUG) and output (TRACE).
     logger.debug(" ".join(command_list))
     proc = subprocess.Popen(
         command_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -551,6 +571,13 @@ def execute_command(command_list):
 
 
 def get_package_with_constraint(package_name, build_metadata, uses_pip=False):
+    # [FUNCTION DOC]
+    # Returns the dependency spec for package_name in a build: the build-specific
+    # constraint, else the default one, else the bare name. "min" is replaced by the
+    # version printed by sklearn/_min_dependencies.py with a "  # min" comment; a
+    # constraint starting with a digit gets "==" (pip) or "=" (conda) prepended.
+    # Inputs: package_name; build_metadata dict; uses_pip bool. Output: string such as
+    # "numpy==1.24.1  # min". Side effects: may run a subprocess.
     build_package_constraints = build_metadata.get("package_constraints")
     if build_package_constraints is None:
         constraint = None
@@ -581,6 +608,10 @@ environment.filters["get_package_with_constraint"] = get_package_with_constraint
 
 
 def get_conda_environment_content(build_metadata):
+    # [FUNCTION DOC]
+    # Renders the conda environment.yml text (header comment, channels, conda
+    # dependencies with constraints, and a pip section when pip_dependencies is
+    # non-empty). Input: build_metadata dict. Output: string.
     template = environment.from_string(
         """
 # DO NOT EDIT: this file is generated from the specification found in the
@@ -606,6 +637,9 @@ dependencies:
 
 
 def write_conda_environment(build_metadata):
+    # [FUNCTION DOC]
+    # Writes the rendered conda environment to <folder>/<name>_environment.yml.
+    # Side effects: file write, debug log.
     content = get_conda_environment_content(build_metadata)
     build_name = build_metadata["name"]
     folder_path = Path(build_metadata["folder"])
@@ -615,6 +649,8 @@ def write_conda_environment(build_metadata):
 
 
 def write_all_conda_environments(build_metadata_list):
+    # [FUNCTION DOC]
+    # HELPER: Calls write_conda_environment for every build in the list.
     for build_metadata in build_metadata_list:
         write_conda_environment(build_metadata)
 
@@ -622,6 +658,10 @@ def write_all_conda_environments(build_metadata_list):
 def conda_lock(
     environment_path, lock_file_path, platform, virtual_package_spec_path=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs conda-lock (mamba, explicit kind) for one platform on the
+    # environment file, writing lock_file_path, optionally with a virtual package spec.
+    # Exceptions: RuntimeError from execute_command.
     cmd = [
         "conda-lock",
         "lock",
@@ -642,6 +682,10 @@ def conda_lock(
 
 
 def create_conda_lock_file(build_metadata):
+    # [FUNCTION DOC]
+    # Derives the lock file name (<name>[_<platform>]_conda.lock, the platform suffix
+    # added only if the name does not already end with it) and the optional virtual
+    # package spec path, then runs conda_lock. Input: conda build_metadata dict.
     build_name = build_metadata["name"]
     folder_path = Path(build_metadata["folder"])
     environment_path = folder_path / f"{build_name}_environment.yml"
@@ -662,12 +706,17 @@ def create_conda_lock_file(build_metadata):
 
 
 def write_all_conda_lock_files(build_metadata_list):
+    # [FUNCTION DOC]
+    # HELPER: Logs and creates the conda lock file for each build in the list.
     for build_metadata in build_metadata_list:
         logger.info(f"# Locking dependencies for {build_metadata['name']}")
         create_conda_lock_file(build_metadata)
 
 
 def get_pip_requirements_content(build_metadata):
+    # [FUNCTION DOC]
+    # Renders requirements.txt text: header comment then one constrained pip
+    # dependency per line. Input: pip build_metadata dict. Output: string.
     template = environment.from_string(
         """
 # DO NOT EDIT: this file is generated from the specification found in the
@@ -681,6 +730,9 @@ def get_pip_requirements_content(build_metadata):
 
 
 def write_pip_requirements(build_metadata):
+    # [FUNCTION DOC]
+    # Writes the rendered requirements to <folder>/<name>_requirements.txt.
+    # Side effects: file write, debug log.
     build_name = build_metadata["name"]
     content = get_pip_requirements_content(build_metadata)
     folder_path = Path(build_metadata["folder"])
@@ -690,11 +742,16 @@ def write_pip_requirements(build_metadata):
 
 
 def write_all_pip_requirements(build_metadata_list):
+    # [FUNCTION DOC]
+    # HELPER: Calls write_pip_requirements for every build in the list.
     for build_metadata in build_metadata_list:
         write_pip_requirements(build_metadata)
 
 
 def pip_compile(pip_compile_path, requirements_path, lock_file_path):
+    # [FUNCTION DOC]
+    # HELPER: Runs pip-compile --upgrade on requirements_path writing lock_file_path.
+    # Exceptions: RuntimeError from execute_command.
     execute_command(
         [
             str(pip_compile_path),
@@ -707,6 +764,13 @@ def pip_compile(pip_compile_path, requirements_path, lock_file_path):
 
 
 def write_pip_lock_file(build_metadata):
+    # [FUNCTION DOC]
+    # Creates (or recreates) a conda env pip-tools-python<version> with that Python,
+    # pip 25.3 and pip-tools, finds its folder from "conda info --json", and runs its
+    # pip-compile to produce <folder>/<name>_lock.txt from the requirements file.
+    # Input: pip build_metadata dict. Exceptions: RuntimeError on command failure;
+    # StopIteration if the env folder is not found.
+    # Side effects: creates a conda environment, writes the lock file.
     build_name = build_metadata["name"]
     python_version = build_metadata["python_version"]
     environment_name = f"pip-tools-python{python_version}"
@@ -747,12 +811,18 @@ def write_pip_lock_file(build_metadata):
 
 
 def write_all_pip_lock_files(build_metadata_list):
+    # [FUNCTION DOC]
+    # HELPER: Logs and writes the pip lock file for each build in the list.
     for build_metadata in build_metadata_list:
         logger.info(f"# Locking dependencies for {build_metadata['name']}")
         write_pip_lock_file(build_metadata)
 
 
 def check_conda_lock_version():
+    # [FUNCTION DOC]
+    # Compares installed conda-lock version with the one declared in
+    # _min_dependencies.py. Exceptions: RuntimeError if they differ;
+    # PackageNotFoundError if conda-lock is not installed.
     # Check that the installed conda-lock version is consistent with _min_dependencies.
     expected_conda_lock_version = execute_command(
         [sys.executable, "sklearn/_min_dependencies.py", "conda-lock"]
@@ -767,6 +837,9 @@ def check_conda_lock_version():
 
 
 def check_conda_version():
+    # [FUNCTION DOC]
+    # Rejects conda versions strictly between 22.9.0 and 23.7 (virtual package bugs).
+    # Exceptions: RuntimeError for such versions. Side effects: runs conda info.
     # Avoid issues with glibc (https://github.com/conda/conda-lock/issues/292)
     # or osx (https://github.com/conda/conda-lock/issues/408) virtual package.
     # The glibc one has been fixed in conda 23.1.0 and the osx has been fixed
@@ -817,6 +890,14 @@ def check_conda_version():
     help="Print output of commands executed by the script",
 )
 def main(select_build, skip_build, select_tag, verbose, very_verbose):
+    # [FUNCTION DOC]
+    # CLI entry point. Sets log level (DEBUG for -v, TRACE for -vv), checks conda-lock
+    # and conda versions, filters builds by --select-build regex, --select-tag and
+    # --skip-build regex, logs the selection, then writes environments and lock files
+    # for selected conda builds and requirements and lock files for selected pip builds.
+    # KNOWN ISSUE: --select-tag filters the full build list instead of the
+    # --select-build result, so it discards the --select-build filter despite its help
+    # text saying it is applied on top of it.
     if verbose:
         logger.setLevel(logging.DEBUG)
     if very_verbose:

@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Top-level benchmark script comparing ElasticNet (coordinate descent), SGDRegressor,
+# averaged SGDRegressor and Ridge on make_regression data for 5 training sizes
+# (100..10000) and 10/100/1000 features, with a 1000-sample test set. Training data
+# is shuffled (seed 13) and standardized (X and y with train statistics). Records
+# test MSE and fit time and plots RMSE and sqrt(time) vs n_train.
+# Side effects: prints at import; plots when run as script; unseeded make_regression.
+# KNOWN ISSUE: the descriptive string sits after the imports, so it is not the
+# module docstring and print(__doc__) prints None. The timing panels plot the
+# square root of the times while labeled "Time [sec]". A-SGD sets average to
+# max_iter*n_train/2 samples, which tol-based early stopping usually never reaches.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 

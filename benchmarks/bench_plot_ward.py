@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Top-level benchmark script (no functions) comparing AgglomerativeClustering
+# (ward, 3 clusters) fit time against scipy.cluster.hierarchy.ward on Gaussian
+# data over a log-spaced grid of n_samples (about 3..1000) and n_features (10..3162).
+# Shows log of the time ratio as an image with the ratio=1 contour.
+# Side effects: unseeded randomness, matplotlib window.
+# KNOWN ISSUE: grid sizes are floats from np.logspace and are passed directly as
+# the size of np.random.normal, which raises TypeError in modern NumPy.
 """
 Benchmark scikit-learn's Ward implement compared to SciPy's
 """

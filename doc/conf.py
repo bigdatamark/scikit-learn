@@ -1,3 +1,21 @@
+# [MODULE DOC]
+# Sphinx configuration for the scikit-learn documentation (executed by Sphinx with
+# doc/ as working directory). Adds "." and "sphinxext" to sys.path; configures
+# extensions (autodoc, autosummary, numpydoc, linkcode, intersphinx, sphinx-gallery,
+# custom sphinxext extensions, optional jupyterlite_sphinx), pydata theme options
+# and version switcher, project/version/release derived from sklearn.__version__,
+# sphinx-gallery (ordering, binder branch, JupyterLite notebook preamble, config
+# reset between examples), intersphinx, linkcheck and opengraph settings.
+# Import-time side effects: sets the plotly renderer if available, warns when
+# jupyterlite_sphinx is missing, enables experimental sklearn estimators, installs
+# warning filters (optionally turning warnings into errors via
+# SKLEARN_WARNINGS_AS_ERRORS), may fetch the remote versions.json, and renders every
+# *.rst.template (index, maintainer guide, min dependency tables, API index and one
+# page per API_REFERENCE module, deprecated API page) into .rst files on disk.
+# setup(app) wires event handlers for page assets, linkcheck, carousel thumbnails,
+# search index filtering and skipping fitted-attribute properties.
+# KNOWN ISSUE: ogp_site_url lacks ".org" ("https://scikit-learn/stable/"). The
+# ill-formed version error message formats "version" while "release" is parsed.
 # scikit-learn documentation build configuration file, created by
 # sphinx-quickstart on Fri Jan  8 09:13:42 2010.
 #
@@ -359,6 +377,11 @@ html_css_files = ["styles/colors.css", "styles/custom.css"]
 
 
 def add_js_css_files(app, pagename, templatename, context, doctree):
+    # [FUNCTION DOC]
+    # Sphinx "html-page-context" handler adding page-specific assets: jQuery,
+    # DataTables and API search JS/CSS for api/index; index.css for the home page;
+    # api.css for generated API pages. Inputs follow the Sphinx event signature; only
+    # app and pagename are used. Side effects: registers files on app.
     """Load additional JS and CSS files only for certain pages.
 
     Note that `html_js_files` and `html_css_files` are included in all pages and
@@ -590,6 +613,9 @@ else:
 
 
 class SubSectionTitleOrder:
+    # [CLASS DOC]
+    # Callable sort key for sphinx-gallery subsections: returns the first dashed
+    # section title from each subsection README.txt, forcing release_highlights first.
     """Sort example gallery by title of subsection.
 
     Assumes README.txt exists for all subsections and uses the subsection with
@@ -597,13 +623,22 @@ class SubSectionTitleOrder:
     """
 
     def __init__(self, src_dir):
+        # [FUNCTION DOC]
+        # Stores the examples root directory and compiles the regex matching a line of word
+        # characters/spaces followed by a line starting with "-".
         self.src_dir = src_dir
         self.regex = re.compile(r"^([\w ]+)\n-", re.MULTILINE)
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "<SubSectionTitleOrder>" so sphinx-gallery config hashing is stable.
         return "<%s>" % (self.__class__.__name__,)
 
     def __call__(self, directory):
+        # [FUNCTION DOC]
+        # Returns the sort key for a gallery subdirectory: "0" for release_highlights, the
+        # README title if found, otherwise the directory name (also when README is missing).
+        # Input: directory path relative to src_dir. Output: string. Side effects: file read.
         src_path = os.path.normpath(os.path.join(self.src_dir, directory))
 
         # Forces Release Highlights to the top
@@ -625,9 +660,20 @@ class SubSectionTitleOrder:
 
 
 class SKExampleTitleSortKey(ExampleTitleSortKey):
+    # [CLASS DOC]
+    # Within-subsection sort key extending ExampleTitleSortKey: release highlight
+    # examples are ordered by descending version, others by title.
     """Sorts release highlights based on version number."""
 
     def __call__(self, filename):
+        # [FUNCTION DOC]
+        # For filenames starting with "plot_release_highlights_", parses the next two
+        # underscore-separated parts as major.minor and returns the negated float;
+        # otherwise returns the parent title key.
+        # Output: string or float.
+        # KNOWN ISSUE: mixing str and float keys would fail to sort if a subsection mixed
+        # highlight and non-highlight examples; versions such as 1.10 parse to 1.1 and sort
+        # before 1.9.
         title = super().__call__(filename)
         prefix = "plot_release_highlights_"
 
@@ -643,6 +689,13 @@ class SKExampleTitleSortKey(ExampleTitleSortKey):
 
 
 def notebook_modification_function(notebook_content, notebook_filename):
+    # [FUNCTION DOC]
+    # sphinx-gallery JupyterLite hook prepending to each generated notebook a warning
+    # markdown cell and a code cell with %pip installs for packages detected in the
+    # notebook text (seaborn, plotly, scikit-image, polars, pyodide-http for fetchers),
+    # imports of matplotlib and pandas, and for dev releases a piplite install of the
+    # nightly scikit-learn wheel. Inputs: notebook_content dict (mutated);
+    # notebook_filename unused. Output: None.
     notebook_content_str = str(notebook_content)
     warning_template = "\n".join(
         [
@@ -723,6 +776,9 @@ default_global_config = sklearn.get_config()
 
 
 def reset_sklearn_config(gallery_conf, fname):
+    # [FUNCTION DOC]
+    # sphinx-gallery reset hook restoring the global sklearn config captured at
+    # configuration time. Inputs: gallery_conf, fname unused. Side effects: set_config.
     """Reset sklearn config to default values."""
     sklearn.set_config(**default_global_config)
 
@@ -786,6 +842,10 @@ from sklearn.experimental import (  # noqa: F401
 
 
 def make_carousel_thumbs(app, exception):
+    # [FUNCTION DOC]
+    # "build-finished" handler: for each carousel_thumbs image present in the output
+    # _images directory, writes a "<name>_carousel.png" scaled to max width x 190.
+    # Does nothing if the build raised. Side effects: prints, writes images.
     """produces the final resized carousel images"""
     if exception is not None:
         return
@@ -800,6 +860,10 @@ def make_carousel_thumbs(app, exception):
 
 
 def filter_search_index(app, exception):
+    # [FUNCTION DOC]
+    # "build-finished" handler for html builds: rewrites searchindex.js replacing
+    # entries of __init__ and __call__ objects with empty objects to drop them from
+    # search. Skips on build errors or non-html builders. Side effects: file rewrite.
     if exception is not None:
         return
 
@@ -827,11 +891,17 @@ issues_github_path = "scikit-learn/scikit-learn"
 
 
 def disable_plot_gallery_for_linkcheck(app):
+    # [FUNCTION DOC]
+    # "builder-inited" handler disabling example execution (plot_gallery "False") for
+    # the linkcheck builder. Side effects: mutates sphinx_gallery_conf.
     if app.builder.name == "linkcheck":
         sphinx_gallery_conf["plot_gallery"] = "False"
 
 
 def skip_properties(app, what, name, obj, skip, options):
+    # [FUNCTION DOC]
+    # "autodoc-skip-member" handler returning True for public properties whose name
+    # ends with "_" (fitted attributes), otherwise the incoming skip decision.
     """Skip properties that are fitted attributes"""
     if isinstance(obj, property):
         if name.endswith("_") and not name.startswith("_"):
@@ -841,6 +911,11 @@ def skip_properties(app, what, name, obj, skip, options):
 
 
 def setup(app):
+    # [FUNCTION DOC]
+    # Sphinx extension entry point connecting the handlers above to builder-inited
+    # (priority 50), html-page-context, build-finished and autodoc-skip-member events.
+    # KNOWN ISSUE: the comment about hiding/showing prompts is stale; the connected
+    # handlers handle carousel images and the search index.
     # do not run the examples when using linkcheck by using a small priority
     # (default priority is 500 and sphinx-gallery using builder-inited event too)
     app.connect("builder-inited", disable_plot_gallery_for_linkcheck, priority=50)
@@ -977,6 +1052,13 @@ else:
 
 
 def infer_next_release_versions():
+    # [FUNCTION DOC]
+    # Fetches versions.json (switcher URL, 10s timeout) and, treating entry 1 as the
+    # current stable and entry 2 as the previous stable, derives the next rc, final and
+    # bug-fix version strings, short versions and previous tags. On any failure logs a
+    # warning and keeps placeholder values (0.99.0rc1 etc.).
+    # Output: dict with keys version_full, version_short, previous_tag, each mapping
+    # "rc"/"final"/"bf" to strings. Side effects: network request.
     """Infer the most likely next release versions to make."""
     all_version_full = {"rc": "0.99.0rc1", "final": "0.99.0", "bf": "0.98.1"}
     all_version_short = {"rc": "0.99", "final": "0.99", "bf": "0.98"}

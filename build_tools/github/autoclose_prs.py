@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Scheduled CI script (runs at import): finds open issues in
+# scikit-learn/scikit-learn labeled "autoclose" that are pull requests, keeps those
+# whose most recent "autoclose" labeling is older than 14 days, and for each posts a
+# standard closing comment and closes it (unless dry_run). Reads GITHUB_TOKEN from
+# the environment. Side effects: GitHub API reads/writes, prints.
 """Close PRs labeled with 'autoclose' more than 14 days ago.
 
 Called from .github/workflows/autoclose-schedule.yml."""
@@ -10,6 +16,11 @@ from github import Auth, Github
 
 
 def get_labeled_last_time(pr, label):
+    # [FUNCTION DOC]
+    # HELPER: Returns the creation time of the last "labeled" event for label on the
+    # PR, or datetime.max if never labeled.
+    # KNOWN ISSUE: datetime.max is naive while "now" is timezone-aware, so subtracting
+    # them raises TypeError for PRs without a matching event.
     labeled_time = datetime.max
     for event in pr.get_events():
         if event.event == "labeled" and event.label.name == label:

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Command-line benchmark of fit and transform times of GaussianRandomProjection and
+# SparseRandomProjection on random sparse data. Options (optparse): n-times,
+# n-features, n-components, ratio-nonzeros, n-samples, random-seed, density, eps,
+# transformers, dense. Prints dataset statistics, arguments and mean timings.
+# KNOWN ISSUE: the --dense flag selects X but the benchmark loop always passes
+# X_dense; the ratio-nonzeros help text says "Number of features"; n_nonzeros is
+# printed as "per feature" though it is the total count of non-zero entries.
 """
 ===========================
 Random projection benchmark
@@ -25,6 +33,9 @@ from sklearn.random_projection import (
 
 
 def type_auto_or_float(val):
+    # [FUNCTION DOC]
+    # HELPER: optparse converter returning "auto" unchanged or the value as float.
+    # Exceptions: ValueError for non-numeric strings.
     if val == "auto":
         return "auto"
     else:
@@ -32,6 +43,9 @@ def type_auto_or_float(val):
 
 
 def type_auto_or_int(val):
+    # [FUNCTION DOC]
+    # HELPER: optparse converter returning "auto" unchanged or the value as int.
+    # Exceptions: ValueError for non-integer strings.
     if val == "auto":
         return "auto"
     else:
@@ -39,12 +53,19 @@ def type_auto_or_int(val):
 
 
 def compute_time(t_start, delta):
+    # [FUNCTION DOC]
+    # HELPER: Converts a timedelta to float seconds (seconds + microseconds/1e6).
+    # Inputs: t_start unused; delta - datetime.timedelta.
+    # KNOWN ISSUE: ignores delta.days, so durations over one day are wrong.
     mu_second = 0.0 + 10**6  # number of microseconds in a second
 
     return delta.seconds + delta.microseconds / mu_second
 
 
 def bench_scikit_transformer(X, transformer):
+    # [FUNCTION DOC]
+    # Clones the transformer and times fit then transform on X using wall-clock time,
+    # after a gc.collect. Output: tuple (fit_seconds, transform_seconds).
     gc.collect()
 
     clf = clone(transformer)
@@ -69,6 +90,10 @@ def bench_scikit_transformer(X, transformer):
 # Make some random data with uniformly located non zero entries with
 # Gaussian distributed values
 def make_sparse_random_data(n_samples, n_features, n_nonzeros, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Builds an (n_samples, n_features) matrix with n_nonzeros standard normal
+    # values at uniformly random positions (duplicates are summed by COO conversion).
+    # Output: tuple (dense ndarray, CSR sparse array). Randomness seeded by random_state.
     rng = np.random.RandomState(random_state)
     data_coo = sp.coo_array(
         (
@@ -84,6 +109,9 @@ def make_sparse_random_data(n_samples, n_features, n_nonzeros, random_state=None
 
 
 def print_row(clf_type, time_fit, time_transform):
+    # [FUNCTION DOC]
+    # HELPER: Prints one aligned table row: name padded to 30 chars and the fit and
+    # transform times formatted with 4 decimals, centered.
     print(
         "%s | %s | %s"
         % (

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Benchmark script timing scipy's exact thin SVD against randomized_svd (n_iter 0
+# and n_iter 3, rank 50) on low-rank matrices over a 4x4 grid of n_samples and
+# n_features in [2, 1000]; plots the timings as 3D surfaces.
+# KNOWN ISSUE: the __main__ block calls fig.gca(projection="3d"), removed in
+# matplotlib 3.6; and it reshapes timings (ordered samples-major) to
+# (n_samples, n_features) while the meshgrid is (n_features, n_samples), so the
+# surface axes are transposed.
 """Benchmarks of Singular Value Decomposition (Exact and Approximate)
 
 The data is mostly low rank but is a fat infinite tail.
@@ -15,6 +23,14 @@ from sklearn.utils.extmath import randomized_svd
 
 
 def compute_bench(samples_range, features_range, n_iter=3, rank=50):
+    # [FUNCTION DOC]
+    # For each (n_samples, n_features) pair, generates an unseeded low-rank matrix
+    # (effective_rank=rank, tail_strength 0.2) and times scipy svd and randomized_svd
+    # with n_iter 0 and the given n_iter, collecting garbage before each run.
+    # Inputs: samples_range, features_range int sequences; n_iter (default 3); rank
+    # (default 50, also the number of components requested).
+    # Output: defaultdict label -> list of seconds in samples-major grid order.
+    # Side effects: prints progress; unseeded randomness.
     it = 0
 
     results = defaultdict(lambda: [])
