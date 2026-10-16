@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for QuantileRegressor: solver/sparse-input validation, behavior on toy data,
+# agreement with HuberRegressor, calibration of predicted quantiles, sample weights,
+# equivariance properties, linprog failure handling, and SciPy-version gating of the
+# interior-point solver. No import-time side effects beyond imports.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +27,10 @@ from sklearn.utils.fixes import (
 
 @pytest.fixture
 def X_y_data():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning a tiny regression problem (10 samples, 1 feature, noise
+    #   1,
+    # random_state 0) as a tuple (X of shape (10, 1), y of shape (10,)).
     X, y = make_regression(n_samples=10, n_features=1, random_state=0, noise=1)
     return X, y
 
@@ -33,6 +42,11 @@ def X_y_data():
 @pytest.mark.parametrize("solver", ["interior-point", "revised simplex"])
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_incompatible_solver_for_sparse_input(X_y_data, solver, csc_container):
+    # [FUNCTION DOC]
+    # Verifies that the legacy solvers interior-point and revised simplex raise
+    #   ValueError
+    # with a message suggesting 'highs' when given CSC sparse X. Skipped for SciPy >=
+    #   1.11.
     X, y = X_y_data
     X_sparse = csc_container(X)
     err_msg = (
@@ -58,6 +72,14 @@ def test_incompatible_solver_for_sparse_input(X_y_data, solver, csc_container):
     ],
 )
 def test_quantile_toy_example(quantile, alpha, intercept, coef):
+    # [FUNCTION DOC]
+    # Fits QuantileRegressor on 3 points (x=0,1,1; y=1,2,11) and checks the expected
+    # intercept and, when given, slope (atol 1e-2) for several quantile/alpha pairs;
+    #   also
+    # checks the slope stays in [1, 10] (lower bound only when alpha < 100).
+    # Inputs: quantile, alpha - model params; intercept, coef - expected values (coef
+    #   None
+    # means any slope in the allowed range is accepted).
     # test how different parameters affect a small intuitive example
     X = [[0], [1], [1]]
     y = [1, 2, 11]
@@ -72,6 +94,11 @@ def test_quantile_toy_example(quantile, alpha, intercept, coef):
 
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_quantile_equals_huber_for_low_epsilon(fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies that median quantile regression matches HuberRegressor with epsilon just
+    # above 1 (same small alpha): coef_ within 0.1, intercept within 0.1 and about half
+    #   of
+    # targets below predictions when fit_intercept is True.
     X, y = make_regression(n_samples=100, n_features=20, random_state=0, noise=1.0)
     alpha = 1e-4
     huber = HuberRegressor(
@@ -87,6 +114,9 @@ def test_quantile_equals_huber_for_low_epsilon(fit_intercept):
 
 @pytest.mark.parametrize("q", [0.5, 0.9, 0.05])
 def test_quantile_estimates_calibration(q):
+    # [FUNCTION DOC]
+    # Verifies the unpenalized model at quantile q leaves a fraction q (within 0.01) of
+    # training targets below its predictions on a 1000-sample regression problem.
     # Test that model estimates percentage of points below the prediction
     X, y = make_regression(n_samples=1000, n_features=20, random_state=0, noise=1.0)
     quant = QuantileRegressor(quantile=q, alpha=0).fit(X, y)
@@ -94,6 +124,12 @@ def test_quantile_estimates_calibration(q):
 
 
 def test_quantile_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies sample weights are honored: up-weighting targets above the mean by 100
+    #   makes
+    # the unweighted fraction below predictions exceed 0.5 while the weighted fraction
+    #   stays
+    # at 0.5 (within 0.03).
     # test that with unequal sample weights we still estimate weighted fraction
     n = 1000
     X, y = make_regression(n_samples=n, n_features=5, random_state=0, noise=10.0)
@@ -111,6 +147,12 @@ def test_quantile_sample_weight():
 
 @pytest.mark.parametrize("quantile", [0.2, 0.5, 0.8])
 def test_asymmetric_error(quantile):
+    # [FUNCTION DOC]
+    # Generates exponential targets whose q-quantile is a known linear function of 2
+    # features, then checks the unpenalized fit recovers intercept (rel 0.2), coef (rtol
+    # 0.6) and coverage q. Then refits with alpha=0.01 and checks the solution matches a
+    # Nelder-Mead minimization of mean pinball loss plus L1 penalty (objective value,
+    # intercept and coef) and still has coverage q.
     """Test quantile regression for asymmetric distributed targets."""
     n_samples = 1000
     rng = np.random.RandomState(42)
@@ -150,6 +192,12 @@ def test_asymmetric_error(quantile):
     model_coef = np.r_[model.intercept_, model.coef_]
 
     def func(coef):
+        # [FUNCTION DOC]
+        # HELPER: Objective for Nelder-Mead: mean pinball loss at level quantile of the
+        #   linear
+        # prediction (coef[0] is the intercept, the rest are slopes) plus alpha times
+        #   the L1
+        # norm of the slopes. Input: coef - 1D array of length 3. Output: float.
         loss = mean_pinball_loss(y, X @ coef[1:] + coef[0], alpha=quantile)
         L1 = np.sum(np.abs(coef[1:]))
         return loss + alpha * L1
@@ -170,6 +218,12 @@ def test_asymmetric_error(quantile):
 
 @pytest.mark.parametrize("quantile", [0.2, 0.5, 0.8])
 def test_equivariance(quantile):
+    # [FUNCTION DOC]
+    # Verifies quantile regression equivariance properties (Koenker 2.2.3) with alpha=0:
+    # scaling y by a>0 scales the coefficients; scaling by -a and using 1-q negates and
+    # scales them; adding a linear function of X to y shifts coefficients by it; and
+    # reparametrizing X by an invertible matrix A transforms coef by the inverse of A
+    # while keeping the intercept.
     """Test equivariace of quantile regression.
 
     See Koenker (2005) Quantile Regression, Chapter 2.2.3.
@@ -221,6 +275,10 @@ def test_equivariance(quantile):
 )
 @pytest.mark.filterwarnings("ignore:`method='interior-point'` is deprecated")
 def test_linprog_failure():
+    # [FUNCTION DOC]
+    # Verifies a ConvergenceWarning ("Linear programming for QuantileRegressor did not
+    # succeed.") is raised when the interior-point solver is limited to 1 iteration.
+    # Skipped for SciPy >= 1.11.
     """Test that linprog fails."""
     X = np.linspace(0, 10, num=10).reshape(-1, 1)
     y = np.linspace(0, 10, num=10)
@@ -239,6 +297,14 @@ def test_linprog_failure():
 @pytest.mark.parametrize("solver", ["highs", "highs-ds", "highs-ipm"])
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_sparse_input(sparse_container, solver, fit_intercept, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that sparse (CSC/CSR/COO) input with highs solvers gives coefficients
+    #   close
+    # to the dense fit (rtol 1e-2), both supports have about n_informative nonzeros,
+    #   and,
+    # with an intercept, equal intercepts and coverage near quantile 0.6.
+    # Inputs: sparse_container, solver, fit_intercept (parametrized);
+    #   global_random_seed.
     """Test that sparse and dense X give same results."""
     n_informative = 10
     quantile_level = 0.6
@@ -270,6 +336,11 @@ def test_sparse_input(sparse_container, solver, fit_intercept, global_random_see
 
 
 def test_error_interior_point_future(X_y_data, monkeypatch):
+    # [FUNCTION DOC]
+    # Monkeypatches the SciPy version seen by sklearn.linear_model._quantile to 1.11.0
+    #   and
+    # verifies that solver='interior-point' raises ValueError saying it is no longer
+    # available.
     """Check that we will raise a proper error when requesting
     `solver='interior-point'` in SciPy >= 1.11.
     """
