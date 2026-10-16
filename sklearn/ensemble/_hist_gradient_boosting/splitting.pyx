@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Split finding and sample partitioning for histogram gradient boosting trees.
+# Splitter.find_node_split evaluates, in parallel over features, the best split
+# of a node from its histograms: numerical features by a left-to-right cumulative
+# scan over bins (missing values to the right) plus, when the feature has missing
+# values, a right-to-left scan (missing values to the left); categorical features
+# by sorting categories on a smoothed gradient/hessian ratio and scanning from
+# both ends (Fisher's grouping). Gains use the XGBoost second-order formula with
+# L2 regularization, value clipping to monotonic-constraint bounds and
+# min_samples_leaf / min_hessian_to_split / min_gain_to_split constraints.
+# Splitter.split_indices partitions the node's sample indices in place
+# (multi-threaded) in the shared partition array. Module helpers compute node
+# values, gains and sample routing. SplitInfo is the Python result object;
+# split_info_struct and categorical_info are C structs used in nogil code.
 """This module contains routines and data structures to:
 
 - Find the best possible split of a node. For a given node, a split is
@@ -26,6 +40,11 @@ from sklearn.ensemble._hist_gradient_boosting.common cimport MonotonicConstraint
 
 
 cdef struct split_info_struct:
+    # [CLASS DOC]
+    # C mirror of SplitInfo used in nogil code and in the per-feature malloc'd array
+    # of find_node_split: gain, feature_idx, bin_idx, missing_go_to_left, left/right
+    # sums of gradients and hessians, left/right sample counts, left/right values,
+    # is_categorical and an inline 256-bit left_cat_bitset.
     # Same as the SplitInfo class, but we need a C struct to use it in the
     # nogil sections and to use in arrays.
     Y_DTYPE_C gain
@@ -47,11 +66,20 @@ cdef struct split_info_struct:
 # used in categorical splits for sorting categories by increasing values of
 # sum_gradients / sum_hessians
 cdef struct categorical_info:
+    # [CLASS DOC]
+    # Per-category record for categorical split search: bin_idx the category's bin
+    # code and value its smoothed ratio sum_gradients / (sum_hessians + MIN_CAT_SUPPORT)
+    # used as the sort key.
     X_BINNED_DTYPE_C bin_idx
     Y_DTYPE_C value
 
 
 class SplitInfo:
+    # [CLASS DOC]
+    # Plain Python container for the best split of a node as returned by
+    # Splitter.find_node_split and consumed by the grower: all fields are stored as
+    # attributes unchanged (see split_info_struct for their meaning). left_cat_bitset
+    # is None for numerical splits, otherwise a uint32 array of 8 words.
     """Pure data class to store information about a potential split.
 
     Parameters
@@ -94,6 +122,12 @@ class SplitInfo:
                  sum_gradient_right, sum_hessian_right, n_samples_left,
                  n_samples_right, value_left, value_right,
                  is_categorical, left_cat_bitset):
+        # [FUNCTION DOC]
+        # Behavior: stores every argument as an attribute of the same name.
+        # Inputs: gain, feature_idx, bin_idx, missing_go_to_left, left/right gradient and
+        # hessian sums, n_samples_left/right, value_left/right, is_categorical,
+        # left_cat_bitset.
+        # Outputs: none. Exceptions: none. Side effects: none.
         self.gain = gain
         self.feature_idx = feature_idx
         self.bin_idx = bin_idx
@@ -112,6 +146,13 @@ class SplitInfo:
 
 @cython.final
 cdef class Splitter:
+    # [CLASS DOC]
+    # Stateful split finder for one tree. Holds the binned training data, per-feature
+    # metadata (non-missing bin counts, has_missing_values, is_categorical,
+    # monotonic_cst), regularization and constraint hyperparameters, the RNG for
+    # feature subsampling, n_threads, and the partition array mapping samples to the
+    # current leaves (each leaf owns a contiguous range) plus two equally sized
+    # scratch buffers for parallel partitioning.
     """Splitter used to find the best possible split at each node.
 
     A split (see SplitInfo) is characterized by a feature and a bin.
@@ -199,6 +240,22 @@ cdef class Splitter:
                  Y_DTYPE_C feature_fraction_per_split=1.0,
                  rng=np.random.RandomState(),
                  unsigned int n_threads=1):
+        # [FUNCTION DOC]
+        # Behavior: stores all parameters, sets n_features, initializes partition to
+        # 0..n_samples-1 (the root owns everything) and allocates the left/right index
+        # buffers with the same length.
+        # Inputs: see the class docstring; X_binned uint8 Fortran (n_samples, n_features),
+        # n_bins_non_missing uint32, missing_values_bin_idx, has_missing_values uint8,
+        # is_categorical uint8, monotonic_cst int8 per feature, l2_regularization,
+        # min_hessian_to_split, min_samples_leaf, min_gain_to_split,
+        # hessians_are_constant, feature_fraction_per_split, rng, n_threads.
+        # Outputs: none.
+        # Exceptions: buffer dtype/layout errors.
+        # Side effects: allocates three uint32 arrays of length n_samples.
+        # KNOWN ISSUE: the default rng=np.random.RandomState() is created once at import
+        # time and shared by all Splitters relying on the default (in practice the grower
+        # always passes an rng). The class docstring says rng is a Generator, but only a
+        # shuffle method is required.
 
         self.X_binned = X_binned
         self.n_features = X_binned.shape[1]
@@ -232,6 +289,23 @@ cdef class Splitter:
 
     def split_indices(Splitter self, split_info, unsigned int [::1]
                       sample_indices):
+        # [FUNCTION DOC]
+        # Behavior: stable-per-thread parallel partition. sample_indices is cut into
+        # n_threads contiguous chunks (sizes differ by at most one). Each thread routes
+        # its chunk's samples with sample_goes_left (bin threshold or categorical bitset,
+        # missing-value direction) into the left or right scratch buffer at the chunk's
+        # offset and records its left/right counts. Prefix sums of the counts give each
+        # thread's write offset in the left part [0, n_left) and right part [n_left, n).
+        # Each thread then copies its buffers back into sample_indices with memcpy.
+        # Inputs: split_info a SplitInfo (uses feature_idx, bin_idx, missing_go_to_left,
+        # is_categorical, left_cat_bitset); sample_indices uint32 view on self.partition
+        # for the node being split.
+        # Outputs: sample_indices (hence self.partition) reordered in place; returns
+        # (left view, right view, right_child_position) where the views are slices of
+        # sample_indices.
+        # Exceptions: errors on converting split_info fields; none in the nogil section.
+        # Side effects: mutates partition and the scratch buffers; allocates small per-
+        # thread arrays; OpenMP parallelism with GIL released.
         """Split samples into left and right arrays.
 
         The split is performed according to the best possible split
@@ -434,6 +508,26 @@ cdef class Splitter:
             const Y_DTYPE_C upper_bound=INFINITY,
             const unsigned int [:] allowed_features=None,
             ):
+        # [FUNCTION DOC]
+        # Behavior: if feature_fraction_per_split < 1, draws (with the GIL, using
+        # self.rng.shuffle) a mask selecting max(1, ceil(fraction * n_allowed)) of the
+        # allowed features. Then, without the GIL, mallocs one split_info_struct per
+        # allowed feature and in an OpenMP prange initializes gain = -1 and fills it with
+        # the best split of the feature (categorical search, or left-to-right scan plus a
+        # right-to-left scan if the feature has missing values); masked-out features keep
+        # gain -1. The struct with the largest gain (first on ties) is chosen, copied into
+        # a SplitInfo (with a uint32 copy of the bitset if categorical) and the array is
+        # freed. A gain of -1 means no valid split; the grower then makes a leaf.
+        # Inputs: n_samples at the node; histograms (n_features, n_bins) of the node;
+        # sum_gradients, sum_hessians of the node; value the node's bounded value;
+        # lower_bound / upper_bound bounds on children values (monotonic constraints);
+        # allowed_features optional uint32 feature indices (interaction constraints).
+        # Outputs: returns a SplitInfo.
+        # Exceptions: errors from rng/numpy before the nogil section.
+        # Side effects: advances self.rng when subsampling; malloc/free; OpenMP.
+        # KNOWN ISSUE: the malloc result is not checked for NULL. Also, when no feature
+        # yields a valid split, the returned SplitInfo carries uninitialized fields
+        # (only feature_idx, gain and is_categorical are set); callers must check gain.
         """For each feature, find the best bin to split on at a given node.
 
         Return the best split info among all features.
@@ -608,6 +702,12 @@ cdef class Splitter:
         split_info_struct * split_infos,  # IN
         int n_allowed_features,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: argmax over split_infos for find_node_split.
+        # Behavior: returns the index of the entry with strictly largest gain (the first
+        # one on ties), scanning from index 0.
+        # Inputs: split_infos array; n_allowed_features its length (>= 1 assumed).
+        # Outputs: returns the index. Exceptions: none (noexcept nogil). Side effects: none.
         """Return the index of split_infos with the best feature split."""
         cdef:
             int split_info_idx
@@ -631,6 +731,24 @@ cdef class Splitter:
             Y_DTYPE_C lower_bound,
             Y_DTYPE_C upper_bound,
             split_info_struct * split_info) noexcept nogil:  # OUT
+        # [FUNCTION DOC]
+        # HELPER: numerical split scan used by find_node_split (missing values go right).
+        # Behavior: accumulates left counts, gradient sums and hessian sums (count instead
+        # of hessian sum when hessians are constant) over bins 0..end-1, where end =
+        # n_bins_non_missing - 1 + has_missing_values (so the right child is never empty
+        # unless missing values can fill it). Right statistics are node totals minus left.
+        # Bins making the left side too small (min_samples_leaf, min_hessian_to_split) are
+        # skipped; once the right side becomes too small the scan stops. For each valid
+        # threshold the gain from _split_gain is computed; the best gain that also
+        # exceeds min_gain_to_split is kept. If found, split_info receives gain, bin_idx,
+        # missing_go_to_left = False, left/right sums and counts, and the clipped
+        # left/right values from compute_node_value.
+        # Inputs: feature_idx; has_missing_values; histograms; n_samples, sum_gradients,
+        # sum_hessians, value of the node; monotonic_cst; lower_bound, upper_bound;
+        # split_info output pointer (its gain is assumed initialized to -1).
+        # Outputs: split_info written only when a better split is found.
+        # Exceptions: none (noexcept nogil).
+        # Side effects: writes *split_info.
         """Find best bin to split on for a given feature.
 
         Splits that do not satisfy the splitting constraints
@@ -747,6 +865,21 @@ cdef class Splitter:
             Y_DTYPE_C lower_bound,
             Y_DTYPE_C upper_bound,
             split_info_struct * split_info) noexcept nogil:  # OUT
+        # [FUNCTION DOC]
+        # HELPER: numerical split scan from the right, used only for features with missing
+        # values (missing values go left).
+        # Behavior: accumulates right-side statistics starting at bin n_bins_non_missing-1
+        # and moving left; candidate threshold bin_idx (from n_bins_non_missing - 2 down to
+        # 0) puts bins bin_idx+1..n_bins_non_missing-1 on the right and all other samples,
+        # including the missing-values bin, on the left. Same constraint skipping/stopping,
+        # gain computation and min_gain_to_split check as the left-to-right scan, but
+        # initialised with best_gain = split_info.gain so it only overwrites split_info
+        # when strictly better than the previous scan. On improvement sets
+        # missing_go_to_left = True and the same fields as the other scan.
+        # Inputs: same as the left-to-right scan except has_missing_values (implied true).
+        # Outputs: split_info possibly overwritten.
+        # Exceptions: none (noexcept nogil).
+        # Side effects: writes *split_info.
         """Find best bin to split on for a given feature.
 
         Splits that do not satisfy the splitting constraints
@@ -864,6 +997,32 @@ cdef class Splitter:
             Y_DTYPE_C lower_bound,
             Y_DTYPE_C upper_bound,
             split_info_struct * split_info) noexcept nogil:  # OUT
+        # [FUNCTION DOC]
+        # HELPER: categorical split search used by find_node_split.
+        # Behavior: mallocs a categorical_info array. For each non-missing bin (and the
+        # missing-values bin if the feature has missing values) whose hessian sum times
+        # n_samples / sum_hessians is at least MIN_CAT_SUPPORT (10), records the bin and
+        # the smoothed ratio sum_gradients / (sum_hessians + 10). With fewer than 2 such
+        # categories, returns without a split. Otherwise sorts them by ratio (qsort) and
+        # performs two scans over the sorted list: from the start over the first
+        # ceil(n_used/2) categories and from the end over ceil(n_used/2) - 1 categories,
+        # each time accumulating the scanned categories into the left child (low-support
+        # categories always end on the right). Constraint skipping/stopping, gain and
+        # min_gain_to_split check as in the numerical scans. On success it fills
+        # split_info (bin_idx = 0), builds left_cat_bitset from the selected categories,
+        # and if the feature has missing values sets missing_go_to_left according to
+        # whether the missing bin is in the bitset. Frees the array.
+        # Inputs: feature_idx; has_missing_values; histograms; n_samples, sum_gradients,
+        # sum_hessians, value; monotonic_cst; lower_bound, upper_bound; split_info output.
+        # Outputs: split_info written only when a valid split is found.
+        # Exceptions: none (noexcept nogil).
+        # Side effects: malloc/free of a temporary array; writes *split_info.
+        # KNOWN ISSUE: the docstring says categories are sorted "according to their
+        # variance", but the sort key is the smoothed mean gradient ratio
+        # sum_gradients / (sum_hessians + MIN_CAT_SUPPORT). The malloc result is not
+        # checked for NULL. When has_missing_values is false, missing_go_to_left is left
+        # untouched (uninitialized from the malloc'd struct); the grower overwrites it in
+        # that case.
         """Find best split for categorical features.
 
         Categories are first sorted according to their variance, and then
@@ -1084,6 +1243,15 @@ cdef class Splitter:
 
 
 cdef int compare_cat_infos(const void * a, const void * b) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: qsort comparator for categorical_info, ascending by value.
+    # Behavior: returns -1 if a.value < b.value, else 1.
+    # Inputs: pointers to two categorical_info. Outputs: comparison result.
+    # Exceptions: none. Side effects: none.
+    # KNOWN ISSUE: never returns 0 for equal values, so the comparator is not a
+    # consistent ordering (compare(a, b) and compare(b, a) both return 1 for ties);
+    # the C standard leaves qsort behavior unspecified for such comparators and tie
+    # order may vary across platforms.
     return -1 if (<categorical_info *>a).value < (<categorical_info *>b).value else 1
 
 cdef inline Y_DTYPE_C _split_gain(
@@ -1096,6 +1264,17 @@ cdef inline Y_DTYPE_C _split_gain(
         Y_DTYPE_C lower_bound,
         Y_DTYPE_C upper_bound,
         Y_DTYPE_C l2_regularization) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: gain of a candidate split, used by all split scans.
+    # Behavior: computes clipped left and right values with compute_node_value; if
+    # the monotonic constraint is violated (POS with left > right, NEG with
+    # left < right) returns -1. Otherwise returns loss_current_node minus the
+    # "losses" sum_gradient * value of the left and right children. For unclipped
+    # values this equals G_L^2/(H_L+l2) + G_R^2/(H_R+l2) - G^2/(H+l2), i.e. XGBoost's
+    # gain without its factor 1/2 and without a gamma term.
+    # Inputs: left/right gradient and hessian sums; loss_current_node (from the node's
+    # bounded value); monotonic_cst; lower_bound, upper_bound; l2_regularization.
+    # Outputs: returns the gain (float64). Exceptions: none. Side effects: none.
     """Loss reduction
 
     Compute the reduction in loss after taking a split, compared to keeping
@@ -1138,6 +1317,13 @@ cdef inline Y_DTYPE_C _split_gain(
 cdef inline Y_DTYPE_C _loss_from_value(
         Y_DTYPE_C value,
         Y_DTYPE_C sum_gradient) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: node "loss" used by gain computations.
+    # Behavior: returns sum_gradient * value. With value = -G/(H+l2) this is
+    # -G^2/(H+l2), twice the XGBoost Eq. 6 per-leaf objective term (constant factor
+    # dropped consistently everywhere).
+    # Inputs: value (bounded node value); sum_gradient.
+    # Outputs: returns the product. Exceptions: none. Side effects: none.
     """Return loss of a node from its (bounded) value
 
     See Equation 6 of:
@@ -1153,6 +1339,15 @@ cdef inline uint8_t sample_goes_left(
         X_BINNED_DTYPE_C bin_value,
         uint8_t is_categorical,
         BITSET_DTYPE_C left_cat_bitset) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: routing decision used by Splitter.split_indices.
+    # Behavior: for categorical splits returns whether bin_value is in
+    # left_cat_bitset (missing values are already encoded in the bitset). For
+    # numerical splits returns true if bin_value <= split_bin_idx, or if missing
+    # values go left and bin_value is the missing-values bin.
+    # Inputs: missing_go_to_left; missing_values_bin_idx; split_bin_idx; bin_value of
+    # the sample; is_categorical; left_cat_bitset pointer (only read if categorical).
+    # Outputs: returns 1 (left) or 0 (right). Exceptions: none. Side effects: none.
     """Helper to decide whether sample should go to left or right child."""
 
     if is_categorical:
@@ -1175,6 +1370,14 @@ cpdef inline Y_DTYPE_C compute_node_value(
         Y_DTYPE_C lower_bound,
         Y_DTYPE_C upper_bound,
         Y_DTYPE_C l2_regularization) noexcept nogil:
+    # [FUNCTION DOC]
+    # Behavior: Newton step value -sum_gradient / (sum_hessian + l2_regularization +
+    # 1e-15) (the tiny constant avoids division by zero), then clipped to
+    # [lower_bound, upper_bound] for monotonic constraints. Shrinkage (learning rate)
+    # is not applied here. Also callable from Python (cpdef).
+    # Inputs: sum_gradient, sum_hessian of the node; lower_bound, upper_bound;
+    # l2_regularization.
+    # Outputs: returns the value. Exceptions: none (noexcept nogil). Side effects: none.
     """Compute a node's value.
 
     The value is capped in the [lower_bound, upper_bound] interval to respect

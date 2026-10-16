@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Lloyd's algorithm for k-means (used by KMeans(algorithm="lloyd") and
+# BisectingKMeans in _kmeans.py). Provides one full iteration (assignment E-step
+# plus optional center update M-step) for dense and CSR sparse input. Work is split
+# into chunks of CHUNK_SIZE samples processed in parallel with OpenMP; each thread
+# accumulates partial center sums in private buffers that are reduced under a lock.
+# Empty-cluster relocation, averaging and center-shift come from _k_means_common.
 # Licence: BSD 3 clause
 
 from cython cimport floating
@@ -30,6 +37,25 @@ def lloyd_iter_chunked_dense(
         floating[::1] center_shift,          # OUT
         int n_threads,
         bint update_centers=True):
+    # [FUNCTION DOC]
+    # Behavior: returns immediately for 0 samples. Splits samples into n_chunks chunks
+    # of CHUNK_SIZE (last chunk may be smaller) and caps n_threads at n_chunks. If
+    # update_centers, zeroes centers_new and weight_in_clusters. In a nogil OpenMP
+    # parallel region, each thread allocates private buffers (center sums, weights,
+    # and a chunk x n_clusters distance buffer), processes its chunks statically with
+    # _update_chunk_dense, then adds its private sums into the shared outputs while
+    # holding an OpenMP lock, and frees its buffers. Afterwards (if update_centers),
+    # relocates empty clusters, divides sums by weights to obtain new centers and
+    # computes the per-center shift.
+    # Inputs: X (n_samples, n_features) C-contiguous; sample_weight (n_samples,);
+    # centers_old (n_clusters, n_features); n_threads; update_centers flag.
+    # Outputs (in place): labels (n_samples,) nearest-center indices; if update_centers
+    # also centers_new, weight_in_clusters, center_shift (n_clusters,). Returns None.
+    # Exceptions: none from the nogil region (allocation failures are not detected).
+    # Side effects: releases the GIL, spawns OpenMP threads, malloc/calloc/free of
+    # thread-local buffers, initializes and destroys an OpenMP lock.
+    # KNOWN ISSUE: results of malloc/calloc are not checked for NULL; an allocation
+    # failure would lead to a segmentation fault instead of a MemoryError.
     """Single iteration of K-means lloyd algorithm with dense input.
 
     Update labels and centers (inplace), for one iteration, distributed
@@ -180,6 +206,19 @@ cdef void _update_chunk_dense(
     Compute the partial contribution of a single data chunk to the labels and
     centers.
     """
+    # [FUNCTION DOC]
+    # HELPER: per-chunk worker for lloyd_iter_chunked_dense.
+    # Behavior: fills pairwise_distances (n_samples x n_clusters, row-major) with the
+    # squared center norms, then adds -2 X C^T via BLAS gemm, giving squared distances
+    # minus the constant ||x||^2 (enough for argmin). Assigns each sample to the first
+    # center with minimal value; if update_centers, adds sample_weight to that
+    # cluster's weight and sample_weight * x to its row of centers_new.
+    # Inputs: X chunk (n_samples, n_features); sample_weight chunk; centers_old;
+    # centers_squared_norms (n_clusters,); update_centers flag.
+    # Outputs: labels chunk written; centers_new (n_clusters*n_features) and
+    # weight_in_clusters (n_clusters) thread-local buffers accumulated;
+    # pairwise_distances used as scratch (overwritten).
+    # Exceptions: none (noexcept nogil). Side effects: writes the buffers only.
     cdef:
         int n_samples = labels.shape[0]
         int n_clusters = centers_old.shape[0]
@@ -228,6 +267,19 @@ def lloyd_iter_chunked_sparse(
         floating[::1] center_shift,          # OUT
         int n_threads,
         bint update_centers=True):
+    # [FUNCTION DOC]
+    # Behavior: sparse counterpart of lloyd_iter_chunked_dense with the same chunking,
+    # thread-local buffers, locked reduction and post-processing; chunks are passed as
+    # slices of the CSR data/indices and the indptr slice for the chunk (indptr values
+    # remain absolute). No distance buffer is allocated.
+    # Inputs: X scipy CSR matrix (int32 indices/indptr, data dtype matching centers);
+    # others as in the dense version.
+    # Outputs (in place): labels; if update_centers centers_new, weight_in_clusters,
+    # center_shift.
+    # Exceptions: errors when extracting X buffers with unexpected dtypes; none from
+    # the nogil region. Side effects: as in the dense version (GIL release, OpenMP,
+    # allocations, lock).
+    # KNOWN ISSUE: malloc/calloc results are not checked for NULL.
     """Single iteration of K-means lloyd algorithm with sparse input.
 
     Update labels and centers (inplace), for one iteration, distributed
@@ -381,6 +433,17 @@ cdef void _update_chunk_sparse(
     Compute the partial contribution of a single data chunk to the labels and
     centers.
     """
+    # [FUNCTION DOC]
+    # HELPER: per-chunk worker for lloyd_iter_chunked_sparse.
+    # Behavior: for each sample of the chunk, computes for each center the value
+    # ||c||^2 - 2 x.c using the sample's nonzeros only (offsetting indptr by its first
+    # value s so the data/indices slices are addressed locally), and picks the first
+    # minimum. If update_centers, accumulates the sample weight and weighted nonzero
+    # coordinates into the thread-local buffers.
+    # Inputs: X_data, X_indices chunk slices; X_indptr (n_samples+1) absolute offsets;
+    # sample_weight, centers_old, centers_squared_norms; update_centers flag.
+    # Outputs: labels chunk; centers_new and weight_in_clusters buffers accumulated.
+    # Exceptions: none (noexcept nogil). Side effects: writes buffers only.
     cdef:
         int n_samples = labels.shape[0]
         int n_clusters = centers_old.shape[0]

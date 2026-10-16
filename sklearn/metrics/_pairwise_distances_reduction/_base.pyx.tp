@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Implementation of the abstract base of every pairwise-distances reduction
+# (ArgKmin, RadiusNeighbors and their classmode variants) plus the squared
+# euclidean row norms helpers used by the Euclidean specializations.
+# The base class splits X and Y into row chunks of at most chunk_size rows and
+# drives an OpenMP parallel loop over pairs of chunks using one of two
+# strategies (parallel on X, parallel on Y). At fixed points of the loop it
+# calls hook methods that subclasses override to allocate buffers, compute and
+# reduce chunk-pair distances, synchronize per-thread data and finalize.
+# The class part is a Tempita template instantiated for suffixes 64 and 32
+# (input dtype float64 / float32); the dense/sparse norm helpers are written
+# out explicitly per dtype.
 from cython cimport final
 from cython.operator cimport dereference as deref
 from cython.parallel cimport parallel, prange
@@ -22,6 +34,18 @@ cdef float64_t[::1] _sqeuclidean_row_norms64_dense(
     const float64_t[:, ::1] X,
     intp_t num_threads,
 ):
+    # [FUNCTION DOC]
+    # HELPER: dense float64 branch of the squared row norms dispatcher.
+    # Behavior: for each row i of X, computes the dot product of the row with itself
+    # using BLAS ddot, in an OpenMP static parallel loop over rows (GIL released).
+    # Inputs: X, C-contiguous float64 matrix of shape (n, d); num_threads, number of
+    # OpenMP threads.
+    # Outputs: new float64 vector of length n with the squared L2 norm of each row.
+    # Exceptions: memory error on allocation of the output (with the GIL held).
+    # Side effects: none besides allocation; X is only read (const is cast away only
+    # to satisfy the BLAS signature).
+    # KNOWN ISSUE: takes the address of the first element unconditionally, so an
+    # input with zero rows or zero columns would index out of bounds.
     """Compute the squared euclidean norm of the rows of X in parallel.
 
     This is faster than using np.einsum("ij, ij->i") even when using a single thread.
@@ -47,6 +71,17 @@ cdef float64_t[::1] _sqeuclidean_row_norms32_dense(
     const float32_t[:, ::1] X,
     intp_t num_threads,
 ):
+    # [FUNCTION DOC]
+    # HELPER: dense float32 branch of the squared row norms dispatcher.
+    # Behavior: allocates one float64 scratch row per thread; inside an OpenMP
+    # parallel region each thread upcasts the current row of X to float64 into its
+    # scratch row and computes its squared norm with BLAS ddot, so the result is
+    # accumulated in float64 precision.
+    # Inputs: X, C-contiguous float32 matrix of shape (n, d); num_threads.
+    # Outputs: new float64 vector of length n of squared row norms.
+    # Exceptions: memory errors on allocation (output array or scratch vectors).
+    # Side effects: temporary per-thread scratch allocation; GIL released in the
+    # loop. Same empty-input caveat as the float64 variant.
     """Compute the squared euclidean norm of the rows of X in parallel.
 
     This is faster than using np.einsum("ij, ij->i") even when using a single thread.
@@ -89,6 +124,15 @@ cdef float64_t[::1] _sqeuclidean_row_norms64_sparse(
     const int32_t[:] X_indptr,
     intp_t num_threads,
 ):
+    # [FUNCTION DOC]
+    # HELPER: sparse (CSR) branch of the squared row norms dispatcher.
+    # Behavior: for each row, sums the squares of the stored values between
+    # consecutive row pointers; rows are processed in an OpenMP static parallel
+    # loop with the GIL released. Implicit zeros contribute nothing.
+    # Inputs: X_data, float64 stored values; X_indptr, int32 CSR row pointers of
+    # length n + 1; num_threads.
+    # Outputs: new zero-initialized float64 vector of length n of squared norms.
+    # Exceptions: memory error on allocation. Side effects: none.
     cdef:
         intp_t n = X_indptr.shape[0] - 1
         int32_t X_i_ptr, idx = 0
@@ -110,6 +154,18 @@ cpdef float64_t[::1] _sqeuclidean_row_norms{{name_suffix}}(
     X,
     intp_t num_threads,
 ):
+    # [FUNCTION DOC]
+    # Public dispatcher (instantiated per dtype suffix) computing squared euclidean
+    # norms of the rows of X.
+    # Behavior: if X is a scipy sparse matrix (assumed CSR), its data is converted
+    # to float64 and its indptr to int32 (copies only when needed) and the sparse
+    # helper is used; otherwise the dense helper of the matching dtype is called.
+    # Inputs: X, dense C-contiguous array of the suffix dtype or CSR matrix;
+    # num_threads, OpenMP thread count.
+    # Outputs: float64 memoryview of length n_samples.
+    # Exceptions: a type/buffer error if a dense X does not match the expected
+    # dtype or contiguity; memory errors.
+    # Side effects: allocation of temporary float64/int32 copies for sparse input.
     if issparse(X):
         # TODO: remove this instruction which is a cast in the float32 case
         # by moving squared row norms computations in MiddleTermComputer.
@@ -121,6 +177,14 @@ cpdef float64_t[::1] _sqeuclidean_row_norms{{name_suffix}}(
 
 
 cdef class BaseDistancesReduction{{name_suffix}}:
+    # [CLASS DOC]
+    # Abstract base (one class per dtype suffix) for chunked, OpenMP-parallel
+    # reductions over the pairwise distance matrix between X and Y.
+    # It holds the DatasetsPair giving access to the data and distance, the chunk
+    # geometry for both X and Y, the number of threads, and the parallelization
+    # strategy. Concrete subclasses implement the chunk-pair reduction and the
+    # results finalization, and optionally the lifecycle hooks; the two final
+    # drivers below call them in a fixed order.
     """
     Base float{{name_suffix}} implementation template of the pairwise-distances
     reduction backends.
@@ -136,6 +200,30 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         chunk_size=None,
         strategy=None,
      ):
+        # [FUNCTION DOC]
+        # Behavior: configures chunking and the parallel strategy.
+        # chunk_size defaults to the "pairwise_dist_chunk_size" config value (256) and
+        # must be an integer of at least 20. effective_n_threads is the OpenMP
+        # effective thread count. For X (and identically for Y): the per-chunk row
+        # count is min(n_samples, chunk_size), the number of chunks is the ceiling of
+        # n_samples over it, and the last chunk holds the remainder (or a full chunk
+        # if the division is exact).
+        # strategy defaults to the "pairwise_dist_parallel_strategy" config value
+        # ("auto"). "auto" picks parallel on X when Y has fewer rows than X, or when X
+        # has more than 4 * chunk_size * effective_n_threads rows; otherwise parallel
+        # on Y. chunks_n_threads is min(number of chunks along the parallelized axis,
+        # effective_n_threads).
+        # Inputs: datasets_pair, the DatasetsPair of matching suffix; chunk_size, int or
+        # None; strategy, one of "parallel_on_X", "parallel_on_Y", "auto" or None.
+        # Outputs: none (initializes attributes).
+        # Exceptions: ValueError/TypeError from the chunk_size validation; an error for
+        # an invalid strategy (see known issue).
+        # Side effects: reads the global scikit-learn configuration.
+        # KNOWN ISSUE: the invalid-strategy error message refers to self.strategy, an
+        # attribute that does not exist, so an AttributeError is raised instead of the
+        # intended RuntimeError (the message also has an unbalanced quote).
+        # KNOWN ISSUE: if either dataset has zero rows the per-chunk row count is 0 and
+        # the integer division raises ZeroDivisionError.
         cdef:
             intp_t X_n_full_chunks, Y_n_full_chunks
 
@@ -206,6 +294,18 @@ cdef class BaseDistancesReduction{{name_suffix}}:
 
     @final
     cdef void _parallel_on_X(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: "parallel on X" driver. Opens one OpenMP parallel region with
+        # chunks_n_threads threads. Each thread calls the per-thread init hook, then X
+        # chunks are distributed statically across threads; for each X chunk the
+        # thread calls the chunk init hook, then loops sequentially over all Y chunks,
+        # calling the pre-compute hook and the chunk-pair compute-and-reduce method,
+        # then calls the end-of-X-chunk finalize hook. Finally each thread calls the
+        # per-thread finalize hook. No synchronization between threads is needed since
+        # each X chunk is owned by exactly one thread.
+        # Inputs: none (uses instance attributes). Outputs: none; results are written
+        # by the hooks into subclass buffers.
+        # Exceptions: none (noexcept, nogil). Side effects: runs OpenMP threads.
         """Perform computation and reduction in parallel on chunks of X.
 
         This strategy dispatches tasks statically on threads. Each task
@@ -273,6 +373,16 @@ cdef class BaseDistancesReduction{{name_suffix}}:
 
     @final
     cdef void _parallel_on_Y(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: "parallel on Y" driver. Calls the shared init hook once, then
+        # iterates X chunks sequentially. For each X chunk it opens an OpenMP parallel
+        # region with chunks_n_threads threads: each thread calls the per-thread init
+        # hook for that X chunk, then Y chunks are distributed statically; for each,
+        # the pre-compute hook and the chunk-pair compute-and-reduce method run. After
+        # the region closes (implicit barrier) the synchronize hook merges per-thread
+        # results for the X chunk. After all X chunks the finalize hook runs once.
+        # Inputs/outputs: none (instance state). Exceptions: none (noexcept, nogil).
+        # Side effects: runs OpenMP threads, one parallel region per X chunk.
         """Perform computation and reduction in parallel on chunks of Y.
 
         This strategy is a sequence of embarrassingly parallel subtasks:
@@ -350,6 +460,11 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Mandatory hook (placeholder here, does nothing): compute the distances between
+        # X rows [X_start, X_end) and Y rows [Y_start, Y_end) and reduce them into the
+        # buffers of thread thread_num. Must be independent of the strategy.
+        # Exceptions: none (nogil, noexcept).
         """Compute the pairwise distances on two chunks of X and Y and reduce them.
 
         This is THE core computational method of BaseDistancesReduction{{name_suffix}}.
@@ -359,6 +474,10 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         return
 
     def _finalize_results(self, bint return_distance):
+        # [FUNCTION DOC]
+        # Mandatory hook (placeholder here, returns None): build the Python results
+        # (e.g. arrays of indices and optionally distances) after the computation.
+        # Inputs: return_distance, whether distances must be returned too.
         """Callback adapting datastructures before returning results.
 
         This must be implemented in subclasses.
@@ -368,6 +487,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
     # Placeholder methods which can be implemented
 
     cdef void compute_exact_distances(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here): convert stored surrogate (rank-preserving)
+        # distances into exact distances in place. nogil, noexcept.
         """Convert rank-preserving distances to exact distances or recompute them."""
         return
 
@@ -375,6 +497,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         self,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on X: per-thread allocation at the start
+        # of the parallel region for thread thread_num. nogil, noexcept.
         """Allocate datastructures used in a thread given its number."""
         return
 
@@ -384,6 +509,10 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on X: reset per-thread state before
+        # thread thread_num processes X rows [X_start, X_end). Euclidean subclasses
+        # must forward to their middle term computer (upcast of the X chunk). nogil.
         """Initialize datastructures used in a thread given its number.
 
         In this method, EuclideanDistance specialisations of subclass of
@@ -407,6 +536,10 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on X: called before each chunk-pair
+        # reduction. Euclidean subclasses must forward to their middle term computer
+        # (upcast of the Y chunk). nogil, noexcept.
         """Initialize datastructures just before the _compute_and_reduce_distances_on_chunks.
 
         In this method, EuclideanDistance specialisations of subclass of
@@ -428,6 +561,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on X: called after all Y chunks were
+        # processed for X rows [X_start, X_end) by thread thread_num. nogil, noexcept.
         """Interact with datastructures after a reduction on chunks."""
         return
 
@@ -435,12 +571,18 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         self,
         intp_t thread_num
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on X: per-thread cleanup at the end of
+        # the parallel region. nogil, noexcept.
         """Interact with datastructures after executing all the reductions."""
         return
 
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on Y: allocate buffers shared by all
+        # threads before the loop over X chunks. nogil, noexcept.
         """Allocate datastructures used in all threads."""
         return
 
@@ -450,6 +592,10 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on Y: per-thread initialization for X
+        # rows [X_start, X_end). Euclidean subclasses must forward to their middle term
+        # computer (upcast of the X chunk). nogil, noexcept.
         """Initialize datastructures used in a thread given its number.
 
         In this method, EuclideanDistance specialisations of subclass of
@@ -473,6 +619,10 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on Y: called before each chunk-pair
+        # reduction. Euclidean subclasses must forward to their middle term computer
+        # (upcast of the Y chunk). nogil, noexcept.
         """Initialize datastructures just before the _compute_and_reduce_distances_on_chunks.
 
         In this method, EuclideanDistance specialisations of subclass of
@@ -493,12 +643,19 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on Y: merge per-thread results for X rows
+        # [X_start, X_end) into the main results; runs outside the parallel region.
+        # nogil, noexcept.
         """Update thread datastructures before leaving a parallel region."""
         return
 
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Optional hook (no-op here), parallel on Y: free shared buffers and adjust the
+        # main results after all X chunks. nogil, noexcept.
         """Update datastructures after executing all the reductions."""
         return
 

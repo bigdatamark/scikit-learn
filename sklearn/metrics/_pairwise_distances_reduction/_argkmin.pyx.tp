@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# ArgKmin reduction: for every row of X, find the indices (and optionally the
+# distances) of its k nearest rows of Y, without materializing the full
+# distance matrix. Built on BaseDistancesReduction's chunked parallel loops.
+# Each X row owns a fixed-size max-heap of k (surrogate distance, index) pairs
+# into which candidate Y rows are pushed; heaps are sorted ascending at the end
+# and surrogate distances are converted to exact ones when requested.
+# ArgKmin is the generic version using a DatasetsPair for pairwise distances;
+# EuclideanArgKmin computes squared euclidean distances by chunk from
+# precomputed row norms plus the GEMM-based middle term (MiddleTermComputer).
+# Tempita template instantiated for suffixes 64 and 32 (input dtype); all
+# distances are float64. Used by the Python ArgKmin dispatcher (_dispatcher.py)
+# and, through it, by nearest neighbors estimators.
 from libc.stdlib cimport free, malloc
 from libc.float cimport DBL_MAX
 from cython cimport final
@@ -43,6 +56,24 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         str strategy=None,
         bint return_distance=False,
     ):
+        # [FUNCTION DOC]
+        # Entry point class method.
+        # Behavior: inside a context limiting BLAS to one thread (to avoid
+        # oversubscription with the OpenMP loops), builds an EuclideanArgKmin when
+        # metric is "euclidean" or "sqeuclidean" (squared distances kept for the
+        # latter), otherwise a generic ArgKmin over DatasetsPair.get_for; runs the
+        # strategy chosen at construction (parallel on X or on Y); then returns the
+        # finalized results.
+        # Inputs: X, Y, dense C-contiguous arrays or CSR matrices of the suffix dtype,
+        # same number of columns; k, number of neighbors (at least 1); metric, string
+        # or DistanceMetric; chunk_size; metric_kwargs, optional dict; strategy;
+        # return_distance.
+        # Outputs: indices array of shape (n_samples_X, k), or the tuple (distances,
+        # indices) when return_distance is true (distances first).
+        # Exceptions: those of the constructors (invalid k, chunk_size, strategy,
+        # metric) and of input conversion.
+        # Side effects: temporary threadpool limit change; OpenMP parallel compute; may
+        # remove norm keys from the caller's metric_kwargs (Euclidean case).
         """Compute the argkmin reduction.
 
         This classmethod is responsible for introspecting the arguments
@@ -107,6 +138,16 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         strategy=None,
         intp_t k=1,
     ):
+        # [FUNCTION DOC]
+        # Behavior: base initialization (chunking, strategy), validates k, allocates
+        # two arrays of chunks_n_threads per-thread heap pointers (not the heaps), and
+        # allocates the main results: indices filled with 0 and distances filled with
+        # the largest double, both of shape (n_samples_X, k).
+        # Inputs: datasets_pair; chunk_size; strategy; k (integer, at least 1).
+        # Exceptions: ValueError/TypeError for invalid k or chunk_size; memory errors
+        # for the numpy arrays.
+        # Side effects: C heap allocation of the pointer arrays (freed in dealloc).
+        # KNOWN ISSUE: the malloc results are not checked for NULL.
         super().__init__(
             datasets_pair=datasets_pair,
             chunk_size=chunk_size,
@@ -135,6 +176,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         self.argkmin_distances = np.full((self.n_samples_X, self.k), DBL_MAX, dtype=np.float64)
 
     def __dealloc__(self):
+        # [FUNCTION DOC]
+        # Frees the two per-thread pointer arrays if allocated. The heaps they point to
+        # are either views into the result arrays (parallel on X) or were already
+        # freed by the parallel-on-Y finalize hook. No exceptions.
         if self.heaps_indices_chunks is not NULL:
             free(self.heaps_indices_chunks)
 
@@ -149,6 +194,14 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: for every pair of local X row i and Y row j in the chunk pair,
+        # pushes the DatasetsPair surrogate distance with index Y_start + j into the
+        # k-sized heap of row i of thread thread_num's heap block (heap_push only
+        # replaces the current maximum when the new value is smaller).
+        # Inputs: chunk bounds and thread number; the thread's heap pointers must have
+        # been set by the init hooks.
+        # Outputs: heaps updated in place. Exceptions: none (nogil, noexcept).
         cdef:
             intp_t i, j
             intp_t n_samples_X = X_end - X_start
@@ -174,6 +227,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X: points thread thread_num's heap pointers at row X_start of the
+        # main distances and indices arrays, since each X chunk is owned by one thread
+        # and can be reduced directly in the results. nogil, noexcept.
         # As this strategy is embarrassingly parallel, we can set each
         # thread's heaps pointer to the proper position on the main heaps.
         self.heaps_r_distances_chunks[thread_num] = &self.argkmin_distances[X_start, 0]
@@ -185,6 +242,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X: after all Y chunks for X rows [X_start, X_end), sorts each
+        # row's k (distance, index) pairs jointly by ascending distance, in place in
+        # the main results. nogil, noexcept.
         cdef:
             intp_t idx
 
@@ -200,6 +261,13 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: allocates, for each of the chunks_n_threads threads, private
+        # heaps of X_n_samples_chunk * k distances and indices. Allocation is done in a
+        # parallel loop so memory pages land close to the thread that uses them
+        # (first-touch policy).
+        # Side effects: C heap allocations freed in the finalize hook.
+        # KNOWN ISSUE: malloc failures are not detected (NULL would be dereferenced).
         cdef:
             # Maximum number of scalar elements (the last chunks can be smaller)
             intp_t heaps_size = self.X_n_samples_chunk * self.k
@@ -228,6 +296,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: resets thread thread_num's private heaps for a new X chunk,
+        # setting all X_n_samples_chunk * k distances to the largest double and indices
+        # to -1. nogil, noexcept.
         # Initialising heaps (memset can't be used here)
         for idx in range(self.X_n_samples_chunk * self.k):
             self.heaps_r_distances_chunks[thread_num][idx] = DBL_MAX
@@ -239,6 +311,13 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: merges per-thread heaps into the main results for X rows
+        # [X_start, X_end). In a new OpenMP region, rows are split across threads; for
+        # each row, every entry of every thread's heap for that row is pushed into the
+        # row's main heap. No locking is needed as rows are disjoint.
+        # Exceptions: none (nogil, noexcept). Side effects: OpenMP parallelism with
+        # effective_n_threads threads; writes the main results.
         cdef:
             intp_t idx, jdx, thread_num
         with nogil, parallel(num_threads=self.effective_n_threads):
@@ -263,6 +342,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y: frees every thread's private heaps, then sorts each row of the
+        # main results by ascending distance (both loops parallel over threads/rows).
+        # Exceptions: none. Side effects: frees memory, writes results in place.
         cdef:
             intp_t idx, thread_num
 
@@ -283,6 +366,11 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
         return
 
     cdef void compute_exact_distances(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Converts the stored surrogate distances of the results into exact distances
+        # in place, via the metric's surrogate-to-exact transformation, clamping
+        # negative values (e.g. -0. from rounding) to 0 first. Parallel over rows with
+        # effective_n_threads OpenMP threads. nogil, noexcept.
         cdef:
             intp_t i, j
             float64_t[:, ::1] distances = self.argkmin_distances
@@ -295,6 +383,10 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
                 )
 
     def _finalize_results(self, bint return_distance=False):
+        # [FUNCTION DOC]
+        # Builds the Python results. If return_distance, converts distances to exact
+        # values first and returns (distances, indices) as numpy arrays (views on the
+        # result buffers); otherwise returns only the indices array. No exceptions.
         if return_distance:
             # We need to recompute distances because we relied on
             # surrogate distances for the reduction.
@@ -309,10 +401,23 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
 
 
 cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
+    # [CLASS DOC]
+    # Euclidean specialization of ArgKmin: squared distance of a pair is the X row
+    # squared norm plus the middle term plus the Y row squared norm, with the
+    # middle term computed per chunk pair by a MiddleTermComputer (GEMM for dense
+    # data). Hooks first run the ArgKmin behavior and then forward to the middle
+    # term computer. A euclidean DatasetsPair is still kept for the final
+    # surrogate-to-exact conversion (square root).
     """EuclideanDistance-specialisation of ArgKmin{{name_suffix}}."""
 
     @classmethod
     def is_usable_for(cls, X, Y, metric) -> bool:
+        # [FUNCTION DOC]
+        # Class method meant to report whether this specialization can be used: generic
+        # usability and no unstable OpenBLAS configuration.
+        # KNOWN ISSUE: it calls is_usable_for on the Cython ArgKmin class, which does not
+        # define it (it exists on the Python dispatcher class), so calling this method
+        # would raise AttributeError; it appears unused.
         return (ArgKmin{{name_suffix}}.is_usable_for(X, Y, metric) and
                 not _in_unstable_openblas_configuration())
 
@@ -326,6 +431,21 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         strategy=None,
         metric_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Behavior: warns (UserWarning) when metric_kwargs holds keys other than
+        # "X_norm_squared" and "Y_norm_squared" since they are ignored; initializes
+        # ArgKmin with a euclidean DatasetsPair; builds the MiddleTermComputer with a
+        # per-thread buffer of X_n_samples_chunk * Y_n_samples_chunk values; takes
+        # Y_norm_squared from metric_kwargs (validated as float64 1D) or computes it;
+        # same for X_norm_squared, reusing Y's norms when X is the same object as Y.
+        # Inputs: X, Y (dense or CSR, suffix dtype); k; use_squared_distances; chunk_size;
+        # strategy; metric_kwargs (optional dict).
+        # Exceptions: those of ArgKmin init, check_array on provided norms, and input
+        # conversion. Provided norms are not checked for length.
+        # Side effects: removes the norm keys from the caller's metric_kwargs dict;
+        # squared norm computation is OpenMP parallel.
+        # KNOWN ISSUE: the warning text always names EuclideanArgKmin64, also in the
+        # float32 instantiation.
         if (
             isinstance(metric_kwargs, dict) and
             (metric_kwargs.keys() - {"X_norm_squared", "Y_norm_squared"})
@@ -391,6 +511,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
 
     @final
     cdef void compute_exact_distances(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Converts squared distances to euclidean ones (via the generic ArgKmin
+        # conversion) unless squared distances were requested. nogil, noexcept.
         if not self.use_squared_distances:
             ArgKmin{{name_suffix}}.compute_exact_distances(self)
 
@@ -399,6 +522,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         self,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook then allocates the middle term buffer of thread
+        # thread_num. nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_X_parallel_init(self, thread_num)
         self.middle_term_computer._parallel_on_X_parallel_init(thread_num)
 
@@ -409,6 +535,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook (heap pointers into results) then lets the middle term
+        # computer prepare the X chunk (float32 upcast). nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_X_init_chunk(self, thread_num, X_start, X_end)
         self.middle_term_computer._parallel_on_X_init_chunk(thread_num, X_start, X_end)
 
@@ -421,6 +550,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook then lets the middle term computer prepare the Y chunk
+        # (float32 upcast or buffer zeroing for sparse data). nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_X_pre_compute_and_reduce_distances_on_chunks(
             self,
             X_start, X_end,
@@ -435,6 +567,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook (private heaps) then allocates the middle term buffers
+        # of all chunk threads. nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_Y_init(self)
         self.middle_term_computer._parallel_on_Y_init()
 
@@ -445,6 +580,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook (heap reset) then lets the middle term computer prepare
+        # the X chunk for thread thread_num. nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_Y_parallel_init(self, thread_num, X_start, X_end)
         self.middle_term_computer._parallel_on_Y_parallel_init(thread_num, X_start, X_end)
 
@@ -457,6 +595,9 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the ArgKmin hook then lets the middle term computer prepare the Y chunk
+        # for thread thread_num. nogil, noexcept.
         ArgKmin{{name_suffix}}._parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
             self,
             X_start, X_end,
@@ -476,6 +617,13 @@ cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: obtains the chunk's middle term matrix (row-major n_X by n_Y) from
+        # the middle term computer, then for each pair computes squared distance as
+        # X norm + middle term + Y norm, clamps it at 0 (cancellation may give small
+        # negatives) and pushes it with index Y_start + j into row i's heap of thread
+        # thread_num.
+        # Outputs: heaps updated in place. Exceptions: none (nogil, noexcept).
         cdef:
             intp_t i, j
             float64_t sqeuclidean_dist_i_j

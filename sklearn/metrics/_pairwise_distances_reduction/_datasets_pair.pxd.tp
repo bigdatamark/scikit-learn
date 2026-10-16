@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Cython declarations of the DatasetsPair hierarchy (Tempita template
+# instantiated for suffix 64 with DistanceMetric64/float64 data and suffix 32
+# with DistanceMetric32/float32 data). A DatasetsPair wraps two datasets X and Y
+# and a distance metric and exposes per-row-pair distance computation, hiding
+# whether each dataset is dense or CSR sparse. See _datasets_pair.pyx.tp.
 {{py:
 
 implementation_specific_values = [
@@ -16,26 +22,42 @@ from sklearn.metrics._dist_metrics cimport DistanceMetric64, DistanceMetric32, D
 
 
 cdef class DatasetsPair{{name_suffix}}:
+    # [CLASS DOC]
+    # Abstract pair of datasets: stores the distance metric and the number of
+    # features, and declares row counts and per-pair (surrogate) distances.
     cdef:
         {{DistanceMetric}} distance_metric
         intp_t n_features
 
     cdef intp_t n_samples_X(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Number of rows of X. nogil, noexcept.
 
     cdef intp_t n_samples_Y(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Number of rows of Y. nogil, noexcept.
 
     cdef float64_t dist(self, intp_t i, intp_t j) noexcept nogil
+    # [FUNCTION DOC]
+    # Exact distance between row i of X and row j of Y, as float64. nogil, noexcept.
 
     cdef float64_t surrogate_dist(self, intp_t i, intp_t j) noexcept nogil
+    # [FUNCTION DOC]
+    # Rank-preserving surrogate distance (e.g. squared euclidean) between row i of
+    # X and row j of Y, as float64. nogil, noexcept.
 
 
 cdef class DenseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Both X and Y are C-contiguous dense 2D arrays of the suffix dtype.
     cdef:
         const {{INPUT_DTYPE_t}}[:, ::1] X
         const {{INPUT_DTYPE_t}}[:, ::1] Y
 
 
 cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # Both X and Y are CSR matrices stored as data / int32 indices / int32 indptr.
     cdef:
         const {{INPUT_DTYPE_t}}[:] X_data
         const int32_t[::1] X_indices
@@ -47,6 +69,9 @@ cdef class SparseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
 
 cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # X is CSR; dense Y is viewed as a flattened data buffer plus a single shared
+    # column-index row 0..n_features-1, with n_Y its row count (no indptr stored).
     cdef:
         const {{INPUT_DTYPE_t}}[:] X_data
         const int32_t[::1] X_indices
@@ -58,6 +83,9 @@ cdef class SparseDenseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
 
 
 cdef class DenseSparseDatasetsPair{{name_suffix}}(DatasetsPair{{name_suffix}}):
+    # [CLASS DOC]
+    # X dense, Y CSR: delegates to a SparseDenseDatasetsPair built with X and Y
+    # swapped, swapping indices back on every call.
     cdef:
         # As distance metrics are commutative, we can simply rely
         # on the implementation of SparseDenseDatasetsPair and

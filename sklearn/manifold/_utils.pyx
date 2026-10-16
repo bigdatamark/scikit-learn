@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Compiled helper for sklearn.manifold.TSNE: binary search of per-sample Gaussian
+# precisions that match a target perplexity, producing conditional affinities.
 import numpy as np
 
 from libc cimport math
@@ -15,6 +18,22 @@ def _binary_search_perplexity(
         const float32_t[:, :] sqdistances,
         float desired_perplexity,
         int verbose):
+    # [FUNCTION DOC]
+    # HELPER: used by TSNE._joint_probabilities(_nn) to get conditional P.
+    # Behavior: for each sample i, binary-search the precision beta (start 1, up to
+    # 100 steps) so the entropy of p_j|i proportional to exp(-d_ij * beta) equals
+    # log(desired_perplexity) within 1e-5. When the matrix is square (exact method)
+    # the diagonal is excluded; with neighbors (n_neighbors < n_samples) all columns
+    # are used. Entropy = log(sum P) + beta * sum(d * P_normalized). Beta doubles or
+    # halves until bracketed, then bisects. Prints progress and mean sigma if verbose.
+    # Inputs: sqdistances (n_samples, n_neighbors) float32 squared distances;
+    # desired_perplexity > 0; verbose int.
+    # Outputs: float64 ndarray (n_samples, n_neighbors) of row-normalized
+    # conditional probabilities.
+    # Exceptions: none expected. Side effects: allocation, printing to stdout.
+    # Note: in the exact (square) case P[i,i] is never written and stays 0.
+    # KNOWN ISSUE: docstring says the output has shape (n_samples, n_samples); it is
+    # (n_samples, n_neighbors).
     """Binary search for sigmas of conditional Gaussians.
 
     This approximation reduces the computational complexity from O(N^2) to

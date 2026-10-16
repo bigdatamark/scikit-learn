@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Cython declarations of the ArgKmin reduction (k nearest neighbors search) and
+# of its Euclidean specialization. Tempita template instantiated for suffixes
+# 64 and 32 (input dtype). See _argkmin.pyx.tp for behavior.
 from sklearn.utils._typedefs cimport intp_t, float64_t
 
 {{for name_suffix in ['64', '32']}}
@@ -6,6 +10,10 @@ from sklearn.metrics._pairwise_distances_reduction._base cimport BaseDistancesRe
 from sklearn.metrics._pairwise_distances_reduction._middle_term_computer cimport MiddleTermComputer{{name_suffix}}
 
 cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
+    # [CLASS DOC]
+    # Generic ArgKmin: holds k, the result arrays (n_samples_X by k indices and
+    # float64 distances) and two arrays of per-thread pointers to the heaps that
+    # threads push into.
     """float{{name_suffix}} implementation of the ArgKmin."""
 
     cdef:
@@ -20,6 +28,9 @@ cdef class ArgKmin{{name_suffix}}(BaseDistancesReduction{{name_suffix}}):
 
 
 cdef class EuclideanArgKmin{{name_suffix}}(ArgKmin{{name_suffix}}):
+    # [CLASS DOC]
+    # Euclidean ArgKmin: adds the middle term computer, the float64 squared norms of
+    # X and Y rows, and whether squared distances are returned as is.
     """EuclideanDistance-specialisation of ArgKmin{{name_suffix}}."""
     cdef:
         MiddleTermComputer{{name_suffix}} middle_term_computer

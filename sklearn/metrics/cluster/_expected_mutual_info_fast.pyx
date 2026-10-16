@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled computation of the expected mutual information (EMI) between two
+# clusterings under a hypergeometric (permutation) model of randomness, used by
+# adjusted_mutual_info_score in sklearn.metrics.cluster._supervised.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -10,6 +14,24 @@ from scipy.special import gammaln
 
 
 def expected_mutual_information(contingency, int64_t n_samples):
+    # [FUNCTION DOC]
+    # HELPER: computes the EMI term used to adjust mutual information for chance in
+    #   adjusted_mutual_info_score.
+    # Behavior: with row sums a_i and column sums b_j of the contingency table and
+    #   N = n_samples, returns the sum over i, j and over n from max(1, a_i+b_j-N)
+    #   to min(a_i, b_j) of (n/N) * log(N*n/(a_i*b_j)) * P(n), where P(n) is the
+    #   hypergeometric probability a_i! b_j! (N-a_i)! (N-b_j)! /
+    #   (N! n! (a_i-n)! (b_j-n)! (N-a_i-b_j+n)!) evaluated in log space via log-gamma
+    #   (vectorized precomputation with scipy gammaln, per-term libc lgamma) to avoid
+    #   overflow. Returns 0.0 early if either labeling has a single cluster.
+    # Inputs: contingency: 2-D array-like (dense or scipy sparse) of shape
+    #   (n_classes, n_clusters) with non-negative integer counts summing to
+    #   n_samples; n_samples: total number of samples (int64).
+    # Outputs: float, the expected mutual information in nats.
+    # Exceptions: none explicitly raised; empty rows/columns would give log(0) of a
+    #   zero marginal (numpy warning, -inf) but such entries contribute no terms
+    #   since their summation range is empty.
+    # Side effects: allocates temporary numpy arrays; holds the GIL throughout.
     """Calculate the expected mutual information for two labelings."""
     cdef:
         float64_t emi = 0

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Mutual reachability graph for HDBSCAN (used by hdbscan.py with precomputed or
+# brute-force distance matrices). Given pairwise distances, replaces each distance
+# d(p, q) in place by max(core(p), core(q), d(p, q)), where core(p) is the distance
+# to the min_samples-th nearest neighbor (counting the point itself in the dense case).
+# Dense and CSR sparse implementations.
 # mutual reachability distance computations
 
 # Authors: The scikit-learn developers
@@ -91,6 +97,17 @@ def mutual_reachability_graph(
         _sparse_mutual_reachability_graph(
             distance_matrix.data,
             distance_matrix.indices,
+    # [FUNCTION DOC]
+    # Behavior: converts min_samples into a 0-based neighbor index (min_samples - 1)
+    # and dispatches to the sparse (CSR only) or dense implementation, which modify
+    # the input in place; returns the same object.
+    # Inputs: distance_matrix dense (n_samples, n_samples) float32/float64 array or
+    # CSR sparse matrix; min_samples >= 1; max_distance replacement for infinite
+    # mutual reachabilities (sparse only).
+    # Outputs: the modified distance_matrix.
+    # Exceptions: ValueError for a non-CSR sparse matrix; TypeError for unsupported
+    # dtypes in the typed implementations.
+    # Side effects: mutates distance_matrix (or its data array) in place.
             distance_matrix.indptr,
             distance_matrix.shape[0],
             further_neighbor_idx=further_neighbor_idx,
@@ -156,6 +173,17 @@ def _sparse_mutual_reachability_graph(
     floating max_distance,
 ):
     """Sparse implementation of mutual reachability graph.
+    # [FUNCTION DOC]
+    # HELPER: dense implementation for mutual_reachability_graph.
+    # Behavior: core distances are the further_neighbor_idx-th smallest value of each
+    # row (via partitioning a copy; rows include the zero self-distance). Then, with
+    # the GIL released, every entry (i, j) is replaced by the max of core[i], core[j]
+    # and the entry. Sequential (no OpenMP yet).
+    # Inputs: distance_matrix (n_samples, n_samples) float32/float64, assumed symmetric;
+    # further_neighbor_idx in [0, n_samples).
+    # Outputs: distance_matrix updated in place; returns None.
+    # Exceptions: ValueError from partitioning if the index is out of range.
+    # Side effects: mutates the input; allocates a temporary partitioned copy; GIL released for the loop.
 
     The computation is done in-place, i.e. the distance matrix is modified
     directly. This implementation only accepts `CSR` format sparse matrices.
@@ -204,6 +232,25 @@ def _sparse_mutual_reachability_graph(
                 mutual_reachability_distance = max(
                     core_distances[row_ind], core_distances[col_ind], data[i]
                 )
+    # [FUNCTION DOC]
+    # HELPER: sparse (CSR) implementation for mutual_reachability_graph.
+    # Behavior: for each row, the core distance is the further_neighbor_idx-th smallest
+    # STORED value of the row, or infinity if the row stores too few entries (implicit
+    # zeros, e.g. an unstored diagonal, are not counted). Then, with the GIL released,
+    # each stored entry becomes max(core[row], core[col], entry); if that is not finite,
+    # it is replaced by max_distance when max_distance > 0.
+    # Inputs: data, indices, indptr CSR arrays (C-contiguous; data float32/float64,
+    # indices/indptr an integer type); n_samples rows; further_neighbor_idx;
+    # max_distance.
+    # Outputs: data modified in place; returns None.
+    # Exceptions: buffer type/contiguity errors on argument conversion.
+    # Side effects: mutates data; allocates core distances; GIL released for the loop.
+    # KNOWN ISSUE: when the mutual reachability is infinite and max_distance <= 0 (the
+    # default 0.0), the entry is left at its original finite distance instead of being
+    # set to infinity, silently underestimating the mutual reachability of points with
+    # infinite core distance.
+    # KNOWN ISSUE: the docstring documents a distance_matrix parameter but the
+    # function takes the CSR arrays and n_samples separately.
                 if isfinite(mutual_reachability_distance):
                     data[i] = mutual_reachability_distance
                 elif max_distance > 0:

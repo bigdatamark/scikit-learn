@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Cython declarations of the MiddleTermComputer hierarchy used by the Euclidean
+# specializations of ArgKmin and RadiusNeighbors. Tempita template instantiated
+# for suffix 64 (float64 inputs, no upcast) and suffix 32 (float32 inputs,
+# upcast to float64 before BLAS). The shared sparse-sparse kernel is declared
+# once (float64 only). See _middle_term_computer.pyx.tp for behavior.
 {{py:
 
 implementation_specific_values = [
@@ -31,12 +37,20 @@ cdef void _middle_term_sparse_sparse_64(
     intp_t Y_end,
     float64_t * D,
 ) noexcept nogil
+# [FUNCTION DOC]
+# HELPER: kernel accumulating minus twice the dot products between CSR rows
+# X_start..X_end-1 of X and CSR rows Y_start..Y_end-1 of Y into the zeroed,
+# C-ordered buffer D. nogil, noexcept.
 
 
 {{for name_suffix, upcast_to_float64, INPUT_DTYPE_t, INPUT_DTYPE in implementation_specific_values}}
 
 
 cdef class MiddleTermComputer{{name_suffix}}:
+    # [CLASS DOC]
+    # Abstract computer of the "-2 X_c Y_c^T" term of squared euclidean distances
+    # for chunk pairs. Holds thread counts, the per-chunk buffer size, n_features,
+    # chunk_size and one float64 result buffer per thread.
     cdef:
         intp_t effective_n_threads
         intp_t chunks_n_threads
@@ -55,8 +69,13 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Hook mirrored from BaseDistancesReduction: prepare thread buffers before a
+    # chunk-pair computation in the parallel-on-X strategy. nogil.
 
     cdef void _parallel_on_X_parallel_init(self, intp_t thread_num) noexcept nogil
+    # [FUNCTION DOC]
+    # Allocate the result buffer of thread thread_num (parallel on X). nogil.
 
     cdef void _parallel_on_X_init_chunk(
         self,
@@ -64,8 +83,13 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Prepare the X chunk X_start..X_end-1 for thread thread_num (parallel on X).
+    # nogil.
 
     cdef void _parallel_on_Y_init(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Allocate the result buffers of all chunk threads (parallel on Y). nogil.
 
     cdef void _parallel_on_Y_parallel_init(
         self,
@@ -73,6 +97,8 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Prepare the X chunk for thread thread_num (parallel on Y). nogil.
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -82,6 +108,8 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Prepare thread buffers before a chunk-pair computation (parallel on Y). nogil.
 
     cdef float64_t * _compute_dist_middle_terms(
         self,
@@ -91,9 +119,15 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Compute the middle term for a chunk pair into thread thread_num's buffer and
+    # return a pointer to it (row-major n_X by n_Y). nogil.
 
 
 cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # Dense X and dense Y; uses BLAS GEMM. The float32 variant also holds per-thread
+    # float64 upcast buffers for the current X and Y chunks.
     cdef:
         const {{INPUT_DTYPE_t}}[:, ::1] X
         const {{INPUT_DTYPE_t}}[:, ::1] Y
@@ -112,6 +146,8 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # float32: upcast the Y chunk into the thread buffer; float64: no-op. nogil.
 
     cdef void _parallel_on_X_init_chunk(
         self,
@@ -119,6 +155,8 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # float32: upcast the X chunk into the thread buffer; float64: no-op. nogil.
 
     cdef void _parallel_on_Y_parallel_init(
         self,
@@ -126,6 +164,8 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # float32: upcast the X chunk into the thread buffer; float64: no-op. nogil.
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -135,6 +175,8 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # float32: upcast the Y chunk into the thread buffer; float64: no-op. nogil.
 
     cdef float64_t * _compute_dist_middle_terms(
         self,
@@ -144,9 +186,13 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # GEMM of the X chunk with the transposed Y chunk scaled by -2. nogil.
 
 
 cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # CSR X and CSR Y (data stored as float64, int32 indices/indptr).
     cdef:
         const float64_t[:] X_data
         const int32_t[:] X_indices
@@ -164,6 +210,8 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Zero the thread's result buffer (parallel on X). nogil.
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -173,6 +221,8 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Zero the thread's result buffer (parallel on Y). nogil.
 
     cdef float64_t * _compute_dist_middle_terms(
         self,
@@ -182,9 +232,15 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Run the sparse-sparse kernel into the thread's buffer and return it. nogil.
 
 
 cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # CSR X and dense Y; also serves the dense-sparse case with operands swapped
+    # and the result buffer interpreted as column-major (c_ordered_middle_term
+    # false).
     cdef:
         const float64_t[:] X_data
         const int32_t[:] X_indices
@@ -206,6 +262,8 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Zero the thread's result buffer (parallel on X). nogil.
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -215,6 +273,8 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Zero the thread's result buffer (parallel on Y). nogil.
 
     cdef float64_t * _compute_dist_middle_terms(
         self,
@@ -224,5 +284,8 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Run the sparse-dense kernel (swapping chunk bounds in the dense-sparse case)
+    # into the thread's buffer and return it. nogil.
 
 {{endfor}}

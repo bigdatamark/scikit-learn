@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Compiled fitting kernels for sklearn.preprocessing.TargetEncoder: per feature
+# and category, a smoothed mean of the target (fixed smoothing, or empirical
+# Bayes "auto" smoothing from Micci-Barreca 2001). Category -1 marks unknown
+# values and is ignored.
 from libc.math cimport isnan
 from libcpp.vector cimport vector
 
@@ -24,6 +29,18 @@ def _fit_encoding_fast(
     double smooth,
     double y_mean,
 ):
+    # [FUNCTION DOC]
+    # HELPER: TargetEncoder fit with a numeric smooth parameter.
+    # Behavior: per feature, for each category c: encoding = (smooth*y_mean +
+    # sum of y over samples in c) / (smooth + count of c); y_mean if that
+    # denominator is 0. Computation runs without the GIL, writing via raw pointers
+    # to the per-feature output arrays.
+    # Inputs: X_int (n_samples, n_features) C-contiguous int32/int64 category codes
+    # in [0, n_categories[f]) or -1; y 1D numeric target; n_categories int64 per
+    # feature; smooth >= 0; y_mean.
+    # Outputs: list of n_features float64 arrays of length n_categories[f].
+    # Exceptions: none in the loop; out-of-range codes are not checked (memory
+    # corruption). Side effects: allocations; releases the GIL.
     """Fit a target encoding on X_int and y.
 
     This implementation uses Eq 7 from [1] to compute the encoding.
@@ -84,6 +101,16 @@ def _fit_encoding_fast_auto_smooth(
     double y_mean,
     double y_variance,
 ):
+    # [FUNCTION DOC]
+    # HELPER: TargetEncoder fit with smooth="auto".
+    # Behavior: per feature, computes per-category count, mean and sum of squared
+    # deviations of y (two passes); lambda = var*n / (var*n + ssd/n), and encoding =
+    # lambda*category_mean + (1-lambda)*y_mean, falling back to y_mean when lambda
+    # is NaN (empty category, or zero variance with zero ssd).
+    # Inputs: X_int, y, n_categories as in _fit_encoding_fast; y_mean; y_variance.
+    # Outputs: list of n_features float64 arrays of category encodings.
+    # Exceptions: none in the loop (C division semantics, so 0/0 gives NaN and is
+    # handled). Side effects: allocations; releases the GIL.
     """Fit a target encoding on X_int and y with auto smoothing.
 
     This implementation uses Eq 5 and 6 from [1].

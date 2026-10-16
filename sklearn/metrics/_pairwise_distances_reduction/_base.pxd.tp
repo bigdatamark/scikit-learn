@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Cython declarations for the abstract base of all pairwise-distances reductions.
+# Tempita template instantiated twice, with suffix 64 (float64 inputs) and 32
+# (float32 inputs; all accumulations still happen in float64).
+# Declares the squared-row-norms helper and the BaseDistancesReduction class:
+# its chunking/threading attributes, the two final parallel drivers
+# (parallel on X / parallel on Y) and the hook methods subclasses override.
+# See _base.pyx.tp for the behavior of each member.
 from cython cimport final
 
 from sklearn.utils._typedefs cimport intp_t, float64_t
@@ -11,8 +19,18 @@ cpdef float64_t[::1] _sqeuclidean_row_norms{{name_suffix}}(
     X,
     intp_t num_threads,
 )
+# [FUNCTION DOC]
+# Declaration of the squared euclidean row norms helper (per dtype suffix).
+# Takes a dense array or CSR matrix X and a thread count; returns a float64
+# vector with one squared norm per row. Implemented in _base.pyx.tp.
 
 cdef class BaseDistancesReduction{{name_suffix}}:
+    # [CLASS DOC]
+    # Abstract base class (one per dtype suffix) holding the DatasetsPair to reduce
+    # over, the chunk geometry of X and Y (chunk size, number of chunks, size of the
+    # last chunk), the thread counts (effective_n_threads and chunks_n_threads, with
+    # chunks_n_threads never larger than effective_n_threads) and the chosen
+    # parallelization strategy flag. Subclasses implement the reduction via hooks.
     """
     Base float{{name_suffix}} implementation template of the pairwise-distances
     reduction backends.
@@ -50,9 +68,15 @@ cdef class BaseDistancesReduction{{name_suffix}}:
 
     @final
     cdef void _parallel_on_X(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Final driver that parallelizes over chunks of X (nogil, cannot raise).
+    # Calls the X-side hooks; see _base.pyx.tp.
 
     @final
     cdef void _parallel_on_Y(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Final driver that iterates chunks of X sequentially and parallelizes over
+    # chunks of Y (nogil, cannot raise). Calls the Y-side hooks; see _base.pyx.tp.
 
     # Placeholder methods which have to be implemented
 
@@ -64,16 +88,26 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Mandatory hook: compute distances between rows X_start..X_end-1 and
+    # Y_start..Y_end-1 and fold them into the reduction state of thread thread_num.
+    # nogil, no exceptions. Base version does nothing.
 
 
     # Placeholder methods which can be implemented
 
     cdef void compute_exact_distances(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook: turn the stored rank-preserving surrogate distances into exact
+    # distances, in place. nogil. Base version does nothing.
 
     cdef void _parallel_on_X_parallel_init(
         self,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on X): per-thread allocation at the start of the
+    # parallel region, for thread thread_num. nogil.
 
     cdef void _parallel_on_X_init_chunk(
         self,
@@ -81,6 +115,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on X): per-thread reinitialization when the thread
+    # starts processing X rows X_start..X_end-1. nogil.
 
     cdef void _parallel_on_X_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -90,6 +127,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on X): called before each chunk-pair reduction, e.g.
+    # to upcast the Y chunk to float64. nogil.
 
     cdef void _parallel_on_X_prange_iter_finalize(
         self,
@@ -97,15 +137,24 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on X): called after a full pass over Y for the X chunk
+    # X_start..X_end-1, e.g. to sort or copy per-thread results. nogil.
 
     cdef void _parallel_on_X_parallel_finalize(
         self,
         intp_t thread_num
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on X): per-thread cleanup at the end of the parallel
+    # region. nogil.
 
     cdef void _parallel_on_Y_init(
         self,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on Y): allocate buffers shared by all threads, before
+    # the outer loop on X chunks. nogil.
 
     cdef void _parallel_on_Y_parallel_init(
         self,
@@ -113,6 +162,9 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on Y): per-thread initialization for the current X
+    # chunk X_start..X_end-1. nogil.
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
         self,
@@ -122,14 +174,23 @@ cdef class BaseDistancesReduction{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on Y): called before each chunk-pair reduction, e.g.
+    # to upcast the Y chunk to float64. nogil.
 
     cdef void _parallel_on_Y_synchronize(
         self,
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on Y): merge per-thread results into the main results
+    # for X chunk X_start..X_end-1 after the parallel region. nogil.
 
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil
+    # [FUNCTION DOC]
+    # Optional hook (parallel on Y): free shared buffers and post-process the main
+    # results after all X chunks. nogil.
 {{endfor}}

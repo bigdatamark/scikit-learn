@@ -1,3 +1,18 @@
+# [MODULE DOC]
+# Split search for decision trees. The tree builders in _tree.pyx call a
+# Splitter once per node: node_reset selects the node's samples
+# samples[start:end] and initializes the Criterion, and node_split searches,
+# among up to max_features randomly drawn features, for the split maximizing
+# the criterion's proxy improvement, subject to min_samples_leaf,
+# min_weight_leaf and optional monotonicity constraints. The search is
+# written once in two generic functions over a fused Partitioner type
+# (DensePartitioner or SparsePartitioner from _partitioner.pyx):
+# node_split_best sorts each feature and scans every distinct threshold
+# (with two passes to choose the side for missing values), and
+# node_split_random draws one uniform threshold per feature. The four
+# concrete classes BestSplitter, BestSparseSplitter, RandomSplitter and
+# RandomSparseSplitter pair a strategy with a data layout. Features found
+# constant in a node are recorded so descendants skip them.
 """Splitting algorithms in the construction of a tree.
 
 This module contains the main splitting algorithms for constructing a tree.
@@ -42,6 +57,13 @@ ctypedef fused Partitioner:
 
 
 cdef inline void _init_split(SplitRecord* self, intp_t start_pos) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: initializes a SplitRecord before a split search.
+    # Behavior: sets impurities to +inf, improvement to -inf, pos to start_pos
+    # (callers pass end, meaning "no split found"), feature 0, threshold 0 and
+    # missing_go_to_left false; lower_bound / upper_bound are left untouched.
+    # Inputs: pointer to the record; start_pos. Outputs: the record.
+    # Exceptions: none (nogil). Side effects: writes the record.
     self.impurity_left = INFINITY
     self.impurity_right = INFINITY
     self.pos = start_pos
@@ -51,6 +73,11 @@ cdef inline void _init_split(SplitRecord* self, intp_t start_pos) noexcept nogil
     self.missing_go_to_left = False
 
 cdef class Splitter:
+    # [CLASS DOC]
+    # Abstract base splitter; subclasses supply node_split. Lifecycle: construct
+    # with criterion and hyper-parameters, init(X, y, ...) once per fit, then for
+    # each node node_reset followed by node_split, node_value and
+    # node_impurity. Pickling only preserves constructor arguments.
     """Abstract splitter class.
 
     Splitters are called by tree builders to find the best splits on both
@@ -66,6 +93,12 @@ cdef class Splitter:
         object random_state,
         const int8_t[:] monotonic_cst,
     ):
+        # [FUNCTION DOC]
+        # Stores the criterion, max_features, min_samples_leaf, min_weight_leaf,
+        # random_state (numpy RandomState-like object) and monotonic_cst (int8 per
+        # feature, or None, which disables constraints); zeroes the sample and
+        # feature counts. Outputs: none. Exceptions: type errors on bad arguments.
+        # Side effects: none beyond field initialization.
         """
         Parameters
         ----------
@@ -106,12 +139,21 @@ cdef class Splitter:
         self.with_monotonic_cst = monotonic_cst is not None
 
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # Pickle support: returns an empty state (only constructor arguments are
+        # preserved). No exceptions or side effects.
         return {}
 
     def __setstate__(self, d):
+        # [FUNCTION DOC]
+        # Pickle support: ignores the state dict. No effect.
         pass
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Pickle support: returns the class, the constructor arguments (criterion,
+        # max_features, min_samples_leaf, min_weight_leaf, random_state,
+        # monotonic_cst) and the empty state. Data bound by init is not pickled.
         return (type(self), (self.criterion,
                              self.max_features,
                              self.min_samples_leaf,
@@ -126,6 +168,24 @@ cdef class Splitter:
         const float64_t[:] sample_weight,
         const uint8_t[::1] missing_values_in_feature_mask,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: seeds rand_r_state with random_state.randint(0, RAND_R_MAX);
+        # fills samples with the indices of rows whose weight is non-zero (all rows if
+        # sample_weight is None) and sets n_samples to their count; sums all weights
+        # into weighted_n_samples; sets features to 0..n_features-1; allocates
+        # feature_values (one per row of X) and constant_features (one per feature);
+        # keeps references to y and sample_weight.
+        # Inputs: X, any object with a 2-D shape (dense array or sparse matrix); y,
+        # 2-D float64 C-contiguous targets (n_samples, n_outputs); sample_weight,
+        # 1-D float64 or None; missing_values_in_feature_mask, unused here (used by
+        # subclasses for their partitioner).
+        # Outputs: returns 0.
+        # Exceptions: MemoryError from numpy allocations; errors raised by
+        # random_state.randint. Requires the GIL.
+        # Side effects: allocates buffers, advances the random_state object.
+        # KNOWN ISSUE: the docstring documents a has_missing parameter that does not
+        # exist; the actual parameter is missing_values_in_feature_mask and the
+        # base method does not use it.
         """Initialize the splitter.
 
         Take in the input data X, the target Y, and optional sample weights.
@@ -197,6 +257,15 @@ cdef class Splitter:
         intp_t end,
         float64_t* weighted_n_node_samples
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: records start and end and calls criterion.init with y, weights,
+        # total weighted sample count, samples and the range, so the criterion
+        # computes the node statistics.
+        # Inputs: start, end (end exclusive, despite the docstring calling it the
+        # last sample); weighted_n_node_samples, output pointer.
+        # Outputs: returns 0; writes the node's weighted sample count.
+        # Exceptions: errors propagated from criterion.init (-1 return). nogil.
+        # Side effects: mutates splitter and criterion state.
         """Reset splitter on node samples[start:end].
 
         Returns -1 in case of failure to allocate memory (and raise MemoryError)
@@ -232,6 +301,12 @@ cdef class Splitter:
         ParentInfo* parent_record,
         SplitRecord* split,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Placeholder for subclasses: should search the best split of
+        # samples[start:end] given the parent information (impurity, bounds,
+        # number of known constant features, updated on return) and write it to
+        # split. The base implementation does nothing and returns 0, leaving split
+        # unset. Exceptions: none here; subclasses return -1 on error. nogil.
 
         """Find the best split on node samples[start:end].
 
@@ -244,16 +319,27 @@ cdef class Splitter:
         pass
 
     cdef void node_value(self, float64_t* dest) noexcept nogil:
+        # [FUNCTION DOC]
+        # Writes the current node's value (e.g. class weights or mean) into dest by
+        # delegating to the criterion. Exceptions: none (nogil). Side effects: writes
+        # dest.
         """Copy the value of node samples[start:end] into dest."""
 
         self.criterion.node_value(dest)
 
     cdef inline void clip_node_value(self, float64_t* dest, float64_t lower_bound, float64_t upper_bound) noexcept nogil:
+        # [FUNCTION DOC]
+        # Delegates to the criterion to clip the node value in dest to
+        # [lower_bound, upper_bound] (monotonic constraints). Exceptions: none
+        # (nogil). Side effects: writes dest.
         """Clip the value in dest between lower_bound and upper_bound for monotonic constraints."""
 
         self.criterion.clip_node_value(dest, lower_bound, upper_bound)
 
     cdef float64_t node_impurity(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Returns the impurity of the current node as computed by the criterion.
+        # Exceptions: none (nogil). Side effects: none.
         """Return the impurity of the current node."""
 
         return self.criterion.node_impurity()
@@ -266,6 +352,40 @@ cdef inline int node_split_best(
     SplitRecord* split,
     ParentInfo* parent_record,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: best-split search shared by BestSplitter and BestSparseSplitter
+    # (instantiated for each Partitioner type).
+    # Behavior: features are drawn without replacement by a Fisher-Yates scheme
+    # on the features array, which is kept segmented into: drawn known-constant
+    # features, undrawn known-constant features, newly found constant features,
+    # undrawn candidates, and drawn non-constant features (from the end). Known
+    # constant features (from the parent) are skipped without evaluation. The
+    # loop continues while undrawn non-constant candidates remain and either
+    # fewer than max_features features were visited or every visited feature so
+    # far was constant. For each drawn candidate the partitioner sorts the node
+    # by that feature; if all values are missing, or there are no missing values
+    # and max - min <= FEATURE_THRESHOLD, the feature is marked constant.
+    # Otherwise one scan (two if missing values exist: missing on the right,
+    # then missing on the left after shift_missing_to_the_left) walks the
+    # candidate positions from next_p; positions violating min_samples_leaf,
+    # monotonicity (via criterion.check_monotonicity) or min_weight_leaf are
+    # rejected, and the one with the largest proxy improvement is kept. Its
+    # threshold is the midpoint of the neighbouring values (computed as a sum of
+    # halves to avoid overflow) or +inf for the "only missing values go right"
+    # split; if the feature had no missing values, missing_go_to_left is set to
+    # send future NaNs to the larger child. Finally the node samples are
+    # partitioned by the best split, children impurities and the true impurity
+    # improvement are computed, the known-constant prefix of features is
+    # restored from constant_features and new constant features are appended to
+    # constant_features for the children.
+    # Inputs: splitter, partitioner, criterion; split (output); parent_record
+    # (impurity, lower/upper bounds, n_constant_features; updated).
+    # Outputs: returns 0; split receives the best SplitRecord (pos == end if none
+    # found); parent_record.n_constant_features is updated to the new total.
+    # Exceptions: -1 only if the criterion signals an error. nogil.
+    # Side effects: reorders samples, feature_values and features; writes
+    # constant_features; advances the splitter's RNG state; mutates the
+    # criterion.
     """Find the best split on node samples[start:end]
 
     Returns -1 in case of failure to allocate memory (and raise MemoryError)
@@ -511,6 +631,27 @@ cdef inline int node_split_random(
     SplitRecord* split,
     ParentInfo* parent_record,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: random-split search shared by RandomSplitter and
+    # RandomSparseSplitter (instantiated for each Partitioner type).
+    # Behavior: same Fisher-Yates feature sampling and constant-feature
+    # bookkeeping as node_split_best, but for each candidate the partitioner only
+    # computes min and max (a feature is constant if all values are missing, or
+    # there are no missing values and max - min <= FEATURE_THRESHOLD). A
+    # threshold is drawn uniformly in [min, max] (replaced by min if it equals
+    # max); when missing values exist, their direction is chosen by a fair coin.
+    # The node is partitioned by the threshold, then the split is rejected on
+    # min_samples_leaf, min_weight_leaf or monotonicity violations, and the one
+    # with the largest proxy improvement is kept (missing_go_to_left set to the
+    # larger child when there were no missing values). At the end the samples are
+    # re-partitioned by the best split unless the last feature partitioned was
+    # already the best one (features are never drawn twice, so the layout is
+    # still valid), then child impurities and improvement are computed and the
+    # constant-feature arrays are updated as in node_split_best.
+    # Inputs/outputs: as node_split_best.
+    # Exceptions: -1 only if the criterion signals an error. nogil.
+    # Side effects: reorders samples, feature_values and features; writes
+    # constant_features; advances the RNG state; mutates the criterion.
     """Find the best random split on node samples[start:end]
 
     Returns -1 in case of failure to allocate memory (and raise MemoryError)
@@ -737,6 +878,9 @@ cdef inline int node_split_random(
 
 
 cdef class BestSplitter(Splitter):
+    # [CLASS DOC]
+    # Best-split strategy on dense X, using a DensePartitioner (supports NaN
+    # missing values).
     """Splitter for finding the best split on dense data."""
     cdef DensePartitioner partitioner
     cdef int init(
@@ -746,6 +890,15 @@ cdef class BestSplitter(Splitter):
         const float64_t[:] sample_weight,
         const uint8_t[::1] missing_values_in_feature_mask,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: runs the base Splitter.init (sample list, weights, buffers) and
+        # then builds the dense partitioner over X sharing the splitter's samples
+        # and feature_values buffers.
+        # Inputs: X (2-D float32 array), y, sample_weight (or None), missing-value mask per
+        # feature (or None).
+        # Outputs: returns 0 on success (implicit).
+        # Exceptions: those of Splitter.init and of the partitioner constructor.
+        # Side effects: allocates buffers; consumes one draw of random_state.
         Splitter.init(self, X, y, sample_weight, missing_values_in_feature_mask)
         self.partitioner = DensePartitioner(
             X, self.samples, self.feature_values, missing_values_in_feature_mask
@@ -756,6 +909,10 @@ cdef class BestSplitter(Splitter):
             ParentInfo* parent_record,
             SplitRecord* split,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Delegates to node_split_best with this splitter, its dense partitioner and its
+        # criterion. Inputs/outputs as Splitter.node_split. Exceptions: none in
+        # practice (error return -1 propagated). Runs without the GIL.
         return node_split_best(
             self,
             self.partitioner,
@@ -765,6 +922,9 @@ cdef class BestSplitter(Splitter):
         )
 
 cdef class BestSparseSplitter(Splitter):
+    # [CLASS DOC]
+    # Best-split strategy on CSC sparse X, using a SparsePartitioner (no missing
+    # value support).
     """Splitter for finding the best split, using the sparse data."""
     cdef SparsePartitioner partitioner
     cdef int init(
@@ -774,6 +934,15 @@ cdef class BestSparseSplitter(Splitter):
         const float64_t[:] sample_weight,
         const uint8_t[::1] missing_values_in_feature_mask,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: runs the base Splitter.init (sample list, weights, buffers) and
+        # then builds the sparse partitioner over X sharing the splitter's samples
+        # and feature_values buffers.
+        # Inputs: X (CSC sparse matrix), y, sample_weight (or None), missing-value mask per
+        # feature (or None).
+        # Outputs: returns 0 on success (implicit).
+        # Exceptions: those of Splitter.init and of the partitioner constructor (ValueError if X is not CSC).
+        # Side effects: allocates buffers; consumes one draw of random_state.
         Splitter.init(self, X, y, sample_weight, missing_values_in_feature_mask)
         self.partitioner = SparsePartitioner(
             X, self.samples, self.n_samples, self.feature_values, missing_values_in_feature_mask
@@ -784,6 +953,10 @@ cdef class BestSparseSplitter(Splitter):
             ParentInfo* parent_record,
             SplitRecord* split,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Delegates to node_split_best with this splitter, its sparse partitioner and its
+        # criterion. Inputs/outputs as Splitter.node_split. Exceptions: none in
+        # practice (error return -1 propagated). Runs without the GIL.
         return node_split_best(
             self,
             self.partitioner,
@@ -793,6 +966,9 @@ cdef class BestSparseSplitter(Splitter):
         )
 
 cdef class RandomSplitter(Splitter):
+    # [CLASS DOC]
+    # Random-threshold strategy (extremely randomized trees) on dense X, using a
+    # DensePartitioner.
     """Splitter for finding the best random split on dense data."""
     cdef DensePartitioner partitioner
     cdef int init(
@@ -802,6 +978,15 @@ cdef class RandomSplitter(Splitter):
         const float64_t[:] sample_weight,
         const uint8_t[::1] missing_values_in_feature_mask,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: runs the base Splitter.init (sample list, weights, buffers) and
+        # then builds the dense partitioner over X sharing the splitter's samples
+        # and feature_values buffers.
+        # Inputs: X (2-D float32 array), y, sample_weight (or None), missing-value mask per
+        # feature (or None).
+        # Outputs: returns 0 on success (implicit).
+        # Exceptions: those of Splitter.init and of the partitioner constructor.
+        # Side effects: allocates buffers; consumes one draw of random_state.
         Splitter.init(self, X, y, sample_weight, missing_values_in_feature_mask)
         self.partitioner = DensePartitioner(
             X, self.samples, self.feature_values, missing_values_in_feature_mask
@@ -812,6 +997,10 @@ cdef class RandomSplitter(Splitter):
             ParentInfo* parent_record,
             SplitRecord* split,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Delegates to node_split_random with this splitter, its dense partitioner and its
+        # criterion. Inputs/outputs as Splitter.node_split. Exceptions: none in
+        # practice (error return -1 propagated). Runs without the GIL.
         return node_split_random(
             self,
             self.partitioner,
@@ -821,6 +1010,8 @@ cdef class RandomSplitter(Splitter):
         )
 
 cdef class RandomSparseSplitter(Splitter):
+    # [CLASS DOC]
+    # Random-threshold strategy on CSC sparse X, using a SparsePartitioner.
     """Splitter for finding the best random split, using the sparse data."""
     cdef SparsePartitioner partitioner
     cdef int init(
@@ -830,6 +1021,15 @@ cdef class RandomSparseSplitter(Splitter):
         const float64_t[:] sample_weight,
         const uint8_t[::1] missing_values_in_feature_mask,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: runs the base Splitter.init (sample list, weights, buffers) and
+        # then builds the sparse partitioner over X sharing the splitter's samples
+        # and feature_values buffers.
+        # Inputs: X (CSC sparse matrix), y, sample_weight (or None), missing-value mask per
+        # feature (or None).
+        # Outputs: returns 0 on success (implicit).
+        # Exceptions: those of Splitter.init and of the partitioner constructor (ValueError if X is not CSC).
+        # Side effects: allocates buffers; consumes one draw of random_state.
         Splitter.init(self, X, y, sample_weight, missing_values_in_feature_mask)
         self.partitioner = SparsePartitioner(
             X, self.samples, self.n_samples, self.feature_values, missing_values_in_feature_mask
@@ -839,6 +1039,10 @@ cdef class RandomSparseSplitter(Splitter):
             ParentInfo* parent_record,
             SplitRecord* split,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Delegates to node_split_random with this splitter, its sparse partitioner and its
+        # criterion. Inputs/outputs as Splitter.node_split. Exceptions: none in
+        # practice (error return -1 propagated). Runs without the GIL.
         return node_split_random(
             self,
             self.partitioner,

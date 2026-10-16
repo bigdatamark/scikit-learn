@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Computation of the middle term of the squared euclidean distance
+# decomposition used by the Euclidean specializations of the reductions:
+# squared distance(x, y) = squared norm(x) - 2 x.y + squared norm(y).
+# The norms are precomputed once by the reductions; this module computes, for
+# each chunk pair (X rows [X_start, X_end), Y rows [Y_start, Y_end)), the
+# matrix of -2 x.y values into a per-thread float64 buffer of at least
+# n_X * n_Y elements, laid out row-major (n_X rows of n_Y values).
+# Three concrete classes: dense-dense (BLAS GEMM, with float32 chunks first
+# upcast to float64), sparse-sparse (CSR merge-free kernel) and sparse-dense
+# (CSR times dense rows; also used for dense-sparse by swapping operands and
+# writing the result column-major so the layout seen by the caller is the same).
+# The class part is a Tempita template instantiated for suffixes 64 and 32;
+# sparse data is always converted to float64.
 {{py:
 
 implementation_specific_values = [
@@ -43,6 +57,20 @@ cdef void _middle_term_sparse_sparse_64(
     intp_t Y_end,
     float64_t * D,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: sparse-sparse kernel of SparseSparseMiddleTermComputer (shared by both
+    # dtype instantiations).
+    # Behavior: for each local X row i and each stored entry (column c, value a) of
+    # it, scans every local Y row j and each of that row's stored entries; when the
+    # column equals c, adds -2 * a * b to D at position i * n_Y + j. Cost per chunk
+    # pair is the sum over (i, j) of nnz(X_i) * nnz(Y_j); no sorted-index merge.
+    # Inputs: CSR arrays (data float64, int32 indices, int32 indptr) of X and Y;
+    # row ranges [X_start, X_end) and [Y_start, Y_end); D, pointer to a buffer of
+    # at least n_X * n_Y float64 values that must be zeroed beforehand.
+    # Outputs: D accumulated in place (row-major).
+    # Exceptions: none (nogil, noexcept, no bounds checks). Side effects: writes D.
+    # Note: duplicate column entries within a row are each multiplied, which equals
+    # the dot product of the summed duplicates, so results stay correct.
     # This routine assumes that D points to the first element of a
     # zeroed buffer of length at least equal to n_X × n_Y, conceptually
     # representing a 2-d C-ordered array.
@@ -77,6 +105,18 @@ cdef void _middle_term_sparse_dense_{{name_suffix}}(
     bint c_ordered_middle_term,
     float64_t * dist_middle_terms,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: sparse-dense kernel of SparseDenseMiddleTermComputer (per dtype
+    # suffix of the dense operand).
+    # Behavior: for each local CSR row i of X and each local dense row j of Y,
+    # accumulates -2 * X value * Y[Y_start + j, column] over the stored entries of
+    # X row i, writing at index i * n_Y + j when c_ordered_middle_term is true, or
+    # j * n_X + i otherwise (column-major, used for the swapped dense-sparse case).
+    # Inputs: CSR arrays of X (float64 data, int32 indices/indptr), [X_start,
+    # X_end); dense C-contiguous Y of the suffix dtype, [Y_start, Y_end); the
+    # layout flag; dist_middle_terms, zeroed buffer of at least n_X * n_Y values.
+    # Outputs: dist_middle_terms accumulated in place.
+    # Exceptions: none (nogil, noexcept). Side effects: writes the buffer.
     # This routine assumes that dist_middle_terms is a pointer to the first element
     # of a buffer filled with zeros of length at least equal to n_X × n_Y, conceptually
     # representing a 2-d C-ordered of F-ordered array.
@@ -95,6 +135,12 @@ cdef void _middle_term_sparse_dense_{{name_suffix}}(
 
 
 cdef class MiddleTermComputer{{name_suffix}}:
+    # [CLASS DOC]
+    # Abstract base (per dtype suffix) computing the -2 X_c Y_c^T chunk term.
+    # It owns one float64 buffer per thread (dist_middle_terms_chunks, sized lazily
+    # to dist_middle_terms_chunks_size) and exposes hooks with the same names and
+    # call points as BaseDistancesReduction so that Euclidean reductions can
+    # forward their hooks to it. Subclasses provide the data-specific computation.
     """Helper class to compute a Euclidean distance matrix in chunks.
 
     This is an abstract base class that is further specialized depending
@@ -123,6 +169,17 @@ cdef class MiddleTermComputer{{name_suffix}}:
         n_features,
         chunk_size,
     ) -> MiddleTermComputer{{name_suffix}}:
+        # [FUNCTION DOC]
+        # Factory class method.
+        # Behavior: returns DenseDense for two dense inputs, SparseSparse for two CSR
+        # inputs, SparseDense (row-major result) for CSR X with dense Y, and
+        # SparseDense built on (Y, X) with column-major result for dense X with CSR Y.
+        # Inputs: X, Y, dense C-contiguous arrays or CSR matrices; effective_n_threads,
+        # chunks_n_threads, dist_middle_terms_chunks_size (buffer length per thread,
+        # expected to be at least chunk_size squared), n_features, chunk_size.
+        # Outputs: a new MiddleTermComputer subclass instance.
+        # Exceptions: buffer/type errors from the constructors. The final
+        # NotImplementedError is unreachable since the four cases are exhaustive.
         """Return the MiddleTermComputer implementation for the given arguments.
 
         Parameters
@@ -198,6 +255,10 @@ cdef class MiddleTermComputer{{name_suffix}}:
 
     @classmethod
     def unpack_csr(cls, X: csr_matrix | csr_array):
+        # [FUNCTION DOC]
+        # HELPER: used by the sparse constructors. Returns CSR data converted to
+        # float64 and indices/indptr converted to int32 (copies only when needed).
+        # Exceptions: none explicit; int32 overflow is not checked.
         """Ensure that the CSR matrix is indexed with np.int32."""
         X_data = np.asarray(X.data, dtype=np.float64)
         X_indices = np.asarray(X.indices, dtype=np.int32)
@@ -212,6 +273,11 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t n_features,
         intp_t chunk_size,
     ):
+        # [FUNCTION DOC]
+        # Stores the configuration and creates effective_n_threads empty per-thread
+        # float64 buffers (they are sized later by the init hooks).
+        # Exceptions: overflow errors converting arguments to C integers.
+        # Side effects: allocation of the outer vector.
         self.effective_n_threads = effective_n_threads
         self.chunks_n_threads = chunks_n_threads
         self.dist_middle_terms_chunks_size = dist_middle_terms_chunks_size
@@ -228,9 +294,15 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Default hook (no-op). nogil, noexcept.
         return
 
     cdef void _parallel_on_X_parallel_init(self, intp_t thread_num) noexcept nogil:
+        # [FUNCTION DOC]
+        # Resizes thread thread_num's buffer to dist_middle_terms_chunks_size.
+        # Side effects: allocation inside nogil code (a C++ allocation failure cannot be
+        # reported). nogil, noexcept.
         self.dist_middle_terms_chunks[thread_num].resize(self.dist_middle_terms_chunks_size)
 
     cdef void _parallel_on_X_init_chunk(
@@ -239,9 +311,15 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Default hook (no-op). nogil, noexcept.
         return
 
     cdef void _parallel_on_Y_init(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Resizes the buffers of threads 0..chunks_n_threads-1 to
+        # dist_middle_terms_chunks_size, sequentially before the parallel loop.
+        # Side effects: allocation in nogil code. nogil, noexcept.
         for thread_num in range(self.chunks_n_threads):
             self.dist_middle_terms_chunks[thread_num].resize(
                 self.dist_middle_terms_chunks_size
@@ -253,6 +331,8 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Default hook (no-op). nogil, noexcept.
         return
 
     cdef void _parallel_on_Y_pre_compute_and_reduce_distances_on_chunks(
@@ -263,6 +343,8 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Default hook (no-op). nogil, noexcept.
         return
 
     cdef float64_t * _compute_dist_middle_terms(
@@ -273,10 +355,18 @@ cdef class MiddleTermComputer{{name_suffix}}:
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Abstract: returns a null pointer; subclasses return their filled buffer.
+        # nogil, noexcept.
         return NULL
 
 
 cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # Dense-dense computer: one BLAS GEMM per chunk pair computes -2 times the X
+    # chunk multiplied by the transposed Y chunk. In the float32 instantiation, X
+    # and Y chunks are first copied into per-thread float64 buffers of size
+    # chunk_size * n_features so that GEMM runs in float64.
     """Computes the middle term of the Euclidean distance between two chunked dense matrices
     X_c and Y_c.
 
@@ -296,6 +386,12 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t n_features,
         intp_t chunk_size,
     ):
+        # [FUNCTION DOC]
+        # Stores X and Y (C-contiguous, suffix dtype) after base initialization. In the
+        # float32 instantiation it also allocates, for every effective thread, X and Y
+        # float64 upcast buffers of chunk_size * n_features elements.
+        # Exceptions: buffer errors for wrong dtype/contiguity; memory errors.
+        # Side effects: allocation of upcast buffers (float32 only).
         super().__init__(
             effective_n_threads,
             chunks_n_threads,
@@ -326,6 +422,10 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # float32 instantiation: copies Y rows [Y_start, Y_end) into thread
+        # thread_num's Y upcast buffer as float64, row-major. float64 instantiation:
+        # no-op. nogil, noexcept. Side effects: writes the thread's buffer.
 {{if upcast_to_float64}}
         cdef:
             intp_t i, j
@@ -345,6 +445,9 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # float32 instantiation: copies X rows [X_start, X_end) into thread
+        # thread_num's X upcast buffer as float64. float64: no-op. nogil, noexcept.
 {{if upcast_to_float64}}
         cdef:
             intp_t i, j
@@ -364,6 +467,10 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # float32 instantiation: copies X rows [X_start, X_end) into thread
+        # thread_num's X upcast buffer as float64 (the X chunk is fixed for the whole
+        # parallel region in this strategy). float64: no-op. nogil, noexcept.
 {{if upcast_to_float64}}
         cdef:
             intp_t i, j
@@ -385,6 +492,9 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # float32 instantiation: copies Y rows [Y_start, Y_end) into thread
+        # thread_num's Y upcast buffer as float64. float64: no-op. nogil, noexcept.
 {{if upcast_to_float64}}
         cdef:
             intp_t i, j
@@ -406,6 +516,16 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: row-major GEMM computing -2 * A * B transposed into thread
+        # thread_num's result buffer (beta = 0, so previous content is overwritten),
+        # with A the X chunk (n_X by n_features) and B the Y chunk (n_Y by n_features);
+        # for float64, A and B point directly into X and Y, for float32 into the
+        # upcast buffers filled by the hooks. Leading dimensions are n_features for A
+        # and B and n_Y for the result.
+        # Outputs: pointer to the thread's buffer holding n_X * n_Y values.
+        # Exceptions: none (nogil, noexcept). Side effects: writes the thread buffer;
+        # BLAS may use its own threading.
         cdef:
             float64_t *dist_middle_terms = self.dist_middle_terms_chunks[thread_num].data()
 
@@ -443,6 +563,9 @@ cdef class DenseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_
 
 
 cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # Sparse-sparse computer: CSR X and CSR Y (data held as float64). Each chunk pair
+    # zeroes the thread buffer then calls the sparse-sparse kernel.
     """Middle term of the Euclidean distance between two chunked CSR matrices.
 
     The result is return as a contiguous array.
@@ -464,6 +587,9 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t n_features,
         intp_t chunk_size,
     ):
+        # [FUNCTION DOC]
+        # Base initialization, then unpacks X and Y into float64 data and int32
+        # indices/indptr. Exceptions: conversion errors. Side effects: possible copies.
         super().__init__(
             effective_n_threads,
             chunks_n_threads,
@@ -482,6 +608,9 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Fills the whole buffer of thread thread_num with zeros before the kernel
+        # accumulates into it (parallel on X). nogil, noexcept.
         # Flush the thread dist_middle_terms_chunks to 0.0
         fill(
             self.dist_middle_terms_chunks[thread_num].begin(),
@@ -497,6 +626,9 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Fills the whole buffer of thread thread_num with zeros (parallel on Y).
+        # nogil, noexcept.
         # Flush the thread dist_middle_terms_chunks to 0.0
         fill(
             self.dist_middle_terms_chunks[thread_num].begin(),
@@ -512,6 +644,10 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Runs the sparse-sparse kernel for the chunk pair into the (already zeroed)
+        # buffer of thread thread_num and returns a pointer to it (row-major n_X by
+        # n_Y). nogil, noexcept.
         cdef:
             float64_t *dist_middle_terms = (
                 self.dist_middle_terms_chunks[thread_num].data()
@@ -534,6 +670,13 @@ cdef class SparseSparseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{nam
         return dist_middle_terms
 
 cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name_suffix}}):
+    # [CLASS DOC]
+    # Sparse-dense computer: CSR X (float64 data) and dense Y (suffix dtype). When
+    # c_ordered_middle_term is false the object was built with the original
+    # operands swapped (dense-sparse case): the stored CSR matrix is the original
+    # Y, the stored dense array is the original X, and the result is written
+    # column-major so the caller still reads it as original-X rows by original-Y
+    # columns.
     """Middle term of the Euclidean distance between chunks of a CSR matrix and an np.ndarray.
 
     The logic of the computation is wrapped in the routine _middle_term_sparse_dense_{{name_suffix}}.
@@ -552,6 +695,9 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t chunk_size,
         bint c_ordered_middle_term,
     ):
+        # [FUNCTION DOC]
+        # Base initialization, unpacks the CSR operand, stores the dense operand and the
+        # layout flag. Exceptions: conversion/buffer errors.
         super().__init__(
             effective_n_threads,
             chunks_n_threads,
@@ -571,6 +717,9 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Fills the whole buffer of thread thread_num with zeros (parallel on X).
+        # nogil, noexcept.
         # Fill the thread's dist_middle_terms_chunks with 0.0 before
         # computing its elements in _compute_dist_middle_terms.
         fill(
@@ -587,6 +736,9 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Fills the whole buffer of thread thread_num with zeros (parallel on Y).
+        # nogil, noexcept.
         # Fill the thread's dist_middle_terms_chunks with 0.0 before
         # computing its elements in _compute_dist_middle_terms.
         fill(
@@ -603,6 +755,12 @@ cdef class SparseDenseMiddleTermComputer{{name_suffix}}(MiddleTermComputer{{name
         intp_t Y_end,
         intp_t thread_num,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: in the swapped dense-sparse case, exchanges the X and Y chunk bounds
+        # (caller bounds always refer to the original X and Y), then runs the
+        # sparse-dense kernel into thread thread_num's zeroed buffer with the layout
+        # flag. Outputs: pointer to the buffer (row-major from the caller's view).
+        # Exceptions: none (nogil, noexcept).
         cdef:
             float64_t *dist_middle_terms = (
                 self.dist_middle_terms_chunks[thread_num].data()

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Small array helpers implemented in Cython: smallest positive value of a
+# float array (used by LARS / lasso path code), a memory-light check whether
+# any row of a 2d array equals a constant (used in validation), and a
+# Cholesky-factor row/column deletion via Givens rotations (used by lars_path
+# when variables leave the active set).
 """A small collection of auxiliary functions that operate on arrays."""
 
 from cython cimport floating
@@ -17,6 +23,12 @@ ctypedef fused real_numeric:
 
 
 def min_pos(const floating[:] X):
+    # [FUNCTION DOC]
+    # Behavior: linear scan returning the smallest element strictly greater than 0;
+    # if none exists, returns FLT_MAX for float32 input or DBL_MAX for float64.
+    # NaNs are ignored (comparisons are false).
+    # Inputs: X, 1d float32/float64 array (strided allowed).
+    # Outputs: Python float. Exceptions: buffer dtype errors (e.g. integer input).
     """Find the minimum value of an array over positive values.
 
     Returns the maximum representable value of the input dtype if none of the
@@ -50,6 +62,13 @@ def min_pos(const floating[:] X):
 
 
 def _all_with_any_reduction_axis_1(real_numeric[:, :] array, real_numeric value):
+    # [FUNCTION DOC]
+    # Behavior: for each row, compare elements to value until one differs; return
+    # True as soon as a row has all elements equal, else False. An array with
+    # rows but zero columns returns True; zero rows returns False.
+    # Inputs: array, 2d memoryview of a numeric fused type (writable buffer
+    # required since the memoryview is not const); value of the same type.
+    # Outputs: bool. Exceptions: buffer dtype errors.
     """Check whether any row contains all values equal to `value`.
 
     It is equivalent to `np.any(np.all(X == value, axis=1))`, but it avoids to
@@ -85,6 +104,19 @@ def _all_with_any_reduction_axis_1(real_numeric[:, :] array, real_numeric value)
 #
 # TODO: put transpose as an option
 def cholesky_delete(floating[:, :] L, int go_out):
+    # [FUNCTION DOC]
+    # Behavior: given the lower-triangular Cholesky factor L of a Gram matrix
+    # (n x n, stored C-contiguously with row stride m elements), remove variable
+    # go_out: first shift rows go_out+1..n-1 up by one (copying the i+2 leading
+    # entries of each row), then restore lower-triangular form by computing, for
+    # each affected row i, a Givens rotation zeroing the superdiagonal element
+    # (i, i+1), flipping its sign to keep the diagonal non-negative, and applying
+    # it to columns i and i+1 of the remaining rows below.
+    # Inputs: L (writable 2d float memoryview, rows contiguous), go_out (index of
+    # the row/column to delete, 0 <= go_out < n).
+    # Outputs: None; L modified in place so its leading (n-1) x (n-1) block is the
+    # updated factor; the last row is left as garbage.
+    # Exceptions: buffer errors only; no bounds checks on go_out.
     cdef:
         int n = L.shape[0]
         int m = L.strides[0]

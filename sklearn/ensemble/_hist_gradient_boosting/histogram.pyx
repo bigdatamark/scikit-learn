@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Histogram construction for histogram gradient boosting. HistogramBuilder
+# computes, for every (allowed) feature of a tree node, an array of n_bins
+# hist_struct entries holding per-bin sums of gradients, sums of hessians and
+# counts. Histograms are built either from scratch over the node's samples
+# (parallel over features, with specialized root / constant-hessian kernels whose
+# loops are manually unrolled by 4 for vectorization) or by the subtraction trick
+# hist(child) = hist(parent) - hist(sibling). The module-level cpdef kernels are
+# also exposed to Python for testing.
 """This module contains routines for building histograms."""
 
 # Authors: The scikit-learn developers
@@ -42,6 +51,12 @@ from sklearn.utils._typedefs cimport uint8_t
 
 @cython.final
 cdef class HistogramBuilder:
+    # [CLASS DOC]
+    # Builds per-node histograms for one tree. Holds the Fortran-ordered binned data,
+    # the current gradients/hessians (float32), scratch arrays ordered_gradients and
+    # ordered_hessians (gradients/hessians gathered in node sample order to improve
+    # cache locality), n_bins, a flag for constant hessians, and n_threads. All
+    # attributes are public (readable/writable from Python).
     """A Histogram builder... used to build histograms.
 
     A histogram is an array with n_bins entries of type HISTOGRAM_DTYPE. Each
@@ -89,6 +104,16 @@ cdef class HistogramBuilder:
                  G_H_DTYPE_C [::1] hessians,
                  uint8_t hessians_are_constant,
                  int n_threads):
+        # [FUNCTION DOC]
+        # Behavior: stores the inputs, sets n_features from X_binned, and initializes
+        # ordered_gradients / ordered_hessians as copies of gradients / hessians (already
+        # in root order, since the root contains all samples in index order).
+        # Inputs: X_binned uint8 Fortran (n_samples, n_features); n_bins total bins
+        # including the missing-values bin; gradients and hessians float32 (n_samples,);
+        # hessians_are_constant flag; n_threads.
+        # Outputs: none.
+        # Exceptions: buffer errors on wrong dtype/layout.
+        # Side effects: allocates two copies of length n_samples.
 
         self.X_binned = X_binned
         self.n_features = X_binned.shape[1]
@@ -108,6 +133,20 @@ cdef class HistogramBuilder:
         const unsigned int [::1] sample_indices,       # IN
         const unsigned int [:] allowed_features=None,  # IN
     ):
+        # [FUNCTION DOC]
+        # Behavior: allocates an uninitialized (n_features, n_bins) histogram array. With
+        # the GIL released: if the node is not the root (sample count differs from total),
+        # gathers gradients (and hessians unless constant) of sample_indices into the
+        # ordered_* scratch arrays in parallel. Then, in parallel over the allowed features
+        # (all features, or those listed in allowed_features), zeroes and fills each
+        # feature's histogram via the single-feature method. Rows of features not allowed
+        # are left uninitialized.
+        # Inputs: sample_indices uint32 indices of the node's samples (a view of the
+        # splitter partition); allowed_features optional uint32 feature indices.
+        # Outputs: returns a numpy array of HISTOGRAM_DTYPE, shape (n_features, n_bins).
+        # Exceptions: MemoryError on allocation.
+        # Side effects: overwrites the first n_samples entries of ordered_gradients /
+        # ordered_hessians; OpenMP parallelism; releases the GIL.
         """Compute the histograms of the node by scanning through all the data.
 
         For a given feature, the complexity is O(n_samples)
@@ -186,6 +225,17 @@ cdef class HistogramBuilder:
             const int feature_idx,
             const unsigned int [::1] sample_indices,  # IN
             hist_struct [:, ::1] histograms) noexcept nogil:  # OUT
+        # [FUNCTION DOC]
+        # HELPER: per-feature worker of compute_histograms_brute.
+        # Behavior: zeroes histograms[feature_idx, :], then dispatches to one of four
+        # kernels: root vs non-root (root when the node holds all samples, so samples can
+        # be read sequentially without indirection), each with or without hessian
+        # accumulation (without when hessians are constant; sum_hessians then stays 0).
+        # Inputs: feature_idx; sample_indices of the node; histograms output array.
+        # Outputs: histograms[feature_idx, :] filled.
+        # Exceptions: none (noexcept nogil).
+        # Side effects: writes into histograms; called concurrently by different threads
+        # on different feature rows.
         """Compute the histogram for a given feature."""
 
         cdef:
@@ -228,6 +278,16 @@ cdef class HistogramBuilder:
         hist_struct [:, ::1] sibling_histograms,       # IN
         const unsigned int [:] allowed_features=None,  # IN
     ):
+        # [FUNCTION DOC]
+        # Behavior: in an OpenMP prange over the allowed features (GIL released),
+        # subtracts sibling_histograms from parent_histograms row by row, so that the
+        # parent array becomes the histogram of the other child. Cost O(n_bins) per feature.
+        # Inputs: parent_histograms (n_features, n_bins) parent histograms, overwritten;
+        # sibling_histograms same shape, the already-computed sibling; allowed_features
+        # optional uint32 feature indices (other rows are left untouched).
+        # Outputs: returns parent_histograms (same memory, now the child's histograms).
+        # Exceptions: none expected.
+        # Side effects: mutates parent_histograms in place; OpenMP parallelism.
         """Compute the histograms of the node using the subtraction trick.
 
         hist(parent) = hist(left_child) + hist(right_child)
@@ -290,6 +350,16 @@ cpdef void _build_histogram_naive(
         G_H_DTYPE_C [:] ordered_gradients,  # IN
         G_H_DTYPE_C [:] ordered_hessians,  # IN
         hist_struct [:, :] out) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # Behavior: reference implementation; for each i, adds ordered_gradients[i],
+    # ordered_hessians[i] and 1 to the bin binned_feature[sample_indices[i]] of row
+    # feature_idx of out. No unrolling; used in tests only.
+    # Inputs: feature_idx; sample_indices uint32; binned_feature uint8 full column;
+    # ordered_gradients / ordered_hessians float32 aligned with sample_indices; out
+    # (n_features, n_bins) histograms (caller must zero it).
+    # Outputs: out[feature_idx, :] accumulated.
+    # Exceptions: none (noexcept nogil).
+    # Side effects: mutates out.
     """Build histogram in a naive way, without optimizing for cache hit.
 
     Used in tests to compare with the optimized version."""
@@ -313,6 +383,14 @@ cpdef void _subtract_histograms(
         hist_struct [:, ::1] hist_a,  # IN and OUT
         hist_struct [:, ::1] hist_b,  # IN
 ) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # Behavior: for each bin of row feature_idx, subtracts hist_b's sum_gradients,
+    # sum_hessians and count from hist_a's (hist_a = hist_a - hist_b).
+    # Inputs: feature_idx; n_bins; hist_a (modified) and hist_b histogram arrays.
+    # Outputs: hist_a[feature_idx, :] updated in place.
+    # Exceptions: none (noexcept nogil). Counts are unsigned; a larger sibling count
+    # would wrap around (cannot happen for consistent parent/child histograms).
+    # Side effects: mutates hist_a.
     """compute hist_a = hist_a - hist_b"""
     # Note that subtraction of large sums of floating point numbers, as we have here,
     # can exhibit catastrophic cancallation. This is in particular true for gradients
@@ -340,6 +418,17 @@ cpdef void _build_histogram(
         const G_H_DTYPE_C [::1] ordered_gradients,  # IN
         const G_H_DTYPE_C [::1] ordered_hessians,  # IN
         hist_struct [:, ::1] out) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # HELPER: histogram kernel used by HistogramBuilder (also exposed for tests).
+    # Behavior: for each sample position i, adds the ordered_gradients[i] gradient, hessian and a count of 1
+    # to bin binned_feature[sample_indices[i]] of row feature_idx of out. The main loop is unrolled by 4 and a
+    # remainder loop handles the last n % 4 samples.
+    # Inputs: feature_idx; sample_indices uint32 node sample indices; binned_feature uint8 full column;
+    # ordered_gradients / ordered_hessians float32 aligned with the sample positions; out histograms,
+    # row feature_idx assumed zeroed by the caller.
+    # Outputs: out[feature_idx, :] accumulated in place.
+    # Exceptions: none (noexcept nogil, no bounds checks).
+    # Side effects: mutates out.
     """Return histogram for a given feature."""
     cdef:
         unsigned int i = 0
@@ -386,6 +475,17 @@ cpdef void _build_histogram_no_hessian(
         const X_BINNED_DTYPE_C [::1] binned_feature,  # IN
         const G_H_DTYPE_C [::1] ordered_gradients,  # IN
         hist_struct [:, ::1] out) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # HELPER: histogram kernel used by HistogramBuilder (also exposed for tests).
+    # Behavior: for each sample position i, adds the ordered_gradients[i] gradient and a count of 1 (sum_hessians untouched; used when hessians are constant)
+    # to bin binned_feature[sample_indices[i]] of row feature_idx of out. The main loop is unrolled by 4 and a
+    # remainder loop handles the last n % 4 samples.
+    # Inputs: feature_idx; sample_indices uint32 node sample indices; binned_feature uint8 full column;
+    # ordered_gradients float32 aligned with the sample positions; out histograms,
+    # row feature_idx assumed zeroed by the caller.
+    # Outputs: out[feature_idx, :] accumulated in place.
+    # Exceptions: none (noexcept nogil, no bounds checks).
+    # Side effects: mutates out.
     """Return histogram for a given feature, not updating hessians.
 
     Used when the hessians of the loss are constant (typically LS loss).
@@ -430,6 +530,17 @@ cpdef void _build_histogram_root(
         const G_H_DTYPE_C [::1] all_gradients,  # IN
         const G_H_DTYPE_C [::1] all_hessians,  # IN
         hist_struct [:, ::1] out) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # HELPER: histogram kernel used by HistogramBuilder (also exposed for tests).
+    # Behavior: for each sample position i, adds the all_gradients[i] gradient, hessian and a count of 1
+    # to bin binned_feature[i] (root: samples are all training samples in index order, no indirection) of row feature_idx of out. The main loop is unrolled by 4 and a
+    # remainder loop handles the last n % 4 samples.
+    # Inputs: feature_idx; binned_feature uint8 full column;
+    # all_gradients / all_hessians float32 aligned with the sample positions; out histograms,
+    # row feature_idx assumed zeroed by the caller.
+    # Outputs: out[feature_idx, :] accumulated in place.
+    # Exceptions: none (noexcept nogil, no bounds checks).
+    # Side effects: mutates out.
     """Compute histogram of the root node.
 
     Unlike other nodes, the root node has to find the split among *all* the
@@ -482,6 +593,17 @@ cpdef void _build_histogram_root_no_hessian(
         const X_BINNED_DTYPE_C [::1] binned_feature,  # IN
         const G_H_DTYPE_C [::1] all_gradients,  # IN
         hist_struct [:, ::1] out) noexcept nogil:  # OUT
+    # [FUNCTION DOC]
+    # HELPER: histogram kernel used by HistogramBuilder (also exposed for tests).
+    # Behavior: for each sample position i, adds the all_gradients[i] gradient and a count of 1 (sum_hessians untouched; used when hessians are constant)
+    # to bin binned_feature[i] (root: samples are all training samples in index order, no indirection) of row feature_idx of out. The main loop is unrolled by 4 and a
+    # remainder loop handles the last n % 4 samples.
+    # Inputs: feature_idx; binned_feature uint8 full column;
+    # all_gradients float32 aligned with the sample positions; out histograms,
+    # row feature_idx assumed zeroed by the caller.
+    # Outputs: out[feature_idx, :] accumulated in place.
+    # Exceptions: none (noexcept nogil, no bounds checks).
+    # Side effects: mutates out.
     """Compute histogram of the root node, not updating hessians.
 
     Used when the hessians of the loss are constant (typically LS loss).

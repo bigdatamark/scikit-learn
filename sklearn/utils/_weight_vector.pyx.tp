@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tempita template generating _weight_vector.pyx, instantiated per dtype
+# suffix 64 (double, wscale reset threshold 1e-9) and 32 (float, 1e-6).
+# WeightVector represents the dense coefficient vector of an SGD linear model
+# as wscale * w so that L2 shrinkage (multiplying all weights) costs O(1);
+# sparse updates divide by wscale. Optional averaged weights (ASGD) use
+# Bottou's sparse trick: the average is (aw + average_a * w) / average_b, with
+# aw updated only on touched coordinates. Used by sklearn.linear_model._sgd_fast.
 {{py:
 
 """
@@ -32,6 +40,10 @@ from sklearn.utils._cython_blas cimport _dot, _scal, _axpy, _asum
 {{for name_suffix, c_type, reset_wscale_threshold in dtypes}}
 
 cdef class WeightVector{{name_suffix}}(object):
+    # [CLASS DOC]
+    # Template (one class per dtype suffix): dense vector equal to wscale * w,
+    # with optional averaged vector state (aw, average_a, average_b) and cached
+    # sq_norm / l1_norm. aw_data_ptr stays NULL when no averaging array is given.
     """Dense vector represented by a scalar and a numpy array.
 
     The class provides methods to ``add`` a sparse vector
@@ -60,6 +72,15 @@ cdef class WeightVector{{name_suffix}}(object):
     def __cinit__(self,
                   {{c_type}}[::1] w,
                   {{c_type}}[::1] aw):
+        # [FUNCTION DOC]
+        # Behavior: check n_features fits in a C int, store w and its pointer, set
+        # wscale = 1, compute sq_norm (BLAS dot of w with itself) and l1_norm (BLAS
+        # asum). If aw is not None, store it and its pointer and set average_a = 0,
+        # average_b = 1.
+        # Inputs: w, aw (contiguous writable arrays of the class dtype; aw may be
+        # None). w must be non-empty (element 0 address taken without bounds checks).
+        # Outputs: none. Exceptions: ValueError if len(w) > INT_MAX; buffer errors.
+        # Side effects: keeps references to w and aw, which are later mutated in place.
 
         if w.shape[0] > INT_MAX:
             raise ValueError("More than %d features not supported; got %d."
@@ -79,6 +100,19 @@ cdef class WeightVector{{name_suffix}}(object):
 
     cdef void add(self, {{c_type}} *x_data_ptr, int *x_ind_ptr, int xnnz,
                   {{c_type}} c) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: for each nonzero (idx, val) of x add val * c / wscale to w[idx];
+        # then set sq_norm and l1_norm from the touched coordinates only.
+        # Inputs: x_data_ptr, x_ind_ptr (xnnz values and feature indices), c.
+        # Outputs: w updated in place; sq_norm, l1_norm overwritten.
+        # Exceptions: none (nogil).
+        # KNOWN ISSUE: sq_norm and l1_norm are recomputed by summing only over the
+        # coordinates in x, so for sparse x they no longer equal the norms of the
+        # whole vector (the docstring says they are "updated"). An incremental update
+        # (sq_norm += c^2 * |x|^2 + 2 * c * wscale * <w, x>, computed before
+        # modifying w) would be correct for sq_norm; l1_norm cannot be updated
+        # exactly without the old touched values. Callers using norm() (e.g. the
+        # max-norm projection for PA / SGD) get wrong values for sparse input.
         """Scales sample x by constant c and adds it to the weight vector.
 
         This operation updates ``sq_norm`` and ``l1_norm``.
@@ -120,6 +154,15 @@ cdef class WeightVector{{name_suffix}}(object):
     # by Leon Bottou
     cdef void add_average(self, {{c_type}} *x_data_ptr, int *x_ind_ptr, int xnnz,
                           {{c_type}} c, {{c_type}} num_iter) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: ASGD sparse averaging step: for each nonzero (idx, val),
+        # aw[idx] -= average_a * val * c / wscale; then, with mu = 1 / num_iter, if
+        # num_iter > 1 divide average_b by (1 - mu), and add mu * average_b * wscale
+        # to average_a. The averaged weights are (aw + average_a * w) / average_b.
+        # Must be called with the same (x, c) as the corresponding add.
+        # Inputs: x_data_ptr, x_ind_ptr, xnnz, c, num_iter (>= 1).
+        # Outputs: aw, average_a, average_b updated. Exceptions: none; requires aw to
+        # have been given (aw_data_ptr non-NULL), not checked.
         """Updates the average weight vector.
 
         Parameters
@@ -156,6 +199,11 @@ cdef class WeightVector{{name_suffix}}(object):
 
     cdef {{c_type}} dot(self, {{c_type}} *x_data_ptr, int *x_ind_ptr,
                     int xnnz) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: sum of w[idx] * val over the nonzeros of x, multiplied by wscale,
+        # accumulated in double precision.
+        # Inputs: x_data_ptr, x_ind_ptr, xnnz. Outputs: the inner product.
+        # Exceptions: none. Side effects: none.
         """Computes the dot product of a sample x and the weight vector.
 
         Parameters
@@ -183,6 +231,11 @@ cdef class WeightVector{{name_suffix}}(object):
         return innerprod
 
     cdef void scale(self, {{c_type}} c) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: wscale *= c, sq_norm *= c^2, l1_norm *= |c|; if wscale falls below
+        # the dtype threshold call reset_wscale to avoid underflow (also triggered
+        # whenever wscale becomes negative).
+        # Inputs: c. Outputs: state updated. Exceptions: none.
         """Scales the weight vector by a constant ``c``.
 
         It updates ``wscale``, ``sq_norm``, and ``l1_norm``. If ``wscale`` gets too
@@ -195,6 +248,12 @@ cdef class WeightVector{{name_suffix}}(object):
             self.reset_wscale()
 
     cdef void reset_wscale(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Behavior: if averaging is enabled, set aw := (aw + average_a * w) /
+        # average_b (BLAS axpy then scal) and reset average_a = 0, average_b = 1;
+        # then multiply w by wscale (BLAS scal) and set wscale = 1. The represented
+        # vectors are unchanged.
+        # Outputs: w and aw mutated in place. Exceptions: none.
         """Scales each coef of ``w`` by ``wscale`` and resets it to 1. """
         if self.aw_data_ptr != NULL:
             _axpy(self.n_features, self.average_a,
@@ -207,10 +266,14 @@ cdef class WeightVector{{name_suffix}}(object):
         self.wscale = 1.0
 
     cdef {{c_type}} norm(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Return sqrt(sq_norm), the cached L2 norm (see KNOWN ISSUE in add).
         """The L2 norm of the weight vector. """
         return sqrt(self.sq_norm)
 
     cdef {{c_type}} l1norm(self) noexcept nogil:
+        # [FUNCTION DOC]
+        # Return the cached l1_norm (see KNOWN ISSUE in add).
         """The L1 norm of the weight vector. """
         return self.l1_norm
 

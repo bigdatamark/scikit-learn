@@ -1,3 +1,25 @@
+# [MODULE DOC]
+# Tempita template generating sklearn/metrics/_dist_metrics.pyx: the DistanceMetric
+# family used throughout scikit-learn (BallTree/KDTree in sklearn.neighbors,
+# pairwise-distance reductions in sklearn.metrics._pairwise_distances_reduction,
+# HDBSCAN, etc.) and exposed publicly as sklearn.metrics.DistanceMetric.
+# Structure:
+# - DistanceMetric: dtype-agnostic public facade whose get_metric dispatches to the
+#   float64 or float32 specialisation.
+# - Inside the Tempita for-loop, everything is instantiated twice, with suffix 64
+#   (float64 inputs) and 32 (float32 inputs): METRIC_MAPPING<suffix> (string id ->
+#   class), the abstract base DistanceMetric<suffix> and one subclass per metric
+#   (Euclidean, SEuclidean, Manhattan, Chebyshev, Minkowski, Mahalanobis, Hamming,
+#   Canberra, BrayCurtis, boolean metrics, Haversine, PyFunc).
+# - Each metric implements C-level, GIL-free per-vector kernels: dist / rdist on dense
+#   vectors and dist_csr / rdist_csr on CSR rows (merge of sorted index lists), plus
+#   rdist<->dist conversions. rdist is a cheaper rank-preserving surrogate (e.g.
+#   squared Euclidean) used by neighbor searches.
+# - The base class provides generic pdist / cdist (dense and CSR) loops and the
+#   Python-level pairwise() convenience method used mainly by tests.
+# Internal accumulators are float64; results are cast to the input dtype.
+# The matching declarations live in _dist_metrics.pxd.tp so other Cython modules can
+# cimport these classes and call the kernels without the GIL.
 {{py:
 
 implementation_specific_values = [
@@ -26,6 +48,12 @@ from sklearn.utils import check_array
 from sklearn.utils.fixes import parse_version, sp_base_version
 
 cdef inline double fmax(double a, double b) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: nogil maximum used by the Chebyshev kernels.
+    # Behavior: returns the larger of a and b (plain comparison; NaN inputs are not
+    #   specially handled).
+    # Inputs: a, b: doubles. Outputs: double.
+    # Exceptions: none (noexcept). Side effects: none.
     return max(a, b)
 
 
@@ -33,6 +61,12 @@ cdef inline double fmax(double a, double b) noexcept nogil:
 # newObj function
 #  this is a helper function for pickling
 def newObj(obj):
+    # [FUNCTION DOC]
+    # HELPER: pickling support used by DistanceMetric<suffix>.__reduce__.
+    # Behavior: creates an uninitialised instance of the given class via __new__ (runs
+    #   __cinit__ but not __init__); state is then restored by __setstate__.
+    # Inputs: obj: a class. Outputs: new instance.
+    # Exceptions: whatever __new__ raises. Side effects: allocation.
     return obj.__new__(obj)
 
 
@@ -62,6 +96,16 @@ if sp_base_version >= parse_version("1.0"):
     DEPRECATED_METRICS.append("matching")
 
 def get_valid_metric_ids(L):
+    # [FUNCTION DOC]
+    # HELPER: lists metric string ids whose class matches the given names/classes.
+    # Behavior: scans METRIC_MAPPING64 and keeps every key whose class's __name__ is in L
+    #   or whose class object itself is in L.
+    # Inputs: L: iterable of class-name strings and/or classes.
+    # Outputs: list of string ids (order of the mapping).
+    # Exceptions: none. Side effects: none.
+    # KNOWN ISSUE: the docstring example uses unsuffixed names (EuclideanDistance,
+    #   'ManhattanDistance'); actual classes are suffixed (EuclideanDistance64), so such
+    #   names match nothing (the example is not a running doctest).
     """Given an iterable of metric class names or class identifiers,
     return a list of metric IDs which map to those classes.
 
@@ -74,6 +118,11 @@ def get_valid_metric_ids(L):
             if (val.__name__ in L) or (val in L)]
 
 cdef class DistanceMetric:
+    # [CLASS DOC]
+    # Public, dtype-agnostic entry point (sklearn.metrics.DistanceMetric). It holds no
+    # state; its only role is the get_metric class method, which picks the float64 or
+    # float32 specialised hierarchy. DistanceMetric64/32 subclass it so isinstance checks
+    # against DistanceMetric work for any concrete metric.
     """Uniform interface for fast distance metric functions.
 
     The `DistanceMetric` class provides a convenient way to compute pairwise distances
@@ -188,6 +237,14 @@ cdef class DistanceMetric:
     """
     @classmethod
     def get_metric(cls, metric, dtype=np.float64, **kwargs):
+        # [FUNCTION DOC]
+        # Behavior: class method; selects DistanceMetric32 if dtype is np.float32,
+        #   DistanceMetric64 if np.float64, and delegates to that class's get_metric.
+        # Inputs: metric: string id, metric class, callable, or metric instance; dtype:
+        #   np.float32 or np.float64; kwargs: metric parameters (e.g. p, w, V, VI).
+        # Outputs: a concrete DistanceMetric32/64 subclass instance.
+        # Exceptions: ValueError for any other dtype; errors from the specialised get_metric.
+        # Side effects: none.
         """Get the given distance metric from the string identifier.
 
         See the docstring of DistanceMetric for a list of available metrics.
@@ -259,6 +316,17 @@ METRIC_MAPPING{{name_suffix}} = {
 }
 
 cdef inline object _buffer_to_ndarray{{name_suffix}}(const {{INPUT_DTYPE_t}}* x, intp_t n):
+    # [FUNCTION DOC]
+    # HELPER: wraps raw vectors as numpy arrays for PyFuncDistance._dist.
+    # Behavior: builds a 1-D ndarray view of length n over the existing memory (no copy).
+    #   Template instantiated per dtype suffix.
+    # Inputs: x: pointer to the data; n: number of elements.
+    # Outputs: ndarray viewing x; does not own the memory (must not outlive x).
+    # Exceptions: may raise on allocation failure of the array header.
+    # Side effects: none (no copy).
+    # KNOWN ISSUE: the array type is always NPY_FLOAT64, even in the 32 instantiation
+    #   where x points to float32 data; PyFuncDistance32 therefore passes arrays that
+    #   reinterpret float32 memory as float64 (wrong values and an over-read of 2x bytes).
     # Wrap a memory buffer with an ndarray. Warning: this is not robust.
     # In particular, if x is deallocated before the returned array goes
     # out of scope, this could cause memory errors.  Since there is not
@@ -275,6 +343,15 @@ cdef {{INPUT_DTYPE_t}} INF{{name_suffix}} = np.inf
 ######################################################################
 # Distance Metric Classes
 cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
+    # [CLASS DOC]
+    # Abstract base of all metrics for one input dtype (template instantiated as
+    # DistanceMetric64 and DistanceMetric32). Declares shared C attributes used by some
+    # subclasses: p (Minkowski order; also set by Euclidean/Manhattan/Chebyshev), vec
+    # (per-feature weights or variances), mat (Mahalanobis inverse covariance), size
+    # (length of vec / mat), func and kwargs (PyFunc). Provides default kernels (dist and
+    # dist_csr return -999 and must be overridden; rdist/rdist_csr default to dist/
+    # dist_csr; conversions are identities), generic pdist/cdist loops (dense and CSR),
+    # pickling, the get_metric factory and the pairwise() convenience method.
     """DistanceMetric class
 
     This class provides a uniform interface to fast distance metric
@@ -380,18 +457,32 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
     scaling as other distances.
     """
     def __cinit__(self):
+        # [FUNCTION DOC]
+        # Behavior: C-level initialiser run on allocation (including unpickling): sets p=2,
+        #   vec to a length-1 zero float64 array, mat to a 1x1 zero array and size=1 so the
+        #   memoryviews are never uninitialised.
+        # Inputs: none. Outputs: none. Exceptions: allocation errors only.
+        # Side effects: allocates small numpy arrays; mutates self.
         self.p = 2
         self.vec = np.zeros(1, dtype=np.float64, order='C')
         self.mat = np.zeros((1, 1), dtype=np.float64, order='C')
         self.size = 1
 
     def __reduce__(self):
+        # [FUNCTION DOC]
+        # Behavior: pickling hook; returns (newObj, (class,), state) so unpickling creates a
+        #   bare instance and then calls __setstate__ with __getstate__()'s tuple.
+        # Inputs: none. Outputs: reduce tuple. Exceptions: none. Side effects: none.
         """
         reduce method used for pickling
         """
         return (newObj, (self.__class__,), self.__getstate__())
 
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # Behavior: returns the picklable state (float(p), vec as ndarray, mat as ndarray),
+        #   plus (func, kwargs) when the instance is a PyFuncDistance of this dtype.
+        # Inputs: none. Outputs: tuple. Exceptions: none. Side effects: none.
         """
         get state for pickling
         """
@@ -400,6 +491,12 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return (float(self.p), np.asarray(self.vec), np.asarray(self.mat))
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # Behavior: restores p, vec, mat from the state tuple (and func, kwargs for PyFunc),
+        #   then sets size to the length of vec.
+        # Inputs: state: tuple produced by __getstate__.
+        # Outputs: none. Exceptions: IndexError/TypeError on malformed state.
+        # Side effects: mutates self. Subclasses with extra state (Mahalanobis) extend it.
         """
         set state for pickling
         """
@@ -413,6 +510,18 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
 
     @classmethod
     def get_metric(cls, metric, **kwargs):
+        # [FUNCTION DOC]
+        # Behavior: factory class method for this dtype. Returns metric unchanged if it is
+        #   already an instance of this dtype's base; wraps callables in PyFuncDistance;
+        #   accepts a subclass of this base directly; otherwise looks the string up in
+        #   METRIC_MAPPING<suffix>. For Minkowski, pops p (default 2) and w and returns the
+        #   faster Manhattan (p=1), Euclidean (p=2) or Chebyshev (p=inf) class when w is None,
+        #   else MinkowskiDistance(p, w). Other classes are instantiated with kwargs.
+        # Inputs: metric: instance, callable, class or string id; kwargs: metric parameters.
+        # Outputs: concrete metric instance.
+        # Exceptions: ValueError("Unrecognized metric ...") for unknown ids (the bare except
+        #   also converts unhashable-key TypeErrors); constructor errors of the metric.
+        # Side effects: pops p and w from kwargs (local dict only).
         """Get the given distance metric from the string identifier.
 
         See the docstring of DistanceMetric for a list of available metrics.
@@ -455,10 +564,20 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
             return metric(**kwargs)
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Behavior: prevents direct instantiation of the abstract base.
+        # Inputs: none. Outputs: none.
+        # Exceptions: NotImplementedError if the exact class is DistanceMetric<suffix>.
+        # Side effects: none.
         if self.__class__ is DistanceMetric{{name_suffix}}:
             raise NotImplementedError("DistanceMetric{{name_suffix}} is an abstract class")
 
     def _validate_data(self, X):
+        # [FUNCTION DOC]
+        # Behavior: hook to validate a 2-D input array before computing distances; the base
+        #   implementation accepts everything. Subclasses check feature counts.
+        # Inputs: X: 2-D array (or memoryview) of samples. Outputs: None.
+        # Exceptions: none here (subclasses raise ValueError). Side effects: none.
         """Validate the input data.
 
         This should be overridden in a base class if a specific input format
@@ -472,6 +591,13 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: placeholder dense distance kernel; returns -999 and must be overridden.
+        #   Template instantiated per dtype suffix.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: -999 (meaningless) in the base class.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Compute the distance between vectors x1 and x2
 
         This should be overridden in a base class.
@@ -484,6 +610,13 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced (rank-preserving surrogate) distance; default simply calls
+        #   dist. Subclasses override with a cheaper quantity (e.g. squared Euclidean).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: surrogate distance (input dtype).
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Compute the rank-preserving surrogate distance between vectors x1 and x2.
 
         This can optionally be overridden in a base class.
@@ -500,6 +633,14 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}[:, ::1] X,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: fills a symmetric distance matrix for the rows of X by calling dist for
+        #   each pair i1 <= i2 (diagonal included) and mirroring the value.
+        # Inputs: X: C-contiguous (n_samples, n_features) array; D: preallocated
+        #   (n_samples, n_samples) output.
+        # Outputs: D written in place; returns 0 on success.
+        # Exceptions: propagates an error signalled by dist (-1 return with exception set,
+        #   e.g. from PyFuncDistance). Side effects: writes D; holds the GIL; single-threaded.
         """Compute the pairwise distances between points in X"""
         cdef intp_t i1, i2
         for i1 in range(X.shape[0]):
@@ -515,6 +656,12 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}[:, ::1] Y,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1:
+        # [FUNCTION DOC]
+        # Behavior: fills D[i1, i2] = dist(X[i1], Y[i2]) for all row pairs.
+        # Inputs: X (n_X, n_features), Y (n_Y, n_features) C-contiguous; D (n_X, n_Y) output.
+        # Outputs: D written in place; returns 0.
+        # Exceptions: ValueError if X and Y have different numbers of columns; errors from dist.
+        # Side effects: writes D; holds the GIL; single-threaded.
         """Compute the cross-pairwise distances between arrays X and Y"""
         cdef intp_t i1, i2
         if X.shape[1] != Y.shape[1]:
@@ -536,6 +683,18 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: placeholder CSR distance kernel; returns -999 and must be overridden.
+        #   Implementations must handle explicit zeros. Pointer + start/end arguments avoid
+        #   memoryview slicing (which needs the GIL) and let dense rows be passed as CSR with
+        #   indices 0..size-1 (sparse-dense pairs). Template instantiated per dtype suffix.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: -999 in the base class.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Compute the distance between vectors x1 and x2 represented
         under the CSR format.
 
@@ -602,6 +761,16 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced distance between two CSR rows; default calls dist_csr with the
+        #   same arguments.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Distance between rows of CSR matrices x1 and x2.
 
         This can optionally be overridden in a subclass.
@@ -639,6 +808,15 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const intp_t size,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: symmetric pairwise distances between all rows of one CSR matrix. For each
+        #   pair i1 <= i2 computes dist_csr on rows i1 and i2 (same data/indices arrays,
+        #   different start/end from indptr) and writes it to D[i1, i2] and D[i2, i1].
+        # Inputs: x1_data: pointer to CSR data; x1_indices, x1_indptr: int32 CSR arrays (n_rows
+        #   = len(indptr) - 1); size: n_features; D: preallocated (n_rows, n_rows) output.
+        # Outputs: D in place; returns 0.
+        # Exceptions: none raised in practice (nogil); propagates -1 from dist_csr.
+        # Side effects: writes D; runs without the GIL; single-threaded.
         """Pairwise distances between rows in CSR matrix X.
 
         Note that this implementation is twice faster than cdist_csr(X, X)
@@ -679,6 +857,13 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const intp_t size,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: D[i1, i2] = dist_csr(row i1 of X, row i2 of Y) for all row pairs.
+        # Inputs: x1_data/x1_indices/x1_indptr and x2_data/x2_indices/x2_indptr: CSR arrays of
+        #   X and Y; size: n_features; D: preallocated (n_X, n_Y) output.
+        # Outputs: D in place; returns 0.
+        # Exceptions: none raised (nogil); feature counts are not checked here.
+        # Side effects: writes D; runs without the GIL; single-threaded.
         """Compute the cross-pairwise distances between arrays X and Y
         represented in the CSR format."""
         cdef:
@@ -708,14 +893,33 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return 0
 
     cdef {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: identity in the base class.
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Convert the rank-preserving surrogate distance to the distance"""
         return rdist
 
     cdef {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: identity in the base class.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         """Convert the distance to the rank-preserving surrogate distance"""
         return dist
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   identity in the base class; works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         """Convert the rank-preserving surrogate distance to the distance.
 
         The surrogate distance is any measure that yields the same rank as the
@@ -736,6 +940,12 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return rdist
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   identity in the base class; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         """Convert the true distance to the rank-preserving surrogate distance.
 
         The surrogate distance is any measure that yields the same rank as the
@@ -756,6 +966,13 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return dist
 
     def _pairwise_dense_dense(self, X, Y):
+        # [FUNCTION DOC]
+        # HELPER: dense/dense branch of pairwise().
+        # Behavior: converts X (and Y) to C-contiguous arrays of this dtype, validates them,
+        #   then calls pdist when X is Y (same object) or cdist otherwise into a new array.
+        # Inputs: X, Y: array-likes of shape (n_X, n_features), (n_Y, n_features).
+        # Outputs: ndarray (n_X, n_Y) of this dtype.
+        # Exceptions: ValueError from _validate_data or cdist. Side effects: allocations.
         cdef const {{INPUT_DTYPE_t}}[:, ::1] Xarr
         cdef const {{INPUT_DTYPE_t}}[:, ::1] Yarr
         cdef {{INPUT_DTYPE_t}}[:, ::1] Darr
@@ -773,6 +990,18 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return np.asarray(Darr)
 
     def _pairwise_sparse_sparse(self, X: csr_matrix , Y: csr_matrix):
+        # [FUNCTION DOC]
+        # HELPER: sparse/sparse branch of pairwise().
+        # Behavior: converts inputs to CSR with int32 indices and this dtype's data, then calls
+        #   pdist_csr when X is Y, otherwise cdist_csr, into a new C-contiguous array.
+        # Inputs: X, Y: scipy sparse matrices with the same number of columns (not checked).
+        # Outputs: ndarray (n_X, n_Y).
+        # Exceptions: possibly IndexError when taking the address of the first data element of
+        #   a matrix with no stored entries (depends on bounds-check settings); int32 index
+        #   casting silently overflows for very large matrices.
+        # Side effects: allocations/copies; calls nogil kernels.
+        # KNOWN ISSUE: _validate_data is not called on sparse inputs, so metric-specific checks
+        #   (e.g. SEuclidean/Mahalanobis feature count, Haversine 2-D) are skipped here.
         cdef:
             intp_t n_X, n_features
             const {{INPUT_DTYPE_t}}[::1] X_data
@@ -821,6 +1050,15 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return np.asarray(Darr)
 
     def _pairwise_sparse_dense(self, X: csr_matrix, Y):
+        # [FUNCTION DOC]
+        # HELPER: sparse X / dense Y branch of pairwise().
+        # Behavior: treats each dense row of Y as a CSR row with indices 0..n_features-1 and
+        #   data pointer offset to that row (start 0, end n_features), and calls dist_csr for
+        #   every (sparse row, dense row) pair in a nested serial loop.
+        # Inputs: X: CSR matrix (n_X, n_features); Y: dense array-like (n_Y, n_features).
+        # Outputs: ndarray (n_X, n_Y).
+        # Exceptions: conversion errors; none inside the nogil loop.
+        # Side effects: allocations; releases the GIL for the loop; single-threaded.
         cdef:
             intp_t n_X = X.shape[0]
             intp_t n_features = X.shape[1]
@@ -882,6 +1120,15 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         return np.asarray(Darr)
 
     def _pairwise_dense_sparse(self, X, Y: csr_matrix):
+        # [FUNCTION DOC]
+        # HELPER: dense X / sparse Y branch of pairwise().
+        # Behavior: mirror of _pairwise_sparse_dense: dense rows of X are passed as CSR rows
+        #   with indices 0..n_features-1, Y rows via its indptr; dist_csr is called per pair.
+        #   Computed directly (not by transposing) to keep the output C-contiguous.
+        # Inputs: X: dense (n_X, n_features); Y: CSR (n_Y, n_features).
+        # Outputs: ndarray (n_X, n_Y).
+        # Exceptions: conversion errors; none inside the nogil loop.
+        # Side effects: allocations; releases the GIL for the loop; single-threaded.
         # We could have implemented this method using _pairwise_dense_sparse by
         # swapping argument and by transposing the results, but this would
         # have come with an extra copy to ensure C-contiguity of the result.
@@ -949,6 +1196,14 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
 
 
     def pairwise(self, X, Y=None):
+        # [FUNCTION DOC]
+        # Behavior: public convenience method; validates X (and Y, default Y = X) with
+        #   check_array accepting CSR, then dispatches on sparsity to the dense/dense,
+        #   sparse/sparse, sparse/dense or dense/sparse helper.
+        # Inputs: X: array-like or CSR (n_X, n_features); Y: optional, same feature count.
+        # Outputs: ndarray (n_X, n_Y) of distances, dtype of this specialisation.
+        # Exceptions: errors from check_array, _validate_data and the helpers.
+        # Side effects: allocations; GIL released inside the kernels.
         """Compute the pairwise distances between X and Y
 
         This is a convenience routine for the sake of testing.  For many
@@ -993,12 +1248,22 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
 # Euclidean Distance
 #  d = sqrt(sum(x_i^2 - y_i^2))
 cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Euclidean (L2) metric: sqrt of the sum of squared coordinate differences. rdist is
+    # the squared distance. Sets p = 2. No parameters.
+    # KNOWN ISSUE: the comment above the class states d = sqrt(sum(x_i^2 - y_i^2)); the code
+    #   (correctly) computes sqrt(sum((x_i - y_i)^2)).
     r"""Euclidean Distance metric
 
     .. math::
        D(x, y) = \sqrt{ \sum_i (x_i - y_i) ^ 2 }
     """
     def __init__(self):
+        # [FUNCTION DOC]
+        # Behavior: constructor; sets the shared parameter p to 2 (used by tree code that
+        #   inspects metric.p). Takes no metric parameters.
+        # Inputs: none. Outputs: none.
+        # Exceptions: none. Side effects: mutates self.p.
         self.p = 2
 
     cdef inline {{INPUT_DTYPE_t}} dist(self,
@@ -1006,6 +1271,12 @@ cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Euclidean distance: sqrt(sum_j (x1[j]-x2[j])^2), via the inline euclidean_dist helper.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return euclidean_dist{{name_suffix}}(x1, x2, size)
 
     cdef inline {{INPUT_DTYPE_t}} rdist(self,
@@ -1013,18 +1284,49 @@ cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: squared Euclidean distance sum_j (x1[j]-x2[j])^2 via euclidean_rdist.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: squared distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return euclidean_rdist{{name_suffix}}(x1, x2, size)
 
     cdef inline {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: square root.
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(rdist)
 
     cdef inline {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: square.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return dist * dist
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   numpy square root; works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return np.sqrt(rdist)
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   square; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return dist ** 2
 
     cdef inline {{INPUT_DTYPE_t}} rdist_csr(
@@ -1039,6 +1341,18 @@ cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: squared Euclidean distance between two CSR rows: sum of squared differences, where a column present in one row only contributes the square of its value.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1091,6 +1405,18 @@ cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Euclidean distance between two CSR rows: square root of rdist_csr.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(
             self.rdist_csr(
             x1_data,
@@ -1108,17 +1434,29 @@ cdef class EuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # SEuclidean Distance
 #  d = sqrt(sum((x_i - y_i2)^2 / v_i))
 cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Standardized Euclidean metric: sqrt(sum_j (x_j - y_j)^2 / V_j). V (per-feature
+    # variances) is stored in vec and its length in size. rdist omits the square root.
     r"""Standardized Euclidean Distance metric
 
     .. math::
        D(x, y) = \sqrt{ \sum_i \frac{ (x_i - y_i) ^ 2}{V_i} }
     """
     def __init__(self, V):
+        # [FUNCTION DOC]
+        # Behavior: stores V as a float64 array in vec, its length in size, and sets p = 2.
+        # Inputs: V: 1-D array-like of positive per-feature variances (positivity unchecked).
+        # Outputs: none. Exceptions: numpy conversion errors.
+        # Side effects: mutates vec, size, p.
         self.vec = np.asarray(V, dtype=np.float64)
         self.size = self.vec.shape[0]
         self.p = 2
 
     def _validate_data(self, X):
+        # [FUNCTION DOC]
+        # Behavior: checks that X has exactly size (len(V)) columns.
+        # Inputs: X: 2-D array. Outputs: None.
+        # Exceptions: ValueError if the column count differs. Side effects: none.
         if X.shape[1] != self.size:
             raise ValueError('SEuclidean dist: size of V does not match')
 
@@ -1128,6 +1466,13 @@ cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense reduced standardized Euclidean distance: sum_j (x1[j]-x2[j])^2 / V[j] (no square root).
+        #   Division by a zero variance yields inf/NaN.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t tmp, d=0
         cdef intp_t j
         for j in range(size):
@@ -1141,18 +1486,49 @@ cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense standardized Euclidean distance: square root of rdist.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(self.rdist(x1, x2, size))
 
     cdef inline {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: square root.
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(rdist)
 
     cdef inline {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: square.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return dist * dist
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   numpy square root; works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return np.sqrt(rdist)
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   square; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return dist ** 2
 
     cdef inline {{INPUT_DTYPE_t}} rdist_csr(
@@ -1167,6 +1543,18 @@ cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced standardized Euclidean distance between two CSR rows: sum over columns of (difference)^2 / V[column]; columns present in one row only contribute value^2 / V[column].
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1220,6 +1608,18 @@ cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: standardized Euclidean distance between two CSR rows: square root of rdist_csr.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(
             self.rdist_csr(
             x1_data,
@@ -1237,12 +1637,20 @@ cdef class SEuclideanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Manhattan Distance
 #  d = sum(abs(x_i - y_i))
 cdef class ManhattanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Manhattan / city-block (L1) metric: sum of absolute differences. Sets p = 1.
+    # rdist is the inherited default (equal to dist).
     r"""Manhattan/City-block Distance metric
 
     .. math::
        D(x, y) = \sum_i |x_i - y_i|
     """
     def __init__(self):
+        # [FUNCTION DOC]
+        # Behavior: constructor; sets the shared parameter p to 1 (used by tree code that
+        #   inspects metric.p). Takes no metric parameters.
+        # Inputs: none. Outputs: none.
+        # Exceptions: none. Side effects: mutates self.p.
         self.p = 1
 
     cdef inline {{INPUT_DTYPE_t}} dist(
@@ -1251,6 +1659,12 @@ cdef class ManhattanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Manhattan distance: sum_j |x1[j]-x2[j]| accumulated in float64.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t d = 0
         cdef intp_t j
         for j in range(size):
@@ -1269,6 +1683,20 @@ cdef class ManhattanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Manhattan distance between two CSR rows: sum of absolute differences; unmatched columns add the absolute value of the entry.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Note: the accumulator here has the input dtype (float32 in the 32 instantiation),
+        #   unlike the dense kernel which accumulates in float64.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1308,6 +1736,11 @@ cdef class ManhattanDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Chebyshev Distance
 #  d = max_i(abs(x_i - y_i))
 cdef class ChebyshevDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Chebyshev / L-infinity metric: maximum absolute coordinate difference. Sets p = inf.
+    # KNOWN ISSUE: the docstring example imports from the non-existent module
+    #   sklearn.metrics.dist_metrics and its expected output (1.732..., 5.196...,
+    #   6.928...) are Euclidean values; the Chebyshev result would be [[1, 3], [4, 0]].
     """Chebyshev/Infinity Distance
 
     .. math::
@@ -1326,6 +1759,11 @@ cdef class ChebyshevDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
            [6.928..., 0....   ]])
     """
     def __init__(self):
+        # [FUNCTION DOC]
+        # Behavior: constructor; sets the shared parameter p to infinity (INF of this dtype) (used by tree code that
+        #   inspects metric.p). Takes no metric parameters.
+        # Inputs: none. Outputs: none.
+        # Exceptions: none. Side effects: mutates self.p.
         self.p = INF{{name_suffix}}
 
     cdef inline {{INPUT_DTYPE_t}} dist(
@@ -1334,6 +1772,12 @@ cdef class ChebyshevDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Chebyshev distance: max_j |x1[j]-x2[j]| starting from 0 (uses fmax).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t d = 0
         cdef intp_t j
         for j in range(size):
@@ -1353,6 +1797,18 @@ cdef class ChebyshevDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Chebyshev distance between two CSR rows: running maximum of absolute differences; unmatched columns use the absolute value of the entry.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1391,6 +1847,11 @@ cdef class ChebyshevDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 #------------------------------------------------------------
 # Minkowski Distance
 cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Minkowski metric of order p (0 < p < inf), optionally weighted:
+    # (sum_j w_j |x_j - y_j|^p)^(1/p). p is stored in p; weights (if any) in vec with
+    # length size (size == 0 means unweighted). rdist is the sum before the 1/p power.
+    # For 0 < p < 1 it is not a true metric (triangle inequality fails).
     r"""Minkowski Distance
 
     .. math::
@@ -1424,6 +1885,14 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 
     """
     def __init__(self, p, w=None):
+        # [FUNCTION DOC]
+        # Behavior: validates p and optional weights and stores them.
+        # Inputs: p: positive finite number; w: optional 1-D array-like of non-negative
+        #   weights (converted to float64 via check_array).
+        # Outputs: none.
+        # Exceptions: ValueError if p <= 0, if p is infinite, or if w has negative entries;
+        #   check_array errors for invalid w.
+        # Side effects: sets p, vec (empty array when w is None) and size (0 when unweighted).
         if p <= 0:
             raise ValueError("p must be greater than 0")
         elif np.isinf(p):
@@ -1444,6 +1913,10 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
             self.size = 0
 
     def _validate_data(self, X):
+        # [FUNCTION DOC]
+        # Behavior: when weights are set, checks that X has len(w) columns.
+        # Inputs: X: 2-D array. Outputs: None.
+        # Exceptions: ValueError on mismatch. Side effects: none.
         if self.size > 0 and X.shape[1] != self.size:
             raise ValueError("MinkowskiDistance: the size of w must match "
                              f"the number of features ({X.shape[1]}). "
@@ -1455,6 +1928,12 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense reduced Minkowski distance: sum_j w[j] * |x1[j]-x2[j]|^p, or without w when size == 0 (no 1/p root).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t d=0
         cdef intp_t j
         cdef bint has_w = self.size > 0
@@ -1472,18 +1951,49 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Minkowski distance: rdist raised to the power 1/p.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return pow(self.rdist(x1, x2, size), 1. / self.p)
 
     cdef inline {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: rdist to the power 1/p.
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return pow(rdist, 1. / self.p)
 
     cdef inline {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: dist to the power p.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return pow(dist, self.p)
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   rdist ** (1/p); works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return rdist ** (1. / self.p)
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   dist ** p; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return dist ** self.p
 
     cdef inline {{INPUT_DTYPE_t}} rdist_csr(
@@ -1498,6 +2008,18 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced Minkowski distance between two CSR rows: sum of (optionally weighted by w[column]) |difference|^p; unmatched columns contribute (w[column] *) |value|^p. Two code paths: weighted and unweighted.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1578,6 +2100,18 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Minkowski distance between two CSR rows: rdist_csr raised to 1/p.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return pow(
             self.rdist_csr(
                 x1_data,
@@ -1597,6 +2131,13 @@ cdef class MinkowskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Mahalanobis Distance
 #  d = sqrt( (x - y)^T V^-1 (x - y) )
 cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Mahalanobis metric: sqrt((x - y)^T VI (x - y)) with VI the inverse covariance, stored
+    # in mat (size x size). Has an extra float64 scratch buffer of length size that holds
+    # the coordinate difference during each call. rdist is the quadratic form without sqrt.
+    # KNOWN ISSUE: the shared scratch buffer makes rdist/rdist_csr not thread-safe; calling
+    #   the same instance concurrently from several threads (e.g. OpenMP loops in
+    #   _pairwise_distances_reduction) races on buffer and can give wrong distances.
     """Mahalanobis Distance
 
     .. math::
@@ -1614,6 +2155,15 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
     cdef float64_t[::1] buffer
 
     def __init__(self, V=None, VI=None):
+        # [FUNCTION DOC]
+        # Behavior: uses VI if given, otherwise computes it as the inverse of V with
+        #   numpy.linalg.inv; checks it is square; stores it in mat (float64, C order), sets
+        #   size and allocates the zeroed scratch buffer.
+        # Inputs: V: covariance matrix (array, used only if VI is None); VI: inverse covariance.
+        # Outputs: none.
+        # Exceptions: ValueError if both are None or the matrix is not square; LinAlgError if
+        #   V is singular; AttributeError if VI is a plain list (uses .ndim without conversion).
+        # Side effects: allocates buffer, mutates mat and size.
         if VI is None:
             if V is None:
                 raise ValueError("Must provide either V or VI "
@@ -1630,11 +2180,20 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         self.buffer = np.zeros(self.size, dtype=np.float64)
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # Behavior: restores base state, then resets size from mat and reallocates the scratch
+        #   buffer (the base __setstate__ sets size from vec, which is wrong for Mahalanobis).
+        # Inputs: state tuple from __getstate__. Outputs: none.
+        # Exceptions: as base __setstate__. Side effects: allocation, mutates self.
         super().__setstate__(state)
         self.size = self.mat.shape[0]
         self.buffer = np.zeros(self.size, dtype=np.float64)
 
     def _validate_data(self, X):
+        # [FUNCTION DOC]
+        # Behavior: checks that X has size (= VI dimension) columns.
+        # Inputs: X: 2-D array. Outputs: None.
+        # Exceptions: ValueError on mismatch. Side effects: none.
         if X.shape[1] != self.size:
             raise ValueError('Mahalanobis dist: size of V does not match')
 
@@ -1644,6 +2203,14 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced Mahalanobis distance: writes x1 - x2 into the scratch buffer,
+        #   then computes the quadratic form sum_i buffer[i] * sum_j mat[i,j] * buffer[j]
+        #   (O(size^2)).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil).
+        # Side effects: overwrites self.buffer (not thread-safe); runs without the GIL.
         cdef float64_t tmp, d = 0
         cdef intp_t i, j
 
@@ -1664,18 +2231,49 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Mahalanobis distance: square root of rdist (shares the scratch buffer side effect).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(self.rdist(x1, x2, size))
 
     cdef inline {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: square root.
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(rdist)
 
     cdef inline {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: square.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return dist * dist
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   numpy square root; works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return np.sqrt(rdist)
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   square; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return dist ** 2
 
     cdef inline {{INPUT_DTYPE_t}} rdist_csr(
@@ -1690,6 +2288,24 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced Mahalanobis distance between CSR rows: scatters the difference
+        #   x1 - x2 into the scratch buffer by column (matched columns: difference; columns only
+        #   in x1: +value; only in x2: -value), then computes the full quadratic form over
+        #   all size x size entries of mat.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: surrogate (squared) distance.
+        # Exceptions: none raised (nogil).
+        # Side effects: overwrites parts of self.buffer (not thread-safe); runs without the GIL.
+        # KNOWN ISSUE: the buffer is never reset to zero before scattering, so columns absent
+        #   from both rows keep stale differences from a previous call (dense or CSR) and
+        #   corrupt the result whenever the rows are truly sparse.
 
         cdef:
             intp_t ix1, ix2
@@ -1744,6 +2360,18 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Mahalanobis distance between two CSR rows: square root of rdist_csr (inherits its buffer issues).
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return sqrt(
             self.rdist_csr(
             x1_data,
@@ -1761,6 +2389,9 @@ cdef class MahalanobisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Hamming Distance
 #  d = N_unequal(x, y) / N_tot
 cdef class HammingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Hamming metric: fraction of coordinates whose values differ (exact comparison,
+    # valid for real values too). No parameters; rdist equals dist.
     r"""Hamming Distance
 
     Hamming distance is meant for discrete-valued vectors, though it is
@@ -1775,6 +2406,12 @@ cdef class HammingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Hamming distance: count of j with x1[j] != x2[j] divided by size.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int n_unequal = 0
         cdef intp_t j
         for j in range(size):
@@ -1795,6 +2432,18 @@ cdef class HammingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Hamming distance between two CSR rows: number of columns whose values differ (an unmatched nonzero entry counts as a difference) divided by size.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1836,6 +2485,8 @@ cdef class HammingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Canberra Distance
 #  D(x, y) = sum[ abs(x_i - y_i) / (abs(x_i) + abs(y_i)) ]
 cdef class CanberraDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Canberra metric: sum_j |x_j - y_j| / (|x_j| + |y_j|), skipping terms where both are 0.
     r"""Canberra Distance
 
     Canberra distance is meant for discrete-valued vectors, though it is
@@ -1850,6 +2501,12 @@ cdef class CanberraDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Canberra distance: sum of |x1[j]-x2[j]| / (|x1[j]|+|x2[j]|) over j with a positive denominator.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t denom, d = 0
         cdef intp_t j
         for j in range(size):
@@ -1870,6 +2527,21 @@ cdef class CanberraDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Canberra distance between two CSR rows: matched columns add |a-b|/(|a|+|b|); each unmatched column adds 1 (the value of the term when the other entry is zero).
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # KNOWN ISSUE: not robust to explicit zeros despite the base-class requirement: an
+        #   explicit zero matched with a zero gives 0/0 = NaN, and an unmatched explicit zero adds
+        #   1 instead of 0 (the dense kernel skips both cases).
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1911,6 +2583,8 @@ cdef class CanberraDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Bray-Curtis Distance
 #  D(x, y) = sum[abs(x_i - y_i)] / sum[abs(x_i) + abs(y_i)]
 cdef class BrayCurtisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Bray-Curtis metric: sum_j |x_j - y_j| / sum_j (|x_j| + |y_j|).
     r"""Bray-Curtis Distance
 
     Bray-Curtis distance is meant for discrete-valued vectors, though it is
@@ -1925,6 +2599,12 @@ cdef class BrayCurtisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Bray-Curtis distance: sum |x1-x2| / sum (|x1|+|x2|), returning 0.0 when the denominator is 0.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t num = 0, denom = 0
         cdef intp_t j
         for j in range(size):
@@ -1947,6 +2627,23 @@ cdef class BrayCurtisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Bray-Curtis distance between two CSR rows: numerator sum of |difference| and denominator sum of |a|+|b|; unmatched columns add |value| to both.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # KNOWN ISSUE: the tail loops use the wrong array: after x1 is exhausted the loop over
+        #   the remaining x2 entries adds |x1_data[i1]| (an out-of-range position, i1 == x1_end)
+        #   instead of |x2_data[i2]|, and the symmetric loop adds |x2_data[i2]| instead of
+        #   |x1_data[i1]|. Results are wrong (and memory is read out of range). Also, unlike the
+        #   dense kernel, two all-zero rows give 0/0 = NaN instead of 0.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -1991,6 +2688,8 @@ cdef class BrayCurtisDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Jaccard Distance (boolean)
 #  D(x, y) = N_unequal(x, y) / N_nonzero(x, y)
 cdef class JaccardDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Jaccard dissimilarity for boolean vectors (nonzero = True): NNEQ / NNZ, defined as 0 when both vectors are all False.
     r"""Jaccard Distance
 
     Jaccard Distance is a dissimilarity measure for boolean-valued
@@ -2005,6 +2704,13 @@ cdef class JaccardDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Jaccard distance: (nnz - n_tt) / nnz, where nnz counts columns where either is True and n_tt where both are; 0 if nnz == 0.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_eq = 0, nnz = 0
         cdef intp_t j
         for j in range(size):
@@ -2031,6 +2737,19 @@ cdef class JaccardDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Jaccard distance between two CSR rows: same counts from stored entries (unmatched entries add to nnz if nonzero); 0 if nnz == 0.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2080,6 +2799,8 @@ cdef class JaccardDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Matching Distance (boolean)
 #  D(x, y) = n_neq / n
 cdef class MatchingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Matching dissimilarity for boolean vectors (nonzero = True): NNEQ / N (deprecated in SciPy; same as Hamming on booleans).
     r"""Matching Distance
 
     Matching Distance is a dissimilarity measure for boolean-valued
@@ -2094,6 +2815,13 @@ cdef class MatchingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Matching distance: number of columns whose truth values differ divided by size.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_neq = 0
         cdef intp_t j
         for j in range(size):
@@ -2114,6 +2842,19 @@ cdef class MatchingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Matching distance between two CSR rows: number of columns whose truth values differ (unmatched nonzero entries count) divided by size.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2154,6 +2895,8 @@ cdef class MatchingDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Dice Distance (boolean)
 #  D(x, y) = n_neq / (2 * ntt + n_neq)
 cdef class DiceDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Dice dissimilarity for boolean vectors (nonzero = True): NNEQ / (2 * NTT + NNEQ).
     r"""Dice Distance
 
     Dice Distance is a dissimilarity measure for boolean-valued
@@ -2169,6 +2912,13 @@ cdef class DiceDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Dice distance: n_neq / (2 n_tt + n_neq); two all-False vectors give 0/0 = NaN.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_neq = 0, n_tt = 0
         cdef intp_t j
         for j in range(size):
@@ -2190,6 +2940,19 @@ cdef class DiceDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Dice distance between two CSR rows: n_neq / (2 n_tt + n_neq) from stored entries; NaN for two all-False rows.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2235,6 +2998,8 @@ cdef class DiceDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Kulsinski Distance (boolean)
 #  D(x, y) = (ntf + nft - ntt + n) / (n_neq + n)
 cdef class KulsinskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Kulsinski dissimilarity for boolean vectors (nonzero = True): (NNEQ - NTT + N) / (NNEQ + N) (deprecated/removed in recent SciPy).
     r"""Kulsinski Distance
 
     Kulsinski Distance is a dissimilarity measure for boolean-valued
@@ -2250,6 +3015,13 @@ cdef class KulsinskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Kulsinski distance: (n_neq - n_tt + size) / (n_neq + size).
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_tt = 0, n_neq = 0
         cdef intp_t j
         for j in range(size):
@@ -2271,6 +3043,19 @@ cdef class KulsinskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Kulsinski distance between two CSR rows: (n_neq - n_tt + size) / (n_neq + size) from stored entries.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2315,6 +3100,8 @@ cdef class KulsinskiDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Rogers-Tanimoto Distance (boolean)
 #  D(x, y) = 2 * n_neq / (n + n_neq)
 cdef class RogersTanimotoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Rogers-Tanimoto dissimilarity for boolean vectors (nonzero = True): 2 NNEQ / (N + NNEQ).
     r"""Rogers-Tanimoto Distance
 
     Rogers-Tanimoto Distance is a dissimilarity measure for boolean-valued
@@ -2329,6 +3116,13 @@ cdef class RogersTanimotoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Rogers-Tanimoto distance: 2 n_neq / (size + n_neq).
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_neq = 0
         cdef intp_t j
         for j in range(size):
@@ -2349,6 +3143,19 @@ cdef class RogersTanimotoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Rogers-Tanimoto distance between two CSR rows: 2 n_neq / (size + n_neq) from stored entries.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2392,6 +3199,8 @@ cdef class RogersTanimotoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Russell-Rao Distance (boolean)
 #  D(x, y) = (n - ntt) / n
 cdef class RussellRaoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Russell-Rao dissimilarity for boolean vectors (nonzero = True): (N - NTT) / N.
     r"""Russell-Rao Distance
 
     Russell-Rao Distance is a dissimilarity measure for boolean-valued
@@ -2406,6 +3215,13 @@ cdef class RussellRaoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Russell-Rao distance: (size - n_tt) / size.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_tt = 0
         cdef intp_t j
         for j in range(size):
@@ -2426,6 +3242,18 @@ cdef class RussellRaoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Russell-Rao distance between two CSR rows: (size - n_tt) / size, where
+        #   n_tt counts columns stored in both rows with both values nonzero. The merge stops
+        #   as soon as one row is exhausted since remaining entries cannot increase n_tt.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2462,6 +3290,8 @@ cdef class RussellRaoDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Sokal-Michener Distance (boolean)
 #  D(x, y) = 2 * n_neq / (n + n_neq)
 cdef class SokalMichenerDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Sokal-Michener dissimilarity for boolean vectors (nonzero = True): 2 NNEQ / (N + NNEQ) (identical to Rogers-Tanimoto; deprecated in SciPy).
     r"""Sokal-Michener Distance
 
     Sokal-Michener Distance is a dissimilarity measure for boolean-valued
@@ -2476,6 +3306,13 @@ cdef class SokalMichenerDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Sokal-Michener distance: 2 n_neq / (size + n_neq).
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_neq = 0
         cdef intp_t j
         for j in range(size):
@@ -2496,6 +3333,19 @@ cdef class SokalMichenerDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Sokal-Michener distance between two CSR rows: 2 n_neq / (size + n_neq) from stored entries.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2539,6 +3389,8 @@ cdef class SokalMichenerDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # Sokal-Sneath Distance (boolean)
 #  D(x, y) = n_neq / (0.5 * n_tt + n_neq)
 cdef class SokalSneathDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Sokal-Sneath dissimilarity for boolean vectors (nonzero = True): NNEQ / (NNEQ + 0.5 NTT).
     r"""Sokal-Sneath Distance
 
     Sokal-Sneath Distance is a dissimilarity measure for boolean-valued
@@ -2553,6 +3405,13 @@ cdef class SokalSneathDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense Sokal-Sneath distance: n_neq / (0.5 n_tt + n_neq); two all-False vectors give 0/0 = NaN.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef int tf1, tf2, n_tt = 0, n_neq = 0
         cdef intp_t j
         for j in range(size):
@@ -2574,6 +3433,19 @@ cdef class SokalSneathDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: Sokal-Sneath distance between two CSR rows: n_neq / (0.5 n_tt + n_neq) from stored entries; NaN for two all-False rows.
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        #   Any nonzero value counts as True, zero as False. Counts are integers.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
 
         cdef:
             intp_t ix1, ix2
@@ -2620,6 +3492,10 @@ cdef class SokalSneathDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 #  D(x, y) = 2 arcsin{sqrt[sin^2 ((x1 - y1) / 2)
 #                          + cos(x1) cos(y1) sin^2 ((x2 - y2) / 2)]}
 cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Haversine (great-circle angular) distance between 2-D points given as
+    # [latitude, longitude] in radians: 2 arcsin(sqrt(sin^2(dlat/2) + cos(lat1) cos(lat2)
+    # sin^2(dlon/2))). rdist is the term inside the square root (haversine of the angle).
     """Haversine (Spherical) Distance
 
     The Haversine distance is the angular distance between two points on
@@ -2632,6 +3508,10 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
     """
 
     def _validate_data(self, X):
+        # [FUNCTION DOC]
+        # Behavior: checks that X has exactly 2 columns.
+        # Inputs: X: 2-D array. Outputs: None.
+        # Exceptions: ValueError otherwise. Side effects: none.
         if X.shape[1] != 2:
             raise ValueError("Haversine distance only valid "
                              "in 2 dimensions")
@@ -2641,6 +3521,13 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced haversine: sin^2((x1[0]-x2[0])/2) + cos(x1[0]) cos(x2[0])
+        #   sin^2((x1[1]-x2[1])/2). Only the first two coordinates are read; size is ignored.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: surrogate distance in [0, 1].
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t sin_0 = sin(0.5 * ((x1[0]) - (x2[0])))
         cdef float64_t sin_1 = sin(0.5 * ((x1[1]) - (x2[1])))
         return (sin_0 * sin_0 + cos(x1[0]) * cos(x2[0]) * sin_1 * sin_1)
@@ -2650,19 +3537,50 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: dense haversine distance: 2 arcsin(sqrt(rdist)).
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return 2 * asin(sqrt(self.rdist(x1, x2, size)))
 
     cdef inline {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a reduced (rank-preserving surrogate) distance to the true
+        #   distance: 2 arcsin(sqrt(rdist)).
+        # Inputs: rdist: surrogate distance (input dtype).
+        # Outputs: true distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return 2 * asin(sqrt(rdist))
 
     cdef inline {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: converts a true distance to the reduced (surrogate) distance: sin(dist / 2) squared.
+        # Inputs: dist: true distance (input dtype).
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         cdef float64_t tmp = sin(0.5 *  dist)
         return tmp * tmp
 
     def rdist_to_dist(self, rdist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of surrogate distance(s) to true distance(s):
+        #   2 arcsin(sqrt(rdist)); works elementwise on scalars or numpy arrays.
+        # Inputs: rdist: float or array of surrogate distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         return 2 * np.arcsin(np.sqrt(rdist))
 
     def dist_to_rdist(self, dist):
+        # [FUNCTION DOC]
+        # Behavior: Python-visible conversion of true distance(s) to surrogate distance(s):
+        #   sin(dist / 2) squared; works elementwise on scalars or numpy arrays.
+        # Inputs: dist: float or array of true distances.
+        # Outputs: same shape as input.
+        # Exceptions: none explicit. Side effects: none.
         tmp = np.sin(0.5 * dist)
         return tmp * tmp
 
@@ -2678,6 +3596,18 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: haversine distance between two CSR rows: 2 arcsin(sqrt(rdist_csr)).
+        #   Walks both sorted index ranges simultaneously (merge step): equal column -> uses both
+        #   values; column only in one vector -> the other value is implicitly zero; once one
+        #   range is exhausted the rest of the other range is processed.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: the distance, cast to the input dtype.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
         return 2 * asin(sqrt(self.rdist_csr(
             x1_data,
             x1_indices,
@@ -2702,6 +3632,23 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: reduced haversine between CSR rows. Reconstructs the two 2-D points from
+        #   the stored entries (missing coordinates are 0), deciding which coordinate an entry
+        #   belongs to from its column index, then applies the dense rdist formula.
+        # Inputs: x1_data/x1_indices and x2_data/x2_indices: CSR data and int32 column-index
+        #   arrays; the vectors are the entries in positions [x1_start, x1_end) and
+        #   [x2_start, x2_end). Column indices within each range must be sorted increasingly
+        #   (a dense row may be passed with indices 0..size-1). size: number of features.
+        # Outputs: surrogate distance.
+        # Exceptions: none raised (nogil); -1 is the error sentinel declared for the signature.
+        # Side effects: none; runs without the GIL.
+        # KNOWN ISSUE: the coordinate is taken as the column index modulo the row's start
+        #   offset (x1_start / x2_start) when that offset is nonzero, but CSR column indices
+        #   are already 0 or 1. When the offset is exactly 1, column 1 maps to coordinate 0,
+        #   so the longitude overwrites the latitude and the result is wrong. The main merge
+        #   loop also advances both cursors together without comparing columns (harmless
+        #   only because each coordinate is assigned independently).
 
         cdef:
             intp_t ix1, ix2
@@ -2764,6 +3711,10 @@ cdef class HaversineDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
 # User-defined distance
 #
 cdef class PyFuncDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
+    # [CLASS DOC]
+    # Metric wrapping a user Python callable func(x, y, **kwargs) -> float. Every distance
+    # evaluation reacquires the GIL and calls into Python, so it is slow. func and kwargs are
+    # kept in the base-class attributes and included in the pickled state.
     """PyFunc Distance
 
     A user-defined distance
@@ -2774,6 +3725,11 @@ cdef class PyFuncDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         func should take two numpy arrays as input, and return a distance.
     """
     def __init__(self, func, **kwargs):
+        # [FUNCTION DOC]
+        # Behavior: stores the callable and its extra keyword arguments.
+        # Inputs: func: callable taking two 1-D numpy arrays; kwargs: forwarded to func.
+        # Outputs: none. Exceptions: none (func is not validated).
+        # Side effects: mutates func, kwargs.
         self.func = func
         self.kwargs = kwargs
 
@@ -2788,6 +3744,13 @@ cdef class PyFuncDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil:
+        # [FUNCTION DOC]
+        # Behavior: nogil entry point required by the base signature; forwards to _dist,
+        #   which acquires the GIL.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: value returned by func.
+        # Exceptions: propagates exceptions from _dist via the -1 error return.
+        # Side effects: acquires the GIL inside _dist.
         return self._dist(x1, x2, size)
 
     cdef inline {{INPUT_DTYPE_t}} _dist(
@@ -2796,6 +3759,17 @@ cdef class PyFuncDistance{{name_suffix}}(DistanceMetric{{name_suffix}}):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 with gil:
+        # [FUNCTION DOC]
+        # HELPER: GIL-holding implementation of PyFuncDistance.dist.
+        # Behavior: wraps x1 and x2 as numpy arrays (no copy, via _buffer_to_ndarray), calls
+        #   func(x1arr, x2arr, **kwargs) and converts the result to the input dtype.
+        # Inputs: x1, x2: pointers to two contiguous vectors of length size (input dtype).
+        # Outputs: func's result converted to a C float (input dtype).
+        # Exceptions: any exception raised by func; a TypeError if the result is not
+        #   convertible to float. Returning exactly -1 makes callers check for a pending error.
+        # Side effects: acquires the GIL; runs arbitrary user code.
+        # KNOWN ISSUE: see _buffer_to_ndarray: in the 32 instantiation the arrays passed to
+        #   func reinterpret float32 memory as float64.
         cdef:
             object x1arr = _buffer_to_ndarray{{name_suffix}}(x1, size)
             object x2arr = _buffer_to_ndarray{{name_suffix}}(x2, size)

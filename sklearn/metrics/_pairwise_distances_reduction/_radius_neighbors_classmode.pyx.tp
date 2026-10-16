@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# RadiusNeighborsClassMode: a radius-neighbors reduction that directly
+# accumulates per-class scores from the labels of the neighbors of each X row
+# within the radius, returning normalized class probabilities (used by
+# RadiusNeighborsClassifier.predict_proba for brute force with uniform
+# weights). Rows without neighbors are outliers: they receive a score of 1 for
+# the outlier label's class when that label is a known class, otherwise all
+# zeros, and an error is raised when no outlier label was given. Subclasses
+# RadiusNeighbors (generic DatasetsPair path only). Tempita template
+# instantiated for suffixes 32 and 64.
 import warnings
 
 from cython cimport floating, final, integral
@@ -16,6 +26,11 @@ from sklearn.metrics._pairwise_distances_reduction._radius_neighbors cimport Rad
 from sklearn.metrics._pairwise_distances_reduction._datasets_pair cimport DatasetsPair{{name_suffix}}
 
 cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}}):
+    # [CLASS DOC]
+    # RadiusNeighbors subclass holding label codes of Y rows, unique labels, the
+    # outlier label and its class index (-1 if absent), a per-X-row outlier mask
+    # and an any-outlier flag, the float64 score matrix (n_samples_X, n_classes)
+    # and the weighting strategy. The outlier_label_exists field is never used.
     """
     {{name_suffix}}bit implementation of RadiusNeighborsClassMode.
     """
@@ -45,6 +60,17 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
         dict metric_kwargs=None,
         str strategy=None,
     ):
+        # [FUNCTION DOC]
+        # Entry point class method.
+        # Behavior: builds the instance over DatasetsPair.get_for(X, Y, metric,
+        # metric_kwargs), runs the chosen strategy under a one-thread BLAS limit and
+        # returns the probabilities.
+        # Inputs: X, Y (dense or CSR, suffix dtype); radius; weights ("uniform" or
+        # "distance"); Y_labels (intp codes in [0, n_classes)); unique_Y_labels;
+        # outlier_label (optional); metric; chunk_size; metric_kwargs; strategy.
+        # Outputs: float64 array (n_samples_X, n_classes).
+        # Exceptions: ValueError when outliers exist and no outlier label was given,
+        # plus constructor errors. Side effects: may emit a UserWarning; OpenMP.
         # Use a generic implementation that handles most scipy
         # metrics by computing the distances between 2 vectors at a time.
         pda = RadiusNeighborsClassMode{{name_suffix}}(
@@ -79,6 +105,18 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
         weights=None,
         outlier_label=None,
     ):
+        # [FUNCTION DOC]
+        # Behavior: RadiusNeighbors initialization; maps weights to the enum; stores
+        # labels and outlier label; looks up the outlier label among unique_Y_labels
+        # to set its class index (last match wins); allocates a zero outlier mask of
+        # length n_samples_X and a zero score matrix.
+        # Exceptions: base errors; buffer errors if labels are not contiguous intp.
+        # KNOWN ISSUE: outlier_label is compared with unique_Y_labels, which
+        # RadiusNeighborsClassifier passes as class codes 0..n_classes-1, while it
+        # passes the user's raw outlier_label (an original class value, or
+        # "most_frequent"). The match therefore fails or selects the wrong class
+        # unless the classes are exactly 0..n_classes-1, unlike the non-reduction
+        # code path which matches against the original classes.
         super().__init__(
             datasets_pair=datasets_pair,
             chunk_size=chunk_size,
@@ -120,6 +158,20 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t* indices,
         float64_t* distances,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # HELPER: per-row vote accumulation used by both strategy finalizers.
+        # Behavior: if X row sample_index has no neighbor, marks it as outlier, sets the
+        # global outlier flag and, when the outlier label is a known class, sets that
+        # class score to 1; otherwise adds, for each neighbor, 1 (or the inverse of the
+        # stored distance in distance mode) to the score of its label code.
+        # Inputs: sample_index; sample_n_neighbors; pointers to the row's neighbor
+        # indices and distances.
+        # Outputs: class_scores, outliers and outliers_exist updated in place.
+        # Exceptions: none (nogil). Side effects: concurrent threads may all write the
+        # shared outlier flag (always the same value).
+        # KNOWN ISSUE: distance weighting uses stored surrogate distances (e.g. squared
+        # euclidean), not exact ones, and a zero distance yields infinity; estimators
+        # only use uniform weights so this is latent.
         cdef:
             intp_t neighbor_idx, neighbor_class_idx, label_index
             float64_t score_incr = 1
@@ -154,6 +206,10 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
         intp_t X_start,
         intp_t X_end,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on X override: after the chunk [X_start, X_end) is done, accumulates
+        # the votes of each of its rows from the main result vectors (no sorting).
+        # nogil, noexcept.
         cdef:
             intp_t idx
 
@@ -171,6 +227,10 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
     cdef void _parallel_on_Y_finalize(
         self,
     ) noexcept nogil:
+        # [FUNCTION DOC]
+        # Parallel on Y override: in an OpenMP region, merges per-thread neighbor
+        # vectors into the main ones row by row, then accumulates the votes of every
+        # row (no sorting). nogil, noexcept.
         cdef:
             intp_t idx
 
@@ -191,6 +251,13 @@ cdef class RadiusNeighborsClassMode{{name_suffix}}(RadiusNeighbors{{name_suffix}
         return
 
     def _finalize_results(self):
+        # [FUNCTION DOC]
+        # Behavior: raises ValueError listing the outlier rows if outliers exist and no
+        # outlier label was given; warns if outliers exist and the outlier label is not
+        # a known class; then divides each score row by its sum (zero sums replaced by
+        # 1, so rows of unknown-label outliers stay all zero) and returns the matrix.
+        # Outputs: float64 numpy array (view on the internal buffer, normalized in
+        # place). Exceptions: ValueError as above. Side effects: UserWarning.
         if self.outliers_exist and self.outlier_label is None:
             raise ValueError(
                 "No neighbors found for test samples %r, "

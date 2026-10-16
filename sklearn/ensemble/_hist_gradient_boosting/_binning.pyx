@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Compiled kernel of _BinMapper.transform: maps raw float64 feature values to
+# uint8 bin codes using per-feature threshold arrays, with a dedicated bin for
+# missing values, parallelized over samples with OpenMP.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,6 +18,17 @@ def _map_to_bins(const X_DTYPE_C [:, :] data,
                  const uint8_t missing_values_bin_idx,
                  int n_threads,
                  X_BINNED_DTYPE_C [::1, :] binned):
+    # [FUNCTION DOC]
+    # Behavior: loops over features and bins each column with the column helper.
+    # Inputs: data float64 (n_samples, n_features); binning_thresholds list with one
+    # increasing float64 array per feature (for categorical features, the sorted
+    # category values); is_categorical uint8 (n_features,); missing_values_bin_idx bin
+    # code for missing values; n_threads; binned uint8 Fortran-ordered output
+    # (n_samples, n_features).
+    # Outputs: binned filled in place; returns None.
+    # Exceptions: IndexError if binning_thresholds has fewer entries than features;
+    # buffer errors if binned is not Fortran-contiguous.
+    # Side effects: mutates binned; OpenMP parallelism inside the helper.
     """Bin continuous and categorical values to discrete integer-coded levels.
 
     A given value x is mapped into bin value i iff
@@ -55,6 +70,17 @@ cdef void _map_col_to_bins(
     int n_threads,
     X_BINNED_DTYPE_C [:] binned
 ):
+    # [FUNCTION DOC]
+    # HELPER: per-column binning used by _map_to_bins.
+    # Behavior: in an OpenMP prange over samples (GIL released): NaN values, and
+    # negative values of categorical features, get missing_values_bin_idx. Otherwise a
+    # binary search finds the smallest index b such that value <= thresholds[b]
+    # (b = len(thresholds) if the value exceeds all thresholds), and b is stored.
+    # Inputs: data float64 column; binning_thresholds increasing float64 array;
+    # is_categorical flag; missing_values_bin_idx; n_threads; binned uint8 column view.
+    # Outputs: binned written in place.
+    # Exceptions: declared without noexcept but contains no raising code in practice.
+    # Side effects: mutates binned; OpenMP parallelism.
     """Binary search to find the bin index for each value in the data."""
     cdef:
         int i

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Python-visible helpers about OpenMP: whether scikit-learn was built with
+# OpenMP, and how many threads OpenMP code should use given a user n_threads
+# argument, the OMP_NUM_THREADS environment variable and the CPU count
+# (cached per only_physical_cores in the module-level _CPU_COUNTS dict).
 import os
 from joblib import cpu_count
 
@@ -9,6 +14,9 @@ _CPU_COUNTS = {}
 
 
 def _openmp_parallelism_enabled():
+    # [FUNCTION DOC]
+    # Behavior: return the compile-time flag SKLEARN_OPENMP_PARALLELISM_ENABLED as
+    # a bool. Inputs: none. Exceptions: none. Side effects: none.
     """Determines whether scikit-learn has been built with OpenMP
 
     It allows to retrieve at runtime the information gathered at compile time.
@@ -19,6 +27,17 @@ def _openmp_parallelism_enabled():
 
 
 cpdef _openmp_effective_n_threads(n_threads=None, only_physical_cores=True):
+    # [FUNCTION DOC]
+    # Behavior: if n_threads == 0 raise. If built without OpenMP return 1.
+    # Compute max_n_threads: if OMP_NUM_THREADS is set (non-empty), use
+    # omp_get_max_threads(); otherwise min(omp_get_max_threads(), cpu count from
+    # joblib honouring cgroups, physical cores only if only_physical_cores).
+    # Then return max_n_threads if n_threads is None, max(1, max_n_threads +
+    # n_threads + 1) if n_threads < 0, else n_threads unchanged (may exceed the
+    # CPU count).
+    # Inputs: n_threads (None or int), only_physical_cores (bool).
+    # Outputs: positive int. Exceptions: ValueError for n_threads == 0.
+    # Side effects: reads the environment; caches CPU counts in _CPU_COUNTS.
     """Determine the effective number of threads to be used for OpenMP calls
 
     - For ``n_threads = None``,

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Compiled helpers for agglomerative clustering (sklearn/cluster/_agglomerative.py):
+# Ward distance computation for connectivity-constrained Ward linkage, utilities
+# to explore and cut trees/forests, merge strategies on IntFloatDict adjacency
+# dictionaries (max / average linkage with connectivity), a WeightedEdge type used
+# in heaps, a UnionFind structure to relabel MST edges into a scipy-style linkage
+# matrix, and the MST-LINKAGE-CORE (Prim-like) algorithm for single linkage.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -24,6 +31,16 @@ def compute_ward_dist(
     const intp_t[::1] coord_col,
     float64_t[::1] res
 ):
+    # [FUNCTION DOC]
+    # HELPER: used by ward_tree to compute merge costs for connected cluster pairs.
+    # Behavior: for each pair i (row = coord_row[i], col = coord_col[i]), computes the
+    # Ward increase in inertia: n_r*n_c/(n_r+n_c) times the squared Euclidean distance
+    # between the cluster means m_2[row]/m_1[row] and m_2[col]/m_1[col].
+    # Inputs: m_1 (n_nodes,) cluster sizes (moment 0); m_2 (n_nodes, n_features)
+    # per-cluster feature sums (moment 1); coord_row, coord_col (n_pairs,) node indices.
+    # Outputs: res (n_pairs,) written in place with the costs; nothing returned.
+    # Exceptions: none explicit; zero sizes give division by zero (inf/nan).
+    # Side effects: mutates res; holds the GIL.
     cdef intp_t size_max = coord_row.shape[0]
     cdef intp_t n_features = m_2.shape[1]
     cdef intp_t i, j, row, col
@@ -43,6 +60,15 @@ def compute_ward_dist(
 # Utilities for cutting and exploring a hierarchical tree
 
 def _hc_get_descendent(intp_t node, children, intp_t n_leaves):
+    # [FUNCTION DOC]
+    # HELPER: used by _hc_cut / tree cutting to collect leaves under a node.
+    # Behavior: if node is a leaf (< n_leaves) returns [node]. Otherwise performs an
+    # iterative traversal with a Python list as stack: popping an internal node pushes
+    # its two children from children[i - n_leaves]; popping a leaf appends it to the
+    # result. n_indices tracks the stack size to avoid calling len.
+    # Inputs: node id; children sequence of child pairs for internal nodes; n_leaves.
+    # Outputs: list of leaf indices (order is traversal order, not sorted).
+    # Exceptions: IndexError for invalid node ids. Side effects: none.
     """
     Function returning all the descendent leaves of a set of nodes in the tree.
 
@@ -100,6 +126,15 @@ def hc_get_heads(intp_t[:] parents, copy=True):
         The indices in the 'parents' of the tree heads
 
     """
+    # [FUNCTION DOC]
+    # Behavior: for every node, scanning from the highest index down, follows the
+    # parent chain until reaching a root (a node that is its own parent) and stores
+    # that root as the node's entry. Ancestor chains are partially compressed because
+    # entries already processed (higher indices) were replaced by their roots.
+    # Inputs: parents (n_nodes,) intp, parents[root] == root; copy whether to work on a copy.
+    # Outputs: array where entry k is the root of node k.
+    # Exceptions: infinite loop if the parent structure contains a cycle other than
+    # self loops. Side effects: modifies parents in place when copy is False.
     cdef intp_t parent, node0, node, size
     if copy:
         parents = np.copy(parents)
@@ -138,6 +173,14 @@ def _get_parents(
         The tree nodes to consider (modified inplace)
 
     """
+    # [FUNCTION DOC]
+    # HELPER: used by _hc_cut-style forest exploration in agglomerative code.
+    # Behavior: for each starting node, follows parents to the root; if that root is
+    # still flagged in not_visited, clears the flag and appends the root to heads.
+    # Inputs: nodes iterable of node ids; heads Python list (output); parents (n_nodes,)
+    # with roots pointing to themselves; not_visited uint8 flags (n_nodes,).
+    # Outputs: heads appended in place; not_visited cleared for found roots.
+    # Exceptions: none explicit. Side effects: mutates heads and not_visited.
     cdef intp_t parent, node
 
     for node in nodes:
@@ -184,6 +227,16 @@ def max_merge(
     out : IntFloatDict object
         The IntFloatDict resulting from the merge
     """
+    # [FUNCTION DOC]
+    # HELPER: merge strategy for complete (max) linkage with connectivity.
+    # Behavior: copies entries of a whose key passes mask into a new IntFloatDict,
+    # then for each key of b passing mask inserts it or replaces the existing value by
+    # the max of both values. n_a and n_b are ignored.
+    # Inputs: a, b IntFloatDict (neighbor node -> linkage distance); mask indexed by key,
+    # nonzero for keys still active; n_a, n_b cluster sizes (unused).
+    # Outputs: new IntFloatDict with the merged distances.
+    # Exceptions: IndexError possible if a key exceeds mask length. Side effects: none
+    # on inputs; allocates the result.
     cdef IntFloatDict out_obj = IntFloatDict.__new__(IntFloatDict)
     cdef cpp_map[intp_t, float64_t].iterator a_it = a.my_map.begin()
     cdef cpp_map[intp_t, float64_t].iterator a_end = a.my_map.end()
@@ -242,6 +295,14 @@ def average_merge(
     out : IntFloatDict object
         The IntFloatDict resulting from the merge
     """
+    # [FUNCTION DOC]
+    # HELPER: merge strategy for average linkage with connectivity.
+    # Behavior: as max_merge, but for keys present in both dicts the merged value is
+    # the size-weighted mean (n_a*value_a + n_b*value_b)/(n_a + n_b). Keys present in
+    # only one dict keep that dict's value unchanged.
+    # Inputs: a, b IntFloatDict; mask of active keys; n_a, n_b cluster sizes (weights).
+    # Outputs: new IntFloatDict with merged distances.
+    # Exceptions: as max_merge. Side effects: allocates the result.
     cdef IntFloatDict out_obj = IntFloatDict.__new__(IntFloatDict)
     cdef cpp_map[intp_t, float64_t].iterator a_it = a.my_map.begin()
     cdef cpp_map[intp_t, float64_t].iterator a_end = a.my_map.end()
@@ -279,16 +340,28 @@ def average_merge(
 # An edge object for fast comparisons
 
 cdef class WeightedEdge:
+    # [CLASS DOC]
+    # Small comparable record (weight, a, b) representing an edge between nodes a and
+    # b; instances are ordered by weight only so they can be pushed on heapq heaps in
+    # linkage_tree. Attributes are public and writable.
     cdef public intp_t a
     cdef public intp_t b
     cdef public float64_t weight
 
     def __init__(self, float64_t weight, intp_t a, intp_t b):
+        # [FUNCTION DOC]
+        # Stores weight and the two endpoint ids. Inputs: weight float, a and b node ids.
+        # Outputs: none. Exceptions: TypeError on non-numeric arguments.
         self.weight = weight
         self.a = a
         self.b = b
 
     def __richcmp__(self, WeightedEdge other, int op):
+        # [FUNCTION DOC]
+        # Rich comparison: compares self.weight with other.weight according to op
+        # (0 <, 1 <=, 2 ==, 3 !=, 4 >, 5 >=) and returns the boolean result; endpoints
+        # are ignored, so edges of equal weight compare equal.
+        # Exceptions: TypeError if other is not a WeightedEdge (argument typing).
         """Cython-specific comparison method.
 
         op is the comparison code::
@@ -313,6 +386,8 @@ cdef class WeightedEdge:
             return self.weight >= other.weight
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns a string "ClassName(weight=..., a=..., b=...)". No side effects.
         return "%s(weight=%f, a=%i, b=%i)" % (self.__class__.__name__,
                                               self.weight,
                                               self.a, self.b)
@@ -322,14 +397,29 @@ cdef class WeightedEdge:
 # Efficient labelling/conversion of MSTs to single linkage hierarchies
 
 cdef class UnionFind(object):
+    # [CLASS DOC]
+    # Union-find over the 2N-1 nodes of a single linkage dendrogram (N leaves). Each
+    # union creates a new parent node labeled next_label (N, N+1, ...), records the
+    # merged size, and links both roots to it. parent entries are -1 for roots;
+    # size holds 1 for leaves and the merged size for internal nodes.
 
     def __init__(self, N):
+        # [FUNCTION DOC]
+        # Allocates parent (2N-1, all -1), size (N ones followed by N-1 zeros) and sets
+        # next_label to N. Inputs: N number of leaves (>= 1). Exceptions: numpy errors for
+        # invalid N. Side effects: allocation.
         self.parent = np.full(2 * N - 1, -1., dtype=np.intp, order='C')
         self.next_label = N
         self.size = np.hstack((np.ones(N, dtype=np.intp),
                                np.zeros(N - 1, dtype=np.intp)))
 
     cdef void union(self, intp_t m, intp_t n) noexcept:
+        # [FUNCTION DOC]
+        # Behavior: assigns the new node id next_label as parent of roots m and n, stores
+        # its size as the sum of their sizes, and increments next_label.
+        # Inputs: m, n current root ids (callers must pass roots, from fast_find).
+        # Outputs: none. Exceptions: none (noexcept; errors would be printed, not raised).
+        # Side effects: mutates parent, size, next_label.
         self.parent[m] = self.next_label
         self.parent[n] = self.next_label
         self.size[self.next_label] = self.size[m] + self.size[n]
@@ -338,6 +428,11 @@ cdef class UnionFind(object):
 
     @cython.wraparound(True)
     cdef intp_t fast_find(self, intp_t n) noexcept:
+        # [FUNCTION DOC]
+        # Behavior: walks parent links from n up to the root (parent -1), then a second
+        # pass re-links every node on the path directly to the root (path compression).
+        # Inputs: n node id. Outputs: root id.
+        # Exceptions: none (noexcept). Side effects: mutates parent for path compression.
         cdef intp_t p
         p = n
         # find the highest node in the linkage graph so far
@@ -368,6 +463,16 @@ def _single_linkage_label(const float64_t[:, :] L):
     -------
     A tree in the format used by scipy.cluster.hierarchy.
     """
+    # [FUNCTION DOC]
+    # HELPER: unchecked implementation behind single_linkage_label (also used by HDBSCAN-style code paths).
+    # Behavior: for each MST edge in order, finds the current clusters of both
+    # endpoints with UnionFind.fast_find, writes a linkage row (left cluster, right
+    # cluster, distance, merged size) and unions them.
+    # Inputs: L (n_samples-1, 3) float64 rows (sample a, sample b, distance), assumed
+    # sorted by distance and to form a spanning tree on n_samples points.
+    # Outputs: float64 array (n_samples-1, 4) in scipy linkage format.
+    # Exceptions: none explicit; invalid indices can produce wrong results or
+    # IndexError. Side effects: allocation only.
 
     cdef float64_t[:, ::1] result_arr
 
@@ -414,6 +519,16 @@ def single_linkage_label(L):
     -------
     A tree in the format used by scipy.cluster.hierarchy.
     """
+    # [FUNCTION DOC]
+    # Behavior: validates that the endpoint columns are within range and that the
+    # distance column is non-decreasing, then delegates to _single_linkage_label.
+    # Inputs: L (n_samples-1, 3) array-like of MST edges.
+    # Outputs: scipy-style linkage matrix (n_samples-1, 4).
+    # Exceptions: ValueError for out-of-range endpoints or unsorted weights.
+    # Side effects: none.
+    # KNOWN ISSUE: the upper bound check allows endpoint values up to 2*L.shape[0],
+    # although valid sample indices are < L.shape[0] + 1; values in between pass
+    # validation but index internal dendrogram nodes in UnionFind.
     # Validate L
     if L[:, :2].min() < 0 or L[:, :2].max() >= 2 * L.shape[0] + 1:
         raise ValueError("Input MST array is not a validly formatted MST array")
@@ -459,6 +574,20 @@ def mst_linkage_core(
         agglomerative clustering algorithms" <1109.2378>` algorithm
         MST-LINKAGE-CORE for more details.
     """
+    # [FUNCTION DOC]
+    # Behavior: Prim-style MST construction without a full distance matrix. Starting
+    # at node 0, repeatedly marks the current node as in-tree, updates for every
+    # out-of-tree node j its best distance to the tree with the distance to the
+    # current node (via dist_metric.dist), and selects the out-of-tree node with the
+    # minimum best distance as the next node. Each step emits the row (current node,
+    # new node, distance). O(n^2) distance evaluations, O(n) extra memory.
+    # Note the first column is the previously added node, not necessarily the tree
+    # node that achieves the minimum distance; the rows are suitable for single
+    # linkage after sorting by distance (not a literal MST edge list).
+    # Inputs: raw_data (n_samples, n_features) C-contiguous float64; dist_metric a
+    # DistanceMetric64.
+    # Outputs: float64 array (n_samples-1, 3), unsorted by distance.
+    # Exceptions: errors propagated from dist_metric.dist. Side effects: allocation; holds the GIL.
     cdef:
         intp_t n_samples = raw_data.shape[0]
         uint8_t[:] in_tree = np.zeros(n_samples, dtype=bool)

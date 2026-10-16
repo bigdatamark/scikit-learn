@@ -1,3 +1,19 @@
+# [MODULE DOC]
+# Coordinate descent (CD) solvers for Elastic-Net type problems, compiled for float32
+# and float64 through the fused type "floating". Public entry points (called from
+# sklearn/linear_model/_coordinate_descent.py):
+# - enet_coordinate_descent: dense Fortran-ordered X, single target.
+# - sparse_enet_coordinate_descent: CSC sparse X, optional sample weights and implicit
+# centering by X_mean (X is never densified or centered explicitly).
+# - enet_coordinate_descent_gram: works on a precomputed Gram matrix Q = X'X and q = X'y.
+# - enet_coordinate_descent_multi_task: dense or CSC X, multi-output Y with an L2,1
+# (group) penalty (MultiTaskLasso / MultiTaskElasticNet).
+# All solvers minimize 1/2 ||y - Xw||^2 + alpha * penalty_1(w) + beta/2 ||w||^2 by cyclic or
+# random coordinate updates with soft thresholding, track the residual (or Q @ w) incrementally,
+# use the duality gap (computed by the gap_* helpers) as stopping criterion with tolerance
+# tol * ||y||^2, and optionally apply Gap Safe screening rules to discard features that are
+# provably zero at the optimum. The heavy loops run without the GIL using BLAS wrappers from
+# sklearn.utils._cython_blas. Non-convergence emits a ConvergenceWarning.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -28,17 +44,32 @@ cdef enum:
 
 
 cdef inline uint32_t rand_int(uint32_t end, uint32_t* random_state) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: random coordinate selection for the CD solvers.
+    # Behavior: draws the next value of the custom 32-bit generator our_rand_r and returns it
+    # modulo end, i.e. an integer in [0, end) (slightly biased for large end).
+    # Inputs: end, exclusive upper bound, must be > 0; random_state, pointer to the generator state.
+    # Outputs: the random integer. Exceptions: none (nogil, noexcept); end == 0 is undefined.
+    # Side effects: advances the generator state pointed to by random_state.
     """Generate a random integer in [0; end)."""
     return our_rand_r(random_state) % end
 
 
 cdef inline floating fmax(floating x, floating y) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: scalar maximum used throughout the module.
+    # Behavior: returns x if x > y, else y (so if either argument is NaN, y is returned).
+    # Inputs: two floating scalars. Outputs: the larger value. Exceptions: none. Side effects: none.
     if x > y:
         return x
     return y
 
 
 cdef inline floating fsign(floating f) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: sign function used in the soft-thresholding coordinate update.
+    # Behavior: returns 0 for f == 0, 1 for positive and -1 for negative (NaN gives -1).
+    # Inputs: f, scalar. Outputs: the sign as a floating value. Exceptions: none. Side effects: none.
     if f == 0:
         return 0
     elif f > 0:
@@ -48,6 +79,11 @@ cdef inline floating fsign(floating f) noexcept nogil:
 
 
 cdef inline floating abs_max(int n, const floating* a) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: infinity norm of a vector, used for dual norms and multi-task stopping criteria.
+    # Behavior: linear scan returning the largest absolute value among the first n entries.
+    # Inputs: n, number of entries, must be >= 1 (a[0] is always read); a, pointer to the data.
+    # Outputs: max of absolute values. Exceptions: none. Side effects: none.
     """np.max(np.abs(a))"""
     cdef int i
     cdef floating m = fabs(a[0])
@@ -60,6 +96,11 @@ cdef inline floating abs_max(int n, const floating* a) noexcept nogil:
 
 
 cdef inline floating max(int n, floating* a) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: maximum of a vector, used as dual norm when positive=True.
+    # Behavior: linear scan returning the largest value among the first n entries (not absolute).
+    # Inputs: n, must be >= 1; a, pointer to the data.
+    # Outputs: the maximum. Exceptions: none. Side effects: none. Note it shadows the builtin name.
     """np.max(a)"""
     cdef int i
     cdef floating m = a[0]
@@ -72,6 +113,11 @@ cdef inline floating max(int n, floating* a) noexcept nogil:
 
 
 cdef inline floating diff_abs_max(int n, const floating* a, floating* b) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: largest absolute coefficient change, used by the multi-task solver.
+    # Behavior: returns the maximum over i < n of the absolute value of a[i] - b[i].
+    # Inputs: n, must be >= 1; a and b, pointers to n values each.
+    # Outputs: the maximum absolute difference. Exceptions: none. Side effects: none.
     """np.max(np.abs(a - b))"""
     cdef int i
     cdef floating m = fabs(a[0] - b[0])
@@ -90,6 +136,12 @@ cdef inline floating sparse_dot(
     const int32_t[::1] X_indptr,  # in
     const floating[::1] y,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: sparse column dot product for the multi-task solver with CSC X.
+    # Behavior: sums X_data[k] * y[X_indices[k]] over the stored entries k of column j, i.e. the
+    # dot product of column j of X with dense vector y (no centering applied here).
+    # Inputs: j, column index; X_data, X_indices, X_indptr, CSC arrays of X; y, dense vector of
+    # length n_samples. Outputs: the dot product. Exceptions: none. Side effects: none.
     """BLAS X[:, j] @ y for sparse CSC X."""
     cdef int32_t i, i_ind
     cdef int32_t startptr = X_indptr[j]
@@ -110,6 +162,14 @@ cdef inline floating sparse_axpy(
     const int32_t[::1] X_indptr,  # in
     floating[::1] y,  # out
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: sparse axpy for computing the initial multi-task residual with CSC X.
+    # Behavior: for each stored entry of column j, adds a * value to y at that row.
+    # Inputs: j, column index; a, scalar; X_data, X_indices, X_indptr, CSC arrays of X;
+    # y, dense vector of length n_samples.
+    # Outputs: y is updated in place. Exceptions: none. Side effects: mutates y.
+    # KNOWN ISSUE: declared to return a floating value but never returns one; callers ignore the
+    # result, so it is harmless, but the return type should be void.
     """BLAS y += a * X[:, j] for sparse CSC X."""
     cdef int32_t i, i_ind
     cdef int32_t startptr = X_indptr[j]
@@ -144,6 +204,17 @@ cdef inline floating dual_gap_formulation_A(
     floating Ry,  # R @ y
     floating dual_norm_XtA,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: shared duality gap computation (formulation A) for all gap_* functions.
+    # Behavior: primal = 1/2 (R_norm2 + beta w_l2_norm2) + alpha w_l1_norm. The dual point is the
+    # residual scaled by s = alpha / dual_norm_XtA if dual_norm_XtA > alpha, else s = 1; the dual
+    # value is -1/2 s^2 (R_norm2 + beta w_l2_norm2) + s Ry. Returns primal - dual.
+    # Inputs: alpha, L1 (or L2,1) penalty; beta, L2 penalty (the inline comment calling it L1 is a
+    # typo); w_l1_norm, L1 (or L2,1) norm of the coefficients; w_l2_norm2, squared L2 norm of w (0
+    # if beta is 0); R_norm2, squared norm of the residual; Ry, residual dot target;
+    # dual_norm_XtA, dual norm of X'R - beta w (infinity norm, max, or max row norm).
+    # Outputs: the gap. Exceptions: none; dual_norm_XtA == 0 is safe since then s = 1.
+    # Side effects: none.
     """Compute dual gap according to formulation A."""
     cdef floating gap, primal, dual
     cdef floating scale  # Scaling factor to achieve dual feasible point.
@@ -171,6 +242,19 @@ cdef (floating, floating) gap_enet(
     floating[::1] XtA,  # XtA = X.T @ R - beta * w is calculated inplace
     bint positive,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: duality gap for the dense single-target solver enet_coordinate_descent.
+    # Behavior: computes ||w||^2 (if beta > 0), ||R||^2 and R'y. If alpha == 0: XtA = X'R and its
+    # squared L2 norm; with beta == 0 (OLS) returns gap = ||X'R||^2 (a gradient criterion, not a
+    # gap); with beta > 0 uses formulation B: gap = ||R||^2 + beta/2 ||w||^2 - R'y + ||X'R||^2/(2 beta).
+    # If alpha > 0: XtA = X'R - beta w (via copy plus gemv), dual norm = max(XtA) if positive else
+    # max |XtA|, L1 norm of w, then delegates to dual_gap_formulation_A.
+    # Inputs: n_samples, n_features; w, coefficients (n_features,); alpha, beta, penalties;
+    # X, Fortran-ordered (n_samples, n_features); y, target (n_samples,); R, current residual
+    # y - Xw; XtA, work buffer (n_features,); positive, whether coefficients are constrained >= 0.
+    # Outputs: tuple (gap, dual_norm_XtA); XtA is overwritten (X'R or X'R - beta w). With alpha == 0
+    # the second value is the squared L2 norm of X'R rather than a dual norm.
+    # Exceptions: none (nogil). Side effects: writes XtA only.
     """Compute dual gap for use in enet_coordinate_descent.
 
     alpha > 0:            formulation A of the duality gap
@@ -253,6 +337,29 @@ def enet_coordinate_descent(
     bint positive=0,
     bint do_screening=1,
 ):
+    # [FUNCTION DOC]
+    # Behavior: dense Elastic-Net coordinate descent. Precomputes squared column norms of X and the
+    # residual R = y - Xw, scales tol by ||y||^2 and returns immediately if the initial gap is <= tol.
+    # With do_screening (forced off when alpha == 0) applies Gap Safe screening: features with zero
+    # norm are set to 0 and excluded; feature j is kept if (1 - |XtA_j| / max(alpha, dual_norm)) /
+    # sqrt(||X_j||^2 + beta) <= sqrt(2 gap) / alpha, otherwise its coefficient is zeroed (residual
+    # corrected) and it is permanently excluded. Each epoch visits the n_active active features
+    # (in order, or drawn with replacement when random=True) and sets
+    # w_j = soft_threshold(X_j'R + w_j ||X_j||^2, alpha) / (||X_j||^2 + beta) (clipped at 0 when
+    # positive and the unthresholded value is negative), updating R by an axpy when w_j changes.
+    # After an epoch where max |dw| / max |w| <= the original tol (or all w are 0, or the last
+    # epoch) the gap is recomputed; it stops if gap <= scaled tol, else re-screens.
+    # Inputs: w, initial coefficients (n_features,), updated in place; alpha, L1 strength; beta, L2
+    # strength; X, Fortran-ordered dense design; y, target; max_iter, maximum number of epochs;
+    # tol, relative tolerance; rng, numpy RandomState used once to seed the internal generator;
+    # random, random coordinate selection; positive, enforce w >= 0; do_screening, enable screening.
+    # Outputs: (w as ndarray sharing memory with the input, gap, scaled tol, number of epochs run;
+    # 0 if converged before the first epoch).
+    # Exceptions: errors from numpy allocation or rng; emits ConvergenceWarning (not raised) when
+    # max_iter is exhausted, with an extra hint to use Ridge if alpha is ~0.
+    # Side effects: mutates w; allocates work arrays; releases the GIL for the main loop.
+    # KNOWN ISSUE: when max_iter == 0 the loop never runs, the for/else still warns, and n_iter + 1
+    # returns 1 instead of 0.
     """
     Cython version of the coordinate descent algorithm for Elastic-Net regression.
 
@@ -519,6 +626,15 @@ cdef inline void R_plus_wj_Xj(
     floating w_j,
     unsigned int j,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: residual update for sparse (optionally centered and weighted) X.
+    # Behavior: adds w_j times column j of the implicitly centered matrix to R. Without weights:
+    # R[i] += X[i, j] w_j over stored entries, then, if center, R[i] -= X_mean[j] w_j for all rows.
+    # With weights each term is multiplied by sample_weight[i] (R holds weighted residuals).
+    # Inputs: n_samples; R, residual vector (n_samples,); X_data, X_indices, X_indptr, CSC arrays;
+    # X_mean, column means; center, whether to subtract means; sample_weight, weights (may be None
+    # if no_sample_weights); no_sample_weights, flag; w_j, scalar multiplier; j, column index.
+    # Outputs: R updated in place. Exceptions: none. Side effects: mutates R; O(n_samples) when center.
     """R += w_j * X[:,j]"""
     cdef int32_t i, i_ind
     cdef int32_t startptr = X_indptr[j]
@@ -561,6 +677,16 @@ cdef (floating, floating) gap_enet_sparse(
     floating[::1] XtA,  # XtA = X.T @ R - beta * w is calculated inplace
     bint positive,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: duality gap for sparse_enet_coordinate_descent.
+    # Behavior: same three regimes as gap_enet (formulation A for alpha > 0, formulation B for
+    # alpha == 0 and beta > 0, squared gradient norm for OLS), adapted to CSC X and weights. Since
+    # R holds sample_weight times the residual, ||R||^2 in the weighted metric is the sum of
+    # R[i]^2 / sw[i] over rows with nonzero weight, and R'y is used directly. X'R is computed
+    # column by column from the CSC arrays, minus X_mean[j] * R_sum when center.
+    # Inputs: as gap_enet plus X_data, X_indices, X_indptr (CSC X); sample_weight and
+    # no_sample_weights; X_mean and center for implicit centering; R_sum, sum of R.
+    # Outputs: (gap, dual_norm_XtA); XtA overwritten. Exceptions: none (nogil). Side effects: writes XtA.
     """Compute dual gap for use in sparse_enet_coordinate_descent.
 
     alpha > 0:            formulation A of the duality gap
@@ -667,6 +793,25 @@ def sparse_enet_coordinate_descent(
     bint positive=0,
     bint do_screening=1,
 ):
+    # [FUNCTION DOC]
+    # Behavior: Elastic-Net coordinate descent for CSC sparse X, same algorithm and screening as
+    # enet_coordinate_descent, but X is centered implicitly by X_mean and sample weights are
+    # handled without square roots: R stores sw * (y - Zw), the weighted target is sw * y, and the
+    # column norms are the weighted squared norms of the centered columns (computed from stored
+    # entries plus a correction for the implicit zeros). center is True if any X_mean entry is
+    # nonzero. The coordinate gradient is sum over stored entries of R[i] X[i, j] plus
+    # w_j ||Z_j||^2, minus R_sum X_mean[j] when centering. tol is scaled by y'(sw y).
+    # Inputs: w, coefficients updated in place; alpha, beta, penalties; X_data, X_indices, X_indptr,
+    # CSC arrays (int32 indices); y, target; sample_weight, weights or None; X_mean, column offsets
+    # (zeros for no centering); max_iter, tol, rng, random, positive, do_screening as in the dense
+    # solver.
+    # Outputs: (w, gap, scaled tol, number of epochs), same conventions as the dense solver.
+    # Exceptions: allocation errors; ConvergenceWarning when not converged.
+    # Side effects: mutates w; allocates R, XtA and column norms; releases the GIL.
+    # KNOWN ISSUE: during initialization R_sum accumulates the sum of R once per feature (inside the
+    # column loop), so it equals sum(R) only when sum(R) is zero at every step, i.e. when y is
+    # (weighted-)centered, which the caller ensures whenever X_mean is nonzero.
+    # KNOWN ISSUE: same max_iter == 0 behavior as enet_coordinate_descent (warns, returns 1).
     """Cython version of the coordinate descent algorithm for Elastic-Net
 
     We minimize:
@@ -1016,6 +1161,16 @@ cdef (floating, floating) gap_enet_gram(
     floating[::1] XtA,  # XtA = X.T @ R - beta * w is calculated inplace
     bint positive,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: duality gap for enet_coordinate_descent_gram.
+    # Behavior: expresses all residual quantities through Q = X'X, q = X'y and ||y||^2:
+    # ||R||^2 = ||y||^2 + w'Qw - 2 q'w, R'y = ||y||^2 - q'w and X'R = q - Qw; then applies the same
+    # three regimes as gap_enet.
+    # Inputs: n_features; w, coefficients; alpha, beta; Qw, current Q @ w; q, X'y; y_norm2, ||y||^2;
+    # XtA, work buffer; positive.
+    # Outputs: (gap, dual_norm_XtA); XtA overwritten. Exceptions: none. Side effects: writes XtA.
+    # KNOWN ISSUE: the docstring says it is used in enet_coordinate_descent; it is used by
+    # enet_coordinate_descent_gram. Rounding can make the computed gap negative for singular Q.
     """Compute dual gap for use in enet_coordinate_descent.
 
     alpha > 0:            formulation A of the duality gap
@@ -1103,6 +1258,22 @@ def enet_coordinate_descent_gram(
     bint positive=0,
     bint do_screening=1,
 ):
+    # [FUNCTION DOC]
+    # Behavior: Elastic-Net coordinate descent on the Gram formulation. Maintains Qw = Q @ w
+    # (initialized with numpy, updated by axpy with row j of Q when w_j changes). Coordinate update:
+    # w_j = soft_threshold(q_j - Qw_j + w_j Q_jj, alpha) / (Q_jj + beta), with the positive
+    # constraint as in the dense solver; features with Q_jj == 0 are skipped. tol is scaled by
+    # ||y||^2. Screening is identical to the dense solver with ||X_j||^2 replaced by Q_jj and the
+    # screening radius computed from |gap| to tolerate negative rounding.
+    # Inputs: w, coefficients updated in place; alpha, beta; Q, C-ordered (n_features, n_features)
+    # Gram matrix; q, X'y (n_features,); y, target (any stride) used only for ||y||^2; max_iter, tol,
+    # rng, random, positive, do_screening as in the dense solver.
+    # Outputs: (w, gap, scaled tol, number of epochs).
+    # Exceptions: allocation errors; ConvergenceWarning when not converged.
+    # Side effects: mutates w; releases the GIL.
+    # KNOWN ISSUE: the early exit before the loop requires 0 <= gap <= tol, while the in-loop check
+    # accepts any gap <= tol, including negative values caused by a singular Q.
+    # KNOWN ISSUE: same max_iter == 0 behavior as enet_coordinate_descent (warns, returns 1).
     """Cython version of the coordinate descent algorithm
         for Elastic-Net regression
 
@@ -1313,6 +1484,20 @@ cdef (floating, floating) gap_enet_multi_task(
     floating[:, ::1] XtA,  # out
     floating[::1] XtA_row_norms,  # out
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: duality gap for enet_coordinate_descent_multi_task.
+    # Behavior: squared Frobenius norms of W (if beta > 0) and R (weighted by 1/sw for sparse X with
+    # weights), R'Y as an elementwise sum. XtA[j, t] = X_j'R_t (dense dot or sparse_dot minus
+    # X_mean[j] R_sum[t] when centered), minus beta W[t, j] when alpha > 0. For alpha == 0 the OLS
+    # and formulation B regimes of gap_enet are used. Otherwise the dual norm is the maximum row L2
+    # norm of XtA, the penalty norm is the L2,1 norm (sum over features of the L2 norm of W[:, j]),
+    # and dual_gap_formulation_A gives the gap.
+    # Inputs: n_samples, n_features, n_tasks; W (n_tasks, n_features) Fortran order; alpha, beta;
+    # X dense (ignored if X_is_sparse) or CSC arrays X_data, X_indices, X_indptr; Y (n_samples,
+    # n_tasks); sample_weight, no_sample_weights; X_mean, center; R, residuals; R_sum, per-task
+    # residual sums (sparse only); XtA (n_features, n_tasks) and XtA_row_norms (n_features,) outputs.
+    # Outputs: (gap, dual_norm_XtA); XtA always written; XtA_row_norms written only when alpha > 0.
+    # Exceptions: none. Side effects: writes XtA and XtA_row_norms.
     """Compute dual gap for use in enet_coordinate_descent_multi_task.
 
     Parameters
@@ -1433,6 +1618,27 @@ def enet_coordinate_descent_multi_task(
     bint random=0,
     bint do_screening=1,
 ):
+    # [FUNCTION DOC]
+    # Behavior: block coordinate descent for the multi-task Elastic-Net with L2,1 penalty. For dense
+    # X the caller has already applied centering and sqrt(sample_weight) scaling; for CSC X,
+    # centering by X_mean and weights are handled implicitly as in sparse_enet_coordinate_descent
+    # (R holds weighted residuals, R_sum per task). For each active feature j the block gradient
+    # tmp = X_j'R + W[:, j] ||X_j||^2 is computed per task and W[:, j] is set by group soft
+    # thresholding: tmp * max(1 - alpha / ||tmp||_2, 0) / (||X_j||^2 + beta); R is updated per task
+    # where the coefficient changed. Convergence uses max abs change over max abs weight, then the
+    # duality gap with tol scaled by sum(Y * Yw). Gap Safe screening uses the row norms of XtA
+    # (multi-task rule) and permanently excludes features.
+    # Inputs: W, (n_tasks, n_features) Fortran-ordered coefficients, updated in place; alpha, beta;
+    # X, dense Fortran design (dummy when sparse); X_is_sparse; X_data, X_indices, X_indptr, CSC
+    # arrays (dummies when dense); Y, (n_samples, n_tasks) Fortran-ordered targets; sample_weight or
+    # None (used only for sparse X); X_mean, column offsets for sparse X; max_iter, tol, rng, random,
+    # do_screening as in the single-target solvers. No positive option.
+    # Outputs: (W, gap, scaled tol, number of epochs).
+    # Exceptions: allocation errors; ConvergenceWarning when not converged.
+    # Side effects: mutates W; allocates R, XtA and work vectors; releases the GIL for the main loop.
+    # KNOWN ISSUE: as in sparse_enet_coordinate_descent, R_sum is accumulated once per feature during
+    # initialization and equals sum(R) only because the caller passes centered Y with nonzero X_mean.
+    # KNOWN ISSUE: same max_iter == 0 behavior as enet_coordinate_descent (warns, returns 1).
     """Cython version of the coordinate descent algorithm
         for Elastic-Net multi-task regression
 

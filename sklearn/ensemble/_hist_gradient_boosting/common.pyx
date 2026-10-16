@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Python-level dtype definitions shared across the histogram gradient boosting
+# package: Y_DTYPE/X_DTYPE (float64), X_BINNED_DTYPE (uint8, so at most 256 bins),
+# G_H_DTYPE (float32 gradients/hessians), X_BITSET_INNER_DTYPE (uint32 bitset
+# words), the structured HISTOGRAM_DTYPE and PREDICTOR_RECORD_DTYPE (whose C
+# counterparts are declared in common.pxd), and ALMOST_INF (1e300). Contains no
+# functions or classes.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 

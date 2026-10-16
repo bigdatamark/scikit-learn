@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tempita template generating _weight_vector.pxd: declaration of WeightVector,
+# instantiated per dtype suffix 64 (double) and 32 (float). A dense weight
+# vector stored as wscale * w (plus optional averaged-weights state) so that
+# SGD can scale all weights in O(1). Implementation in _weight_vector.pyx.tp.
 {{py:
 
 """
@@ -21,6 +26,10 @@ dtypes = [('64', 'double'),
 {{for name_suffix, c_type in dtypes}}
 
 cdef class WeightVector{{name_suffix}}(object):
+    # [CLASS DOC]
+    # Template (one class per dtype suffix): weights w (and averaged weights aw)
+    # with raw pointers, scale factor wscale, averaging coefficients average_a and
+    # average_b, n_features and cached squared L2 / L1 norms.
     cdef readonly {{c_type}}[::1] w
     cdef readonly {{c_type}}[::1] aw
     cdef {{c_type}} *w_data_ptr
@@ -35,13 +44,27 @@ cdef class WeightVector{{name_suffix}}(object):
 
     cdef void add(self, {{c_type}} *x_data_ptr, int *x_ind_ptr,
                   int xnnz, {{c_type}} c) noexcept nogil
+    # [FUNCTION DOC]
+    # Add c times a sparse sample x (values, indices, nnz) to the weight vector.
     cdef void add_average(self, {{c_type}} *x_data_ptr, int *x_ind_ptr,
                           int xnnz, {{c_type}} c, {{c_type}} num_iter) noexcept nogil
+    # [FUNCTION DOC]
+    # Lazily update the averaged weights for sample x at iteration num_iter.
     cdef {{c_type}} dot(self, {{c_type}} *x_data_ptr, int *x_ind_ptr,
                     int xnnz) noexcept nogil
+    # [FUNCTION DOC]
+    # Return the dot product of the weight vector with sparse sample x.
     cdef void scale(self, {{c_type}} c) noexcept nogil
+    # [FUNCTION DOC]
+    # Multiply the weight vector by c in O(1) (via wscale).
     cdef void reset_wscale(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Fold wscale (and averaging coefficients) into the stored arrays; wscale = 1.
     cdef {{c_type}} norm(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Return the cached L2 norm.
     cdef {{c_type}} l1norm(self) noexcept nogil
+    # [FUNCTION DOC]
+    # Return the cached L1 norm.
 
 {{endfor}}

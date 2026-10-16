@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tempita template generating _kd_tree.pyx. It instantiates, for float64
+# (suffix 64) and float32 (suffix 32) inputs, the KDTree specialization of
+# the generic BinaryTree defined in _binary_tree.pxi (included textually).
+# Each node is an axis-aligned bounding box: node_bounds[0, i_node] holds the
+# per-feature minima and node_bounds[1, i_node] the maxima of the node's
+# points. The module-level hooks (allocate_data, init_node, min/max(r)dist and
+# dual-tree variants) are called by name from _binary_tree.pxi. Bounds are
+# computed for Minkowski-type metrics only (euclidean, manhattan, chebyshev,
+# minkowski with parameter p), using the metric's p (INF for chebyshev).
+# The public KDTree is the float64 class.
 {{py:
 
 # Generated file: _kd_tree.pyx
@@ -42,6 +53,10 @@ include "_binary_tree.pxi"
 
 # Inherit KDTree{{name_suffix}} from BinaryTree{{name_suffix}}
 cdef class KDTree{{name_suffix}}(BinaryTree{{name_suffix}}):
+    # [CLASS DOC]
+    # Template, instantiated per dtype suffix (64, 32): KDTree class adding
+    # nothing to BinaryTree except its docstring; box-specific behavior comes
+    # from the module-level hook functions.
     __doc__ = CLASS_DOC.format(**DOC_DICT{{name_suffix}})
     pass
 
@@ -65,6 +80,12 @@ cdef int allocate_data{{name_suffix}}(
     intp_t n_nodes,
     intp_t n_features,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: allocates tree.node_bounds as zeros of shape
+    # (2, n_nodes, n_features): slot 0 lower bounds, slot 1 upper bounds.
+    # Inputs: tree, n_nodes, n_features. Outputs: returns 0.
+    # Exceptions: MemoryError from NumPy (-1). Side effects: sets node_bounds.
     """Allocate arrays needed for the KD Tree"""
     tree.node_bounds = np.zeros((2, n_nodes, n_features), dtype={{INPUT_DTYPE}})
     return 0
@@ -77,6 +98,18 @@ cdef int init_node{{name_suffix}}(
     intp_t idx_start,
     intp_t idx_end,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: computes the exact per-feature min and max over the node's points
+    # (idx_array[idx_start:idx_end]) into node_bounds, records idx_start/idx_end,
+    # and sets radius to the Minkowski-p norm of the half-widths of the box (the
+    # circumscribed sphere radius; max half-width for p = INF).
+    # Inputs: tree, node_data view, i_node, idx_start < idx_end.
+    # Outputs: returns 0; writes node_bounds[:, i_node] and node_data[i_node].
+    # Exceptions: none expected (-1 error return). Side effects: mutates tree
+    # arrays.
+    # KNOWN ISSUE: for p = INF, the final pow(rad, 1/p) evaluates pow(rad, 0) =
+    # 1, so the stored radius is always 1 instead of the max half-width.
     """Initialize the node for the dataset stored in tree.data"""
     cdef intp_t n_features = tree.data.shape[1]
     cdef intp_t i, j
@@ -125,6 +158,13 @@ cdef float64_t min_rdist{{name_suffix}}(
     intp_t i_node,
     const {{INPUT_DTYPE_t}}* pt,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: lower bound on reduced distance from pt to the box: per feature,
+    # the gap max(lower - x, 0) + max(x - upper, 0) (computed via x + |x| = 2
+    # max(x, 0)); combined as the sum of gap**p, or the max gap for p = INF.
+    # Inputs: tree, i_node, pt (n_features values). Outputs: reduced distance.
+    # Exceptions: none (-1 error return). Side effects: none; nogil.
     """Compute the minimum reduced-distance between a point and a node"""
     cdef intp_t n_features = tree.data.shape[1]
     cdef float64_t d, d_lo, d_hi, rdist=0.0
@@ -152,6 +192,11 @@ cdef float64_t min_dist{{name_suffix}}(
     intp_t i_node,
     const {{INPUT_DTYPE_t}}* pt,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: min_rdist converted to a distance (p-th root, identity for INF).
+    # Inputs: tree, i_node, pt. Outputs: distance. Exceptions: none (-1).
+    # Side effects: none.
     """Compute the minimum distance between a point and a node"""
     if tree.dist_metric.p == INF:
         return min_rdist{{name_suffix}}(tree, i_node, pt)
@@ -167,6 +212,13 @@ cdef float64_t max_rdist{{name_suffix}}(
     intp_t i_node,
     const {{INPUT_DTYPE_t}}* pt,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: upper bound on reduced distance from pt to the box: per feature
+    # the larger of the distances to the lower and upper bound; summed as **p, or
+    # maximum for p = INF.
+    # Inputs: tree, i_node, pt. Outputs: reduced distance.
+    # Exceptions: none (-1). Side effects: none.
     """Compute the maximum reduced-distance between a point and a node"""
     cdef intp_t n_features = tree.data.shape[1]
 
@@ -191,6 +243,11 @@ cdef float64_t max_dist{{name_suffix}}(
     intp_t i_node,
     const {{INPUT_DTYPE_t}}* pt,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: max_rdist converted to a distance (p-th root, identity for INF).
+    # Inputs: tree, i_node, pt. Outputs: distance. Exceptions: none (-1).
+    # Side effects: none.
     """Compute the maximum distance between a point and a node"""
     if tree.dist_metric.p == INF:
         return max_rdist{{name_suffix}}(tree, i_node, pt)
@@ -208,6 +265,13 @@ cdef inline int min_max_dist{{name_suffix}}(
     float64_t* min_dist,
     float64_t* max_dist,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: computes min_dist and max_dist (true distances) in one pass over
+    # the features, using the same per-feature formulas as min_rdist/max_rdist.
+    # Inputs: tree, i_node, pt; min_dist, max_dist output pointers.
+    # Outputs: returns 0; writes min_dist[0], max_dist[0].
+    # Exceptions: none (-1). Side effects: writes outputs; nogil.
     """Compute the minimum and maximum distance between a point and a node"""
     cdef intp_t n_features = tree.data.shape[1]
 
@@ -247,6 +311,14 @@ cdef inline float64_t min_rdist_dual{{name_suffix}}(
     BinaryTree{{name_suffix}} tree2,
     intp_t i_node2,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: lower bound on reduced distance between two boxes (node i_node1
+    # of tree1, node i_node2 of tree2): per feature the gap between the
+    # intervals (0 if overlapping), combined as sum of **p or max for p = INF,
+    # using tree1's p.
+    # Inputs: tree1, i_node1, tree2, i_node2. Outputs: reduced distance.
+    # Exceptions: none (-1). Side effects: none.
     """Compute the minimum reduced distance between two nodes"""
     cdef intp_t n_features = tree1.data.shape[1]
 
@@ -282,6 +354,11 @@ cdef inline float64_t min_dist_dual{{name_suffix}}(
     BinaryTree{{name_suffix}} tree2,
     intp_t i_node2,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: min_rdist_dual converted to distance by tree1's metric.
+    # Inputs: tree1, i_node1, tree2, i_node2. Outputs: distance.
+    # Exceptions: metric errors (-1). Side effects: none.
     """Compute the minimum distance between two nodes"""
     return tree1.dist_metric._rdist_to_dist(
         min_rdist_dual{{name_suffix}}(tree1, i_node1, tree2, i_node2)
@@ -294,6 +371,13 @@ cdef inline float64_t max_rdist_dual{{name_suffix}}(
     BinaryTree{{name_suffix}} tree2,
     intp_t i_node2,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: upper bound on reduced distance between two boxes: per feature
+    # the larger of |lower1 - upper2| and |upper1 - lower2|, combined as sum of
+    # **p or max for p = INF.
+    # Inputs: tree1, i_node1, tree2, i_node2. Outputs: reduced distance.
+    # Exceptions: none (-1). Side effects: none.
     """Compute the maximum reduced distance between two nodes"""
     cdef intp_t n_features = tree1.data.shape[1]
 
@@ -323,6 +407,11 @@ cdef inline float64_t max_dist_dual{{name_suffix}}(
     BinaryTree{{name_suffix}} tree2,
     intp_t i_node2,
 ) except -1:
+    # [FUNCTION DOC]
+    # Template, instantiated per dtype suffix.
+    # Behavior: max_rdist_dual converted to distance by tree1's metric.
+    # Inputs: tree1, i_node1, tree2, i_node2. Outputs: distance.
+    # Exceptions: metric errors (-1). Side effects: none.
     """Compute the maximum distance between two nodes"""
     return tree1.dist_metric._rdist_to_dist(
         max_rdist_dual{{name_suffix}}(tree1, i_node1, tree2, i_node2)
@@ -332,5 +421,7 @@ cdef inline float64_t max_dist_dual{{name_suffix}}(
 
 
 class KDTree(KDTree64):
+    # [CLASS DOC]
+    # Public KDTree: the float64 instantiation with the generic docstring.
     __doc__ = CLASS_DOC.format(BinaryTree="KDTree")
     pass

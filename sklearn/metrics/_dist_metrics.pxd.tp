@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tempita template generating sklearn/metrics/_dist_metrics.pxd: Cython declarations of
+# the DistanceMetric hierarchy implemented in _dist_metrics.pyx.tp, so other Cython
+# modules (sklearn.neighbors BallTree/KDTree, _pairwise_distances_reduction, HDBSCAN)
+# can cimport the classes and call their C-level kernels without the GIL. It also
+# defines inline Euclidean helpers that callers can inline directly. Everything inside
+# the template loop is instantiated twice, with suffix 64 (float64) and 32 (float32).
 {{py:
 
 implementation_specific_values = [
@@ -14,6 +21,9 @@ from libc.math cimport sqrt, exp
 from sklearn.utils._typedefs cimport float64_t, float32_t, int32_t, intp_t
 
 cdef class DistanceMetric:
+    # [CLASS DOC]
+    # Empty dtype-agnostic base declaration; the concrete DistanceMetric64/32 classes
+    # derive from it. Its Python-level get_metric is defined in the .pyx.
     pass
 
 {{for name_suffix, INPUT_DTYPE_t, INPUT_DTYPE in implementation_specific_values}}
@@ -28,6 +38,13 @@ cdef inline float64_t euclidean_dist{{name_suffix}}(
     const {{INPUT_DTYPE_t}}* x2,
     intp_t size,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: inlined Euclidean distance used by the default metric fast paths and
+    #   EuclideanDistance.dist. Instantiated per dtype suffix.
+    # Behavior: sqrt of the sum over j < size of (x1[j]-x2[j])^2, accumulated in float64.
+    # Inputs: x1, x2: pointers to contiguous vectors of length size.
+    # Outputs: float64 distance.
+    # Exceptions: none (nogil; -1 is the declared error sentinel). Side effects: none.
     cdef float64_t tmp, d=0
     cdef intp_t j
     for j in range(size):
@@ -41,6 +58,12 @@ cdef inline float64_t euclidean_rdist{{name_suffix}}(
     const {{INPUT_DTYPE_t}}* x2,
     intp_t size,
 ) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: inlined squared Euclidean distance (the rank-preserving surrogate).
+    # Behavior: sum over j < size of (x1[j]-x2[j])^2 in float64, no square root.
+    # Inputs: x1, x2: contiguous vectors of length size.
+    # Outputs: float64 squared distance.
+    # Exceptions: none (nogil). Side effects: none.
     cdef float64_t tmp, d=0
     cdef intp_t j
     for j in range(size):
@@ -50,16 +73,30 @@ cdef inline float64_t euclidean_rdist{{name_suffix}}(
 
 
 cdef inline float64_t euclidean_dist_to_rdist{{name_suffix}}(const {{INPUT_DTYPE_t}} dist) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: converts a Euclidean distance to its surrogate.
+    # Behavior: returns dist squared. Inputs: dist (input dtype). Outputs: float64.
+    # Exceptions: none (nogil). Side effects: none.
     return dist * dist
 
 
 cdef inline float64_t euclidean_rdist_to_dist{{name_suffix}}(const {{INPUT_DTYPE_t}} dist) except -1 nogil:
+    # [FUNCTION DOC]
+    # HELPER: converts a squared Euclidean distance back to the distance.
+    # Behavior: returns sqrt(dist). Inputs: dist: squared distance (input dtype).
+    # Outputs: float64. Exceptions: none (nogil). Side effects: none.
     return sqrt(dist)
 
 
 ######################################################################
 # DistanceMetric{{name_suffix}} base class
 cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
+    # [CLASS DOC]
+    # Declaration of the abstract per-dtype metric base (DistanceMetric64 / 32). The C
+    # attributes are shared by all subclasses so Cython's limited polymorphism works:
+    # p (Minkowski order), vec (weights or variances), mat (Mahalanobis inverse covariance),
+    # size (length of vec/mat), func and kwargs (PyFuncDistance). Methods are declared below
+    # and implemented/overridden in the .pyx.
     # The following attributes are required for a few of the subclasses.
     # we must define them here so that cython's limited polymorphism will work.
     # Because we don't expect to instantiate a lot of these objects, the
@@ -77,6 +114,11 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: dense distance between vectors x1 and x2 of length size (overridden by
+    #   every metric; base returns -999).
+    # Outputs: distance (input dtype). Exceptions: nogil; -1 signals an error (only
+    #   PyFuncDistance can actually raise). Side effects: none except Mahalanobis buffer.
 
     cdef {{INPUT_DTYPE_t}} rdist(
         self,
@@ -84,6 +126,9 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}* x2,
         intp_t size,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: dense rank-preserving surrogate distance (defaults to dist).
+    # Inputs/Outputs/Exceptions: as dist. Side effects: as dist.
 
     cdef {{INPUT_DTYPE_t}} dist_csr(
         self,
@@ -97,6 +142,13 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: distance between two CSR rows (see the .pyx for the merge algorithm and the
+    #   reasons for the pointer + start/end signature).
+    # Inputs: CSR data pointers and int32 index pointers for two rows, the [start, end)
+    #   positions of each row in those arrays, and size (number of features).
+    # Outputs: distance. Exceptions: nogil; -1 error sentinel. Side effects: none
+    #   except Mahalanobis scratch buffer.
 
     cdef {{INPUT_DTYPE_t}} rdist_csr(
         self,
@@ -110,12 +162,21 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const int32_t x2_end,
         const intp_t size,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: surrogate distance between two CSR rows (defaults to dist_csr).
+    # Inputs: CSR data pointers and int32 index pointers for two rows, the [start, end)
+    #   positions of each row in those arrays, and size (number of features).
+    # Outputs: surrogate distance. Exceptions/Side effects: as dist_csr.
 
     cdef int pdist(
         self,
         const {{INPUT_DTYPE_t}}[:, ::1] X,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1
+    # [FUNCTION DOC]
+    # Behavior: fills symmetric D with distances between all rows of dense X.
+    # Inputs: X (n, d) C-contiguous; D (n, n) output. Outputs: D in place, returns 0.
+    # Exceptions: -1 with a Python exception propagated from dist. Holds the GIL.
 
     cdef int cdist(
         self,
@@ -123,6 +184,9 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const {{INPUT_DTYPE_t}}[:, ::1] Y,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1
+    # [FUNCTION DOC]
+    # Behavior: fills D (n_X, n_Y) with distances between rows of dense X and Y.
+    # Outputs: D in place, returns 0. Exceptions: ValueError if feature counts differ.
 
     cdef int pdist_csr(
         self,
@@ -132,6 +196,10 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const intp_t size,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: symmetric pairwise distances between rows of one CSR matrix into D.
+    # Inputs: data pointer, int32 indices and indptr, size, output D (n, n).
+    # Outputs: D in place, returns 0. Exceptions: nogil, -1 sentinel. No GIL held.
 
     cdef int cdist_csr(
         self,
@@ -144,9 +212,19 @@ cdef class DistanceMetric{{name_suffix}}(DistanceMetric):
         const intp_t size,
         {{INPUT_DTYPE_t}}[:, ::1] D,
     ) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: distances between rows of two CSR matrices into D (n_X, n_Y).
+    # Inputs: CSR arrays of X and Y, size, output D. Outputs: D in place, returns 0.
+    # Exceptions: nogil, -1 sentinel. No GIL held.
 
     cdef {{INPUT_DTYPE_t}} _rdist_to_dist(self, {{INPUT_DTYPE_t}} rdist) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: converts a surrogate distance to the true distance (identity by default).
+    # Exceptions: none (nogil). Side effects: none.
 
     cdef {{INPUT_DTYPE_t}} _dist_to_rdist(self, {{INPUT_DTYPE_t}} dist) except -1 nogil
+    # [FUNCTION DOC]
+    # Behavior: converts a true distance to the surrogate distance (identity by default).
+    # Exceptions: none (nogil). Side effects: none.
 
 {{endfor}}

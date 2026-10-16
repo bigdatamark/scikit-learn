@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Training-time helper for HistGradientBoosting: fast in-place update of the raw
+# predictions on the training data after a new tree has been grown, using the
+# grower's sample partition instead of re-predicting every sample through the tree.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +17,18 @@ def _update_raw_predictions(
         grower,
         n_threads,
 ):
+    # [FUNCTION DOC]
+    # Behavior: gathers, for every finalized leaf of the grower, its partition start,
+    # stop and value into numpy arrays, then calls the parallel helper which adds each
+    # leaf value to raw_predictions of all samples stored in that leaf's range of the
+    # splitter's partition array. Equivalent to adding the new tree's predictions on
+    # the training set (only valid for the training samples the tree was grown on).
+    # Inputs: raw_predictions float64 1D contiguous array (n_samples,), modified in
+    # place; grower a finalized TreeGrower (uses finalized_leaves and
+    # splitter.partition); n_threads number of OpenMP threads.
+    # Outputs: raw_predictions incremented in place; returns None.
+    # Exceptions: AttributeError if grower lacks the expected attributes.
+    # Side effects: mutates raw_predictions; allocates temporary arrays.
     """Update raw_predictions with the predictions of the newest tree.
 
     This is equivalent to (and much faster than):
@@ -47,6 +63,17 @@ cdef inline void _update_raw_predictions_helper(
         const Y_DTYPE_C [::1] values,
         int n_threads,
 ):
+    # [FUNCTION DOC]
+    # HELPER: parallel kernel for _update_raw_predictions.
+    # Behavior: in an OpenMP parallel loop over leaves (static schedule), for every
+    # position p in [starts[leaf], stops[leaf]) adds values[leaf] to
+    # raw_predictions[partition[p]]. Leaf ranges are disjoint so there is no write race.
+    # Inputs: raw_predictions float64 (n_samples,) output; starts/stops uint32 leaf
+    # range bounds into partition; partition uint32 sample indices; values float64
+    # leaf values; n_threads thread count.
+    # Outputs: raw_predictions updated in place.
+    # Exceptions: none expected (loop body is nogil).
+    # Side effects: releases the GIL inside the prange; OpenMP parallelism.
 
     cdef:
         unsigned int position

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Introsort (quicksort with depth limit, falling back to heapsort, and
+# insertion sort for small slices of 15 elements or fewer) over a structure of
+# arrays: a floating values array and a parallel intp indices array that is
+# permuted identically. Two quicksort partition schemes are available: 2-way
+# (Hoare-like, median-of-3 pivot placed at the end) and 3-way (Dutch national
+# flag, efficient with many duplicates). The sort is not stable. All routines
+# are nogil/noexcept and work on raw pointers.
 from libc.math cimport log2
 
 from cython cimport floating
@@ -11,6 +19,12 @@ cdef void simultaneous_sort(
     intp_t n,
     bint use_three_way_partition=False,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # Behavior: if n == 0 return; otherwise compute the depth limit
+    # maxd = 2 * floor(log2(n)) and run introsort_3way or introsort_2way.
+    # Inputs: values, indices (pointers to n elements each), n, and
+    # use_three_way_partition. Outputs: both arrays reordered in place so values
+    # is ascending. Exceptions: none. NaN ordering is unspecified.
     """Sort values and indices simultaneously by values.
 
     The numpy equivalent is:
@@ -56,6 +70,12 @@ def _py_simultaneous_sort(
     *,
     bint use_three_way_partition,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Python test wrapper for simultaneous_sort.
+    # Inputs: contiguous values and indices memoryviews, n (must not exceed their
+    # lengths, not checked), keyword use_three_way_partition.
+    # Outputs: None; arrays sorted in place. Exceptions: buffer conversion errors;
+    # empty arrays are undefined behavior (element 0 address taken unchecked).
     """Python wrapper used for testing."""
     simultaneous_sort(&values[0], &indices[0], n, use_three_way_partition)
 
@@ -66,6 +86,15 @@ cdef void introsort_2way(
     intp_t n,
     intp_t maxd,
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: introsort with 2-way partitioning, used by simultaneous_sort.
+    # Behavior: while n > 15: if depth budget maxd is exhausted, heapsort the slice
+    # and return; else decrement maxd, choose the pivot with inplace_median3 (which
+    # leaves min at 0, pivot at n-1, max at n/2), partition elements 1..n-2 by
+    # scanning i up past values < pivot and j down past values > pivot, swapping
+    # out-of-place pairs; then swap the pivot into position i, recurse on the left
+    # part [0, i) and loop on the right part (i, n). Finish with insertion sort.
+    # Inputs: values, indices, n, maxd. Outputs: in place. Exceptions: none.
     cdef floating pivot
     cdef intp_t pivot_idx, i, j
 
@@ -112,6 +141,13 @@ cdef void introsort_3way(
     floating* values, intp_t *indices,
     intp_t n, intp_t maxd
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: introsort with 3-way partitioning, used by simultaneous_sort.
+    # Behavior: while n > 15: heapsort if maxd is exhausted; pick the pivot value
+    # with median3 (no moves); partition in one pass into [< pivot][== pivot]
+    # [> pivot] with boundaries l and r; recurse on the left part, loop on the
+    # right part (equal elements are already in place). Finish with insertion
+    # sort. Inputs: values, indices, n, maxd. Outputs: in place. Exceptions: none.
     """
     Introsort with median of 3 pivot selection and 3-way partition function
     (fast for repeated elements, e.g. lots of zeros).
@@ -159,6 +195,13 @@ cdef void introsort_3way(
 # ------------ HEAP SORT -------------
 
 cdef void heapsort(floating* feature_values, intp_t* samples, intp_t n) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: heapsort fallback for introsort.
+    # Behavior: build a max-heap by sifting down from the last parent to the root,
+    # then repeatedly swap the root with the last element of the heap and sift
+    # down over the shrunk heap. Inputs: feature_values, samples (parallel
+    # indices), n >= 1. Outputs: both arrays sorted ascending in place.
+    # Exceptions: none.
     cdef intp_t start, end
 
     # heapify
@@ -180,6 +223,12 @@ cdef void heapsort(floating* feature_values, intp_t* samples, intp_t n) noexcept
 
 cdef inline void sift_down(floating* feature_values, intp_t* samples,
                            intp_t start, intp_t end) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: max-heap sift-down for heapsort.
+    # Behavior: starting at start, repeatedly swap the node with its larger child
+    # while that child is larger, within the heap range [start, end).
+    # Inputs: arrays, start (root index), end (exclusive heap end).
+    # Outputs: in place. Exceptions: none.
     # Restore heap order in feature_values[start:end] by moving the max element to start.
     cdef intp_t child, maxind, root
 
@@ -204,6 +253,12 @@ cdef inline void sift_down(floating* feature_values, intp_t* samples,
 # ------------ HELPERS -------------
 
 cdef inline floating inplace_median3(floating* values, intp_t* indices, intp_t n) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: median-of-three pivot selection with moves, for introsort_2way.
+    # Behavior: order values[0], values[n-1], values[n/2] with swaps so that the
+    # smallest is at 0, the median at n-1 and the largest at n/2; return the median
+    # value (values[n-1]). Inputs: values, indices, n >= 3 (called with n > 15).
+    # Outputs: pivot value; arrays permuted in place. Exceptions: none.
     # # Median of three pivot selection
     # The smallest of the three is moved to the beginning of the array,
     # the middle (the pivot value) is moved to the end, and the largest
@@ -219,6 +274,11 @@ cdef inline floating inplace_median3(floating* values, intp_t* indices, intp_t n
 
 
 cdef inline floating median3(floating* feature_values, intp_t n) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: median-of-three pivot value for introsort_3way.
+    # Behavior: return the median of the first, middle (n/2) and last values,
+    # without moving anything (Bentley and McIlroy).
+    # Inputs: feature_values, n >= 1. Outputs: pivot value. Exceptions: none.
     # Median of three pivot selection, after Bentley and McIlroy (1993).
     # Engineering a sort function. SP&E. Requires 8/3 comparisons on average.
     cdef floating a = feature_values[0], b = feature_values[n / 2], c = feature_values[n - 1]
@@ -240,6 +300,8 @@ cdef inline floating median3(floating* feature_values, intp_t n) noexcept nogil:
 
 cdef inline void swap(floating* values, intp_t* indices,
                       intp_t i, intp_t j) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: swap entries i and j in both values and indices. No exceptions.
     # Helper for sort
     values[i], values[j] = values[j], values[i]
     indices[i], indices[j] = indices[j], indices[i]
@@ -248,6 +310,11 @@ cdef inline void swap(floating* values, intp_t* indices,
 cdef inline void insertion_sort(
     floating* values, intp_t *indices, intp_t n
 ) noexcept nogil:
+    # [FUNCTION DOC]
+    # HELPER: insertion sort for small slices (n <= 15) in introsort.
+    # Behavior: for each i shift larger preceding elements one slot right and
+    # insert element i (value and index together) in place; stable.
+    # Inputs: values, indices, n. Outputs: in place. Exceptions: none.
     cdef intp_t i, j, temp_idx
     cdef floating temp_val
 

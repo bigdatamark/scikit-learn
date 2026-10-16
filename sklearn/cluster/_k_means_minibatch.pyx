@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Center update step of MiniBatchKMeans (_kmeans.py) for dense and CSR input.
+# Each center is updated as the weighted running mean of all samples ever assigned
+# to it: previous center times its accumulated weight, plus the weighted new batch
+# members, divided by the new accumulated weight. Clusters are processed in
+# parallel with OpenMP; labels for the batch are computed elsewhere (Lloyd E-step).
 from cython cimport floating
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport malloc, free
@@ -11,6 +17,17 @@ def _minibatch_update_dense(
         floating[::1] weight_sums,           # INOUT
         const int[::1] labels,               # IN
         int n_threads):
+    # [FUNCTION DOC]
+    # Behavior: in a nogil OpenMP parallel region each thread allocates a scratch
+    # array of n_samples ints, then clusters are distributed statically over threads
+    # and each is updated with update_center_dense; scratch arrays are freed at the end.
+    # Inputs: X (n_samples, n_features) batch; sample_weight (n_samples,);
+    # centers_old (n_clusters, n_features); labels (n_samples,) batch assignments;
+    # n_threads.
+    # Outputs: centers_new written in place; weight_sums (n_clusters,) incremented in place.
+    # Exceptions: none raised from the nogil region.
+    # Side effects: releases the GIL; OpenMP threads; malloc/free of scratch buffers.
+    # KNOWN ISSUE: the malloc result is not checked for NULL.
     """Update of the centers for dense MiniBatchKMeans.
 
     Parameters
@@ -65,6 +82,18 @@ cdef void update_center_dense(
         floating[::1] weight_sums,           # INOUT
         const int[::1] labels,               # IN
         int *indices) noexcept nogil:        # TMP
+    # [FUNCTION DOC]
+    # HELPER: per-cluster worker for _minibatch_update_dense.
+    # Behavior: collects into indices the batch samples labeled cluster_idx and their
+    # total weight wsum. If wsum > 0: sets the new center to old center times
+    # weight_sums[cluster_idx], adds weighted coordinates of those samples, increases
+    # weight_sums[cluster_idx] by wsum and divides the center by the new total.
+    # Otherwise copies the old center unchanged.
+    # Inputs: cluster_idx; X, sample_weight, centers_old, labels as above;
+    # indices scratch buffer of at least n_samples ints.
+    # Outputs: row cluster_idx of centers_new; weight_sums[cluster_idx] updated.
+    # Exceptions: none (noexcept nogil). Side effects: writes indices scratch; each
+    # call touches only its own cluster's row, so calls are thread-safe.
     """Update of a single center for dense MinibatchKMeans"""
     cdef:
         int n_samples = sample_weight.shape[0]
@@ -116,6 +145,16 @@ def _minibatch_update_sparse(
         floating[::1] weight_sums,           # INOUT
         const int[::1] labels,               # IN
         int n_threads):
+    # [FUNCTION DOC]
+    # Behavior: sparse counterpart of _minibatch_update_dense: extracts the CSR
+    # buffers of X and runs update_center_sparse for each cluster in parallel with
+    # per-thread scratch arrays.
+    # Inputs: X scipy CSR matrix (int32 indices/indptr, data dtype matching centers);
+    # other parameters as in the dense version.
+    # Outputs: centers_new written; weight_sums incremented in place.
+    # Exceptions: errors converting X buffers with unexpected dtypes.
+    # Side effects: releases the GIL; OpenMP; malloc/free of scratch buffers.
+    # KNOWN ISSUE: the malloc result is not checked for NULL.
     """Update of the centers for sparse MiniBatchKMeans.
 
     Parameters
@@ -175,6 +214,14 @@ cdef void update_center_sparse(
         floating[::1] weight_sums,           # INOUT
         const int[::1] labels,               # IN
         int *indices) noexcept nogil:        # TMP
+    # [FUNCTION DOC]
+    # HELPER: per-cluster worker for _minibatch_update_sparse.
+    # Behavior: same as update_center_dense, but the new members' contributions are
+    # added only over their nonzero entries (CSR row ranges from X_indptr).
+    # Inputs: cluster_idx; X_data, X_indices, X_indptr the CSR arrays; sample_weight,
+    # centers_old, labels; indices scratch of at least n_samples ints.
+    # Outputs: row cluster_idx of centers_new; weight_sums[cluster_idx] updated.
+    # Exceptions: none (noexcept nogil). Side effects: writes indices scratch only otherwise.
     """Update of a single center for sparse MinibatchKMeans"""
     cdef:
         int n_samples = sample_weight.shape[0]

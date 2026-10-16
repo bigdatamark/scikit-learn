@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Cython kernels for scipy.sparse CSR/CSC matrices, mostly wrapped by
+# sklearn.utils.sparsefuncs and used by preprocessing (StandardScaler,
+# Normalizer), clustering and SGD code: squared row norms, weighted NaN-aware
+# per-feature mean and variance (one-shot and incremental), in-place row
+# L1/L2 normalisation, densification of selected CSR rows, and CSR @ CSR
+# products into a dense output. Public def functions validate/convert dtypes
+# (non-float data is cast to float64) and pass the raw data/indices/indptr
+# arrays to private fused-type kernels (fused over float32/float64 data and
+# int32/int64 index arrays). Most loops run with the GIL held; none use OpenMP.
 """Utilities to work with sparse matrices and arrays written in Cython."""
 
 # Authors: The scikit-learn developers
@@ -22,6 +32,12 @@ ctypedef fused integral2:
 
 
 def csr_row_norms(X):
+    # [FUNCTION DOC]
+    # Behavior: cast X to float64 if it is not float32/float64, then return the
+    # squared L2 norm of each row.
+    # Inputs: X, CSR matrix/array of shape (n_samples, n_features).
+    # Outputs: 1d array (n_samples,) of X's float dtype.
+    # Exceptions: buffer errors if X.data is not contiguous. Side effects: none.
     """Squared L2 norm of each row in CSR matrix X."""
     if X.dtype not in [np.float32, np.float64]:
         X = X.astype(np.float64)
@@ -32,6 +48,12 @@ def _sqeuclidean_row_norms_sparse(
     const floating[::1] X_data,
     const integral[::1] X_indptr,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for csr_row_norms.
+    # Behavior: for each row i, sum the squares of data[indptr[i]:indptr[i+1]]
+    # (accumulated in the data dtype). Runs without the GIL.
+    # Inputs: X_data (contiguous floating), X_indptr (contiguous int32/int64).
+    # Outputs: new array of length len(indptr) - 1. Exceptions: buffer errors.
     cdef:
         integral n_samples = X_indptr.shape[0] - 1
         integral i, j
@@ -49,6 +71,15 @@ def _sqeuclidean_row_norms_sparse(
 
 
 def csr_mean_variance_axis0(X, weights=None, return_sum_weights=False):
+    # [FUNCTION DOC]
+    # Behavior: cast X to float64 if needed, default weights to ones of X's dtype,
+    # compute per-column weighted mean and variance ignoring NaNs (implicit zeros
+    # count as values) via _csr_mean_variance_axis0.
+    # Inputs: X (CSR, (n_samples, n_features)), weights (n_samples,) or None,
+    # return_sum_weights (bool).
+    # Outputs: (means, variances) or (means, variances, sum_weights), each of
+    # shape (n_features,) in X's float dtype.
+    # Exceptions: buffer dtype errors (e.g. weights dtype differing from X's).
     """Compute mean and variance along axis 0 on a CSR matrix
 
     Uses an np.float64 accumulator.
@@ -101,6 +132,24 @@ def _csr_mean_variance_axis0(
     const integral[:] X_indptr,
     const floating[:] weights,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for csr_mean_variance_axis0 (and the incremental variant).
+    # Behavior: float64 accumulation. sum_weights starts at the total weight and
+    # counts at n_rows for each feature. Pass 1 over stored entries: for non-NaN
+    # values add w*x to means, w to sum_weights_nz and 1 to counts_nz; for NaN
+    # subtract w from sum_weights and 1 from counts. means /= sum_weights. Pass 2:
+    # for stored non-NaN values accumulate correction += w*(x - mean) and
+    # variances += w*(x - mean)^2. Finally, if a feature has implicit zeros
+    # (counts != counts_nz), account for them: correction -= (sum_weights -
+    # sum_weights_nz) * mean and variances += (sum_weights - sum_weights_nz) *
+    # mean^2; then variance = (variances - correction^2 / sum_weights) /
+    # sum_weights (corrected two-pass algorithm of Chan, Golub and LeVeque).
+    # Inputs: X_data, n_samples (unused), n_features, X_indices, X_indptr,
+    # weights (length n_samples).
+    # Outputs: (means, variances, sum_weights) as float32 copies if the data is
+    # float32, else float64 arrays.
+    # Exceptions: buffer errors. A feature whose entries are all NaN (zero total
+    # weight) yields NaN/inf (C division, no exception).
     # Implement the function here since variables using fused types
     # cannot be declared directly and can only be passed as function arguments
     cdef:
@@ -183,6 +232,12 @@ def _csr_mean_variance_axis0(
 
 
 def csc_mean_variance_axis0(X, weights=None, return_sum_weights=False):
+    # [FUNCTION DOC]
+    # Behavior: CSC counterpart of csr_mean_variance_axis0: cast to float64 if
+    # needed, default unit weights, call _csc_mean_variance_axis0.
+    # Inputs: X (CSC), weights or None, return_sum_weights.
+    # Outputs: (means, variances[, sum_weights]) of shape (n_features,).
+    # Exceptions: buffer dtype errors.
     """Compute mean and variance along axis 0 on a CSC matrix
 
     Uses an np.float64 accumulator.
@@ -235,6 +290,14 @@ def _csc_mean_variance_axis0(
     const integral[:] X_indptr,
     const floating[:] weights,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for csc_mean_variance_axis0 (and the incremental variant).
+    # Behavior: identical algorithm to _csr_mean_variance_axis0 but iterating
+    # column by column (indptr over columns, indices are row numbers used to look
+    # up weights).
+    # Inputs: X_data, n_samples (unused), n_features, X_indices, X_indptr, weights.
+    # Outputs: (means, variances, sum_weights) as in the CSR kernel.
+    # Exceptions: buffer errors; all-NaN columns give NaN/inf.
     # Implement the function here since variables using fused types
     # cannot be declared directly and can only be passed as function arguments
     cdef:
@@ -313,6 +376,16 @@ def _csc_mean_variance_axis0(
 
 
 def incr_mean_variance_axis0(X, last_mean, last_var, last_n, weights=None):
+    # [FUNCTION DOC]
+    # Behavior: normalise dtypes (X and weights to float, last_n to float), ensure
+    # index arrays are int32 (via _ensure_sparse_index_int32, which may raise),
+    # cast last statistics to X's dtype and call _incr_mean_variance_axis0.
+    # Inputs: X (CSR or CSC), last_mean, last_var, last_n (n_features,), weights
+    # (n_samples,) or None.
+    # Outputs: (updated_mean, updated_var, updated_n), each (n_features,).
+    # Exceptions: ValueError if indices do not fit in int32; buffer errors.
+    # Side effects: see KNOWN ISSUE in _incr_mean_variance_axis0 (the caller's
+    # last_mean / last_var may be modified when already of X's dtype).
     """Compute mean and variance along axis 0 on a CSR or CSC matrix.
 
     last_mean, last_var are the statistics computed at the last step by this
@@ -399,6 +472,24 @@ def _incr_mean_variance_axis0(
     # previous sum of the weights (ie float)
     const floating[:] weights,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for incr_mean_variance_axis0.
+    # Behavior: compute the new batch stats (new_mean, new_var, new_n = sum of
+    # non-NaN weights) with the CSR or CSC kernel according to X_format. If all
+    # last_n are 0 return the new stats. Otherwise, per feature: updated_n =
+    # last_n + new_n; if new_n > 0, combine with Chan et al.'s pairwise update:
+    # updated_mean = (last_n*last_mean + new_n*new_mean) / updated_n and
+    # updated_var = (last_n*last_var + new_n*new_var + last_n*new_n/updated_n *
+    # (last_mean - new_mean)^2) / updated_n; if new_n == 0 keep the last stats.
+    # Inputs: X_data, n_samples (total weight, unused by the kernels), n_features,
+    # X_indices (int32), X_indptr, X_format ('csr' or anything else = CSC),
+    # last_mean, last_var, last_n, weights.
+    # Outputs: tuple of three new arrays of the floating dtype.
+    # Exceptions: buffer errors.
+    # KNOWN ISSUE: last_mean and last_var are scaled in place by last_n (to form
+    # unnormalised sums) for features with new_n > 0; since the public wrapper
+    # uses astype(copy=False), the caller's arrays are silently mutated when they
+    # already have X's dtype.
     # Implement the function here since variables using fused types
     # cannot be declared directly and can only be passed as function arguments
     cdef:
@@ -483,6 +574,13 @@ def _incr_mean_variance_axis0(
 
 
 def inplace_csr_row_normalize_l1(X):
+    # [FUNCTION DOC]
+    # Behavior: divide every stored value of each row of a CSR matrix by the
+    # row's L1 norm (sum of absolute stored values); rows with zero norm are left
+    # untouched.
+    # Inputs: X, CSR matrix/array with float32/float64 data.
+    # Outputs: None; X.data modified in place.
+    # Exceptions: buffer errors for non-float data.
     """Normalize inplace the rows of a CSR matrix or array by their L1 norm.
 
     Parameters
@@ -519,6 +617,11 @@ def _inplace_csr_row_normalize_l1(
     const integral[:] X_indices,
     const integral[:] X_indptr,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for inplace_csr_row_normalize_l1.
+    # Behavior: per row, accumulate the L1 norm in double, skip if 0, else divide
+    # the row's stored values by it. Inputs: X_data (writable), shape (only
+    # shape[0] used), X_indices (unused), X_indptr. Outputs: X_data in place.
     cdef:
         uint64_t n_samples = shape[0]
 
@@ -546,6 +649,11 @@ def _inplace_csr_row_normalize_l1(
 
 
 def inplace_csr_row_normalize_l2(X):
+    # [FUNCTION DOC]
+    # Behavior: divide each row's stored values by the row's L2 norm; rows with
+    # zero norm are left untouched.
+    # Inputs: X, CSR matrix/array with float data.
+    # Outputs: None; X.data modified in place. Exceptions: buffer errors.
     """Normalize inplace the rows of a CSR matrix or array by their L2 norm.
 
     Parameters
@@ -581,6 +689,11 @@ def _inplace_csr_row_normalize_l2(
     const integral[:] X_indices,
     const integral[:] X_indptr,
 ):
+    # [FUNCTION DOC]
+    # HELPER: kernel for inplace_csr_row_normalize_l2.
+    # Behavior: per row, sum of squares in double, skip if 0, else divide stored
+    # values by its square root. Inputs: X_data (writable), shape (shape[0]
+    # used), X_indices (unused), X_indptr. Outputs: X_data in place.
     cdef:
         uint64_t n_samples = shape[0]
         uint64_t i
@@ -610,6 +723,17 @@ def assign_rows_csr(
     const intptr_t[:] out_rows,
     floating[:, ::1] out,
 ):
+    # [FUNCTION DOC]
+    # Behavior: zero the rows out[out_rows], then for each i scatter the stored
+    # entries of X row X_rows[i] into out[out_rows[i], column]. Equivalent to
+    # out[out_rows] = X[X_rows].toarray() without temporaries. Loops run without
+    # the GIL.
+    # Inputs: X (CSR with int32 indices/indptr and data dtype matching out),
+    # X_rows and out_rows (intp arrays of equal length), out (C-contiguous 2d,
+    # n_features columns).
+    # Outputs: None; out modified in place.
+    # Exceptions: ValueError if X_rows and out_rows lengths differ; buffer errors
+    # for int64 indices or dtype mismatch. Row indices are not bounds checked.
     """Densify selected rows of a CSR matrix into a preallocated array.
 
     Like out[out_rows] = X[X_rows].toarray() but without copying.
@@ -658,6 +782,15 @@ def csr_matmul_csr_to_dense(
     uint64_t n2,
     uint64_t n3,
 ):
+    # [FUNCTION DOC]
+    # Behavior: dense result of the CSR product a @ b using Gustavson's row-wise
+    # algorithm: for each row i of a, zero out[i, :n3], then for each stored
+    # a[i, k] add a[i, k] * b[k, j] to out[i, j] for each stored b[k, j].
+    # Inputs: CSR arrays of a (shape (n1, n2)) and b (shape (n2, n3)), with
+    # independent index dtypes, floating data of the same dtype; out, a writable
+    # (n1, n3) array; n1, n2 (unused), n3.
+    # Outputs: None; out overwritten in place. Exceptions: buffer errors; no
+    # shape validation. Runs with the GIL held.
     """Computes a @ b for sparse csr a and b, returns dense array.
 
     The shape of `a` is `(n1, n2)` and the shape of `b` is `(n2, n3)`.
