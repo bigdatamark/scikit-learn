@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for GaussianMixture and the Gaussian helper functions of
+#   sklearn.mixture._gaussian_mixture: validation of user initial parameters, sufficient
+#   statistics per covariance type, precision Cholesky and log-det computations, log-
+#   probabilities, fit quality, n_init/warm_start behaviour, BIC/AIC, sampling,
+#   regularization errors, dtype preservation and array API compliance. Also provides
+#   the RandomData fixture class reused by test_bayesian_mixture.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -54,6 +61,17 @@ COVARIANCE_TYPE = ["full", "tied", "diag", "spherical"]
 def generate_data(
     n_samples, n_features, weights, means, precisions, covariance_type, dtype=np.float64
 ):
+    # [FUNCTION DOC]
+    # HELPER: Draws a synthetic mixture dataset with a fixed RandomState(0): for each
+    #   component, draws round(weight * n_samples) multivariate normal samples around
+    #   its mean with the covariance for covariance_type (spherical scalar times
+    #   identity, diag vector as a diagonal matrix, the single tied matrix, or per-
+    #   component full matrices), cast to dtype, and stacks them in component order.
+    # Inputs: n_samples, n_features ints; weights (k,); means (k, d); precisions - dict
+    #   keyed by covariance type; covariance_type str; dtype.
+    # Outputs: array (approx. n_samples, n_features).
+    # KNOWN ISSUE: the parameter is named "precisions" but callers pass covariances and
+    #   the values are used as covariances.
     rng = np.random.RandomState(0)
 
     X = []
@@ -91,6 +109,9 @@ def generate_data(
 
 
 class RandomData:
+    # [CLASS DOC]
+    # HELPER: Test fixture bundling a random ground-truth Gaussian mixture and data
+    #   sampled from it for every covariance type.
     def __init__(
         self,
         rng,
@@ -100,6 +121,16 @@ class RandomData:
         scale=50,
         dtype=np.float64,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Builds random normalized weights, means scaled by scale, covariances
+        #   per type (spherical 0.5 + U, diag squared (0.5 + U), tied/full random SPD
+        #   matrices, full scaled by 0.5), their inverse precisions, a dict X of
+        #   datasets per covariance type (via generate_data) and labels Y matching the
+        #   generated sample order.
+        # Inputs: rng - RandomState consumed for all draws; n_samples=200;
+        #   n_components=2; n_features=2; scale=50; dtype=float64.
+        # Side effects: sets n_samples, n_components, n_features, weights, means,
+        #   covariances, precisions, X, Y; advances rng.
         self.n_samples = n_samples
         self.n_components = n_components
         self.n_features = n_features
@@ -153,6 +184,10 @@ class RandomData:
 
 
 def test_gaussian_mixture_attributes():
+    # [FUNCTION DOC]
+    # Verifies that constructor parameters are stored unchanged on the estimator after
+    #   fitting.
+    # KNOWN ISSUE: the "test bad parameters" comment has no corresponding code.
     # test bad parameters
     rng = np.random.RandomState(0)
     X = rng.rand(10, 2)
@@ -180,6 +215,11 @@ def test_gaussian_mixture_attributes():
 
 
 def test_check_weights():
+    # [FUNCTION DOC]
+    # Verifies weights_init validation errors (bad shape, values outside [0, 1], non-
+    #   normalized sum) with exact messages, and that valid weights_init are kept.
+    # KNOWN ISSUE: the expected range message encodes the swapped min/max labels of
+    #   _check_weights.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
 
@@ -228,6 +268,9 @@ def test_check_weights():
 
 
 def test_check_means():
+    # [FUNCTION DOC]
+    # Verifies a wrongly shaped means_init raises ValueError and valid means_init are
+    #   kept unchanged.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
 
@@ -251,6 +294,9 @@ def test_check_means():
 
 
 def test_check_precisions():
+    # [FUNCTION DOC]
+    # For each covariance type verifies precisions_init errors for bad shapes and non-
+    #   positive / non-positive-definite values, and that valid precisions are kept.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
 
@@ -308,6 +354,10 @@ def test_check_precisions():
 
 
 def test_suffstat_sk_full():
+    # [FUNCTION DOC]
+    # Verifies full covariance estimation for one component against EmpiricalCovariance
+    #   on sqrt(resp)-weighted centered data and on uniform responsibilities, and that
+    #   the precision Cholesky reproduces the inverse covariance.
     # compare the precision matrix compute from the
     # EmpiricalCovariance.covariance fitted on X*sqrt(resp)
     # with _sufficient_sk_full, n_components=1
@@ -350,6 +400,9 @@ def test_suffstat_sk_full():
 
 
 def test_suffstat_sk_tied():
+    # [FUNCTION DOC]
+    # Verifies the tied covariance equals the nk-weighted average of full covariances
+    #   divided by n_samples, and that its precision Cholesky reproduces the inverse.
     # use equation Nk * Sk / N = S_tied
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 500, 2, 2
@@ -380,6 +433,9 @@ def test_suffstat_sk_tied():
 
 
 def test_suffstat_sk_diag():
+    # [FUNCTION DOC]
+    # Verifies diag covariances equal the diagonals of the full covariances, and that
+    #   the diag precision Cholesky squared inverts them.
     # test against 'full' case
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 500, 2, 2
@@ -405,6 +461,10 @@ def test_suffstat_sk_diag():
 
 
 def test_gaussian_suffstat_sk_spherical(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies the spherical variance for one component equals the variance of the
+    #   flattened centered data, that its precision Cholesky inverts it, and that
+    #   global_dtype is preserved.
     # computing spherical covariance equals to the variance of one-dimension
     # data after flattening, n_components=1
     rng = np.random.RandomState(0)
@@ -429,6 +489,9 @@ def test_gaussian_suffstat_sk_spherical(global_dtype):
 
 
 def test_compute_log_det_cholesky(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies that the log-det of the precision Cholesky equals -0.5 times the log
+    #   determinant of the covariance for every covariance type, preserving dtype.
     n_features = 2
     rand_data = RandomData(np.random.RandomState(0), dtype=global_dtype)
 
@@ -456,6 +519,11 @@ def test_compute_log_det_cholesky(global_dtype):
 
 
 def _naive_lmvnpdf_diag(X, means, covars):
+    # [FUNCTION DOC]
+    # HELPER: Reference log density for diagonal Gaussians: for each component, sums
+    #   scipy's univariate normal log-pdf over features.
+    # Inputs: X (n, d); means (k, d); covars (k, d) variances.
+    # Outputs: array (n, k).
     resp = np.empty((len(X), len(means)))
     stds = np.sqrt(covars)
     for i, (mean, std) in enumerate(zip(means, stds)):
@@ -464,6 +532,10 @@ def _naive_lmvnpdf_diag(X, means, covars):
 
 
 def test_gaussian_mixture_log_probabilities():
+    # [FUNCTION DOC]
+    # Verifies _estimate_log_gaussian_prob for full, diag, tied and spherical precision
+    #   Cholesky inputs against _naive_lmvnpdf_diag with equivalent diagonal
+    #   covariances.
     from sklearn.mixture._gaussian_mixture import _estimate_log_gaussian_prob
 
     # test against with _naive_lmvnpdf_diag
@@ -512,6 +584,9 @@ def test_gaussian_mixture_log_probabilities():
 
 
 def test_gaussian_mixture_estimate_log_prob_resp():
+    # [FUNCTION DOC]
+    # Verifies predict_proba rows sum to 1 when all initial parameters are given, and
+    #   that the init attributes are left equal to the provided values.
     # test whether responsibilities are normalized
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=5)
@@ -541,6 +616,9 @@ def test_gaussian_mixture_estimate_log_prob_resp():
 
 
 def test_gaussian_mixture_predict_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies predict raises NotFittedError before fit, and afterwards equals argmax of
+    #   predict_proba with adjusted Rand score > 0.95 against true labels.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
     for covar_type in COVARIANCE_TYPE:
@@ -581,6 +659,10 @@ def test_gaussian_mixture_predict_predict_proba():
     ],
 )
 def test_gaussian_mixture_fit_predict(seed, max_iter, tol, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies fit(X).predict(X) equals fit_predict(X) (deep-copied estimator) in
+    #   converged and non-converged settings, recovers labels (ARI > 0.95) and preserves
+    #   dtype.
     rng = np.random.RandomState(seed)
     rand_data = RandomData(rng, dtype=global_dtype)
     for covar_type in COVARIANCE_TYPE:
@@ -609,6 +691,8 @@ def test_gaussian_mixture_fit_predict(seed, max_iter, tol, global_dtype):
 
 
 def test_gaussian_mixture_fit_predict_n_init():
+    # [FUNCTION DOC]
+    # Verifies fit_predict and a later predict agree when n_init=5.
     # Check that fit_predict is equivalent to fit.predict, when n_init > 1
     X = np.random.RandomState(0).randn(1000, 5)
     gm = GaussianMixture(n_components=5, n_init=5, random_state=0)
@@ -618,6 +702,10 @@ def test_gaussian_mixture_fit_predict_n_init():
 
 
 def test_gaussian_mixture_fit(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies the fitted weights, means (matched by sorting) and precisions (matched by
+    #   trace ordering, compared via EmpiricalCovariance.error_norm) approximately
+    #   recover the ground truth for each covariance type, with dtype preserved.
     # recover the ground truth
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, dtype=global_dtype)
@@ -675,6 +763,12 @@ def test_gaussian_mixture_fit(global_dtype):
 
 
 def test_gaussian_mixture_fit_best_params():
+    # [FUNCTION DOC]
+    # Verifies that a model with n_init=10 scores equal to the minimum score from 10
+    #   successive single-init fits sharing the same rng.
+    # KNOWN ISSUE: comparing against the minimum rather than the maximum score is
+    #   counterintuitive for a "best params" test; it relies on the specific rng
+    #   consumption sequence.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
     n_components = rand_data.n_components
@@ -705,6 +799,9 @@ def test_gaussian_mixture_fit_best_params():
 
 
 def test_gaussian_mixture_fit_convergence_warning():
+    # [FUNCTION DOC]
+    # Verifies a ConvergenceWarning with the expected message is emitted when
+    #   max_iter=1.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=1)
     n_components = rand_data.n_components
@@ -729,6 +826,8 @@ def test_gaussian_mixture_fit_convergence_warning():
 
 
 def test_multiple_init():
+    # [FUNCTION DOC]
+    # Verifies that n_init=5 yields a training score at least as good as a single init.
     # Test that multiple inits does not much worse than a single one
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 50, 5, 2
@@ -755,6 +854,9 @@ def test_multiple_init():
 
 
 def test_gaussian_mixture_n_parameters():
+    # [FUNCTION DOC]
+    # Verifies _n_parameters against hand-computed counts for 2 components and 5
+    #   features per covariance type.
     # Test that the right number of parameters is estimated
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 50, 5, 2
@@ -768,6 +870,8 @@ def test_gaussian_mixture_n_parameters():
 
 
 def test_bic_1d_1component():
+    # [FUNCTION DOC]
+    # Verifies all covariance types give the same BIC for 1-D, 1-component data.
     # Test all of the covariance_types return the same BIC score for
     # 1-dimensional, 1 component fits.
     rng = np.random.RandomState(0)
@@ -794,6 +898,9 @@ def test_bic_1d_1component():
 
 
 def test_gaussian_mixture_aic_bic():
+    # [FUNCTION DOC]
+    # Verifies AIC and BIC are close (within n_features / sqrt(n_samples) per sample) to
+    #   values derived from the entropy of a standard Gaussian fit to the data.
     # Test the aic and bic criteria
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 50, 3, 2
@@ -818,6 +925,9 @@ def test_gaussian_mixture_aic_bic():
 
 
 def test_gaussian_mixture_verbose():
+    # [FUNCTION DOC]
+    # Smoke test: fits with verbose=1 and verbose=2 while redirecting stdout to a
+    #   buffer; only checks no exception is raised.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
     n_components = rand_data.n_components
@@ -851,6 +961,10 @@ def test_gaussian_mixture_verbose():
 @pytest.mark.filterwarnings("ignore:.*did not converge.*")
 @pytest.mark.parametrize("seed", (0, 1, 2))
 def test_warm_start(seed):
+    # [FUNCTION DOC]
+    # Verifies two warm-started fits with max_iter=1 equal one cold fit with max_iter=2
+    #   (and the second score is higher), and that repeated warm-started fits eventually
+    #   converge where a single cold fit with max_iter=5 does not.
     random_state = seed
     rng = np.random.RandomState(random_state)
     n_samples, n_features, n_components = 500, 2, 2
@@ -919,6 +1033,9 @@ def test_warm_start(seed):
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_convergence_detected_with_warm_start():
+    # [FUNCTION DOC]
+    # Verifies repeated warm-started fits converge for several max_iter values and
+    #   n_iter_ never exceeds max_iter.
     # We check that convergence is detected when warm_start=True
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)
@@ -941,6 +1058,9 @@ def test_convergence_detected_with_warm_start():
 
 
 def test_score(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies score raises NotFittedError before fit, equals the mean of score_samples,
+    #   preserves dtype, and improves when max_iter is not limited to 1.
     covar_type = "full"
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=7, dtype=global_dtype)
@@ -989,6 +1109,9 @@ def test_score(global_dtype):
 
 
 def test_score_samples():
+    # [FUNCTION DOC]
+    # Verifies score_samples raises NotFittedError before fit and returns one value per
+    #   sample afterwards.
     covar_type = "full"
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=7)
@@ -1015,6 +1138,9 @@ def test_score_samples():
 
 
 def test_monotonic_likelihood():
+    # [FUNCTION DOC]
+    # Verifies, using warm_start with max_iter=1 per fit, that the training log-
+    #   likelihood never decreases across EM steps and that the model converges.
     # We check that each step of the EM without regularization improve
     # monotonically the training set likelihood
     rng = np.random.RandomState(0)
@@ -1049,6 +1175,10 @@ def test_monotonic_likelihood():
 
 
 def test_regularisation():
+    # [FUNCTION DOC]
+    # Verifies fitting degenerate data (two collapsed clusters, n_components =
+    #   n_samples) raises the ill-defined covariance ValueError with reg_covar=0 and
+    #   succeeds with reg_covar=1e-6.
     # We train the GaussianMixture on degenerate data by defining two clusters
     # of a 0 covariance.
     rng = np.random.RandomState(0)
@@ -1082,6 +1212,9 @@ def test_regularisation():
 
 @pytest.mark.parametrize("covar_type", COVARIANCE_TYPE)
 def test_fitted_precision_covariance_concistency(covar_type, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies fitted precisions_ are the inverse of covariances_ (matrix inverse for
+    #   full/tied, reciprocal otherwise) with dtype preserved.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=7, dtype=global_dtype)
     n_components = rand_data.n_components
@@ -1106,6 +1239,10 @@ def test_fitted_precision_covariance_concistency(covar_type, global_dtype):
 
 
 def test_sample():
+    # [FUNCTION DOC]
+    # Verifies sample raises NotFittedError before fit and ValueError for n_samples=0,
+    #   that 20000 drawn samples reproduce component covariances and means to one
+    #   decimal, and that the output shape is correct for sizes 1..99.
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng, scale=7, n_components=3)
     n_features, n_components = rand_data.n_features, rand_data.n_components
@@ -1164,6 +1301,9 @@ def test_sample():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_init():
+    # [FUNCTION DOC]
+    # Verifies that n_init=10 gives a lower bound at least as high as n_init=1 for 15
+    #   random datasets.
     # We check that by increasing the n_init number we have a better solution
     for random_state in range(15):
         rand_data = RandomData(
@@ -1183,6 +1323,10 @@ def test_init():
 
 
 def test_gaussian_mixture_setting_best_params():
+    # [FUNCTION DOC]
+    # Verifies that a known diverging spherical initialization with max_iter=1 fits
+    #   without error, is reported as not converged, and still sets all fitted
+    #   attributes.
     """`GaussianMixture`'s best_parameters, `n_iter_` and `lower_bound_`
     must be set appropriately in the case of divergence.
 
@@ -1256,6 +1400,9 @@ def test_gaussian_mixture_setting_best_params():
     "init_params", ["random", "random_from_data", "k-means++", "kmeans"]
 )
 def test_init_means_not_duplicated(init_params, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with max_iter=0 every init_params method yields pairwise distinct
+    #   initial means.
     # Check that all initialisations provide not duplicated starting means
     rng = np.random.RandomState(global_random_seed)
     rand_data = RandomData(rng, scale=5)
@@ -1276,6 +1423,9 @@ def test_init_means_not_duplicated(init_params, global_random_seed):
     "init_params", ["random", "random_from_data", "k-means++", "kmeans"]
 )
 def test_means_for_all_inits(init_params, global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies, for every init_params method, the fitted means have the right shape, lie
+    #   within the data's bounding box, the model converges, and dtypes are preserved.
     # Check fitted means properties for all initializations
     rng = np.random.RandomState(global_random_seed)
     rand_data = RandomData(rng, scale=5, dtype=global_dtype)
@@ -1297,6 +1447,8 @@ def test_means_for_all_inits(init_params, global_random_seed, global_dtype):
 
 
 def test_max_iter_zero():
+    # [FUNCTION DOC]
+    # Verifies that max_iter=0 returns means equal to the provided means_init.
     # Check that max_iter=0 returns initialisation as expected
     # Pick arbitrary initial means and check equal to max_iter=0
     rng = np.random.RandomState(0)
@@ -1317,6 +1469,10 @@ def test_max_iter_zero():
 
 
 def test_gaussian_mixture_precisions_init_diag(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies that providing diag precisions_init computed from a KMeans-based
+    #   initialization yields the same n_iter_ and precisions_cholesky_ as the default
+    #   kmeans init, with dtype preserved.
     """Check that we properly initialize `precision_cholesky_` when we manually
     provide the precision matrix.
 
@@ -1385,6 +1541,10 @@ def test_gaussian_mixture_precisions_init_diag(global_dtype):
 
 
 def _generate_data(seed, n_samples, n_features, n_components, dtype=np.float64):
+    # [FUNCTION DOC]
+    # HELPER: Returns uniform random X (n_samples, n_features) and row-normalized random
+    #   responsibilities (n_samples, n_components) from RandomState(seed), cast to
+    #   dtype.
     """Randomly generate samples and responsibilities."""
     rs = np.random.RandomState(seed)
     X = rs.random_sample((n_samples, n_features)).astype(dtype)
@@ -1394,6 +1554,11 @@ def _generate_data(seed, n_samples, n_features, n_components, dtype=np.float64):
 
 
 def _calculate_precisions(X, resp, covariance_type):
+    # [FUNCTION DOC]
+    # HELPER: Estimates Gaussian parameters from X and resp (reg_covar 1e-6), computes
+    #   precision Cholesky factors, and uses GaussianMixture._set_parameters to derive
+    #   precisions_.
+    # Outputs: tuple (precisions_, precisions_cholesky_).
     """Calculate precision matrix of X and its Cholesky decomposition
     for the given covariance type.
     """
@@ -1418,6 +1583,10 @@ def _calculate_precisions(X, resp, covariance_type):
 def test_gaussian_mixture_precisions_init(
     covariance_type, global_random_seed, global_dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies that _initialize with precisions_init produces precision Cholesky factors
+    #   equal to those computed from the corresponding covariances, for every covariance
+    #   type and dtype.
     """Non-regression test for #26415."""
 
     X, resp = _generate_data(
@@ -1443,6 +1612,8 @@ def test_gaussian_mixture_precisions_init(
 
 
 def test_gaussian_mixture_single_component_stable():
+    # [FUNCTION DOC]
+    # Smoke test: fitting one component on 3 samples and sampling raises no error.
     """
     Non-regression test for #23032 ensuring 1-component GM works on only a
     few samples.
@@ -1457,6 +1628,10 @@ def test_gaussian_mixture_all_init_does_not_estimate_gaussian_parameters(
     monkeypatch,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Wraps _estimate_gaussian_parameters with a Mock via monkeypatch and verifies its
+    #   call count equals n_iter_ (only M steps call it, not initialization) when all
+    #   init parameters are given.
     """When all init parameters are provided, the Gaussian parameters
     are not estimated.
 
@@ -1499,6 +1674,12 @@ def test_gaussian_mixture_array_api_compliance(
     dtype_name,
     use_gmm_array_constructor_arguments,
 ):
+    # [FUNCTION DOC]
+    # Fits a numpy model and a clone under array_api_dispatch on the target
+    #   namespace/device (optionally with array-valued init parameters converted to that
+    #   namespace), then verifies outputs stay in the namespace and device, scores are
+    #   Python floats, and fitted attributes and method outputs match numpy within
+    #   dtype-dependent tolerances.
     """Test that array api works in GaussianMixture.fit()."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
@@ -1626,6 +1807,11 @@ def test_gaussian_mixture_array_api_compliance(
 def test_gaussian_mixture_raises_where_array_api_not_implemented(
     init_params, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies fit raises NotImplementedError for 'kmeans' and 'k-means++' init when
+    #   array_api_dispatch is enabled.
+    # KNOWN ISSUE: X is a plain numpy array, never converted to the tested namespace, so
+    #   the parametrization over namespaces/devices does not change what is tested.
     X, _ = make_blobs(
         n_samples=100,
         n_features=2,

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for threshold tuning: the private helper _fit_and_score_over_thresholds and
+# the public TunedThresholdClassifierCV and FixedThresholdClassifier meta-estimators
+# (errors, response methods, metadata routing, refit/cv interplay, string targets).
 import numpy as np
 import pytest
 
@@ -42,6 +46,10 @@ from sklearn.utils._testing import (
 
 
 def test_fit_and_score_over_thresholds_curve_scorers():
+    # [FUNCTION DOC]
+    # Calls _fit_and_score_over_thresholds with a 10-threshold balanced-accuracy curve
+    # scorer on a 50/50 split and checks thresholds are non-decreasing and scores are an
+    # ndarray within [0, 1].
     """Check that `_fit_and_score_over_thresholds` returns thresholds in ascending order
     for the different accepted curve scorers."""
     X, y = make_classification(n_samples=100, random_state=0)
@@ -72,6 +80,10 @@ def test_fit_and_score_over_thresholds_curve_scorers():
 
 
 def test_fit_and_score_over_thresholds_prefit():
+    # [FUNCTION DOC]
+    # Passes train_idx=None (prefit mode) with a tree that memorised the data, and checks
+    # that no refit happens implicitly: with 2 thresholds the scores are exactly
+    # [0.5, 1.0] and thresholds are sorted.
     """Check the behaviour with a prefit classifier."""
     X, y = make_classification(n_samples=100, random_state=0)
 
@@ -105,6 +117,10 @@ def test_fit_and_score_over_thresholds_prefit():
 
 @config_context(enable_metadata_routing=True)
 def test_fit_and_score_over_thresholds_sample_weight():
+    # [FUNCTION DOC]
+    # Under metadata routing, checks that sample_weight is routed to both fit and score:
+    # weighting class 0 by 2 gives the same thresholds and scores as duplicating the
+    # class-0 samples in the dataset.
     """Check that we dispatch the sample-weight to fit and score the classifier."""
     X, y = load_iris(return_X_y=True)
     X, y = X[:100], y[:100]  # only 2 classes
@@ -155,6 +171,9 @@ def test_fit_and_score_over_thresholds_sample_weight():
 @pytest.mark.parametrize("fit_params_type", ["list", "array"])
 @config_context(enable_metadata_routing=True)
 def test_fit_and_score_over_thresholds_fit_params(fit_params_type):
+    # [FUNCTION DOC]
+    # Under metadata routing, checks that arbitrary fit params ("a", "b"), given as list
+    # or array, are sliced and forwarded to fit; CheckingClassifier raises if missing.
     """Check that we pass `fit_params` to the classifier when calling `fit`."""
     X, y = make_classification(n_samples=100, random_state=0)
     fit_params = {
@@ -193,6 +212,9 @@ def test_fit_and_score_over_thresholds_fit_params(fit_params_type):
     ],
 )
 def test_tuned_threshold_classifier_no_binary(data):
+    # [FUNCTION DOC]
+    # Checks that fitting TunedThresholdClassifierCV on multiclass or multilabel data
+    # raises ValueError "Only binary classification is supported.".
     """Check that we raise an informative error message for non-binary problem."""
     err_msg = "Only binary classification is supported."
     with pytest.raises(ValueError, match=err_msg):
@@ -220,6 +242,10 @@ def test_tuned_threshold_classifier_no_binary(data):
     ],
 )
 def test_tuned_threshold_classifier_conflict_cv_refit(params, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Checks the cv/refit conflicts: prefit with refit=True and multi-fold cv with
+    # refit=False raise ValueError; prefit with an unfitted estimator raises
+    # NotFittedError.
     """Check that we raise an informative error message when `cv` and `refit`
     cannot be used together.
     """
@@ -241,6 +267,12 @@ def test_tuned_threshold_classifier_conflict_cv_refit(params, err_type, err_msg)
 def test_threshold_classifier_estimator_response_methods(
     ThresholdClassifier, estimator, response_method
 ):
+    # [FUNCTION DOC]
+    # For both threshold classifiers and several base estimators, checks that each
+    # response method is exposed iff the base estimator has it (before and after fit) and
+    # that its output equals the fitted inner estimator's output.
+    # KNOWN ISSUE: the docstring mentions only TunedThresholdClassifierCV but the test is
+    # parametrized over FixedThresholdClassifier too.
     """Check that `TunedThresholdClassifierCV` exposes the same response methods as the
     underlying estimator.
     """
@@ -263,6 +295,10 @@ def test_threshold_classifier_estimator_response_methods(
     "response_method", ["auto", "decision_function", "predict_proba"]
 )
 def test_tuned_threshold_classifier_without_constraint_value(response_method):
+    # [FUNCTION DOC]
+    # On a heavily imbalanced, feature-reduced breast-cancer set, checks that tuning the
+    # threshold for balanced accuracy beats the default-threshold pipeline and that
+    # cv_results_ stores 100 thresholds and 100 scores.
     """Check that `TunedThresholdClassifierCV` is optimizing a given objective
     metric."""
     X, y = load_breast_cancer(return_X_y=True)
@@ -294,6 +330,9 @@ def test_tuned_threshold_classifier_without_constraint_value(response_method):
 
 
 def test_tuned_threshold_classifier_metric_with_parameter():
+    # [FUNCTION DOC]
+    # Checks that scorers with extra kwargs work: fbeta with beta=1 yields the same
+    # best_threshold_ as f1, and beta=2 yields a different one.
     """Check that we can pass a metric with a parameter in addition check that
     `f_beta` with `beta=1` is equivalent to `f1` and different from `f_beta` with
     `beta=2`.
@@ -325,6 +364,10 @@ def test_tuned_threshold_classifier_metric_with_parameter():
     ],
 )
 def test_tuned_threshold_classifier_with_string_targets(response_method, metric):
+    # [FUNCTION DOC]
+    # With string targets ("cancer" < "healthy", so pos_label "cancer" encodes to 0),
+    # checks classes_ is the sorted class array and predictions use both string labels,
+    # for several response methods and scorers including one with pos_label.
     """Check that targets represented by str are properly managed.
     Also, check with several metrics to be sure that `pos_label` is properly
     dispatched.
@@ -349,6 +392,11 @@ def test_tuned_threshold_classifier_with_string_targets(response_method, metric)
 @pytest.mark.parametrize("with_sample_weight", [True, False])
 @config_context(enable_metadata_routing=True)
 def test_tuned_threshold_classifier_refit(with_sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Under metadata routing, with and without random sample weights, checks refit
+    # semantics: refit=True fits a clone on the full data; cv="prefit" with refit=False
+    # keeps the very same unchanged estimator; a single-split cv with refit=False fits a
+    # clone on the training fold only (coefficients compared to manual fits).
     """Check the behaviour of the `refit` parameter."""
     rng = np.random.RandomState(global_random_seed)
     X, y = make_classification(n_samples=100, random_state=0)
@@ -409,6 +457,9 @@ def test_tuned_threshold_classifier_refit(with_sample_weight, global_random_seed
 @pytest.mark.parametrize("fit_params_type", ["list", "array"])
 @config_context(enable_metadata_routing=True)
 def test_tuned_threshold_classifier_fit_params(fit_params_type):
+    # [FUNCTION DOC]
+    # Under metadata routing, checks fit params "a" and "b" (list or array) reach the
+    # inner classifier when fitting TunedThresholdClassifierCV.
     """Check that we pass `fit_params` to the classifier when calling `fit`."""
     X, y = make_classification(n_samples=100, random_state=0)
     fit_params = {
@@ -424,6 +475,9 @@ def test_tuned_threshold_classifier_fit_params(fit_params_type):
 
 @config_context(enable_metadata_routing=True)
 def test_tuned_threshold_classifier_cv_zeros_sample_weights_equivalence():
+    # [FUNCTION DOC]
+    # Checks that zero sample weights on every other sample are equivalent to dropping
+    # those samples with 2-fold cv: equal coefficients and predict_proba outputs.
     """Check that passing removing some sample from the dataset `X` is
     equivalent to passing a `sample_weight` with a factor 0."""
     X, y = load_iris(return_X_y=True)
@@ -461,6 +515,9 @@ def test_tuned_threshold_classifier_cv_zeros_sample_weights_equivalence():
 
 
 def test_tuned_threshold_classifier_thresholds_array():
+    # [FUNCTION DOC]
+    # Checks that an explicit thresholds array is used verbatim as the candidate set
+    # (stored in cv_results_["thresholds"]).
     """Check that we can pass an array to `thresholds` and it is used as candidate
     threshold internally."""
     X, y = make_classification(random_state=0)
@@ -477,6 +534,8 @@ def test_tuned_threshold_classifier_thresholds_array():
 
 @pytest.mark.parametrize("store_cv_results", [True, False])
 def test_tuned_threshold_classifier_store_cv_results(store_cv_results):
+    # [FUNCTION DOC]
+    # Checks cv_results_ exists only when store_cv_results=True.
     """Check that if `cv_results_` exists depending on `store_cv_results`."""
     X, y = make_classification(random_state=0)
     estimator = LogisticRegression()
@@ -490,6 +549,12 @@ def test_tuned_threshold_classifier_store_cv_results(store_cv_results):
 
 
 def test_tuned_threshold_classifier_cv_float():
+    # [FUNCTION DOC]
+    # With cv as a float (test fraction): refit=False must fit the inner estimator on the
+    # StratifiedShuffleSplit(random_state=0) training part; refit=True on all data.
+    # Coefficients are compared with manually fitted clones.
+    # KNOWN ISSUE: the first model is fitted twice in a row (fit chained in the
+    # constructor expression and again on the next line); the second call is redundant.
     """Check the behaviour when `cv` is set to a float."""
     X, y = make_classification(random_state=0)
 
@@ -518,6 +583,9 @@ def test_tuned_threshold_classifier_cv_float():
 
 
 def test_tuned_threshold_classifier_error_constant_predictor():
+    # [FUNCTION DOC]
+    # Checks a constant-predicting DummyClassifier makes fit raise ValueError about
+    # constant predictions (no threshold can be found).
     """Check that we raise a ValueError if the underlying classifier returns constant
     probabilities such that we cannot find any threshold.
     """
@@ -533,6 +601,9 @@ def test_tuned_threshold_classifier_error_constant_predictor():
     "response_method", ["auto", "predict_proba", "decision_function"]
 )
 def test_fixed_threshold_classifier_equivalence_default(response_method):
+    # [FUNCTION DOC]
+    # Checks FixedThresholdClassifier with default threshold reproduces the plain
+    # classifier: predict equals thresholding probability at 0.5 or decision at 0.0.
     """Check that `FixedThresholdClassifier` has the same behaviour as the vanilla
     classifier.
     """
@@ -560,6 +631,10 @@ def test_fixed_threshold_classifier_equivalence_default(response_method):
 )
 @pytest.mark.parametrize("pos_label", [0, 1])
 def test_fixed_threshold_classifier(response_method, threshold, pos_label):
+    # [FUNCTION DOC]
+    # For pos_label 0/1 and a custom threshold on proba or decision function, checks
+    # predict equals thresholding the score oriented towards pos_label and mapping back
+    # to labels, and that response methods are passed through unchanged.
     """Check that applying `predict` lead to the same prediction as applying the
     threshold to the output of the response method.
     """
@@ -599,6 +674,9 @@ def test_fixed_threshold_classifier(response_method, threshold, pos_label):
 
 @config_context(enable_metadata_routing=True)
 def test_fixed_threshold_classifier_metadata_routing():
+    # [FUNCTION DOC]
+    # Under metadata routing, checks sample_weight reaches the inner fit by comparing
+    # coefficients with a classifier fitted directly with the same weights.
     """Check that everything works with metadata routing."""
     X, y = make_classification(random_state=0)
     sample_weight = np.ones_like(y)
@@ -614,6 +692,9 @@ def test_fixed_threshold_classifier_metadata_routing():
     "method", ["predict_proba", "decision_function", "predict", "predict_log_proba"]
 )
 def test_fixed_threshold_classifier_fitted_estimator(method):
+    # [FUNCTION DOC]
+    # Checks that a FixedThresholdClassifier wrapping an already fitted estimator can
+    # call each prediction method without being fitted itself.
     """Check that if the underlying estimator is already fitted, no fit is required."""
     X, y = make_classification(random_state=0)
     classifier = LogisticRegression().fit(X, y)
@@ -623,6 +704,9 @@ def test_fixed_threshold_classifier_fitted_estimator(method):
 
 
 def test_fixed_threshold_classifier_classes_():
+    # [FUNCTION DOC]
+    # Checks classes_ raises AttributeError for an unfitted inner estimator and mirrors
+    # the inner classes_ when it is fitted.
     """Check that the classes_ attribute is properly set."""
     X, y = make_classification(random_state=0)
     with pytest.raises(

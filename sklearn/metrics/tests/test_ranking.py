@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for ranking and threshold-based metrics in sklearn.metrics._ranking: ROC
+# curve / ROC AUC (binary, partial, multiclass ovr/ovo, multilabel), auc,
+# precision-recall curve and average precision, DET curve, confusion matrix and
+# arbitrary metrics evaluated at thresholds, label ranking metrics (LRAP,
+# coverage error, ranking loss), DCG / NDCG and top-k accuracy. Includes slow
+# reference implementations used as oracles and reusable check_* helpers.
 import math
 import re
 
@@ -64,6 +71,15 @@ CURVE_FUNCS = [
 
 
 def make_prediction(dataset=None, binary=False):
+    # [FUNCTION DOC]
+    # HELPER: Builds a deterministic noisy classification task (iris by default),
+    # shuffles samples with seed 37, appends 200 random noise features per original
+    # feature (seed 0), trains LogisticRegression on the first half and predicts the
+    # second half.
+    # Inputs: dataset - sklearn Bunch with data/target or None for iris; binary - if
+    # True keep only classes 0 and 1 and return positive-class probabilities.
+    # Outputs: (y_true, y_pred hard labels, y_score probabilities: 1d when binary,
+    # (n, n_classes) otherwise) for the held-out half.
     """Make some classification predictions on a toy dataset using an SVC
 
     If binary is True restrict to a binary classification problem instead of a
@@ -112,6 +128,11 @@ def make_prediction(dataset=None, binary=False):
 
 
 def _auc(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Reference ROC AUC: fraction of (positive, negative) pairs where the
+    # positive sample scores strictly higher (ties count as 0, unlike roc_auc_score).
+    # Inputs: y_true - 1d array with two classes (the larger is positive); y_score.
+    # Outputs: float.
     """Alternative implementation to check for correctness of
     `roc_auc_score`."""
     pos_label = np.unique(y_true)[1]
@@ -127,6 +148,12 @@ def _auc(y_true, y_score):
 
 
 def _average_precision(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Naive average precision: sort by decreasing score; for each positive at
+    # position i add precision of the top i+1 items; divide by number of positives.
+    # Inputs: y_true - binary 1d array (larger label positive); y_score - 1d array.
+    # Outputs: float. Ties are ordered arbitrarily by argsort, so results on ties are
+    # imprecise (as documented).
     """Alternative implementation to check for correctness of
     `average_precision_score`.
 
@@ -157,6 +184,10 @@ def _average_precision(y_true, y_score):
 
 
 def _average_precision_slow(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Average precision as the sum over the PR curve (reversed to increasing
+    # recall) of precision times the recall increment.
+    # Inputs: y_true, y_score - binary labels and scores. Outputs: float.
     """A second alternative implementation of average precision that closely
     follows the Wikipedia article's definition (see References). This should
     give identical results as `average_precision_score` for all inputs.
@@ -176,11 +207,23 @@ def _average_precision_slow(y_true, y_score):
 
 
 def _partial_roc_auc_score(y_true, y_predict, max_fpr):
+    # [FUNCTION DOC]
+    # HELPER: Reference standardized partial ROC AUC up to max_fpr: truncates the ROC
+    # curve at max_fpr (linearly interpolating TPR there), integrates it, then applies
+    # McClish correction mapping the area to [0.5, 1].
+    # Inputs: y_true, y_predict - binary labels and scores; max_fpr - float in (0, 1].
+    # Outputs: float.
     """Alternative implementation to check for correctness of `roc_auc_score`
     with `max_fpr` set.
     """
 
     def _partial_roc(y_true, y_predict, max_fpr):
+        # [FUNCTION DOC]
+        # HELPER: Returns (fpr, tpr) points with fpr <= max_fpr plus an interpolated
+        # endpoint at max_fpr between the last point inside and the first point outside.
+        # KNOWN ISSUE: if no fpr exceeds max_fpr (max_fpr == 1), argmax returns 0 so the
+        # interpolation uses indices -1 and 0, i.e. non-increasing x points, for
+        # which np.interp behaviour is not defined; an extra point at max_fpr is added.
         fpr, tpr, _ = roc_curve(y_true, y_predict)
         new_fpr = fpr[fpr <= max_fpr]
         new_fpr = np.append(new_fpr, max_fpr)
@@ -205,6 +248,10 @@ def _partial_roc_auc_score(y_true, y_predict, max_fpr):
 
 @pytest.mark.parametrize("drop", [True, False])
 def test_roc_curve(drop):
+    # [FUNCTION DOC]
+    # Verifies roc_curve AUC matches the pairwise reference _auc (2 decimals) and
+    # roc_auc_score, and that fpr, tpr, thresholds have equal shapes.
+    # Inputs: drop - parametrized drop_intermediate.
     # Test Area under Receiver Operating Characteristic (ROC) curve
     y_true, _, y_score = make_prediction(binary=True)
     expected_auc = _auc(y_true, y_score)
@@ -218,6 +265,9 @@ def test_roc_curve(drop):
 
 
 def test_roc_curve_end_points():
+    # [FUNCTION DOC]
+    # Verifies the ROC curve starts at fpr 0 and ends at fpr 1 for integer scores with
+    # many ties, with consistent output shapes.
     # Make sure that roc_curve returns a curve start at 0 and ending and
     # 1 even in corner cases
     rng = np.random.RandomState(0)
@@ -231,6 +281,9 @@ def test_roc_curve_end_points():
 
 
 def test_roc_returns_consistency():
+    # [FUNCTION DOC]
+    # Verifies that returned TPR values equal the TPR recomputed by thresholding the
+    # scores at each returned threshold (score >= t).
     # Test whether the returned threshold matches up with tpr
     # make small toy dataset
     y_true, _, y_score = make_prediction(binary=True)
@@ -250,6 +303,8 @@ def test_roc_returns_consistency():
 
 
 def test_roc_curve_multi():
+    # [FUNCTION DOC]
+    # Verifies roc_curve raises ValueError on multiclass targets.
     # roc_curve not applicable for multi-class problems
     y_true, _, y_score = make_prediction(binary=False)
 
@@ -258,6 +313,8 @@ def test_roc_curve_multi():
 
 
 def test_roc_curve_confidence():
+    # [FUNCTION DOC]
+    # Verifies roc_curve on shifted (negative-valued) scores yields AUC about 0.90.
     # roc_curve for confidence scores
     y_true, _, y_score = make_prediction(binary=True)
 
@@ -269,6 +326,9 @@ def test_roc_curve_confidence():
 
 
 def test_roc_curve_hard():
+    # [FUNCTION DOC]
+    # Verifies AUC 0.5 for constant predictions (all ones or all zeros) and about 0.78
+    # for hard label predictions.
     # roc_curve for hard decisions
     y_true, pred, y_score = make_prediction(binary=True)
 
@@ -297,6 +357,9 @@ def test_roc_curve_hard():
 
 
 def test_roc_curve_one_label():
+    # [FUNCTION DOC]
+    # Verifies UndefinedMetricWarning and all-NaN fpr when y_true has no negatives,
+    # and all-NaN tpr when it has no positives.
     y_true = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     y_pred = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
     # assert there are warnings
@@ -324,6 +387,13 @@ def test_roc_curve_one_label():
 
 
 def test_roc_curve_toydata():
+    # [FUNCTION DOC]
+    # Verifies ROC curves and AUC on tiny binary cases (perfect, inverted, ties), the
+    # single-class cases (warnings, NaN AUC), and multilabel averaging (macro /
+    # weighted warn for single-class columns; samples / micro values).
+    # KNOWN ISSUE: the curve outputs are unpacked as tpr, fpr although roc_curve
+    # returns fpr first, so variable names are swapped (assertions are consistent
+    # with the actual order). The local name auc shadows the imported auc function.
     # Binary classification
     y_true = [0, 1]
     y_score = [0, 1]
@@ -438,6 +508,9 @@ def test_roc_curve_toydata():
 
 
 def test_roc_curve_drop_intermediate():
+    # [FUNCTION DOC]
+    # Verifies drop_intermediate keeps only the corner thresholds, including with
+    # repeated scores.
     # Test that drop_intermediate drops the correct thresholds
     y_true = [0, 0, 0, 0, 1, 1]
     y_score = [0.0, 0.2, 0.5, 0.6, 0.7, 1.0]
@@ -452,6 +525,9 @@ def test_roc_curve_drop_intermediate():
 
 
 def test_roc_curve_fpr_tpr_increasing():
+    # [FUNCTION DOC]
+    # Verifies fpr and tpr are non-decreasing with float sample weights that could
+    # introduce rounding errors.
     # Ensure that fpr and tpr returned by roc_curve are increasing.
     # Construct an edge case with float y_score and sample_weight
     # when some adjacent values of fpr and tpr are actually the same.
@@ -464,6 +540,8 @@ def test_roc_curve_fpr_tpr_increasing():
 
 
 def test_auc():
+    # [FUNCTION DOC]
+    # Verifies trapezoidal auc on simple increasing and decreasing x sequences.
     # Test Area Under Curve (AUC) computation
     x = [0, 1]
     y = [0, 1]
@@ -483,6 +561,9 @@ def test_auc():
 
 
 def test_auc_errors():
+    # [FUNCTION DOC]
+    # Verifies auc raises ValueError on mismatched shapes, fewer than 2 points, and
+    # non-monotonic x (with the exact message).
     # Incompatible shapes
     with pytest.raises(ValueError):
         auc([0.0, 0.5, 1.0], [0.1, 0.2])
@@ -509,6 +590,11 @@ def test_auc_errors():
     ],
 )
 def test_multiclass_ovo_roc_auc_toydata(y_true, labels):
+    # [FUNCTION DOC]
+    # Verifies one-vs-one multiclass ROC AUC (macro and prevalence-weighted) against
+    # manual pairwise binary AUC averages, for int / string labels with or without
+    # explicit labels, and NotImplementedError for average None.
+    # Inputs: y_true, labels - parametrized.
     # Tests the one-vs-one multiclass ROC AUC algorithm
     # on a small example, representative of an expected use case.
     y_scores = np.array(
@@ -566,6 +652,10 @@ def test_multiclass_ovo_roc_auc_toydata(y_true, labels):
     ],
 )
 def test_multiclass_ovo_roc_auc_toydata_binary(y_true, labels):
+    # [FUNCTION DOC]
+    # Verifies ovo ROC AUC when y_true contains only two of the declared labels equals
+    # the averaged pairwise AUC of those two, for both macro and weighted averages.
+    # Inputs: y_true, labels - parametrized.
     # Tests the one-vs-one multiclass ROC AUC algorithm for binary y_true
     #
     # on a small example, representative of an expected use case.
@@ -604,6 +694,10 @@ def test_multiclass_ovo_roc_auc_toydata_binary(y_true, labels):
     ],
 )
 def test_multiclass_ovr_roc_auc_toydata(y_true, labels):
+    # [FUNCTION DOC]
+    # Verifies one-vs-rest multiclass ROC AUC per class (average None), macro and
+    # prevalence-weighted averages against manually computed binary AUCs.
+    # Inputs: y_true, labels - parametrized.
     # Tests the unweighted, one-vs-rest multiclass ROC AUC algorithm
     # on a small example, representative of an expected use case.
     y_scores = np.array(
@@ -646,6 +740,11 @@ def test_multiclass_ovr_roc_auc_toydata(y_true, labels):
     ],
 )
 def test_perfect_imperfect_chance_multiclass_roc_auc(multi_class, average):
+    # [FUNCTION DOC]
+    # Verifies multiclass ROC AUC is 1 for a perfect ranking, < 1 for an imperfect
+    # one, and 0.5 for uniform scores.
+    # Inputs: multi_class, average - parametrized.
+    # KNOWN ISSUE: comment says chance level is 5.0; the asserted value is 0.5.
     y_true = np.array([3, 1, 2, 0])
 
     # Perfect classifier (from a ranking point of view) has roc_auc_score = 1.0
@@ -680,6 +779,10 @@ def test_perfect_imperfect_chance_multiclass_roc_auc(multi_class, average):
 
 
 def test_micro_averaged_ovr_roc_auc(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies micro-averaged ovr ROC AUC equals the AUC of the ROC curve on the
+    # flattened one-hot targets and scores (Dirichlet-sampled predictions).
+    # Inputs: global_random_seed fixture.
     seed = global_random_seed
     # Let's generate a set of random predictions and matching true labels such
     # that the predictions are not perfect. To make the problem more interesting,
@@ -772,6 +875,10 @@ def test_micro_averaged_ovr_roc_auc(global_random_seed):
 )
 @pytest.mark.parametrize("multi_class", ["ovo", "ovr"])
 def test_roc_auc_score_multiclass_labels_error(msg, y_true, labels, multi_class):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for invalid labels (non-unique, unordered, wrong
+    # count, missing y_true labels) or class / column mismatch in multiclass ROC AUC.
+    # Inputs: msg, y_true, labels, multi_class - parametrized.
     y_scores = np.array(
         [[0.1, 0.8, 0.1], [0.3, 0.4, 0.3], [0.35, 0.5, 0.15], [0, 0.2, 0.8]]
     )
@@ -816,6 +923,10 @@ def test_roc_auc_score_multiclass_labels_error(msg, y_true, labels, multi_class)
     ],
 )
 def test_roc_auc_score_multiclass_error(msg, kwargs):
+    # [FUNCTION DOC]
+    # Verifies ValueError for unsupported multiclass options: samples average,
+    # sample_weight with ovo, max_fpr, and missing multi_class.
+    # Inputs: msg, kwargs - parametrized.
     # Test that roc_auc_score function returns an error when trying
     # to compute multiclass AUC for parameters where an output
     # is not defined.
@@ -828,6 +939,10 @@ def test_roc_auc_score_multiclass_error(msg, kwargs):
 
 
 def test_auc_score_non_binary_class():
+    # [FUNCTION DOC]
+    # Verifies roc_auc_score warns UndefinedMetricWarning when y_true contains a single
+    # class (0, 1 or -1).
+    # KNOWN ISSUE: the comment says an error is returned; the test checks a warning.
     # Test that roc_auc_score function returns an error when trying
     # to compute AUC for non-binary class values.
     rng = check_random_state(404)
@@ -849,6 +964,9 @@ def test_auc_score_non_binary_class():
 
 
 def test_sort_inputs_and_compute_classification_thresholds_input_validation():
+    # [FUNCTION DOC]
+    # Verifies the private helper raises ValueError on inconsistent lengths and NaN
+    # scores.
     """Test `_sort_inputs_and_compute_classification_thresholds` input validation."""
     # Inconsistent lengths
     y_true = np.array([0, 1, 0])
@@ -866,6 +984,9 @@ def test_sort_inputs_and_compute_classification_thresholds_input_validation():
 
 
 def test_sort_inputs_and_compute_classification_thresholds_zero_weights():
+    # [FUNCTION DOC]
+    # Verifies zero-weight samples are dropped, weight output is None without weights,
+    # and all-zero weights raise ValueError.
     """Test zero weights in `_sort_inputs_and_compute_classification_thresholds`."""
     y_true = np.array([0, 1, 0, 1, 0, 1])
     y_score = np.array([0.1, 0.9, 0.3, 0.7, 0.5, 0.2])
@@ -900,6 +1021,10 @@ def test_sort_inputs_and_compute_classification_thresholds_zero_weights():
 
 
 def test_sort_inputs_and_compute_classification_thresholds_sorting():
+    # [FUNCTION DOC]
+    # Verifies stable descending sort of scores with aligned labels and weights, the
+    # threshold indices (last index of each distinct score), and a single threshold
+    # index for constant scores.
     """Test sorting in `_sort_inputs_and_compute_classification_thresholds`."""
     y_true = np.array([0, 1, 0, 1, 1])
     y_score = np.array([0.1, 0.9, 0.3, 0.7, 0.3])
@@ -928,6 +1053,10 @@ def test_sort_inputs_and_compute_classification_thresholds_sorting():
 
 
 def test_confusion_matrix_at_thresholds(global_random_seed):
+    # [FUNCTION DOC]
+    # Smoke test: output arrays have equal length and tp+fn equals positives, tn+fp
+    # equals negatives, and all four sum to n_samples at every threshold.
+    # Inputs: global_random_seed fixture.
     """Smoke test for confusion_matrix_at_thresholds."""
     rng = np.random.RandomState(global_random_seed)
 
@@ -948,6 +1077,9 @@ def test_confusion_matrix_at_thresholds(global_random_seed):
 
 @pytest.mark.parametrize("curve_func", CURVE_FUNCS)
 def test_confusion_matrix_at_thresholds_multiclass_error(curve_func):
+    # [FUNCTION DOC]
+    # Verifies every curve function rejects multiclass y_true with ValueError.
+    # Inputs: curve_func - parametrized.
     rng = check_random_state(404)
     y_true = rng.randint(0, 3, size=10)
     y_pred = rng.rand(10)
@@ -958,6 +1090,10 @@ def test_confusion_matrix_at_thresholds_multiclass_error(curve_func):
 
 @pytest.mark.parametrize("curve_func", CURVE_FUNCS)
 def test_confusion_matrix_at_thresholds_implicit_pos_label(curve_func):
+    # [FUNCTION DOC]
+    # Verifies string labels without pos_label raise an informative ValueError for
+    # unicode and object dtypes, and float 0/1 labels behave like integer labels.
+    # Inputs: curve_func - parametrized.
     # Check that using string class labels raises an informative
     # error for any supported string dtype:
     msg = (
@@ -987,6 +1123,9 @@ def test_confusion_matrix_at_thresholds_implicit_pos_label(curve_func):
 def test_confusion_matrix_at_thresholds_implicit_bytes_pos_label(
     curve_func, labels_type
 ):
+    # [FUNCTION DOC]
+    # Verifies bytes labels (list or array) raise TypeError.
+    # Inputs: curve_func, labels_type - parametrized.
     # Check that using bytes class labels raises an informative
     # error for any supported string dtype:
     labels = _convert_container([b"a", b"b"], labels_type)
@@ -997,6 +1136,9 @@ def test_confusion_matrix_at_thresholds_implicit_bytes_pos_label(
 
 @pytest.mark.parametrize("curve_func", CURVE_FUNCS)
 def test_confusion_matrix_at_thresholds_zero_sample_weight(curve_func):
+    # [FUNCTION DOC]
+    # Verifies a zero-weight sample gives the same curves as removing it.
+    # Inputs: curve_func - parametrized.
     y_true = [0, 0, 1, 1, 1]
     y_score = [0.1, 0.2, 0.3, 0.4, 0.5]
     sample_weight = [1, 1, 1, 0.5, 0]
@@ -1010,6 +1152,13 @@ def test_confusion_matrix_at_thresholds_zero_sample_weight(curve_func):
 
 @pytest.mark.parametrize("drop", [True, False])
 def test_precision_recall_curve(drop):
+    # [FUNCTION DOC]
+    # Verifies PR curve properties via _test_precision_recall_curve, the first point
+    # (precision = class prior, recall 1) on an unbalanced subset, invariance to
+    # {-1, 1} labels without mutating y_true, and exact curves on a toy example with
+    # and without drop_intermediate.
+    # Inputs: drop - parametrized.
+    # Side effects: mutates the local y_true (0 -> -1) intentionally.
     y_true, _, y_score = make_prediction(binary=True)
     _test_precision_recall_curve(y_true, y_score, drop)
 
@@ -1041,6 +1190,12 @@ def test_precision_recall_curve(drop):
 
 
 def _test_precision_recall_curve(y_true, y_score, drop):
+    # [FUNCTION DOC]
+    # HELPER: Checks average precision from the slow reference equals about 0.869 and
+    # average_precision_score, that the naive reference agrees to 2 decimals, shape
+    # relations (precision/recall have one more element than thresholds), and the
+    # constant-score smoke case.
+    # Inputs: y_true, y_score - binary prediction data; drop - drop_intermediate flag.
     # Test Precision-Recall and area under PR curve
     p, r, thresholds = precision_recall_curve(y_true, y_score, drop_intermediate=drop)
     precision_recall_auc = _average_precision_slow(y_true, y_score)
@@ -1064,6 +1219,11 @@ def _test_precision_recall_curve(y_true, y_score, drop):
 
 @pytest.mark.parametrize("drop", [True, False])
 def test_precision_recall_curve_toydata(drop):
+    # [FUNCTION DOC]
+    # Verifies PR curves and average precision on tiny binary cases (with numpy errors
+    # raised as exceptions), the no-positive case warnings and values, and multilabel
+    # macro / weighted / samples / micro averages including degenerate columns.
+    # Inputs: drop - parametrized.
     with np.errstate(all="raise"):
         # Binary classification
         y_true = [0, 1]
@@ -1227,6 +1387,9 @@ def test_precision_recall_curve_toydata(drop):
 
 
 def test_precision_recall_curve_drop_intermediate():
+    # [FUNCTION DOC]
+    # Verifies drop_intermediate keeps only needed thresholds, keeps endpoints when
+    # all labels are negative, and keeps all thresholds when all are positive.
     """Check the behaviour of the `drop_intermediate` parameter."""
     y_true = [0, 0, 0, 0, 1, 1]
     y_score = [0.0, 0.2, 0.5, 0.6, 0.7, 1.0]
@@ -1261,6 +1424,8 @@ def test_precision_recall_curve_drop_intermediate():
 
 
 def test_average_precision_constant_values():
+    # [FUNCTION DOC]
+    # Verifies a constant predictor's average precision equals the positive rate.
     # Check the average_precision_score of a constant predictor is
     # the TPR
 
@@ -1275,6 +1440,8 @@ def test_average_precision_constant_values():
 
 
 def test_average_precision_score_binary_pos_label_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueError when pos_label is not present in binary y_true.
     # Raise an error when pos_label is not in binary y_true
     y_true = np.array([0, 1])
     y_pred = np.array([0, 1])
@@ -1284,6 +1451,8 @@ def test_average_precision_score_binary_pos_label_errors():
 
 
 def test_average_precision_score_multilabel_pos_label_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueError for pos_label other than 1 with multilabel-indicator y_true.
     # Raise an error for multilabel-indicator y_true with
     # pos_label other than 1
     y_true = np.array([[1, 0], [0, 1], [0, 1], [1, 0]])
@@ -1297,6 +1466,8 @@ def test_average_precision_score_multilabel_pos_label_errors():
 
 
 def test_average_precision_score_multiclass_pos_label_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueError for pos_label other than 1 with multiclass y_true.
     # Raise an error for multiclass y_true with pos_label other than 1
     y_true = np.array([0, 1, 2, 0, 1, 2])
     y_score = np.array(
@@ -1318,6 +1489,9 @@ def test_average_precision_score_multiclass_pos_label_errors():
 
 
 def test_multiclass_ranking_metrics_raise_for_incorrect_shape_of_y_score():
+    # [FUNCTION DOC]
+    # Verifies average precision, ovr ROC AUC and top-k accuracy raise ValueError for
+    # a 1d y_score with multiclass y_true.
     """Test ranking metrics, with multiclass support, raise if shape `y_score` is 1D."""
     y_true = np.array([0, 1, 2, 0, 1, 2])
     y_score = np.array([0.5, 0.4, 0.8, 0.9, 0.8, 0.7])
@@ -1332,6 +1506,9 @@ def test_multiclass_ranking_metrics_raise_for_incorrect_shape_of_y_score():
 
 
 def test_score_scale_invariance():
+    # [FUNCTION DOC]
+    # Verifies ROC AUC and average precision are exactly unchanged by scaling scores
+    # up / down and shifting them.
     # Test that average_precision_score and roc_auc_score are invariant by
     # the scaling or shifting of probabilities
     # This test was expanded (added scaled_down) in response to github
@@ -1382,6 +1559,9 @@ def test_score_scale_invariance():
     ],
 )
 def test_det_curve_toydata(y_true, y_score, expected_fpr, expected_fnr):
+    # [FUNCTION DOC]
+    # Verifies DET curve fpr / fnr on small examples and increasing thresholds.
+    # Inputs: y_true, y_score, expected_fpr, expected_fnr - parametrized.
     # Check on a batch of small examples.
     fpr, fnr, thresholds = det_curve(y_true, y_score)
 
@@ -1408,6 +1588,10 @@ def test_det_curve_toydata(y_true, y_score, expected_fpr, expected_fnr):
 def test_det_curve_drop_intermediate(
     y_true, y_score, expected_fpr, expected_fnr, drop_intermediate
 ):
+    # [FUNCTION DOC]
+    # Verifies drop_intermediate removes collinear DET points only where tp does not
+    # change.
+    # Inputs: parametrized data and drop_intermediate flag.
     # Check on a batch of small examples.
     fpr, fnr, _ = det_curve(y_true, y_score, drop_intermediate=drop_intermediate)
 
@@ -1429,6 +1613,9 @@ def test_det_curve_drop_intermediate(
     ],
 )
 def test_det_curve_tie_handling(y_true, y_score, expected_fpr, expected_fnr):
+    # [FUNCTION DOC]
+    # Verifies DET curve outputs with tied scores.
+    # Inputs: parametrized data and expected curves.
     fpr, fnr, _ = det_curve(y_true, y_score)
 
     assert_allclose(fpr, expected_fpr)
@@ -1436,6 +1623,8 @@ def test_det_curve_tie_handling(y_true, y_score, expected_fpr, expected_fnr):
 
 
 def test_det_curve_sanity_check():
+    # [FUNCTION DOC]
+    # Verifies duplicating every sample leaves the DET curve unchanged.
     # Exactly duplicated inputs yield the same result.
     assert_allclose(
         det_curve([0, 0, 1], [0, 0.5, 1]),
@@ -1445,6 +1634,10 @@ def test_det_curve_sanity_check():
 
 @pytest.mark.parametrize("y_score", [(0), (0.25), (0.5), (0.75), (1)])
 def test_det_curve_constant_scores(y_score):
+    # [FUNCTION DOC]
+    # Verifies DET curve for constant scores is fpr [1, 0], fnr [0, 1], thresholds
+    # [score, inf].
+    # Inputs: y_score - parametrized constant.
     fpr, fnr, threshold = det_curve(
         y_true=[0, 1, 0, 1, 0, 1], y_score=np.full(6, y_score)
     )
@@ -1465,6 +1658,9 @@ def test_det_curve_constant_scores(y_score):
     ],
 )
 def test_det_curve_perfect_scores(y_true):
+    # [FUNCTION DOC]
+    # Verifies perfect scores give a single point fpr 0, fnr 0.
+    # Inputs: y_true - parametrized.
     fpr, fnr, _ = det_curve(y_true=y_true, y_score=y_true)
 
     assert_allclose(fpr, [0])
@@ -1486,12 +1682,19 @@ def test_det_curve_perfect_scores(y_true):
     ],
 )
 def test_det_curve_bad_input(y_true, y_pred, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError for inconsistent lengths, single-class y_true and string
+    # labels without pos_label.
+    # Inputs: y_true, y_pred, err_msg - parametrized.
     # input variables with inconsistent numbers of samples
     with pytest.raises(ValueError, match=err_msg):
         det_curve(y_true, y_pred)
 
 
 def test_det_curve_pos_label():
+    # [FUNCTION DOC]
+    # Verifies pos_label changes the first threshold and that swapping the positive
+    # class (with complementary scores) swaps and reverses fpr / fnr.
     y_true = ["cancer"] * 3 + ["not cancer"] * 7
     y_pred_pos_not_cancer = np.array([0.1, 0.4, 0.6, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9])
     y_pred_pos_cancer = 1 - y_pred_pos_not_cancer
@@ -1518,6 +1721,10 @@ def test_det_curve_pos_label():
 
 
 def check_lrap_toy(lrap_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks an LRAP implementation on many hand-computed single-sample cases,
+    # including tie handling.
+    # Inputs: lrap_score - callable(y_true, y_score) -> float.
     # Check on several small example that it works
     assert_almost_equal(lrap_score([[0, 1]], [[0.25, 0.75]]), 1)
     assert_almost_equal(lrap_score([[0, 1]], [[0.75, 0.25]]), 1 / 2)
@@ -1577,6 +1784,10 @@ def check_lrap_toy(lrap_score):
 
 
 def check_zero_or_all_relevant_labels(lrap_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks LRAP is 1 when a sample has no or all relevant labels (random and
+    # tied scores) and for the single-label degenerate case.
+    # Inputs: lrap_score - callable.
     random_state = check_random_state(0)
 
     for n_labels in range(2, 5):
@@ -1600,6 +1811,10 @@ def check_zero_or_all_relevant_labels(lrap_score):
 
 
 def check_lrap_error_raised(lrap_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks an LRAP implementation raises ValueError for non-multilabel
+    # targets and mismatching y_true / y_score shapes.
+    # Inputs: lrap_score - callable.
     # Raise value error if not appropriate format
     with pytest.raises(ValueError):
         lrap_score([0, 1, 0], [0.25, 0.3, 0.2])
@@ -1626,6 +1841,10 @@ def check_lrap_error_raised(lrap_score):
 
 
 def check_lrap_only_ties(lrap_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks that with all scores tied, LRAP equals n_relevant / n_labels for
+    # every contiguous block of relevant labels.
+    # Inputs: lrap_score - callable.
     # Check tie handling in score
     # Basic check with only ties and increasing label space
     for n_labels in range(2, 10):
@@ -1641,6 +1860,11 @@ def check_lrap_only_ties(lrap_score):
 
 
 def check_lrap_without_tie_and_increasing_score(lrap_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks LRAP for strictly decreasing scores against closed-form values for
+    # first-and-last relevant labels and every contiguous block of relevant labels.
+    # Inputs: lrap_score - callable.
+    # KNOWN ISSUE: the name says increasing score but the scores are decreasing.
     # Check that Label ranking average precision works for various
     # Basic check with increasing label space size and decreasing score
     for n_labels in range(2, 10):
@@ -1668,6 +1892,14 @@ def check_lrap_without_tie_and_increasing_score(lrap_score):
 
 
 def _my_lrap(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Reference LRAP: for each sample, compute tie-aware ranks (tied labels get
+    # the worst rank of their group); if no or all labels are relevant the sample
+    # scores 1; otherwise average over relevant labels of (relevant labels ranked at
+    # or above it) / its rank. Returns the mean over samples.
+    # Inputs: y_true - (n_samples, n_labels) binary; y_score - same shape.
+    # Outputs: float.
+    # Exceptions: ValueError from validation on inconsistent lengths / bad arrays.
     """Simple implementation of label ranking average precision"""
     check_consistent_length(y_true, y_score)
     y_true = check_array(y_true)
@@ -1708,6 +1940,12 @@ def _my_lrap(y_true, y_score):
 def check_alternative_lrap_implementation(
     lrap_score, n_classes=5, n_samples=20, random_state=0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Compares label_ranking_average_precision_score with _my_lrap on random
+    # multilabel targets using sparse-random (tied) scores and uniform scores.
+    # Inputs: lrap_score (unused), n_classes, n_samples, random_state.
+    # KNOWN ISSUE: the lrap_score argument is ignored; the public function is always
+    # used directly.
     _, y_true = make_multilabel_classification(
         n_features=1,
         allow_unlabeled=False,
@@ -1748,10 +1986,15 @@ def check_alternative_lrap_implementation(
 )
 @pytest.mark.parametrize("func", (label_ranking_average_precision_score, _my_lrap))
 def test_label_ranking_avp(check, func):
+    # [FUNCTION DOC]
+    # Runs each LRAP check helper against both the public implementation and _my_lrap.
+    # Inputs: check, func - parametrized.
     check(func)
 
 
 def test_lrap_error_raised():
+    # [FUNCTION DOC]
+    # Runs check_lrap_error_raised on the public LRAP function.
     check_lrap_error_raised(label_ranking_average_precision_score)
 
 
@@ -1759,12 +2002,18 @@ def test_lrap_error_raised():
 @pytest.mark.parametrize("n_classes", (2, 5, 10))
 @pytest.mark.parametrize("random_state", range(1))
 def test_alternative_lrap_implementation(n_samples, n_classes, random_state):
+    # [FUNCTION DOC]
+    # Runs check_alternative_lrap_implementation for several sizes.
+    # Inputs: n_samples, n_classes, random_state - parametrized.
     check_alternative_lrap_implementation(
         label_ranking_average_precision_score, n_classes, n_samples, random_state
     )
 
 
 def test_lrap_sample_weighting_zero_labels():
+    # [FUNCTION DOC]
+    # Verifies weighted LRAP equals the weighted mean of per-sample APs including a
+    # sample with no relevant labels (AP 1) given weight 0.
     # Degenerate sample labeling (e.g., zero labels for a sample) is a valid
     # special case for lrap (the sample is considered to achieve perfect
     # precision), but this case is not tested in test_common.
@@ -1786,6 +2035,8 @@ def test_lrap_sample_weighting_zero_labels():
 
 
 def test_coverage_error():
+    # [FUNCTION DOC]
+    # Verifies coverage_error on many hand-computed toy cases and multi-sample cases.
     # Toy case
     assert_almost_equal(coverage_error([[0, 1]], [[0.25, 0.75]]), 1)
     assert_almost_equal(coverage_error([[0, 1]], [[0.75, 0.25]]), 2)
@@ -1841,6 +2092,8 @@ def test_coverage_error():
 
 
 def test_coverage_tie_handling():
+    # [FUNCTION DOC]
+    # Verifies coverage_error with tied scores counts all tied labels.
     assert_almost_equal(coverage_error([[0, 0]], [[0.5, 0.5]]), 0)
     assert_almost_equal(coverage_error([[1, 0]], [[0.5, 0.5]]), 2)
     assert_almost_equal(coverage_error([[0, 1]], [[0.5, 0.5]]), 2)
@@ -1865,6 +2118,9 @@ def test_coverage_tie_handling():
     ],
 )
 def test_coverage_1d_error_message(y_true, y_score):
+    # [FUNCTION DOC]
+    # Non-regression: coverage_error raises ValueError for 1d y_true or y_score.
+    # Inputs: y_true, y_score - parametrized.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/23368
     with pytest.raises(ValueError, match=r"Expected 2D array, got 1D array instead"):
@@ -1872,6 +2128,9 @@ def test_coverage_1d_error_message(y_true, y_score):
 
 
 def test_label_ranking_loss():
+    # [FUNCTION DOC]
+    # Verifies label_ranking_loss on toy cases, 0 for degenerate all-or-nothing rows,
+    # and multi-sample cases.
     assert_almost_equal(label_ranking_loss([[0, 1]], [[0.25, 0.75]]), 0)
     assert_almost_equal(label_ranking_loss([[0, 1]], [[0.75, 0.25]]), 1)
 
@@ -1916,6 +2175,9 @@ def test_label_ranking_loss():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_label_ranking_loss_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies label_ranking_loss accepts sparse CSR y_true.
+    # Inputs: csr_container - parametrized.
     assert_almost_equal(
         label_ranking_loss(
             csr_container(np.array([[0, 1, 0], [1, 1, 0]])), [[0.1, 10, -3], [3, 1, 3]]
@@ -1925,6 +2187,8 @@ def test_label_ranking_loss_sparse(csr_container):
 
 
 def test_ranking_appropriate_input_shape():
+    # [FUNCTION DOC]
+    # Verifies label_ranking_loss raises ValueError on mismatched shapes.
     # Check that y_true.shape != y_score.shape raise the proper exception
     with pytest.raises(ValueError):
         label_ranking_loss([[0, 1], [0, 1]], [0, 1])
@@ -1941,6 +2205,8 @@ def test_ranking_appropriate_input_shape():
 
 
 def test_ranking_loss_ties_handling():
+    # [FUNCTION DOC]
+    # Verifies label_ranking_loss counts tied relevant / irrelevant pairs as errors.
     # Tie handling
     assert_almost_equal(label_ranking_loss([[1, 0]], [[0.5, 0.5]]), 1)
     assert_almost_equal(label_ranking_loss([[0, 1]], [[0.5, 0.5]]), 1)
@@ -1953,6 +2219,9 @@ def test_ranking_loss_ties_handling():
 
 
 def test_dcg_score():
+    # [FUNCTION DOC]
+    # Runs _test_dcg_score_for on multilabel targets with inverted scores and on
+    # random continuous relevance and scores.
     _, y_true = make_multilabel_classification(random_state=0, n_classes=10)
     y_score = -y_true + 1
     _test_dcg_score_for(y_true, y_score)
@@ -1961,6 +2230,11 @@ def test_dcg_score():
 
 
 def _test_dcg_score_for(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks per-sample DCG is bounded by the ideal DCG (also with k 5),
+    # output shapes, and that the ideal DCG equals sorted relevance divided by
+    # log2(rank + 1).
+    # Inputs: y_true, y_score - (n_samples, n_labels) arrays.
     discount = np.log2(np.arange(y_true.shape[1]) + 2)
     ideal = _dcg_sample_scores(y_true, y_true)
     score = _dcg_sample_scores(y_true, y_score)
@@ -1972,6 +2246,9 @@ def _test_dcg_score_for(y_true, y_score):
 
 
 def test_dcg_ties():
+    # [FUNCTION DOC]
+    # Verifies DCG tie handling: with ties, tied items share averaged gains over their
+    # discount positions; with ignore_ties, ties are broken in reverse index order.
     y_true = np.asarray([np.arange(5)])
     y_score = np.zeros(y_true.shape)
     dcg = _dcg_sample_scores(y_true, y_score)
@@ -1992,6 +2269,10 @@ def test_dcg_ties():
 
 
 def test_ndcg_ignore_ties_with_k():
+    # [FUNCTION DOC]
+    # Intended to check NDCG with k and ignore_ties.
+    # KNOWN ISSUE: compares the same expression with itself, so it only checks the
+    # call does not fail.
     a = np.arange(12).reshape((2, 6))
     assert ndcg_score(a, a, k=3, ignore_ties=True) == pytest.approx(
         ndcg_score(a, a, k=3, ignore_ties=True)
@@ -1999,6 +2280,8 @@ def test_ndcg_ignore_ties_with_k():
 
 
 def test_ndcg_negative_ndarray_error():
+    # [FUNCTION DOC]
+    # Verifies ndcg_score raises ValueError for negative y_true.
     """Check `ndcg_score` exception when `y_true` contains negative values."""
     y_true = np.array([[-0.89, -0.53, -0.47, 0.39, 0.56]])
     y_score = np.array([[0.07, 0.31, 0.75, 0.33, 0.27]])
@@ -2008,6 +2291,9 @@ def test_ndcg_negative_ndarray_error():
 
 
 def test_ndcg_invariant():
+    # [FUNCTION DOC]
+    # Verifies NDCG is 1 for scores equal to relevance plus small noise, equal with and
+    # without ignore_ties, and invariant to adding a constant.
     y_true = np.arange(70).reshape(7, 10)
     y_score = y_true + np.random.RandomState(0).uniform(-0.2, 0.2, size=y_true.shape)
     ndcg = ndcg_score(y_true, y_score)
@@ -2020,6 +2306,11 @@ def test_ndcg_invariant():
 
 @pytest.mark.parametrize("ignore_ties", [True, False])
 def test_ndcg_toy_examples(ignore_ties):
+    # [FUNCTION DOC]
+    # Verifies per-sample DCG / NDCG and averaged dcg_score / ndcg_score against
+    # closed-form values (log2 and log10 discounts) for one-hot and constant
+    # relevance.
+    # Inputs: ignore_ties - parametrized.
     y_true = 3 * np.eye(7)[:5]
     y_score = np.tile(np.arange(6, -1, -1), (5, 1))
     y_score_noisy = y_score + np.random.RandomState(0).uniform(
@@ -2058,6 +2349,8 @@ def test_ndcg_toy_examples(ignore_ties):
 
 
 def test_ndcg_error_single_document():
+    # [FUNCTION DOC]
+    # Verifies ndcg_score raises ValueError with a single document.
     """Check that we raise an informative error message when trying to
     compute NDCG with a single document."""
     err_msg = (
@@ -2069,6 +2362,8 @@ def test_ndcg_error_single_document():
 
 
 def test_ndcg_score():
+    # [FUNCTION DOC]
+    # Runs _test_ndcg_score_for on multilabel and random continuous data.
     _, y_true = make_multilabel_classification(random_state=0, n_classes=10)
     y_score = -y_true + 1
     _test_ndcg_score_for(y_true, y_score)
@@ -2077,6 +2372,10 @@ def test_ndcg_score():
 
 
 def _test_ndcg_score_for(y_true, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Checks NDCG <= ideal, ideal is 1 (0 for all-zero rows), NDCG equals DCG
+    # divided by ideal DCG for non-zero rows, 0 for all-zero rows, and output shapes.
+    # Inputs: y_true, y_score - (n_samples, n_labels) arrays.
     ideal = _ndcg_sample_scores(y_true, y_true)
     score = _ndcg_sample_scores(y_true, y_score)
     assert (score <= ideal).all()
@@ -2093,6 +2392,10 @@ def _test_ndcg_score_for(y_true, y_score):
 
 
 def test_partial_roc_auc_score():
+    # [FUNCTION DOC]
+    # Verifies roc_auc_score with max_fpr: perfect predictions give 1, invalid max_fpr
+    # raise ValueError, max_fpr 1 equals unconstrained AUC, a known 0.5 case, and
+    # agreement with _partial_roc_auc_score for several max_fpr.
     # Check `roc_auc_score` for max_fpr != `None`
     y_true = np.array([0, 0, 1, 1])
     assert roc_auc_score(y_true, y_true, max_fpr=1) == 1
@@ -2127,6 +2430,9 @@ def test_partial_roc_auc_score():
     ],
 )
 def test_top_k_accuracy_score(y_true, k, true_score):
+    # [FUNCTION DOC]
+    # Verifies multiclass top-k accuracy values for k 1..3.
+    # Inputs: y_true, k, true_score - parametrized.
     y_score = np.array(
         [
             [0.4, 0.3, 0.2, 0.1],
@@ -2151,6 +2457,10 @@ def test_top_k_accuracy_score(y_true, k, true_score):
     ],
 )
 def test_top_k_accuracy_score_binary(y_score, k, true_score):
+    # [FUNCTION DOC]
+    # Verifies binary top-k accuracy with 1d scores equals thresholded accuracy for
+    # k 1 (threshold 0.5 for probabilities, 0 otherwise) and 1 for k 2.
+    # Inputs: y_score, k, true_score - parametrized.
     y_true = [0, 0, 1, 1]
 
     threshold = 0.5 if y_score.min() >= 0 and y_score.max() <= 1 else 0
@@ -2175,6 +2485,10 @@ def test_top_k_accuracy_score_binary(y_score, k, true_score):
 def test_top_k_accuracy_score_multiclass_with_labels(
     y_true, true_score, labels, labels_as_ndarray
 ):
+    # [FUNCTION DOC]
+    # Verifies top-2 accuracy with explicit labels (list or ndarray) when y_true lacks
+    # some labels.
+    # Inputs: y_true, true_score, labels, labels_as_ndarray - parametrized.
     """Test when labels and y_score are multiclass."""
     if labels_as_ndarray:
         labels = np.asarray(labels)
@@ -2192,6 +2506,8 @@ def test_top_k_accuracy_score_multiclass_with_labels(
 
 
 def test_top_k_accuracy_score_increasing():
+    # [FUNCTION DOC]
+    # Verifies top-k accuracy strictly increases with k on train and test sets.
     # Make sure increasing k leads to a higher score
     X, y = datasets.make_classification(
         n_classes=10, n_samples=1000, n_informative=10, random_state=0
@@ -2219,6 +2535,9 @@ def test_top_k_accuracy_score_increasing():
     ],
 )
 def test_top_k_accuracy_score_ties(y_true, k, true_score):
+    # [FUNCTION DOC]
+    # Verifies ties in scores are resolved in favour of higher label indices.
+    # Inputs: y_true, k, true_score - parametrized.
     # Make sure highest indices labels are chosen first in case of ties
     y_score = np.array(
         [
@@ -2239,6 +2558,9 @@ def test_top_k_accuracy_score_ties(y_true, k, true_score):
     ],
 )
 def test_top_k_accuracy_score_warning(y_true, k):
+    # [FUNCTION DOC]
+    # Verifies UndefinedMetricWarning and score 1 when k >= n_classes.
+    # Inputs: y_true, k - parametrized.
     y_score = np.array(
         [
             [0.4, 0.3, 0.2, 0.1],
@@ -2339,6 +2661,10 @@ def test_top_k_accuracy_score_warning(y_true, k):
     ],
 )
 def test_top_k_accuracy_score_error(y_true, y_score, labels, msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for continuous y_true, class count mismatches,
+    # invalid labels and binary y_true with 3-column scores and no labels.
+    # Inputs: y_true, y_score, labels, msg - parametrized.
     with pytest.raises(ValueError, match=msg):
         top_k_accuracy_score(y_true, y_score, k=2, labels=labels)
 
@@ -2347,6 +2673,9 @@ def test_top_k_accuracy_score_error(y_true, y_score, labels, msg):
 def test_label_ranking_avg_precision_score_should_allow_csr_matrix_for_y_true_input(
     csr_container,
 ):
+    # [FUNCTION DOC]
+    # Non-regression: LRAP accepts sparse CSR y_true (value 2/3).
+    # Inputs: csr_container - parametrized.
     # Test that label_ranking_avg_precision_score accept sparse y_true.
     # Non-regression test for #22575
     y_true = csr_container([[1, 0, 0], [0, 0, 1]])
@@ -2362,6 +2691,10 @@ def test_label_ranking_avg_precision_score_should_allow_csr_matrix_for_y_true_in
     "classes", [(False, True), (0, 1), (0.0, 1.0), ("zero", "one")]
 )
 def test_ranking_metric_pos_label_types(metric, classes):
+    # [FUNCTION DOC]
+    # Verifies ranking metrics accept bool, int, float and string pos_label and return
+    # no NaNs.
+    # Inputs: metric, classes - parametrized.
     """Check that the metric works with different types of `pos_label`.
 
     We can expect `pos_label` to be a bool, an integer, a float, a string.
@@ -2382,6 +2715,9 @@ def test_ranking_metric_pos_label_types(metric, classes):
 
 
 def test_roc_curve_with_probability_estimates(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression: the first ROC threshold is inf for probability scores.
+    # Inputs: global_random_seed fixture.
     """Check that thresholds do not exceed 1.0 when `y_score` is a probability
     estimate.
 
@@ -2396,6 +2732,10 @@ def test_roc_curve_with_probability_estimates(global_random_seed):
 
 
 def _dummy_metric(y_true, y_pred, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Metric returning a tuple (weighted sum of y_pred, weighted sum of y_true);
+    # weights default to ones.
+    # Inputs: y_true, y_pred - arrays; sample_weight - array or None.
     """Dummy metric that returns a tuple of two values."""
     if sample_weight is None:
         sample_weight = np.ones_like(y_pred)
@@ -2416,6 +2756,11 @@ def _dummy_metric(y_true, y_pred, sample_weight=None):
 )
 @pytest.mark.parametrize("sample_weight", [None, np.array([1, 2, 1, 0, 2])])
 def test_metric_at_thresholds(metric_func, sample_weight):
+    # [FUNCTION DOC]
+    # Verifies metric_at_thresholds returns, for descending unique non-zero-weight
+    # scores as thresholds, the metric of predictions score >= threshold, for scalar
+    # and tuple-valued metrics with and without sample_weight.
+    # Inputs: metric_func, sample_weight - parametrized.
     """Test `metric_at_thresholds` outputs correct."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_score = np.array([0.1, 0.6, 0.4, 0.9, 0.4])
@@ -2445,11 +2790,15 @@ def test_metric_at_thresholds(metric_func, sample_weight):
 
 
 def _dummy_metric_no_sample_weight(y_true, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Metric without sample_weight; returns (sum of y_pred, sum of y_true).
     """Dummy metric that does not accept `sample_weight`."""
     return (np.sum(y_pred), np.sum(y_true))
 
 
 def test_metric_at_thresholds_sample_weight_error():
+    # [FUNCTION DOC]
+    # Verifies TypeError when sample_weight is given and the metric does not accept it.
     """Test `TypeError` is raised when `metric_func` does not take `sample_weight`."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_score = np.array([0.1, 0.4, 0.35, 0.6, 0.9])
@@ -2463,6 +2812,9 @@ def test_metric_at_thresholds_sample_weight_error():
 
 @pytest.mark.parametrize("normalize", [True, False])
 def test_metric_at_thresholds_metric_params(normalize):
+    # [FUNCTION DOC]
+    # Verifies metric_params are forwarded to the metric (accuracy normalize).
+    # Inputs: normalize - parametrized.
     """Test `metric_params` passed correctly to `metric_at_thresholds`."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_score = np.array([0.1, 0.4, 0.35, 0.6, 0.9])
@@ -2482,6 +2834,9 @@ def test_metric_at_thresholds_metric_params(normalize):
 
 @pytest.mark.parametrize("pos_label", [0, 1])
 def test_metric_at_thresholds_pos_label(pos_label):
+    # [FUNCTION DOC]
+    # Verifies pos_label in metric_params is forwarded to precision_score.
+    # Inputs: pos_label - parametrized.
     """Test `pos_label` is passed correctly to `metric_at_thresholds`."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_score = np.array([0.1, 0.6, 0.4, 0.9, 0.4])
@@ -2504,6 +2859,8 @@ def test_metric_at_thresholds_pos_label(pos_label):
 
 
 def test_metric_at_thresholds_y_score_order():
+    # [FUNCTION DOC]
+    # Verifies results are invariant to permuting samples (no duplicate scores).
     """Test `y_score` order does not effect `metric_at_thresholds`."""
     y_true = np.array([0, 0, 1, 1, 1])
     y_score = np.array([0.9, 0.6, 0.5, 0.1, 0.4])
@@ -2527,6 +2884,10 @@ def test_metric_at_thresholds_y_score_order():
 
 
 def test_metric_at_thresholds_y_score_order_duplicate_y_score():
+    # [FUNCTION DOC]
+    # Verifies with duplicate scores, differing y_true order does not change results,
+    # while differing sample weights among duplicates does change metric values but
+    # not thresholds.
     """Test duplicate `y_score` edge cases in `metric_at_thresholds`.
 
     If there are duplicate `y_score` values and `y_true` differs between
@@ -2567,6 +2928,9 @@ def test_metric_at_thresholds_y_score_order_duplicate_y_score():
 
 
 def test_metric_at_thresholds_consistency_with_confusion_matrix():
+    # [FUNCTION DOC]
+    # Verifies confusion_matrix evaluated at thresholds matches the counts returned by
+    # confusion_matrix_at_thresholds, including the array-valued metric output shape.
     """Test `metric_at_thresholds` consistency with `confusion_matrix_at_thresholds`.
 
     This also checks output when `metric_func` returns a tuple of arrays.
@@ -2593,6 +2957,9 @@ def test_metric_at_thresholds_consistency_with_confusion_matrix():
 
 
 def test_metric_at_thresholds_with_nan_outputs():
+    # [FUNCTION DOC]
+    # Verifies NaN metric values (recall with no positives, zero_division NaN) are
+    # propagated.
     """Test `metric_at_thresholds` with NaN output."""
     # No positive labels means recall undefined (TP + FN = 0) at all thresholds
     y_true = np.array([0, 0, 0, 0, 0])
@@ -2607,6 +2974,8 @@ def test_metric_at_thresholds_with_nan_outputs():
 
 # TODO(1.11): remove this test
 def test_confusion_matrix_at_thresholds_positional_args_deprecation():
+    # [FUNCTION DOC]
+    # Verifies passing pos_label positionally emits a FutureWarning (to be removed).
     y_true = np.array([0, 1, 1, 0])
     y_score = np.array([0.2, 0.1, 0.7, 0.7])
     with pytest.warns(FutureWarning, match="Pass pos_label=None as keyword arg"):
