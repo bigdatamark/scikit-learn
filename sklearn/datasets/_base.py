@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Base I/O for sklearn.datasets: data home management, loaders for the toy datasets
+# packaged as resources (wine, iris, breast cancer, digits, diabetes, linnerud, sample
+# images), the generic text-folder loader load_files, packaged CSV/gzip/description
+# readers, and download utilities (RemoteFileMetadata namedtuple, _fetch_remote with
+# retries and SHA256 checks, fetch_file with URL-derived cache paths). Module constants
+# name the resource packages for data, descriptions and images.
 """
 Base IO code for all datasets
 """
@@ -46,6 +53,12 @@ RemoteFileMetadata = namedtuple("RemoteFileMetadata", ["filename", "url", "check
     prefer_skip_nested_validation=True,
 )
 def get_data_home(data_home=None) -> str:
+    # [FUNCTION DOC]
+    # Resolves the data cache directory: data_home if given, else the SCIKIT_LEARN_DATA
+    # environment variable, else '~/scikit_learn_data'; expands '~' and creates the
+    # directory if missing.
+    # Inputs: data_home - str/PathLike/None. Outputs: str path.
+    # Side effects: creates directories on disk.
     """Return the path of the scikit-learn data directory.
 
     This folder is used by some large dataset loaders to avoid downloading the
@@ -93,6 +106,11 @@ def get_data_home(data_home=None) -> str:
     prefer_skip_nested_validation=True,
 )
 def clear_data_home(data_home=None):
+    # [FUNCTION DOC]
+    # Deletes the whole data home directory tree (resolved via get_data_home, which
+    # first creates it if absent).
+    # Inputs: data_home - str/PathLike/None. Outputs: None.
+    # Side effects: removes files on disk.
     """Delete all the content of the data home cache.
 
     Parameters
@@ -113,6 +131,15 @@ def clear_data_home(data_home=None):
 def _convert_data_dataframe(
     caller_name, data, target, feature_names, target_names, sparse_data=False
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds pandas outputs for the loaders: a DataFrame of data (dense, or
+    # sparse via from_spmatrix when sparse_data) with feature_names columns,
+    # concatenated column-wise with a target DataFrame; X is the feature columns and y
+    # the target columns, reduced to a Series when there is a single target.
+    # Inputs: caller_name - str for the pandas-missing message; data - 2-D array or
+    # sparse matrix; target - 1-D or 2-D array; feature_names, target_names - lists;
+    # sparse_data - bool. Outputs: (combined frame, X, y).
+    # Exceptions: ImportError when pandas is not installed.
     pd = check_pandas_support("{} with as_frame=True".format(caller_name))
     if not sparse_data:
         data_df = pd.DataFrame(data, columns=feature_names, copy=False)
@@ -154,6 +181,21 @@ def load_files(
     random_state=0,
     allowed_extensions=None,
 ):
+    # [FUNCTION DOC]
+    # Loads a corpus organized as one subfolder per category.
+    # Behavior: list subfolders of container_path in sorted order (filtered by
+    # categories), each gets a label equal to its index; collect sorted file paths in
+    # each (filtered by extension when allowed_extensions is given). Optionally shuffle
+    # filenames and targets together with random_state. If load_content, read each file
+    # as bytes and decode with encoding (using decode_error) when encoding is given.
+    # Inputs: container_path - str/PathLike; description - str/None; categories -
+    # list/None; load_content, shuffle - bool; encoding - str/None; decode_error -
+    # 'strict', 'ignore' or 'replace'; random_state - seed/RandomState;
+    # allowed_extensions - list of extensions including the dot, or None.
+    # Outputs: Bunch with data (list of bytes or str, only if load_content), filenames
+    # (ndarray of str), target_names (list), target (int ndarray), DESCR.
+    # Exceptions: OSError for missing paths; UnicodeDecodeError with strict decoding.
+    # Side effects: file reads.
     """Load text files with categories as subfolder names.
 
     Individual samples are assumed to be files stored a two levels folder
@@ -330,6 +372,15 @@ def load_csv_data(
     descr_module=DESCR_MODULE,
     encoding="utf-8",
 ):
+    # [FUNCTION DOC]
+    # Reads a packaged CSV whose header row holds n_samples, n_features and then the
+    # target names, followed by rows of features with the integer target last.
+    # Inputs: data_file_name - str; data_module - package name; descr_file_name -
+    # optional str; descr_module - package name; encoding - str.
+    # Outputs: (data (n_samples, n_features) float, target (n_samples,) int,
+    # target_names array) plus the description text when descr_file_name is given.
+    # KNOWN ISSUE: the encoding parameter is ignored; the file is always opened as
+    # utf-8.
     """Loads `data_file_name` from `data_module with `importlib.resources`.
 
     Parameters
@@ -405,6 +456,12 @@ def load_gzip_compressed_csv_data(
     encoding="utf-8",
     **kwargs,
 ):
+    # [FUNCTION DOC]
+    # Reads a gzip-compressed packaged text file with np.loadtxt (extra kwargs
+    # forwarded, e.g. delimiter).
+    # Inputs: data_file_name, data_module, descr_file_name, descr_module, encoding (used
+    # for decompressed text), kwargs. Outputs: ndarray, or (ndarray, description) when
+    # descr_file_name is given.
     """Loads gzip-compressed with `importlib.resources`.
 
     1) Open resource file with `importlib.resources.open_binary`
@@ -462,6 +519,10 @@ def load_gzip_compressed_csv_data(
 
 
 def load_descr(descr_file_name, *, descr_module=DESCR_MODULE, encoding="utf-8"):
+    # [FUNCTION DOC]
+    # Returns the text content of a packaged description file.
+    # Inputs: descr_file_name - str; descr_module - package name; encoding - str.
+    # Outputs: str. Exceptions: FileNotFoundError if absent.
     """Load `descr_file_name` from `descr_module` with `importlib.resources`.
 
     Parameters
@@ -497,6 +558,12 @@ def load_descr(descr_file_name, *, descr_module=DESCR_MODULE, encoding="utf-8"):
     prefer_skip_nested_validation=True,
 )
 def load_wine(*, return_X_y=False, as_frame=False):
+    # [FUNCTION DOC]
+    # Loads the packaged wine dataset (178 samples, 13 features, 3 classes) via
+    # load_csv_data, with fixed feature names.
+    # Inputs: return_X_y, as_frame - bool.
+    # Outputs: (data, target) if return_X_y, else Bunch with data, target, frame,
+    # target_names, DESCR, feature_names (pandas objects when as_frame).
     """Load and return the wine dataset (classification).
 
     .. versionadded:: 0.18
@@ -623,6 +690,11 @@ def load_wine(*, return_X_y=False, as_frame=False):
     prefer_skip_nested_validation=True,
 )
 def load_iris(*, return_X_y=False, as_frame=False):
+    # [FUNCTION DOC]
+    # Loads the packaged iris dataset (150 x 4, 3 classes) via load_csv_data.
+    # Inputs: return_X_y, as_frame - bool.
+    # Outputs: (data, target) or Bunch with data, target, frame, target_names, DESCR,
+    # feature_names, filename and data_module.
     """Load and return the iris dataset (classification).
 
     The iris dataset is a classic and very easy multi-class classification dataset.
@@ -752,6 +824,12 @@ def load_iris(*, return_X_y=False, as_frame=False):
     prefer_skip_nested_validation=True,
 )
 def load_breast_cancer(*, return_X_y=False, as_frame=False):
+    # [FUNCTION DOC]
+    # Loads the packaged breast cancer Wisconsin dataset (569 x 30, binary) via
+    # load_csv_data; feature_names is an ndarray.
+    # Inputs: return_X_y, as_frame - bool.
+    # Outputs: (data, target) or Bunch with data, target, frame, target_names, DESCR,
+    # feature_names, filename, data_module.
     """Load and return the breast cancer Wisconsin dataset (classification).
 
     The breast cancer dataset is a classic and very easy binary classification
@@ -909,6 +987,14 @@ def load_breast_cancer(*, return_X_y=False, as_frame=False):
     prefer_skip_nested_validation=True,
 )
 def load_digits(*, n_class=10, return_X_y=False, as_frame=False):
+    # [FUNCTION DOC]
+    # Loads the packaged 8x8 digits dataset from a gzip CSV: last column is the integer
+    # target, the others are 64 pixel values; images are the rows reshaped to 8x8. Keeps
+    # only classes below n_class when n_class < 10.
+    # Inputs: n_class - int in [1, 10]; return_X_y, as_frame - bool.
+    # Outputs: (data, target) or Bunch with data, target, frame, feature_names
+    # ('pixel_r_c'), target_names, images (n, 8, 8), DESCR.
+    # KNOWN ISSUE: target_names is always 0..9 even when n_class < 10.
     """Load and return the digits dataset (classification).
 
     Each datapoint is an 8x8 image of a digit.
@@ -1044,6 +1130,13 @@ def load_digits(*, n_class=10, return_X_y=False, as_frame=False):
     prefer_skip_nested_validation=True,
 )
 def load_diabetes(*, return_X_y=False, as_frame=False, scaled=True):
+    # [FUNCTION DOC]
+    # Loads the packaged diabetes dataset (442 x 10 regression). When scaled, each
+    # feature is standardized in place and divided by sqrt(n_samples), so each column
+    # has unit Euclidean norm.
+    # Inputs: return_X_y, as_frame, scaled - bool.
+    # Outputs: (data, target) or Bunch with data, target, frame, DESCR, feature_names,
+    # data_filename, target_filename, data_module.
     """Load and return the diabetes dataset (regression).
 
     ==============   ==================
@@ -1173,6 +1266,12 @@ def load_diabetes(*, return_X_y=False, as_frame=False, scaled=True):
     prefer_skip_nested_validation=True,
 )
 def load_linnerud(*, return_X_y=False, as_frame=False):
+    # [FUNCTION DOC]
+    # Loads the packaged Linnerud multi-output dataset: exercise data (X, 20 x 3) and
+    # physiological targets (20 x 3), column names read from each file's header line.
+    # Inputs: return_X_y, as_frame - bool.
+    # Outputs: (data, target) or Bunch with data, feature_names, target, target_names,
+    # frame, DESCR, data_filename, target_filename, data_module.
     """Load and return the physical exercise Linnerud dataset.
 
     This dataset is suitable for multi-output regression tasks.
@@ -1294,6 +1393,12 @@ def load_linnerud(*, return_X_y=False, as_frame=False):
 
 
 def load_sample_images():
+    # [FUNCTION DOC]
+    # Loads all packaged .jpg images (sorted by path) as uint8 arrays of shape (height,
+    # width, 3) with PIL.
+    # Outputs: Bunch with images (list of arrays), filenames (list of str), DESCR.
+    # Exceptions: ImportError with install hint if Pillow is missing.
+    # Side effects: file reads.
     """Load sample images for image manipulation.
 
     Loads both, ``china`` and ``flower``.
@@ -1363,6 +1468,15 @@ def load_sample_images():
     prefer_skip_nested_validation=True,
 )
 def load_sample_image(image_name):
+    # [FUNCTION DOC]
+    # Returns the image array from load_sample_images whose filename ends with
+    # image_name.
+    # Inputs: image_name - 'china.jpg' or 'flower.jpg'. Outputs: ndarray (h, w, 3)
+    # uint8.
+    # Exceptions: AttributeError if not found.
+    # KNOWN ISSUE: the not-found branch is effectively unreachable because parameter
+    # validation already restricts image_name, and AttributeError is an odd exception
+    # type.
     """Load the numpy array of a single sample image.
 
     Read more in the :ref:`User Guide <sample_images>`.
@@ -1404,6 +1518,10 @@ def load_sample_image(image_name):
 
 
 def _pkl_filepath(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Joins the path components, appending a suffix (py3_suffix kwarg, default
+    # '_py3') to the basename of the last component before its extension.
+    # Inputs: path components as positional args; py3_suffix keyword. Outputs: str path.
     """Return filename for Python 3 pickles
 
     args[-1] is expected to be the ".pkl" filename. For compatibility with
@@ -1421,6 +1539,9 @@ def _pkl_filepath(*args, **kwargs):
 
 
 def _sha256(path):
+    # [FUNCTION DOC]
+    # HELPER: Returns the hex SHA256 digest of a file read in 8 KiB chunks.
+    # Inputs: path - file path. Outputs: str. Side effects: file read.
     """Calculate the sha256 hash of the file at path."""
     sha256hash = hashlib.sha256()
     chunk_size = 8192
@@ -1434,6 +1555,18 @@ def _sha256(path):
 
 
 def _fetch_remote(remote, dirname=None, n_retries=3, delay=1):
+    # [FUNCTION DOC]
+    # HELPER: Downloads remote.url to dirname/remote.filename unless a local file exists
+    # and (no checksum is set or its SHA256 matches); a mismatching local file triggers
+    # a warning and re-download. Downloads go to a uniquely named temporary file in the
+    # same folder, retrying on URLError/TimeoutError up to n_retries times with a delay
+    # and a warning; the checksum is verified, then the temp file is moved into place.
+    # Inputs: remote - RemoteFileMetadata(filename, url, checksum or None); dirname -
+    # folder or None (current dir); n_retries - int; delay - seconds.
+    # Outputs: Path of the local file.
+    # Exceptions: the last network error after retries; OSError on checksum mismatch;
+    # the temp file is deleted on any failure, including KeyboardInterrupt.
+    # Side effects: network access, disk writes, sleeps, warnings.
     """Helper function to download a remote dataset.
 
     Fetch a dataset pointed by remote's url, save into path using remote's
@@ -1542,6 +1675,12 @@ def _fetch_remote(remote, dirname=None, n_retries=3, delay=1):
 
 
 def _filter_filename(value, filter_dots=True):
+    # [FUNCTION DOC]
+    # HELPER: Makes a filesystem-safe name: NFKD-normalize and lowercase, replace runs
+    # of characters other than word chars, whitespace and hyphens (and dots when
+    # filter_dots is False) by '_', collapse whitespace/hyphen runs into '-', strip
+    # leading/trailing '-', '_' and '.'.
+    # Inputs: value - str; filter_dots - bool. Outputs: str.
     """Derive a name that is safe to use as filename from the given string.
 
     Adapted from the `slugify` function of django:
@@ -1562,6 +1701,12 @@ def _filter_filename(value, filter_dots=True):
 
 
 def _derive_folder_and_filename_from_url(url):
+    # [FUNCTION DOC]
+    # HELPER: Derives a cache sub-folder (sanitized hostname, plus sanitized URL
+    # directory path if non-empty, joined with '/') and a sanitized filename (last path
+    # segment, or 'downloaded_file' if empty) from a URL.
+    # Inputs: url - str. Outputs: (folder str, filename str).
+    # Exceptions: ValueError when the URL has no hostname.
     parsed_url = urlparse(url)
     if not parsed_url.hostname:
         raise ValueError(f"Invalid URL: {url}")
@@ -1587,6 +1732,16 @@ def _derive_folder_and_filename_from_url(url):
 def fetch_file(
     url, folder=None, local_filename=None, sha256=None, n_retries=3, delay=1
 ):
+    # [FUNCTION DOC]
+    # Downloads a URL into a local folder unless already present with the right
+    # checksum. local_filename defaults to the URL-derived name and must be a bare file
+    # name; folder defaults to the data home plus the URL-derived sub-folder (created).
+    # Inputs: url - str; folder - path or None; local_filename - str or None; sha256 -
+    # hex str or None; n_retries - int; delay - seconds.
+    # Outputs: Path of the local file.
+    # Exceptions: ValueError for an invalid URL or a local_filename containing path
+    # parts; errors from _fetch_remote. Side effects: network and disk I/O, directory
+    # creation.
     """Fetch a file from the web if not already present in the local folder.
 
     If the file already exists locally (and the SHA256 checksums match when
