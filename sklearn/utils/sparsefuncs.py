@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Utilities for SciPy CSR/CSC matrices and arrays: in-place row/column scaling and
+# swapping, (weighted, incremental) mean/variance along an axis, min/max, nonzero
+# counts, column medians, an implicitly centered LinearOperator, and sparse x
+# sparse to dense matmul. Most work dispatches to Cython in sparsefuncs_fast and
+# to version backports in fixes. Most public functions accept only CSR or CSC.
 """A collection of utilities to work with sparse matrices and arrays."""
 
 # Authors: The scikit-learn developers
@@ -26,6 +32,8 @@ from sklearn.utils.validation import _check_sample_weight
 
 
 def _raise_typeerror(X):
+    # [FUNCTION DOC]
+    # HELPER: Always raises TypeError naming X's sparse format or Python type.
     """Raises a TypeError if X is not a CSR or CSC matrix"""
     input_type = X.format if sp.issparse(X) else type(X)
     err = "Expected a CSR or CSC sparse matrix, got %s." % input_type
@@ -33,6 +41,8 @@ def _raise_typeerror(X):
 
 
 def _raise_error_wrong_axis(axis):
+    # [FUNCTION DOC]
+    # HELPER: Raises ValueError if axis is not 0 or 1; otherwise does nothing.
     if axis not in (0, 1):
         raise ValueError(
             "Unknown axis value: %d. Use 0 for rows, or 1 for columns" % axis
@@ -40,6 +50,11 @@ def _raise_error_wrong_axis(axis):
 
 
 def inplace_csr_column_scale(X, scale):
+    # [FUNCTION DOC]
+    # Multiplies every stored value of CSR X by scale[column index].
+    # Inputs: X - CSR (n_samples, n_features); scale - float array (n_features,).
+    # Outputs: None. Exceptions: AssertionError on length mismatch.
+    # Side effects: modifies X.data in place.
     """Inplace column scaling of a CSR matrix.
 
     Scale each feature of the data matrix by multiplying with specific scale
@@ -81,6 +96,11 @@ def inplace_csr_column_scale(X, scale):
 
 
 def inplace_csr_row_scale(X, scale):
+    # [FUNCTION DOC]
+    # Multiplies every stored value of CSR X by scale[row index] (scale repeated by
+    # the number of stored values per row).
+    # Inputs: X - CSR; scale - array (n_samples,). Outputs: None.
+    # Exceptions: AssertionError on length mismatch. Side effects: modifies X.data.
     """Inplace row scaling of a CSR matrix.
 
     Scale each sample of the data matrix by multiplying with specific scale
@@ -99,6 +119,13 @@ def inplace_csr_row_scale(X, scale):
 
 
 def mean_variance_axis(X, axis, weights=None, return_sum_weights=False):
+    # [FUNCTION DOC]
+    # Validates axis then dispatches to the Cython CSR/CSC axis-0 kernels; axis 1 is
+    # computed on the transpose (CSR transposed is CSC and vice versa).
+    # Inputs: X - CSR/CSC; axis - 0 or 1; weights - optional per-sample weights along
+    # the reduced axis; return_sum_weights - bool.
+    # Outputs: (means, variances) or (means, variances, sum_weights).
+    # Exceptions: ValueError for bad axis; TypeError for non CSR/CSC input.
     """Compute mean and variance along an axis on a CSR or CSC matrix.
 
     Parameters
@@ -177,6 +204,16 @@ def mean_variance_axis(X, axis, weights=None, return_sum_weights=False):
 
 
 def incr_mean_variance_axis(X, *, axis, last_mean, last_var, last_n, weights=None):
+    # [FUNCTION DOC]
+    # Incrementally updates per-feature (axis 0) or per-sample (axis 1) mean and
+    # variance with a new batch X. Broadcasts a scalar last_n to last_mean's shape,
+    # checks shapes, transposes for axis 1, validates weights, and calls the Cython
+    # incremental kernel.
+    # Inputs: X - CSR/CSC; axis; last_mean, last_var - arrays of the reduced size;
+    # last_n - scalar or array; weights - optional sample weights.
+    # Outputs: (means, variances, n) updated statistics.
+    # Exceptions: ValueError for bad axis or inconsistent sizes; TypeError for
+    # unsupported X.
     """Compute incremental mean and variance along an axis on a CSR or CSC matrix.
 
     last_mean, last_var are the statistics computed at the last step by this
@@ -292,6 +329,10 @@ def incr_mean_variance_axis(X, *, axis, last_mean, last_var, last_n, weights=Non
 
 
 def inplace_column_scale(X, scale):
+    # [FUNCTION DOC]
+    # Scales columns of CSR/CSC X in place by scale (for CSC uses row scaling on the
+    # CSR transpose view, which shares data).
+    # Exceptions: TypeError for other inputs. Side effects: modifies X.data.
     """Inplace column scaling of a CSC/CSR matrix.
 
     Scale each feature of the data matrix by multiplying with specific scale
@@ -337,6 +378,9 @@ def inplace_column_scale(X, scale):
 
 
 def inplace_row_scale(X, scale):
+    # [FUNCTION DOC]
+    # Scales rows of CSR/CSC X in place by scale (for CSC, column scaling on the
+    # transpose view). Exceptions: TypeError otherwise. Side effects: modifies X.data.
     """Inplace row scaling of a CSR or CSC matrix.
 
     Scale each row of the data matrix by multiplying with specific scale
@@ -381,6 +425,10 @@ def inplace_row_scale(X, scale):
 
 
 def inplace_swap_row_csc(X, m, n):
+    # [FUNCTION DOC]
+    # Swaps rows m and n of a CSC matrix in place by exchanging the row indices m and
+    # n in X.indices (negative indices wrap).
+    # Exceptions: TypeError if m or n is an ndarray. Side effects: mutates X.indices.
     """Swap two rows of a CSC matrix in-place.
 
     Parameters
@@ -410,6 +458,12 @@ def inplace_swap_row_csc(X, m, n):
 
 
 def inplace_swap_row_csr(X, m, n):
+    # [FUNCTION DOC]
+    # Swaps rows m and n of a CSR matrix in place: orders m < n, adjusts indptr for
+    # rows between them when their nnz differ, and rebuilds indices and data by
+    # concatenating the segments with the two rows' slices exchanged.
+    # Exceptions: TypeError if m or n is an ndarray.
+    # Side effects: mutates X.indptr and replaces X.indices and X.data.
     """Swap two rows of a CSR matrix in-place.
 
     Parameters
@@ -473,6 +527,9 @@ def inplace_swap_row_csr(X, m, n):
 
 
 def inplace_swap_row(X, m, n):
+    # [FUNCTION DOC]
+    # Dispatches a row swap to inplace_swap_row_csc or inplace_swap_row_csr.
+    # Exceptions: TypeError for non CSR/CSC. Side effects: modifies X in place.
     """
     Swap two rows of a CSC/CSR matrix in-place.
 
@@ -518,6 +575,11 @@ def inplace_swap_row(X, m, n):
 
 
 def inplace_swap_column(X, m, n):
+    # [FUNCTION DOC]
+    # Swaps columns m and n (negative indices wrap with n_features): for CSC uses the
+    # CSR row-swap routine (columns are major), for CSR the CSC routine (column
+    # indices stored in indices).
+    # Exceptions: TypeError for non CSR/CSC. Side effects: modifies X in place.
     """
     Swap two columns of a CSC/CSR matrix in-place.
 
@@ -567,6 +629,10 @@ def inplace_swap_column(X, m, n):
 
 
 def min_max_axis(X, axis, ignore_nan=False):
+    # [FUNCTION DOC]
+    # Returns (mins, maxs) along axis (or overall if None) for CSR/CSC, delegating to
+    # _sparse_nan_min_max when ignore_nan else _sparse_min_max; implicit zeros count.
+    # Exceptions: TypeError for unsupported input; ValueError from backports.
     """Compute minimum and maximum along an axis on a CSR or CSC matrix.
 
      Optionally ignore NaN values.
@@ -603,6 +669,14 @@ def min_max_axis(X, axis, ignore_nan=False):
 
 
 def count_nonzero(X, axis=None, sample_weight=None):
+    # [FUNCTION DOC]
+    # Counts (optionally sample-weighted) stored entries of a CSR matrix: total for
+    # axis None, per row for axis 1 (intp dtype unweighted), per column for axis 0
+    # via bincount over indices with row weights repeated per entry. Negative axes
+    # map to 1/0.
+    # Exceptions: TypeError if not CSR; ValueError for other axes.
+    # KNOWN ISSUE: when axis is -1 or -2, the CSR format check is skipped because of
+    # the elif chain. Explicitly stored zeros are counted as nonzero.
     """A variant of X.getnnz() with extension to weighting on axis 0.
 
     Useful in efficiently calculating multilabel metrics.
@@ -657,6 +731,12 @@ def count_nonzero(X, axis=None, sample_weight=None):
 
 
 def _get_median(data, n_zeros):
+    # [FUNCTION DOC]
+    # HELPER: Median of the values in data plus n_zeros implicit zeros. Sorts data,
+    # counts negatives, and picks the middle element(s) via _get_elem_at_rank,
+    # averaging the two middle ones for even counts.
+    # Outputs: float, or NaN when there are no elements.
+    # Side effects: sorts data in place.
     """Compute the median of data with n_zeros additional zeros.
 
     This function is used to support sparse matrices; it modifies data
@@ -679,6 +759,9 @@ def _get_median(data, n_zeros):
 
 
 def _get_elem_at_rank(rank, data, n_negative, n_zeros):
+    # [FUNCTION DOC]
+    # HELPER: Element at a given rank in the virtual sorted sequence formed by the
+    # negative values of data, then n_zeros zeros, then the non-negative values.
     """Find the value in data augmented with n_zeros for the given rank"""
     if rank < n_negative:
         return data[rank]
@@ -688,6 +771,13 @@ def _get_elem_at_rank(rank, data, n_negative, n_zeros):
 
 
 def csc_median_axis_0(X):
+    # [FUNCTION DOC]
+    # Per-column median of a CSC matrix including implicit zeros, computed on a copy
+    # of each column's stored values.
+    # Outputs: float array (n_features,).
+    # Exceptions: TypeError for non-CSC sparse input.
+    # KNOWN ISSUE: for non-sparse input, the error message accesses X.format, so an
+    # AttributeError is raised instead of the intended TypeError.
     """Find the median across axis 0 of a CSC matrix.
 
     It is equivalent to doing np.median(X, axis=0).
@@ -719,6 +809,13 @@ def csc_median_axis_0(X):
 
 
 def _implicit_column_offset(X, offset):
+    # [FUNCTION DOC]
+    # HELPER: LinearOperator representing X minus offset broadcast over rows,
+    # without densifying: products subtract offset contributions (offset dot x for
+    # matvec/matmat; offset times the sum of x, or of each column of x, for
+    # rmatvec/rmatmat).
+    # Inputs: X - sparse (n_samples, n_features); offset - array (n_features,).
+    # Outputs: scipy LinearOperator with X's dtype and shape.
     """Create an implicitly offset linear operator.
 
     This is used by PCA on sparse data to avoid densifying the whole data
@@ -746,6 +843,17 @@ def _implicit_column_offset(X, offset):
 
 
 def sparse_matmul_to_dense(A, B, out=None):
+    # [FUNCTION DOC]
+    # Computes dense A @ B for 2D CSR/CSC A and B of equal float32/float64 dtype
+    # using a CSR x CSR Cython kernel; CSC/CSC is handled as the transposed product
+    # into a transposed out, other CSC operands are converted to CSR.
+    # Inputs: A, B - sparse arrays; out - optional preallocated C-ordered dense
+    # array of shape (n1, n3) and A's dtype.
+    # Outputs: dense ndarray (n1, n3) (out if given).
+    # Exceptions: ValueError for wrong formats/dims, shape mismatch, dtype issues.
+    # Side effects: writes into out.
+    # KNOWN ISSUE: the out shape error message lacks the f prefix, so the braces are
+    # printed literally.
     """Compute A @ B for sparse and 2-dim A and B while returning an ndarray.
 
     Parameters

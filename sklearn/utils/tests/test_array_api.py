@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._array_api: namespace/device inspection, conversion
+# between namespaces (move_to, estimator conversion), and array-API compatible
+# reimplementations of NumPy helpers (average, nan reductions, ravel, median,
+# isin, logsumexp, diagonal helpers, count_nonzero, expit/logit, multinomial
+# loss, etc.). Many tests are parametrized over available namespace/device/dtype
+# combinations and run under config_context(array_api_dispatch=True).
 import os
 from functools import partial
 
@@ -61,6 +68,9 @@ from sklearn.utils.fixes import _IS_32BIT, CSR_CONTAINERS, np_version, parse_ver
 
 @pytest.mark.parametrize("X", [numpy.asarray([1, 2, 3]), [1, 2, 3], (1, 2, 3)])
 def test_get_namespace_ndarray_or_similar_default(X):
+    # [FUNCTION DOC]
+    # Verifies that without dispatch, ndarray/list/tuple inputs give the np_compat
+    # namespace and a non-compliant flag.
     """Check that get_namespace returns NumPy wrapper"""
     xp_out, is_array_api_compliant = get_namespace(X)
     assert xp_out is np_compat
@@ -68,6 +78,9 @@ def test_get_namespace_ndarray_or_similar_default(X):
 
 
 def test_get_namespace_ndarray_creation_device():
+    # [FUNCTION DOC]
+    # Verifies np_compat creation functions accept device="cpu" and reject "cuda" with
+    # ValueError "Unsupported device".
     """Check expected behavior with device and creation functions."""
     X = numpy.asarray([1, 2, 3])
     xp_out, _ = get_namespace(X)
@@ -82,6 +95,9 @@ def test_get_namespace_ndarray_creation_device():
 @skip_if_array_api_compat_not_configured
 @pytest.mark.parametrize("X", [numpy.asarray([1, 2, 3]), [1, 2, 3], (1, 2, 3)])
 def test_get_namespace_ndarray_or_similar_default_with_dispatch(X):
+    # [FUNCTION DOC]
+    # Verifies with dispatch enabled that only ndarrays are flagged compliant and the
+    # namespace is np_compat.
     """Test get_namespace on NumPy ndarrays."""
 
     with config_context(array_api_dispatch=True):
@@ -96,6 +112,9 @@ def test_get_namespace_ndarray_or_similar_default_with_dispatch(X):
 @skip_if_array_api_compat_not_configured
 @pytest.mark.parametrize("constructor_name", ["pyarrow", "pandas", "polars", "series"])
 def test_get_namespace_df_with_dispatch(constructor_name):
+    # [FUNCTION DOC]
+    # Verifies dataframes/series (pyarrow, pandas, polars) are not array API compliant
+    # under dispatch and map to np_compat.
     """Test get_namespace on dataframes and series."""
 
     df = _convert_container([[1, 4, 2], [3, 3, 6]], constructor_name)
@@ -110,6 +129,8 @@ def test_get_namespace_df_with_dispatch(constructor_name):
 
 @skip_if_array_api_compat_not_configured
 def test_get_namespace_sparse_with_dispatch():
+    # [FUNCTION DOC]
+    # Verifies a sparse CSR array maps to np_compat and non-compliant under dispatch.
     """Test get_namespace on sparse arrays."""
     with config_context(array_api_dispatch=True):
         xp_out, is_array_api_compliant = get_namespace(sp.csr_array([[1, 2, 3]]))
@@ -122,6 +143,10 @@ def test_get_namespace_sparse_with_dispatch():
 
 @skip_if_array_api_compat_not_configured
 def test_get_namespace_array_api(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies array_api_strict arrays are detected as compliant, that mixing them
+    # with ndarrays raises TypeError, and that a RuntimeError about scipy support is
+    # raised when SCIPY_ARRAY_API is not "1" (os.environ.get monkeypatched).
     """Test get_namespace for ArrayAPI arrays."""
     xp = pytest.importorskip("array_api_strict")
 
@@ -135,6 +160,9 @@ def test_get_namespace_array_api(monkeypatch):
             xp_out, is_array_api_compliant = get_namespace(X_xp, X_np)
 
         def mock_getenv(key):
+            # [FUNCTION DOC]
+            # HELPER: Replacement for os.environ.get returning "0" for SCIPY_ARRAY_API and
+            # None for any other key.
             if key == "SCIPY_ARRAY_API":
                 return "0"
 
@@ -155,6 +183,9 @@ def test_get_namespace_array_api(monkeypatch):
     ],
 )
 def test_move_to_array_api_conversions(array_input, reference):
+    # [FUNCTION DOC]
+    # Verifies move_to converts an array between each namespace/device pair: output
+    # namespace and device equal the reference ones.
     """Check conversion between various namespace-device-pairs."""
     xp_to, device_to = _array_api_for_tests(reference.xp, device_name=reference.device)
     xp_from, device_from = _array_api_for_tests(
@@ -170,6 +201,9 @@ def test_move_to_array_api_conversions(array_input, reference):
 
 
 def test_move_to_sparse():
+    # [FUNCTION DOC]
+    # Verifies move_to passes sparse arrays and None through for NumPy targets and
+    # raises TypeError when moving sparse arrays to torch.
     """Check sparse inputs are handled correctly."""
     xp_numpy, _ = _array_api_for_tests("numpy", device_name=None)
     xp_torch, device = _array_api_for_tests("torch", device_name="cpu")
@@ -194,6 +228,9 @@ def test_move_to_sparse():
 
 
 def test_move_to_numpy_negative_strides_to_torch():
+    # [FUNCTION DOC]
+    # Verifies, in a subprocess with SCIPY_ARRAY_API=1, that a NumPy array with
+    # negative strides is moved to torch with equal values and no output.
     """Check NumPy arrays with negative strides can be moved to torch."""
     pytest.importorskip("torch")
 
@@ -223,6 +260,8 @@ with config_context(array_api_dispatch=True):
 
 @pytest.mark.parametrize("array_api", ["numpy", "array_api_strict"])
 def test_asarray_with_order(array_api):
+    # [FUNCTION DOC]
+    # Verifies _asarray_with_order with order="F" yields an F-contiguous array.
     """Test _asarray_with_order passes along order for NumPy arrays."""
     xp = pytest.importorskip(array_api)
 
@@ -269,6 +308,10 @@ def test_asarray_with_order(array_api):
 def test_average(
     array_namespace, device_name, dtype_name, weights, axis, normalize, expected
 ):
+    # [FUNCTION DOC]
+    # Verifies _average on a 2x3 array across axis/weights/normalize cases (including
+    # boolean and 2D weights) matches expected values, and that the result stays on
+    # the input's device (skipped on NumPy 2.0 due to a scalar device bug).
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     array_in = numpy.asarray([[1, 2, 3], [4, 5, 6]], dtype=dtype_name)
     array_in = xp.asarray(array_in, device=device)
@@ -293,6 +336,9 @@ def test_average(
     yield_namespace_device_dtype_combinations(include_numpy_namespaces=False),
 )
 def test_average_raises_with_wrong_dtype(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _average raises NotImplementedError for complex inputs in non-NumPy
+    # namespaces (skipped if the namespace lacks the complex dtype).
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     array_in = numpy.asarray([2, 0], dtype=dtype_name) + 1j * numpy.asarray(
@@ -345,6 +391,9 @@ def test_average_raises_with_wrong_dtype(array_namespace, device_name, dtype_nam
 def test_average_raises_with_invalid_parameters(
     array_namespace, device_name, dtype_name, axis, weights, error, error_msg
 ):
+    # [FUNCTION DOC]
+    # Verifies _average raises the expected error for weights without axis, weights of
+    # wrong shape/length, and weights summing to zero.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     array_in = numpy.asarray([[1, 2, 3], [4, 5, 6]], dtype=dtype_name)
@@ -358,6 +407,8 @@ def test_average_raises_with_invalid_parameters(
 
 
 def test_device_none_if_no_input():
+    # [FUNCTION DOC]
+    # Verifies the device helper returns None with no arrays or only non-array inputs.
     assert array_api_device() is None
 
     assert array_api_device(None, "name") is None
@@ -365,21 +416,39 @@ def test_device_none_if_no_input():
 
 @skip_if_array_api_compat_not_configured
 def test_device_inspection():
+    # [FUNCTION DOC]
+    # Using mock Array/Device classes (non-hashable devices), verifies devices are
+    # ignored without dispatch, a ValueError is raised for mismatching devices with
+    # dispatch, and the common device is returned otherwise.
     class Device:
+        # [CLASS DOC]
+        # HELPER: Mock device with a name, equality by name, and a __hash__ that raises.
         def __init__(self, name):
+            # [FUNCTION DOC]
+            # HELPER: Stores the device name.
             self.name = name
 
         def __eq__(self, device):
+            # [FUNCTION DOC]
+            # HELPER: Equality by comparing name attributes.
             return self.name == device.name
 
         def __hash__(self):
+            # [FUNCTION DOC]
+            # HELPER: Always raises TypeError to emulate non-hashable device objects.
             raise TypeError("Device object is not hashable")
 
         def __str__(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns the device name.
             return self.name
 
     class Array:
+        # [CLASS DOC]
+        # HELPER: Mock array exposing only a device attribute.
         def __init__(self, device_name):
+            # [FUNCTION DOC]
+            # HELPER: Creates a Device with the given name.
             self.device = Device(device_name)
 
     # Sanity check: ensure our Device mock class is non hashable, to
@@ -461,6 +530,9 @@ def test_device_inspection():
     ],
 )
 def test_nan_reductions(library, X, reduction, expected):
+    # [FUNCTION DOC]
+    # Verifies _nanmin/_nanmax/_nanmean (whole array and per axis, including all-NaN
+    # rows giving NaN) for numpy, array_api_strict and torch match expected values.
     """Check NaN reductions like _nanmin and _nanmax"""
     xp = pytest.importorskip(library)
 
@@ -476,6 +548,8 @@ def test_nan_reductions(library, X, reduction, expected):
     yield_namespace_device_dtype_combinations(),
 )
 def test_ravel(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _ravel matches C-order numpy.ravel and is C-contiguous for NumPy.
     xp, device = _array_api_for_tests(namespace, device_name, dtype_name)
 
     array = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]
@@ -495,6 +569,8 @@ def test_ravel(namespace, device_name, dtype_name):
 @skip_if_array_api_compat_not_configured
 @pytest.mark.parametrize("library", ["cupy", "torch"])
 def test_convert_to_numpy_gpu(library):  # pragma: nocover
+    # [FUNCTION DOC]
+    # Verifies _convert_to_numpy copies GPU (cupy or CUDA torch) arrays to NumPy.
     """Check convert_to_numpy for GPU backed libraries."""
     xp = pytest.importorskip(library)
 
@@ -511,6 +587,8 @@ def test_convert_to_numpy_gpu(library):  # pragma: nocover
 
 
 def test_convert_to_numpy_cpu():
+    # [FUNCTION DOC]
+    # Verifies _convert_to_numpy on a CPU torch tensor.
     """Check convert_to_numpy for PyTorch CPU arrays."""
     torch = pytest.importorskip("torch")
     X_torch = torch.asarray([1.0, 2.0, 3.0], device="cpu")
@@ -521,7 +599,13 @@ def test_convert_to_numpy_cpu():
 
 
 class SimpleEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Test estimator storing X in several fitted attributes (array, dict,
+    # list) to exercise generic attribute conversion.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores X as X_, in X_dict_ and X_list_, and its first dimension.
+        # KNOWN ISSUE: n_features_ is set to X.shape[0], which is the number of samples.
         self.X_ = X
         self.X_dict_ = {"X": X}
         self.X_list_ = [X]
@@ -529,25 +613,38 @@ class SimpleEstimator(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks X shares the namespace of X_ and returns X unchanged.
         check_same_namespace(X, self, attribute="X_", method="predict")
         return X
 
     def sparsify(self):
+        # [FUNCTION DOC]
+        # HELPER: Replaces X_ with a CSR matrix copy.
         self.X_ = sp.csr_matrix(self.X_)
 
 
 class SimpleEstimatorCustomLogic(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Test estimator defining __sklearn_array_api_convert__ custom logic.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores X as X_ and in X_dict_, and its first dimension.
         self.X_ = X
         self.X_dict_ = {"X": X}
         self.n_features_ = X.shape[0]
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks X shares the namespace of X_ and returns X unchanged.
         check_same_namespace(X, self, attribute="X_", method="predict")
         return X
 
     def __sklearn_array_api_convert__(self, converter):
+        # [FUNCTION DOC]
+        # HELPER: Custom conversion hook: converts X_ and X_dict_ values with converter
+        # and sets converted_ = True. Outputs: self.
         self.X_ = converter(self.X_)
         self.X_dict_ = {k: converter(v) for k, v in self.X_dict_.items()}
         # XXX Do we need this? What else could the custom logic do that wouldn't work
@@ -566,6 +663,10 @@ class SimpleEstimatorCustomLogic(BaseEstimator):
     ],
 )
 def test_convert_estimator_to_ndarray(array_namespace, converter):
+    # [FUNCTION DOC]
+    # Verifies an estimator fitted on torch/array_api_strict/cupy data is converted
+    # to NumPy attributes both by _estimator_with_converted_arrays (with the given
+    # converter) and by move_estimator_to(numpy, "cpu").
     """Convert estimator attributes to ndarray."""
     xp = pytest.importorskip(array_namespace)
 
@@ -582,6 +683,12 @@ def test_convert_estimator_to_ndarray(array_namespace, converter):
 
 @skip_if_array_api_compat_not_configured
 def test_convert_estimator_with_custom_logic():
+    # [FUNCTION DOC]
+    # Verifies conversion of a NumPy-fitted SimpleEstimator to array_api_strict via a
+    # custom converter and via move_estimator_to, including arrays nested in dict and
+    # list attributes.
+    # KNOWN ISSUE: despite its name, the test uses SimpleEstimator, not the custom
+    # logic estimator (that is covered by the next test).
     xp = pytest.importorskip("array_api_strict")
 
     X_np = numpy.asarray([[1.3, 4.5]])
@@ -599,6 +706,9 @@ def test_convert_estimator_with_custom_logic():
 
 @skip_if_array_api_compat_not_configured
 def test_custom_conversion_estimator_to_array_api_strict():
+    # [FUNCTION DOC]
+    # Verifies move_estimator_to uses __sklearn_array_api_convert__: attributes end up
+    # in array_api_strict, converted_ is set, and predict works with strict input.
     xp = pytest.importorskip("array_api_strict")
 
     X_np = numpy.asarray([[1.3, 4.5]])
@@ -616,6 +726,8 @@ def test_custom_conversion_estimator_to_array_api_strict():
 
 @skip_if_array_api_compat_not_configured
 def test_convert_estimator_to_array_api_strict():
+    # [FUNCTION DOC]
+    # Verifies move_estimator_to converts X_ and dict-held arrays to array_api_strict.
     xp = pytest.importorskip("array_api_strict")
 
     X_np = numpy.asarray([[1.3, 4.5]])
@@ -630,6 +742,9 @@ def test_convert_estimator_to_array_api_strict():
 
 @skip_if_array_api_compat_not_configured
 def test_check_fitted_attribute():
+    # [FUNCTION DOC]
+    # Verifies predict raises ValueError ("must use the same namespace") when called
+    # with NumPy input on an estimator fitted with array_api_strict data.
     xp = pytest.importorskip("array_api_strict")
 
     with config_context(array_api_dispatch=True):
@@ -642,6 +757,9 @@ def test_check_fitted_attribute():
 @skip_if_array_api_compat_not_configured
 @pytest.mark.parametrize("X", [[[1.3, 4.5]], sp.csr_array([[1.3, 4.5]])])
 def test_check_fitted_attribute_with_non_array_input(X):
+    # [FUNCTION DOC]
+    # Verifies list and sparse inputs pass the namespace check against NumPy or
+    # sparse fitted attributes, but raise ValueError against array_api_strict ones.
     """Check validation of non-array input against fitted attribute ``X_``.
 
     ``SimpleEstimator.predict`` calls ``check_same_namespace`` with
@@ -669,6 +787,8 @@ def test_check_fitted_attribute_with_non_array_input(X):
     yield_namespace_device_dtype_combinations(),
 )
 def test_indexing_dtype(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies indexing_dtype is int32 on 32-bit platforms and int64 otherwise.
     xp, device = _array_api_for_tests(namespace, device_name, dtype_name)
 
     if _IS_32BIT:
@@ -682,6 +802,9 @@ def test_indexing_dtype(namespace, device_name, dtype_name):
     yield_namespace_device_dtype_combinations(),
 )
 def test_max_precision_float_dtype(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _max_precision_float_dtype returns float64 if the device can allocate
+    # float64 arrays, else float32.
     xp, device = _array_api_for_tests(namespace, device_name)
     try:
         xp.asarray([0.0], dtype=xp.float64, device=device)
@@ -711,6 +834,9 @@ def test_isin(
     element_size,
     int_dtype,
 ):
+    # [FUNCTION DOC]
+    # Verifies _isin matches numpy.isin for several integer dtypes, sizes,
+    # assume_unique and invert settings.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     r = element_size // 2
     element = 2 * numpy.arange(element_size).reshape((r, 2)).astype(int_dtype)
@@ -739,6 +865,10 @@ def test_isin(
     os.environ.get("SCIPY_ARRAY_API") != "1", reason="SCIPY_ARRAY_API not set to 1."
 )
 def test_get_namespace_and_device():
+    # [FUNCTION DOC]
+    # Verifies (with SCIPY_ARRAY_API=1) that get_namespace_and_device returns the
+    # NumPy wrapper and None device for torch input without dispatch, and the
+    # torch compat namespace and tensor device with dispatch.
     # Use torch as a library with custom Device objects:
     torch = pytest.importorskip("torch")
 
@@ -780,6 +910,9 @@ def test_count_nonzero(
     axis,
     sample_weight_type,
 ):
+    # [FUNCTION DOC]
+    # Verifies _count_nonzero on dense arrays matches sparsefuncs.count_nonzero on the
+    # CSR equivalent for all axes and sample weight types, and keeps the device.
     from sklearn.utils.sparsefuncs import count_nonzero as sparse_count_nonzero
 
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
@@ -822,6 +955,9 @@ def test_count_nonzero(
     ],
 )
 def test_validate_diagonal_args(array, value, match):
+    # [FUNCTION DOC]
+    # Verifies _validate_diagonal_args raises ValueError for 1D arrays and value
+    # arguments of wrong length or dimensionality.
     """Check `_validate_diagonal_args` raises the correct errors."""
     xp, _ = _array_api_for_tests("numpy", device_name=None)
     with pytest.raises(ValueError, match=match):
@@ -831,6 +967,10 @@ def test_validate_diagonal_args(array, value, match):
 @pytest.mark.parametrize("function", ["fill", "add"])
 @pytest.mark.parametrize("c_contiguity", [True, False])
 def test_fill_and_add_to_diagonal(c_contiguity, function):
+    # [FUNCTION DOC]
+    # Verifies _fill_diagonal/_add_to_diagonal on C- and non-C-contiguous NumPy
+    # arrays with scalar, list and array values give the expected diagonals
+    # (cumulative for add).
     """Check `_fill/add_to_diagonal` behaviour correct with numpy arrays."""
     xp, _ = _array_api_for_tests("numpy", device_name=None)
     if c_contiguity:
@@ -869,6 +1009,9 @@ def test_fill_and_add_to_diagonal(c_contiguity, function):
     yield_namespace_device_dtype_combinations(),
 )
 def test_fill_diagonal(array, array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _fill_diagonal matches numpy.fill_diagonal on standard, transposed and
+    # strided views.
     """Check array API `_fill_diagonal` consistent with `numpy._fill_diagonal`."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     array_np = numpy.zeros((4, 5), dtype=dtype_name)
@@ -894,6 +1037,10 @@ def test_fill_diagonal(array, array_namespace, device_name, dtype_name):
     yield_namespace_device_dtype_combinations(),
 )
 def test_add_to_diagonal(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Intended to verify _add_to_diagonal consistency between namespaces.
+    # KNOWN ISSUE: it calls _fill_diagonal on both sides, so _add_to_diagonal is not
+    # exercised.
     """Check `_add_to_diagonal` consistent between array API xp and numpy namespace."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     np_xp, _ = _array_api_for_tests("numpy", device_name=None)
@@ -912,6 +1059,10 @@ def test_add_to_diagonal(array_namespace, device_name, dtype_name):
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("dispatch", [True, False])
 def test_sparse_device(csr_container, dispatch):
+    # [FUNCTION DOC]
+    # Verifies device inspection on sparse inputs returns None for sparse-only input
+    # and the NumPy array device (or None) when mixed, with and without dispatch
+    # (skipped with dispatch if SCIPY_ARRAY_API is unset).
     np_arr = numpy.array([1])
     # For numpy < 2, the device attribute is not available on numpy arrays
     expected_numpy_array_device = getattr(np_arr, "device", None) if dispatch else None
@@ -931,6 +1082,9 @@ def test_sparse_device(csr_container, dispatch):
 )
 @pytest.mark.parametrize("axis", [None, 0, 1])
 def test_median(namespace, device_name, dtype_name, axis):
+    # [FUNCTION DOC]
+    # Verifies _median matches numpy.median for axis None/0/1 on a random 5x4 array,
+    # and (except for array_api_strict) keeps namespace and device.
     # Note: depending on the value of `axis`, this test will compare median
     # computations on arrays of even (4) or odd (5) numbers of elements, hence
     # will test for median computation with and without interpolation to check
@@ -959,6 +1113,9 @@ def test_median(namespace, device_name, dtype_name, axis):
     yield_namespace_device_dtype_combinations(),
 )
 def test_expit_logit(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _expit and _logit match scipy expit/logit on linspace inputs with a
+    # dtype-dependent rtol.
     rtol = 1e-6 if "float32" in str(dtype_name) else 1e-12
     xp, device = _array_api_for_tests(namespace, device_name, dtype_name)
 
@@ -986,6 +1143,9 @@ def test_expit_logit(namespace, device_name, dtype_name):
 )
 @pytest.mark.parametrize("axis", [0, 1, None])
 def test_logsumexp_like_scipy_logsumexp(array_namespace, device_name, dtype_name, axis):
+    # [FUNCTION DOC]
+    # Verifies _logsumexp matches scipy logsumexp for each axis, also without
+    # dispatch for CPU torch/array_api_strict, and with NaN and +/-inf inputs.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     array_np = numpy.asarray(
         [
@@ -1038,6 +1198,9 @@ def test_logsumexp_like_scipy_logsumexp(array_namespace, device_name, dtype_name
 
 @pytest.mark.parametrize("axis", [0, 1, None])
 def test_logsumexp_integer_array_api_on_float32_only_device(axis):
+    # [FUNCTION DOC]
+    # Verifies _logsumexp on int64 input on a float32-only device (torch MPS) returns
+    # float32 values matching scipy.
     xp, device = _array_api_for_tests("torch", device_name="mps", dtype_name="float32")
 
     # TODO: replace this torch/MPS-specific coverage by array-api-strict once
@@ -1069,6 +1232,9 @@ def test_logsumexp_integer_array_api_on_float32_only_device(axis):
     ],
 )
 def test_supported_float_types(namespace, device_, expected_types):
+    # [FUNCTION DOC]
+    # Verifies supported_float_dtypes returns the expected ordered dtype tuple for
+    # each namespace/device.
     xp, device = _array_api_for_tests(namespace, device_name=device_)
     float_types = supported_float_dtypes(xp, device=device)
     expected = tuple(getattr(xp, dtype_name) for dtype_name in expected_types)
@@ -1081,6 +1247,9 @@ def test_supported_float_types(namespace, device_, expected_types):
     yield_namespace_device_dtype_combinations(),
 )
 def test_half_multinomial_loss(use_sample_weight, namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _half_multinomial_loss (optionally weighted) is close to
+    # HalfMultinomialLoss computed with NumPy.
     """Check that the array API version of :func:`_half_multinomial_loss` works
     correctly and matches the results produced by :class:`HalfMultinomialLoss`
     of the private `_loss` module.
@@ -1116,6 +1285,9 @@ def test_half_multinomial_loss(use_sample_weight, namespace, device_name, dtype_
     yield_namespace_device_dtype_combinations(),
 )
 def test_matching_numpy_dtype(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies _matching_numpy_dtype returns the NumPy dtype corresponding to the
+    # array's dtype.
     xp, device = _array_api_for_tests(namespace, device_name, dtype_name)
     X_np = numpy.arange(1000).astype(dtype_name)
     X_xp = xp.asarray(X_np, device=device)

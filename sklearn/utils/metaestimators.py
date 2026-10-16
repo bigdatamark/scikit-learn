@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Utilities for meta-estimators: the _BaseComposition base class handling
+# get/set_params over lists of (name, estimator) pairs, _safe_split for slicing
+# data (including precomputed kernels) in cross-validation, and a re-export of
+# available_if (the only name in __all__).
 """Utilities for meta-estimators."""
 
 # Authors: The scikit-learn developers
@@ -17,6 +22,11 @@ __all__ = ["available_if"]
 
 
 class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for composite estimators storing named sub-estimators as a list
+    # of (name, estimator) tuples under some attribute (passed as attr to methods).
+    # Subclasses implement __init__ and call _get_params/_set_params from their
+    # get_params/set_params.
     """Base class for estimators that are composed of named sub-estimators.
 
     This abstract class provides parameter management functionality for
@@ -30,9 +40,18 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def __init__(self):
+        # [FUNCTION DOC]
+        # Abstract constructor placeholder; does nothing.
         pass
 
     def _get_params(self, attr, deep=True):
+        # [FUNCTION DOC]
+        # HELPER: Returns BaseEstimator params; if deep, also adds each (name, estimator)
+        # from getattr(self, attr) and, for estimators with get_params, their deep
+        # params under keys "name__param".
+        # Inputs: attr - attribute name of the estimator list; deep - bool.
+        # Outputs: dict of parameters. If the attribute is not a valid list of pairs
+        # (TypeError/ValueError on dict update), returns the shallow params only.
         out = super().get_params(deep=deep)
         if not deep:
             return out
@@ -55,6 +74,15 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
         return out
 
     def _set_params(self, attr, **params):
+        # [FUNCTION DOC]
+        # HELPER: Sets params in a strict order: first replaces the whole collection if
+        # attr is among params; then, for keys without "__" matching an existing
+        # estimator name, replaces that estimator; finally passes the remaining params
+        # to BaseEstimator.set_params (nested "name__param" keys included).
+        # Inputs: attr - attribute name; params - keyword params.
+        # Outputs: self.
+        # Side effects: mutates self attributes and nested estimators. A malformed
+        # collection (TypeError from unpacking) silently skips step 2.
         # Ensure strict ordering of parameter setting:
         # 1. Replace the entire estimators collection
         if attr in params:
@@ -76,6 +104,10 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
         return self
 
     def _replace_estimator(self, attr, name, new_val):
+        # [FUNCTION DOC]
+        # HELPER: Replaces the estimator named name in getattr(self, attr) with new_val,
+        # assigning a new list (first match only) back to the attribute.
+        # Side effects: sets self.<attr> to a new list.
         # assumes `name` is a valid estimator name
         new_estimators = list(getattr(self, attr))
         for i, (estimator_name, _) in enumerate(new_estimators):
@@ -85,6 +117,11 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
         setattr(self, attr, new_estimators)
 
     def _validate_names(self, names):
+        # [FUNCTION DOC]
+        # HELPER: Validates estimator names: must be unique, must not collide with
+        # constructor parameter names, and must not contain "__".
+        # Inputs: names - sequence of str. Outputs: None.
+        # Exceptions: ValueError describing the first failed rule.
         if len(set(names)) != len(names):
             raise ValueError("Names provided are not unique: {0!r}".format(list(names)))
         invalid_names = set(names).intersection(self.get_params(deep=False))
@@ -101,6 +138,9 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
             )
 
     def _check_estimators_are_instances(self, estimators):
+        # [FUNCTION DOC]
+        # HELPER: Ensures each element of estimators is an instance, not a class.
+        # Exceptions: TypeError on the first class object found.
         for estimator in estimators:
             if isinstance(estimator, type):
                 raise TypeError(
@@ -110,6 +150,15 @@ class _BaseComposition(BaseEstimator, metaclass=ABCMeta):
 
 
 def _safe_split(estimator, X, y, indices, train_indices=None):
+    # [FUNCTION DOC]
+    # HELPER: If the estimator's pairwise input tag is set, X must have a shape and be
+    # square; rows are selected by indices and columns by train_indices (or indices
+    # if None) via np.ix_. Otherwise rows are selected with _safe_indexing. y is
+    # row-indexed with _safe_indexing unless None.
+    # Outputs: (X_subset, y_subset), y_subset None when y is None.
+    # Exceptions: ValueError when a pairwise X has no shape or is not square.
+    # KNOWN ISSUE: docstring refers to estimator._pairwise but code uses
+    # get_tags(estimator).input_tags.pairwise.
     """Create subset of dataset and properly handle kernels.
 
     Slice X, y according to indices for cross-validation, but take care of

@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.Bunch deprecated-key support.
 import warnings
 
 import numpy as np
@@ -7,6 +9,9 @@ from sklearn.utils import Bunch
 
 
 def test_bunch_attribute_deprecation():
+    # [FUNCTION DOC]
+    # Verifies that after _set_deprecated, the new key returns the value without
+    # warnings and the deprecated key returns the same object with a FutureWarning.
     """Check that bunch raises deprecation message with `__getattr__`."""
     bunch = Bunch()
     values = np.asarray([1, 2, 3])

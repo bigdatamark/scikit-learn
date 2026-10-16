@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._chunking (gen_even_slices, get_chunk_n_rows).
 import warnings
 from itertools import chain
 
@@ -9,6 +11,8 @@ from sklearn.utils._testing import assert_array_equal
 
 
 def test_gen_even_slices():
+    # [FUNCTION DOC]
+    # Verifies concatenating slices from gen_even_slices(10, 3) covers range(10).
     # check that gen_even_slices contains all samples
     some_range = range(10)
     joined_range = list(chain(*[some_range[slice] for slice in gen_even_slices(10, 3)]))
@@ -28,6 +32,9 @@ def test_gen_even_slices():
     ],
 )
 def test_get_chunk_n_rows(row_bytes, max_n_rows, working_memory, expected):
+    # [FUNCTION DOC]
+    # Verifies get_chunk_n_rows returns the expected int count with explicit
+    # working_memory and via config_context, without UserWarning.
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         actual = get_chunk_n_rows(
@@ -47,6 +54,9 @@ def test_get_chunk_n_rows(row_bytes, max_n_rows, working_memory, expected):
 
 
 def test_get_chunk_n_rows_warns():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning about working_memory is raised and 1 is returned when a
+    # single row exceeds the working memory, both explicitly and via config.
     """Check that warning is raised when working_memory is too low."""
     row_bytes = 1024 * 1024 + 1
     max_n_rows = None

@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Compatibility layer for NumPy, SciPy, pandas, matplotlib and Python versions.
+# At import time it computes version flags (np_version, sp_version and their base
+# versions, SCIPY_VERSION_BELOW_1_12/_1_15, SPARRAY_PRESENT, _IS_32BIT, _IS_WASM),
+# lists of sparse container classes per format (CSR_CONTAINERS, etc.), and binds
+# version-dependent implementations (_sparse_linalg_cg, _sparse_min_max,
+# _sparse_nan_min_max, ComplexWarning, VisibleDeprecationWarning, laplacian,
+# _sparse_eye_array, _sparse_diags_array, _sparse_random_array) chosen by
+# module-level if/else on the installed versions. Also exposes PETROFF_COLORS.
+# Side effects: imports pandas if available (else pd is None); no other state.
 """Compatibility fixes for older version of the dependencies
 
 If you add content to this file, please give the version of the package
@@ -51,11 +61,22 @@ except ImportError:
 
 
 def _object_dtype_isnan(X):
+    # [FUNCTION DOC]
+    # HELPER: NaN mask for object-dtype arrays, using the fact that NaN != NaN.
+    # Inputs: X - array (typically object dtype). Outputs: boolean array, same shape.
     return X != X
 
 
 # TODO: Remove when SciPy 1.11 is the minimum supported version
 def _mode(a, axis=0):
+    # [FUNCTION DOC]
+    # HELPER: Wrapper around scipy.stats.mode with keepdims=True that, for SciPy
+    # >= 1.11 and axis=None, ravels the result to restore the older output shape.
+    # Inputs: a - array; axis - int or None (default 0).
+    # Outputs: scipy ModeResult (mode, count), or a raveled array when axis is None
+    # on new SciPy.
+    # KNOWN ISSUE: with axis=None on new SciPy, np.ravel is applied to the whole
+    # ModeResult tuple, giving a flat array of [mode, count] rather than a ModeResult.
     mode = scipy.stats.mode(a, axis=axis, keepdims=True)
     if sp_version >= parse_version("1.10.999"):
         # scipy.stats.mode has changed returned array shape with axis=None
@@ -81,6 +102,12 @@ if sp_base_version >= parse_version("1.12.0"):
 else:
 
     def _sparse_linalg_cg(A, b, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Backport of scipy.sparse.linalg.cg for SciPy < 1.12: renames the rtol
+        # keyword to tol and defaults atol to "legacy" when not given, then calls cg.
+        # Inputs: A - linear operator/matrix; b - right-hand side; kwargs - cg options.
+        # Outputs: (solution, info) as returned by scipy cg.
+        # Side effects: mutates the local kwargs dict only.
         if "rtol" in kwargs:
             kwargs["tol"] = kwargs.pop("rtol")
         if "atol" not in kwargs:
@@ -94,6 +121,11 @@ else:
 if sp_base_version >= parse_version("1.11.0"):
 
     def _sparse_min_max(X, axis):
+        # [FUNCTION DOC]
+        # HELPER: Min and max of a sparse matrix (SciPy >= 1.11) along axis using the
+        # native min/max methods; when axis is not None densifies results to 1D arrays.
+        # Inputs: X - sparse matrix/array; axis - None, 0 or 1.
+        # Outputs: tuple (mins, maxs) - scalars if axis is None, else 1D ndarrays.
         the_min = X.min(axis=axis)
         the_max = X.max(axis=axis)
 
@@ -104,6 +136,9 @@ if sp_base_version >= parse_version("1.11.0"):
         return the_min, the_max
 
     def _sparse_nan_min_max(X, axis):
+        # [FUNCTION DOC]
+        # HELPER: Same as _sparse_min_max but ignoring NaNs (nanmin/nanmax methods).
+        # Inputs/Outputs: as _sparse_min_max.
         the_min = X.nanmin(axis=axis)
         the_max = X.nanmax(axis=axis)
 
@@ -117,6 +152,14 @@ else:
     # This code is mostly taken from scipy 0.14 and extended to handle nans, see
     # https://github.com/scikit-learn/scikit-learn/pull/11196
     def _minor_reduce(X, ufunc):
+        # [FUNCTION DOC]
+        # HELPER: Applies a ufunc reduction over each non-empty major slice (row of CSR /
+        # column of CSC) of X using ufunc.reduceat on X.data at the indptr starts.
+        # Inputs: X - CSR or CSC matrix with sorted, deduplicated structure; ufunc -
+        # binary numpy ufunc (e.g. np.minimum).
+        # Outputs: (major_index, value) - indices of non-empty major slices and the
+        # reduced value of each.
+        # Side effects: rebuilds X locally to reset index dtypes; input unchanged.
         major_index = np.flatnonzero(np.diff(X.indptr))
 
         # reduceat tries casts X.indptr to intp, which errors
@@ -127,6 +170,16 @@ else:
         return major_index, value
 
     def _min_or_max_axis(X, axis, min_or_max):
+        # [FUNCTION DOC]
+        # HELPER: Backport min or max along axis 0 or 1 for sparse matrices. Converts to
+        # CSC (axis 0) or CSR (axis 1), sums duplicates, reduces explicit values per
+        # slice, then combines with implicit zeros for slices not completely filled.
+        # Inputs: X - sparse matrix; axis - 0 or 1; min_or_max - np.minimum/np.maximum
+        # (or np.fmin/np.fmax).
+        # Outputs: dense 1D array of length X.shape[1 - axis].
+        # Exceptions: ValueError when the reduced dimension has size 0.
+        # Side effects: sum_duplicates is applied to the converted copy; if X is already
+        # in the target format, tocsc/tocsr may return X itself so X can be mutated.
         N = X.shape[axis]
         if N == 0:
             raise ValueError("zero-size array to reduction operation")
@@ -155,6 +208,13 @@ else:
         return res.toarray().ravel()
 
     def _sparse_min_or_max(X, axis, min_or_max):
+        # [FUNCTION DOC]
+        # HELPER: Backport min or max of a sparse matrix over all entries (axis None) or
+        # along an axis. For axis None, reduces stored data and includes zero if any
+        # implicit zeros exist. Negative axis values are wrapped by adding 2.
+        # Inputs: X - sparse matrix; axis - None, 0, 1, -1, -2; min_or_max - ufunc.
+        # Outputs: scalar (axis None) or 1D dense array.
+        # Exceptions: ValueError for empty matrices with axis None or for invalid axis.
         if axis is None:
             if 0 in X.shape:
                 raise ValueError("zero-size array to reduction operation")
@@ -173,12 +233,18 @@ else:
             raise ValueError("invalid axis, use 0 for rows, or 1 for columns")
 
     def _sparse_min_max(X, axis):
+        # [FUNCTION DOC]
+        # HELPER: Backport returning (min, max) via _sparse_min_or_max with np.minimum
+        # and np.maximum (NaN propagating).
         return (
             _sparse_min_or_max(X, axis, np.minimum),
             _sparse_min_or_max(X, axis, np.maximum),
         )
 
     def _sparse_nan_min_max(X, axis):
+        # [FUNCTION DOC]
+        # HELPER: Backport returning (nanmin, nanmax) via _sparse_min_or_max with
+        # np.fmin and np.fmax, which ignore NaNs when another value is available.
         return (
             _sparse_min_or_max(X, axis, np.fmin),
             _sparse_min_or_max(X, axis, np.fmax),
@@ -198,6 +264,14 @@ else:
 
 # TODO: Adapt when Pandas > 2.2 is the minimum supported version
 def pd_fillna(pd, frame):
+    # [FUNCTION DOC]
+    # Replaces missing values of a pandas DataFrame/Series with np.nan in a way that
+    # avoids pandas downcasting FutureWarnings: plain fillna for pandas < 2.2;
+    # otherwise fillna then infer_objects, under the future.no_silent_downcasting
+    # option for pandas < 3.0, and passing copy=False to infer_objects only for
+    # pandas < 3.
+    # Inputs: pd - the pandas module; frame - DataFrame or Series.
+    # Outputs: new frame with missing values set to np.nan.
     pd_version = parse_version(pd.__version__).base_version
     if parse_version(pd_version) < parse_version("2.2"):
         frame = frame.fillna(value=np.nan)
@@ -217,6 +291,18 @@ def pd_fillna(pd, frame):
 def _preserve_dia_indices_dtype(
     sparse_container, original_container_format, requested_sparse_format
 ):
+    # [FUNCTION DOC]
+    # HELPER: When a DIA array was converted to CSR or COO, downcasts its index arrays
+    # to the smallest admissible dtype (int32 where possible) for consistency with
+    # DIA matrices on SciPy < 1.12. For CSR checks indptr/indices contents with
+    # maxval = max(nnz, n_cols); for COO uses maxval = max(shape) on row/col.
+    # Inputs: sparse_container - converted sparse object; original_container_format -
+    # type name string of the original container (e.g. "dia_array");
+    # requested_sparse_format - target format string.
+    # Outputs: None.
+    # Side effects: reassigns index attributes of sparse_container in place.
+    # KNOWN ISSUE: docstring omits original_container_format and only CSR/COO (not
+    # CSC as the summary says) are handled.
     """Preserve indices dtype for SciPy < 1.12 when converting from DIA to CSR/CSC.
 
     For SciPy < 1.12, DIA arrays indices are upcasted to `np.int64` that is
@@ -262,6 +348,16 @@ def _preserve_dia_indices_dtype(
 
 # TODO: remove when SciPy 1.12 is the minimum supported version
 def _smallest_admissible_index_dtype(arrays=(), maxval=None, check_contents=False):
+    # [FUNCTION DOC]
+    # HELPER: Chooses np.int32 or np.int64 as index dtype. Returns int64 if maxval
+    # exceeds the int32 max, or if any array's dtype cannot be cast to int32 (when
+    # check_contents is False) or its non-empty contents fall outside the int32 range
+    # (when check_contents is True); otherwise int32.
+    # Inputs: arrays - ndarray or tuple of integer ndarrays; maxval - number or None;
+    # check_contents - bool.
+    # Outputs: np.int32 or np.int64 type.
+    # Exceptions: ValueError if maxval exceeds int64 max or an array is not integer;
+    # TypeError if an element of arrays is not an ndarray.
     """Based on input (integer) arrays `a`, determine a suitable index data
     type that can hold the data in the arrays.
 
@@ -341,6 +437,12 @@ else:
 
 # TODO: Remove when Python min version >= 3.12.
 def tarfile_extractall(tarfile, path):
+    # [FUNCTION DOC]
+    # Extracts all members of an open tarfile to path using filter="data" for safety;
+    # falls back to an unfiltered extractall when the Python version does not
+    # support the filter argument (TypeError).
+    # Inputs: tarfile - tarfile.TarFile object; path - destination directory.
+    # Side effects: writes files to disk.
     try:
         # Use filter="data" to prevent the most dangerous security issues.
         # For more details, see
@@ -351,6 +453,12 @@ def tarfile_extractall(tarfile, path):
 
 
 def _in_unstable_openblas_configuration():
+    # [FUNCTION DOC]
+    # HELPER: Detects whether OpenBLAS is loaded in a known-unstable configuration.
+    # Imports numpy/scipy, inspects threadpoolctl info; returns False if OpenBLAS is
+    # not used; True if any OpenBLAS lib has unknown version/architecture, or is a
+    # neoversen1 build older than 0.3.16; False otherwise.
+    # Outputs: bool.
     """Return True if in an unstable configuration for OpenBLAS"""
 
     # Import libraries which might load OpenBLAS.
@@ -390,6 +498,9 @@ def _in_unstable_openblas_configuration():
 # scipy 1.15, 'iprint' and 'disp' have no effect and for scipy >= 1.16 a
 # DeprecationWarning is emitted.
 def _get_additional_lbfgs_options_dict(key, value):
+    # [FUNCTION DOC]
+    # HELPER: Returns {key: value} for SciPy < 1.15 and an empty dict otherwise, so
+    # L-BFGS options like iprint/disp are only passed where they still have effect.
     return {} if sp_version >= parse_version("1.15") else {key: value}
 
 
@@ -409,6 +520,14 @@ if not SCIPY_VERSION_BELOW_1_12:
         rng=None,
         data_sampler=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Random sparse array (SciPy >= 1.12) via scipy.sparse.random_array,
+        # then forces index arrays to int32 when safe.
+        # Inputs: shape - tuple; density - float in [0, 1]; format - sparse format str;
+        # dtype; random_state / rng - seed or generator (rng takes precedence if truthy);
+        # data_sampler - callable producing values.
+        # Outputs: sparse array in the requested format.
+        # Side effects: consumes randomness from the given generator.
         X = scipy.sparse.random_array(
             shape,
             density=density,
@@ -423,12 +542,22 @@ if not SCIPY_VERSION_BELOW_1_12:
 else:
 
     def _sparse_eye_array(m, n=None, *, k=0, dtype=float, format=None):
+        # [FUNCTION DOC]
+        # HELPER: Backport of scipy.sparse.eye_array for SciPy < 1.12: builds a sparse
+        # identity-like matrix with diagonal offset k and converts to a DIA array then to
+        # format. Inputs: m, n - shape (n defaults to m); k - diagonal; dtype; format.
+        # Outputs: sparse array.
         A = scipy.sparse.eye(m, n, k=k, dtype=dtype)
         return scipy.sparse.dia_array(A).asformat(format)
 
     def _sparse_diags_array(
         diagonals, /, *, offsets=0, shape=None, format=None, dtype=None
     ):
+        # [FUNCTION DOC]
+        # HELPER: Backport of scipy.sparse.diags_array for SciPy < 1.12 via
+        # scipy.sparse.diags then conversion to DIA array and to format.
+        # Inputs: diagonals, offsets, shape, format, dtype as in scipy.sparse.diags.
+        # Outputs: sparse array.
         A = scipy.sparse.diags(diagonals, offsets=offsets, shape=shape, dtype=dtype)
         return scipy.sparse.dia_array(A).asformat(format)
 
@@ -442,6 +571,11 @@ else:
         rng=None,
         data_sampler=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Backport of _sparse_random_array for SciPy < 1.12 using
+        # scipy.sparse.random (data_sampler passed as data_rvs), converted to a COO array
+        # then to format. Index dtypes are not forced to int32 here.
+        # Inputs/Outputs: as the modern variant above; shape must have 2 elements.
         A = scipy.sparse.random(
             *shape,
             density=density,
@@ -455,6 +589,13 @@ else:
 # TODO: remove when SciPy 1.15 is minimal supported version
 # fix for casting index arrays
 def _ensure_sparse_index_int32(A):
+    # [FUNCTION DOC]
+    # HELPER: Casts index arrays of a sparse array to int32 in place when safe,
+    # dispatching on format (csr/csc/bsr: indices and indptr; coo: coords, indices or
+    # row/col depending on SciPy version; dia: offsets). Other formats untouched.
+    # Inputs: A - sparse array. Outputs: None.
+    # Exceptions: ValueError propagated from _safely_cast_index_arrays.
+    # Side effects: mutates A's index attributes.
     """Safely ensure that index arrays are int32."""
     if A.format in ("csc", "csr", "bsr"):
         A.indices, A.indptr = _safely_cast_index_arrays(A)
@@ -472,6 +613,16 @@ def _ensure_sparse_index_int32(A):
 # TODO: remove when SciPy 1.15 is minimal supported version
 #       (based on scipy.sparse._sputils.py function with same name)
 def _safely_cast_index_arrays(A, idx_dtype=np.int32, msg=""):
+    # [FUNCTION DOC]
+    # HELPER: Returns index arrays of A cast to idx_dtype (copy only when the dtype
+    # changes), after checking values fit when a shape dimension exceeds the dtype
+    # max. Inputs: A - sparse array; idx_dtype - integer dtype (default int32);
+    # msg - text inserted into error messages.
+    # Outputs: (indices, indptr) for csr/csc/bsr; tuple of coordinate arrays for coo;
+    # offsets array for dia; None for other formats (dok, lil).
+    # Exceptions: ValueError when values are too large for idx_dtype.
+    # KNOWN ISSUE: the bsr indptr error message lacks the f prefix, so "{msg}" is
+    # printed literally.
     """Safely cast sparse array indices to `idx_dtype`.
 
     Check the shape of `A` to determine if it is safe to cast its index

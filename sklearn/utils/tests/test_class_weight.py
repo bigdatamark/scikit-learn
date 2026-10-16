@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.class_weight (compute_class_weight and
+# compute_sample_weight), including balanced, dict, multi-output, subsampled
+# and sparse targets, plus estimator-level non-regression checks.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -11,6 +15,9 @@ from sklearn.utils.fixes import CSC_CONTAINERS
 
 
 def test_compute_class_weight():
+    # [FUNCTION DOC]
+    # Verifies "balanced" weights preserve the total sample count when dotted with
+    # class counts and decrease with class frequency.
     # Test (and demo) compute_class_weight.
     y = np.asarray([2, 2, 2, 3, 3, 4])
     classes = np.unique(y)
@@ -59,6 +66,10 @@ def test_compute_class_weight():
     ],
 )
 def test_compute_class_weight_not_present(y_type, class_weight, classes, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages when classes contain labels missing from y, when
+    # class_weight keys miss classes, or when classes omit labels present in y, for
+    # numeric and string targets. Prints y (debug leftover).
     # Raise error when y does not contain all class labels
     y = (
         np.asarray([0, 0, 0, 1, 1, 2])
@@ -72,6 +83,9 @@ def test_compute_class_weight_not_present(y_type, class_weight, classes, err_msg
 
 
 def test_compute_class_weight_dict():
+    # [FUNCTION DOC]
+    # Verifies dict class weights are returned as given, keys not in classes are
+    # ignored, and order follows classes.
     classes = np.arange(3)
     class_weights = {0: 1.0, 1: 2.0, 2: 3.0}
     y = np.asarray([0, 0, 1, 2])
@@ -92,6 +106,9 @@ def test_compute_class_weight_dict():
 
 
 def test_compute_class_weight_invariance():
+    # [FUNCTION DOC]
+    # Verifies LogisticRegression with balanced weights yields the same coefficients
+    # when one class is duplicated, the other is duplicated, or all are duplicated.
     # Test that results with class_weight="balanced" is invariant wrt
     # class imbalance if the number of samples is identical.
     # The test uses a balanced two class dataset with 100 datapoints.
@@ -120,6 +137,8 @@ def test_compute_class_weight_invariance():
 
 
 def test_compute_class_weight_balanced_negative():
+    # [FUNCTION DOC]
+    # Verifies balanced weights are all 1 for equally frequent negative labels.
     # Test compute_class_weight when labels are negative
     # Test with balanced class labels.
     classes = np.array([-2, -1, 0])
@@ -131,6 +150,9 @@ def test_compute_class_weight_balanced_negative():
 
 
 def test_compute_class_weight_balanced_sample_weight_equivalence():
+    # [FUNCTION DOC]
+    # Verifies balanced weights with sample_weight equal those obtained by repeating
+    # samples per their integer weight.
     # Test with unbalanced and negative class labels for
     # equivalence between repeated and weighted samples
 
@@ -158,6 +180,9 @@ def test_compute_class_weight_balanced_sample_weight_equivalence():
 
 
 def test_compute_class_weight_balanced_unordered():
+    # [FUNCTION DOC]
+    # Verifies balanced weights follow the given (unordered) classes order and have
+    # the expected values.
     # Test compute_class_weight when classes are unordered
     classes = np.array([1, 0, 3])
     y = np.asarray([1, 0, 0, 3, 3, 3])
@@ -169,6 +194,9 @@ def test_compute_class_weight_balanced_unordered():
 
 
 def test_compute_class_weight_default():
+    # [FUNCTION DOC]
+    # Verifies None gives unit weights and partial dicts default unspecified classes
+    # to 1.
     # Test for the case where no weight is given for a present class.
     # Current behaviour is to assign the unweighted classes a weight of 1.
     y = np.asarray([2, 2, 2, 3, 3, 4])
@@ -191,6 +219,9 @@ def test_compute_class_weight_default():
 
 
 def test_compute_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies compute_sample_weight for balanced/dict/None weights on 1D, column and
+    # multi-output targets; multi-output weights are products over outputs.
     # Test (and demo) compute_sample_weight.
     # Test with balanced classes
     y = np.asarray([1, 1, 1, 2, 2, 2])
@@ -235,6 +266,9 @@ def test_compute_sample_weight():
 
 
 def test_compute_sample_weight_with_subsample():
+    # [FUNCTION DOC]
+    # Verifies compute_sample_weight with indices (full, subsample, bootstrap,
+    # multi-output) and that classes missing from the subsample get weight 0.
     # Test compute_sample_weight with subsamples specified.
     # Test with balanced classes and all samples present
     y = np.asarray([1, 1, 1, 2, 2, 2])
@@ -297,6 +331,9 @@ def test_compute_sample_weight_with_subsample():
     ],
 )
 def test_compute_sample_weight_errors(y_type, class_weight, indices, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError for non-balanced weights with subsampling, a dict for
+    # multi-output, and a list of the wrong length.
     # Test compute_sample_weight raises errors expected.
     # Invalid preset string
     y_single_output = np.asarray([1, 1, 1, 2, 2, 2])
@@ -308,6 +345,8 @@ def test_compute_sample_weight_errors(y_type, class_weight, indices, err_msg):
 
 
 def test_compute_sample_weight_more_than_32():
+    # [FUNCTION DOC]
+    # Smoke test that balanced subsampled weights with 50 classes are all ones.
     # Non-regression smoke test for #12146
     y = np.arange(50)  # more than 32 distinct classes
     indices = np.arange(50)  # use subsampling
@@ -316,6 +355,9 @@ def test_compute_sample_weight_more_than_32():
 
 
 def test_class_weight_does_not_contains_more_classes():
+    # [FUNCTION DOC]
+    # Verifies fitting a DecisionTreeClassifier does not raise when class_weight has
+    # more labels than y.
     """Check that class_weight can contain more labels than in y.
 
     Non-regression test for #22413
@@ -328,6 +370,8 @@ def test_class_weight_does_not_contains_more_classes():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_compute_sample_weight_sparse(csc_container):
+    # [FUNCTION DOC]
+    # Verifies balanced sample weights for a sparse CSC single-column target.
     """Check that we can compute weight for sparse `y`."""
     y = csc_container(np.asarray([[0], [1], [1]]))
     sample_weight = compute_sample_weight("balanced", y)

@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Random sampling utilities: re-exports sample_without_replacement (the only name
+# in __all__) and provides _random_choice_csc for drawing sparse class matrices.
 """Utilities for random sampling."""
 
 # Authors: The scikit-learn developers
@@ -16,6 +19,22 @@ __all__ = ["sample_without_replacement"]
 
 
 def _random_choice_csc(n_samples, classes, class_probability=None, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: For each output column j: casts classes[j] to int64 (requires an integer
+    # kind), uses uniform or given probabilities (must sum to ~1 and match length),
+    # inserts class 0 with probability 0 when absent; if more than one class, picks
+    # int(n_samples * (1 - p0)) rows without replacement to be nonzero and assigns
+    # them nonzero classes sampled from the renormalized nonzero probabilities via
+    # inverse CDF on uniform draws. Builds a CSC matrix.
+    # Inputs: n_samples - int; classes - list of arrays; class_probability - list of
+    # arrays or None; random_state.
+    # Outputs: sparse CSC (n_samples, n_outputs) integer matrix, API-aligned.
+    # Exceptions: ValueError for non-integer classes, probabilities not summing to 1
+    # or length mismatch.
+    # Side effects: replaces elements of the caller's classes list in place.
+    # KNOWN ISSUE: check_random_state is called inside the loop, so an int seed gives
+    # identical draws per column; data/indices are int32 arrays so large class values
+    # may overflow.
     """Generate a sparse random matrix given column class distributions
 
     Parameters

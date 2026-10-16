@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Graph utilities: breadth-first shortest path lengths on an adjacency matrix,
+# and a helper that adds edges to join disconnected components of a sparse
+# neighbors graph. No import-time side effects.
 """Graph utilities and algorithms."""
 
 # Authors: The scikit-learn developers
@@ -22,6 +26,16 @@ from sklearn.utils._param_validation import Integral, Interval, validate_params
     prefer_skip_nested_validation=True,
 )
 def single_source_shortest_path_length(graph, source, *, cutoff=None):
+    # [FUNCTION DOC]
+    # Unweighted BFS from source: converts graph to LIL (any nonzero entry is an
+    # edge), then repeatedly expands the frontier, recording the hop level the first
+    # time each node is seen; stops when the frontier is empty or once the level
+    # reaches cutoff (nodes at depth cutoff are included).
+    # Inputs: graph - square array-like or sparse (n_nodes, n_nodes); source - int
+    # >= 0; cutoff - int >= 0 or None (validated by validate_params).
+    # Outputs: dict mapping node index to its hop distance from source.
+    # Exceptions: InvalidParameterError from validation; IndexError if source is out
+    # of range.
     """Return the length of the shortest path from source to all reachable nodes.
 
     Parameters
@@ -85,6 +99,19 @@ def _fix_connected_components(
     metric="euclidean",
     **kwargs,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For every pair of components (i, j) with j < i, finds the closest pair
+    # of samples between them (by pairwise_distances, or by reading X directly when
+    # metric is "precomputed") and adds a symmetric edge with weight 1
+    # ("connectivity") or the distance ("distance").
+    # Inputs: X - features or dense precomputed distances; graph - sparse graph
+    # supporting item assignment (e.g. LIL); n_connected_components, component_labels
+    # - from connected_components; mode; metric; kwargs - passed to
+    # pairwise_distances.
+    # Outputs: the same graph object, now with added edges.
+    # Exceptions: RuntimeError for precomputed metric with sparse X; ValueError for an
+    # unknown mode (raised only once there are at least two components).
+    # Side effects: mutates graph in place.
     """Add connections to sparse graph to connect unconnected components.
 
     For each pair of unconnected components, compute all pairwise distances

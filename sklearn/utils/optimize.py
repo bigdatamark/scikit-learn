@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Private optimization routines: an array-API-aware Newton-CG minimizer
+# (_newton_cg) with its inner truncated conjugate gradient solver (_cg) and Wolfe
+# line searches (_line_search_wolfe1/_line_search_wolfe12), plus
+# _check_optimize_result for converting scipy lbfgs results into iteration counts
+# and ConvergenceWarnings. Verbose modes print to stdout.
 """
 Our own implementation of the Newton algorithm
 
@@ -28,6 +34,8 @@ from sklearn.utils._array_api import get_namespace_and_device, size
 
 
 class _LineSearchError(RuntimeError):
+    # [CLASS DOC]
+    # HELPER: Exception signalling that no acceptable line search step was found.
     pass
 
 
@@ -51,6 +59,15 @@ def _line_search_wolfe1(
     amin=1e-8,
     xtol=1e-14,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Wolfe line search along direction pk from xk: defines phi(s) = f(xk +
+    # s*pk) and derphi(s) = fprime(xk + s*pk) dot pk (recording the last gradient and
+    # call counts) and delegates to scipy's scalar_search_wolfe1.
+    # Inputs: f, fprime - objective and gradient callables taking (x, *args); xk,
+    # pk - 1D arrays; gfk - gradient at xk (computed if None); old_fval,
+    # old_old_fval - previous objective values; args; c1, c2 - Wolfe constants;
+    # amax, amin - step bounds; xtol - tolerance.
+    # Outputs: (step or None, n_f_calls, n_grad_calls, fval, old_fval, last_gradient).
     """
     Same as `scalar_search_wolfe1` but do a line search to direction `pk`
     """
@@ -62,10 +79,15 @@ def _line_search_wolfe1(
     fc = [0]
 
     def phi(s):
+        # [FUNCTION DOC]
+        # HELPER: Objective along the line at step s; increments the f-call counter.
         fc[0] += 1
         return f(xk + s * pk, *args)
 
     def derphi(s):
+        # [FUNCTION DOC]
+        # HELPER: Directional derivative at step s; stores the gradient in gval and
+        # increments the gradient-call counter.
         gval[0] = fprime(xk + s * pk, *args)
         gc[0] += 1
         return gval[0] @ pk
@@ -91,6 +113,17 @@ def _line_search_wolfe1(
 def _line_search_wolfe12(
     f, fprime, xk, pk, gfk, old_fval, old_old_fval, xp, device, verbose=0, **kwargs
 ):
+    # [FUNCTION DOC]
+    # HELPER: Tries _line_search_wolfe1; if it fails, accepts a full step (1.0) when
+    # the loss change is within 16*eps*|old_fval| and the L1 norm of the gradient
+    # decreases; otherwise tries scipy line_search_wolfe2 as last resort.
+    # Inputs: as _line_search_wolfe1 plus xp - namespace; device (unused); verbose -
+    # prints details when >= 2; kwargs - forwarded (e.g. args).
+    # Outputs: tuple like _line_search_wolfe1's result.
+    # Exceptions: _LineSearchError when all strategies fail.
+    # Side effects: prints to stdout when verbose >= 2.
+    # KNOWN ISSUE: uses scipy.linalg.norm, which is not array API compliant and
+    # relies on scipy.linalg having been imported elsewhere.
     """
     Same as line_search_wolfe1, but fall back to line_search_wolfe2 if
     suitable step length is not found, and raise an exception if a
@@ -171,6 +204,16 @@ def _line_search_wolfe12(
 
 
 def _cg(fhess_p, fgrad, maxiter, tol, xp, device, verbose=0):
+    # [FUNCTION DOC]
+    # HELPER: Capped conjugate gradient for Hessian * x = -fgrad, starting at zero
+    # (residual initialized to fgrad, direction to -fgrad). Each iteration stops if
+    # the L1 norm of the residual <= tol, or curvature p.Hp is in [0, eps*|p|^2]; on
+    # negative curvature stops (after the first iteration) or takes a steepest
+    # descent step (first iteration). Otherwise standard CG updates, tracking |p|^2.
+    # Runs at most maxiter + 1 iterations.
+    # Inputs: fhess_p - Hessian-vector product callable; fgrad - gradient; maxiter;
+    # tol; xp; device; verbose - prints when >= 2.
+    # Outputs: approximate Newton direction, same shape/dtype as fgrad.
     """
     Solve iteratively the linear system 'fhess_p . xsupi = fgrad'
     with a conjugate gradient descent.
@@ -272,6 +315,18 @@ def _newton_cg(
     warn=True,
     verbose=0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Newton iterations: at each step get gradient and Hessian-product from
+    # grad_hess, stop if max |gradient| <= tol, solve for a direction with _cg using
+    # tolerance min(0.5, sqrt(L1 grad)) * L1 grad, optionally line search
+    # (_line_search_wolfe12) for the step size, then update xk.
+    # Outputs: (xk, k) - solution copy and number of Newton iterations.
+    # Exceptions: ValueError if x0 is not 1D.
+    # Side effects: ConvergenceWarning if k reaches maxiter and warn; UserWarning
+    # "Line Search failed" on line search failure; prints when verbose > 0.
+    # KNOWN ISSUE: without line search old_fval stays 0, so the reported loss in
+    # messages is meaningless; after a line search failure verbose mode still prints
+    # "did converge"; convergence is not re-checked after the last iteration.
     """
     Minimization of scalar function of one or more variables using the
     Newton-CG algorithm.
@@ -403,6 +458,11 @@ def _newton_cg(
 
 
 def _check_optimize_result(solver, result, max_iter=None, extra_warning_msg=None):
+    # [FUNCTION DOC]
+    # HELPER: For solver "lbfgs", returns min(result.nit, max_iter) (or nit) and emits
+    # a ConvergenceWarning when result.status != 0, suggesting more iterations if
+    # max_iter was reached, data scaling, and extra_warning_msg if given.
+    # Exceptions: NotImplementedError for any other solver.
     """Check the OptimizeResult for successful convergence
 
     Parameters

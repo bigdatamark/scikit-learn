@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Target-type utilities for classifiers: inferring the kind of target
+# (type_of_target, is_multilabel), extracting sorted unique labels across
+# several targets (unique_labels), validating classification targets, partial_fit
+# class bookkeeping, per-output class priors, and converting OvO votes to an OvR
+# decision function. Supports NumPy, sparse and array API inputs.
 """Utilities to handle multiclass/multioutput target in classifiers."""
 
 # Authors: The scikit-learn developers
@@ -17,6 +23,11 @@ from sklearn.utils.validation import _assert_all_finite, _num_samples, check_arr
 
 
 def _unique_multiclass(y, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Unique labels of a binary/multiclass target: cached_unique on an array
+    # (array-likes or array API arrays), else a Python set of the iterable.
+    # Inputs: y - target; xp - optional namespace.
+    # Outputs: sorted unique array or a set.
     xp, is_array_api_compliant = get_namespace(y, xp=xp)
     if hasattr(y, "__array__") or is_array_api_compliant:
         return cached_unique(xp.asarray(y), xp=xp)
@@ -25,6 +36,10 @@ def _unique_multiclass(y, xp=None):
 
 
 def _unique_indicator(y, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: "Labels" of a multilabel indicator matrix: the column indices
+    # 0..n_columns-1, after validating y with check_array (csr/csc/coo allowed).
+    # Outputs: 1D integer array of length n_columns.
     xp, _ = get_namespace(y, xp=xp)
     return xp.arange(
         check_array(y, input_name="y", accept_sparse=["csr", "csc", "coo"]).shape[1]
@@ -39,6 +54,21 @@ _FN_UNIQUE_LABELS = {
 
 
 def unique_labels(*ys, ys_types=None):
+    # [FUNCTION DOC]
+    # Attaches cached unique values to each y, determines the shared target type
+    # (computing it with type_of_target and merging binary+multiclass to multiclass
+    # when ys_types is None), checks indicator matrices share a column count, then
+    # collects labels with the type-specific function. For non-NumPy array API
+    # namespaces concatenates and returns xp.unique_values; otherwise builds a Python
+    # set, rejects mixed str/non-str labels and returns a sorted array.
+    # Inputs: ys - one or more targets; ys_types - optional precomputed set of types.
+    # Outputs: 1D array of sorted unique labels.
+    # Exceptions: ValueError for no arguments, mixed types, inconsistent indicator
+    # widths, unsupported type (e.g. continuous, multiclass-multioutput) or mixed
+    # string/number labels.
+    # Side effects: pops the element from ys_types, mutating a caller-supplied set.
+    # KNOWN ISSUE: a caller-provided ys_types is not amended from {binary, multiclass}
+    # as the docstring suggests, and is mutated by pop.
     """Extract an ordered array of unique labels.
 
     We don't allow:
@@ -129,6 +159,10 @@ def unique_labels(*ys, ys_types=None):
 
 
 def _is_integral_float(y):
+    # [FUNCTION DOC]
+    # HELPER: True if y has a real floating dtype and every value equals its int64
+    # truncation (i.e. all values are integral).
+    # Inputs: y - array. Outputs: bool.
     xp, is_array_api_compliant = get_namespace(y)
     return xp.isdtype(y.dtype, "real floating") and bool(
         xp.all(xp.astype((xp.astype(y, xp.int64)), y.dtype) == y)
@@ -136,6 +170,16 @@ def _is_integral_float(y):
 
 
 def is_multilabel(y):
+    # [FUNCTION DOC]
+    # Converts array-like/sequence input with check_array (object dtype fallback for
+    # ragged data), then returns True only for 2D inputs with more than one column
+    # whose values are binary-like: for sparse, stored data has one value, or two
+    # values including 0 (or no stored data), and integer/bool dtype or integral
+    # floats; for dense, fewer than 3 unique values and bool/int dtype or integral
+    # floats.
+    # Inputs: y - array-like, sequence or sparse. Outputs: bool.
+    # Exceptions: re-raises the complex-data ValueError from check_array.
+    # Side effects: converts VisibleDeprecationWarning into an error locally.
     """Check if ``y`` is in a multilabel format.
 
     Parameters
@@ -208,6 +252,13 @@ def is_multilabel(y):
 
 
 def check_classification_targets(y):
+    # [FUNCTION DOC]
+    # Raises ValueError unless type_of_target(y) is one of the discrete types. For
+    # multiclass types with more than 20 samples, emits a UserWarning when the number
+    # of unique values exceeds half the number of samples.
+    # Inputs: y - array-like target. Outputs: None.
+    # KNOWN ISSUE: "multilabel-sequences" is accepted but type_of_target never returns
+    # it (sequences of sequences raise ValueError), so that entry is dead.
     """Ensure that target y is of a non-regression type.
 
     Only the following target types (as defined in type_of_target) are allowed:
@@ -247,6 +298,20 @@ def check_classification_targets(y):
 
 
 def type_of_target(y, input_name="", raise_unknown=False):
+    # [FUNCTION DOC]
+    # Algorithm: validate y is array-like (not str) or array API; reject pandas
+    # sparse types; return multilabel-indicator if is_multilabel; convert dense y
+    # with check_array (object dtype for ragged); reject bytes labels and legacy
+    # sequence-of-sequences rows; return unknown (or raise) for ndim > 2, 2D empty
+    # arrays or object arrays whose first element is not a str; 1D empty returns
+    # binary. Suffix "-multioutput" if 2D with >1 column. Floating data with any
+    # non-integral value is continuous (after checking finiteness). Otherwise
+    # multiclass if more than 2 unique values or 2D with multiple columns, else binary.
+    # Inputs: y; input_name - used in messages; raise_unknown - raise instead of
+    # returning "unknown".
+    # Outputs: target type string.
+    # Exceptions: ValueError for invalid inputs, legacy formats, non-finite floats or
+    # unknown types with raise_unknown; TypeError for bytes labels.
     """Determine the type of data indicated by the target.
 
     Note that this type is the most specific type that can be inferred.
@@ -326,6 +391,9 @@ def type_of_target(y, input_name="", raise_unknown=False):
     xp, is_array_api_compliant = get_namespace(y)
 
     def _raise_or_return():
+        # [FUNCTION DOC]
+        # HELPER: Returns "unknown", or raises ValueError naming input_name (or "data")
+        # and y when raise_unknown is True.
         """Depending on the value of raise_unknown, either raise an error or return
         'unknown'.
         """
@@ -446,6 +514,14 @@ def type_of_target(y, input_name="", raise_unknown=False):
 
 
 def _check_partial_fit_first_call(clf, classes=None):
+    # [FUNCTION DOC]
+    # HELPER: Returns True on a first partial_fit call (classes given and
+    # clf.classes_ unset/None), setting clf.classes_ to unique_labels(classes);
+    # otherwise returns False.
+    # Inputs: clf - estimator; classes - array-like or None.
+    # Exceptions: ValueError if neither classes_ nor classes is available, or if
+    # classes differs from the existing classes_.
+    # Side effects: sets clf.classes_ on first call.
     """Private helper function for factorizing common classes param logic.
 
     Estimators that implement the ``partial_fit`` API need to be provided with
@@ -481,6 +557,14 @@ def _check_partial_fit_first_call(clf, classes=None):
 
 
 def class_distribution(y, sample_weight=None):
+    # [FUNCTION DOC]
+    # For each output column, computes sorted classes, their count and the
+    # (optionally sample-weighted) normalized class frequencies. For sparse y
+    # (converted to CSC), counts stored values per column and attributes the weight of
+    # implicit zeros to class 0, inserting class 0 when it only appears implicitly.
+    # Inputs: y - 2D array or sparse (n_samples, n_outputs); sample_weight - optional
+    # (n_samples,).
+    # Outputs: (classes list, n_classes list, class_prior list), one entry per output.
     """Compute class priors from multioutput-multiclass target data.
 
     Parameters
@@ -555,6 +639,13 @@ def class_distribution(y, sample_weight=None):
 
 
 def _ovr_decision_function(predictions, confidences, n_classes):
+    # [FUNCTION DOC]
+    # HELPER: For each OvO pair (i, j) in lexicographic order k, a prediction of 0
+    # adds a vote to i and 1 to j; confidences are subtracted from i and added to j.
+    # Summed confidences are squashed by x / (3 * (|x| + 1)) into (-1/3, 1/3) and
+    # added to vote counts, breaking ties without changing vote order.
+    # Inputs: predictions, confidences - (n_samples, n_classifiers); n_classes - int.
+    # Outputs: ndarray (n_samples, n_classes) of decision values.
     """Compute a continuous, tie-breaking OvR decision function from OvO.
 
     It is important to include a continuous value, not only votes,

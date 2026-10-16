@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# joblib/threadpoolctl wrappers. Parallel and delayed capture the caller's
+# scikit-learn config and warning filters and re-apply them inside each worker
+# task. Also holds a lazily created global ThreadpoolController
+# (_threadpool_controller, None at import) and a decorator limiting native
+# thread pools during a function call.
 """Customizations of :mod:`joblib` and :mod:`threadpoolctl` tools for scikit-learn
 usage.
 """
@@ -22,6 +28,11 @@ _threadpool_controller = None
 
 
 def _with_config_and_warning_filters(delayed_func, config, warning_filters):
+    # [FUNCTION DOC]
+    # HELPER: Attaches config and warning filters to a delayed function produced by
+    # sklearn's delayed (via its with_config_and_warning_filters method); for other
+    # callables emits a UserWarning and returns them unchanged.
+    # Outputs: the (possibly configured) callable.
     """Helper function that intends to attach a config to a delayed function."""
     if hasattr(delayed_func, "with_config_and_warning_filters"):
         return delayed_func.with_config_and_warning_filters(config, warning_filters)
@@ -39,6 +50,10 @@ def _with_config_and_warning_filters(delayed_func, config, warning_filters):
 
 
 class Parallel(joblib.Parallel):
+    # [CLASS DOC]
+    # joblib.Parallel subclass whose __call__ wraps every task so that the
+    # scikit-learn config and warning filters active at call time are used in
+    # workers. Constructor and other behavior are inherited unchanged.
     """Tweak of :class:`joblib.Parallel` that propagates the scikit-learn configuration.
 
     This subclass of :class:`joblib.Parallel` ensures that the active configuration
@@ -52,6 +67,12 @@ class Parallel(joblib.Parallel):
     """
 
     def __call__(self, iterable):
+        # [FUNCTION DOC]
+        # Captures get_config() and the current warning filters (warnings._get_filters
+        # when available, else warnings.filters), lazily wraps each (func, args, kwargs)
+        # task with _with_config_and_warning_filters, and runs joblib's __call__.
+        # Outputs: list (or generator, per return_as) of task results.
+        # Side effects: may warn for tasks not created with sklearn's delayed.
         """Dispatch the tasks and return the results.
 
         Parameters
@@ -93,6 +114,10 @@ class Parallel(joblib.Parallel):
 
 # remove when https://github.com/joblib/joblib/issues/1071 is fixed
 def delayed(function):
+    # [FUNCTION DOC]
+    # Returns a function that, when called with arguments, packs them into a task
+    # tuple (_FuncWrapper(function), args, kwargs) for Parallel.
+    # Inputs: function - callable. Outputs: wrapper callable (metadata copied).
     """Decorator used to capture the arguments of a function.
 
     This alternative to `joblib.delayed` is meant to be used in conjunction
@@ -120,24 +145,43 @@ def delayed(function):
 
     @functools.wraps(function)
     def delayed_function(*args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Builds the task tuple for given args/kwargs.
         return _FuncWrapper(function), args, kwargs
 
     return delayed_function
 
 
 class _FuncWrapper:
+    # [CLASS DOC]
+    # HELPER: Callable wrapper storing the target function and, once attached, the
+    # config and warning filters to apply when executed in a worker. Copies the
+    # wrapped function's metadata.
     """Load the global configuration before calling the function."""
 
     def __init__(self, function):
+        # [FUNCTION DOC]
+        # Stores function and copies its __name__, __doc__, etc. onto self.
         self.function = function
         update_wrapper(self, self.function)
 
     def with_config_and_warning_filters(self, config, warning_filters):
+        # [FUNCTION DOC]
+        # Stores config and warning_filters on self and returns self.
         self.config = config
         self.warning_filters = warning_filters
         return self
 
     def __call__(self, *args, **kwargs):
+        # [FUNCTION DOC]
+        # Runs the function inside config_context(**config) and a catch_warnings block in
+        # which warnings are reset and each captured filter tuple is re-added (appended,
+        # keeping order): simplefilter when no message/module constraint, otherwise
+        # filterwarnings with regex patterns converted to str.
+        # Outputs: the function's return value.
+        # Side effects: UserWarning if config or warning filters are missing/empty.
+        # KNOWN ISSUE: an empty but legitimately captured filter list also triggers the
+        # "should be used with Parallel" warning.
         config = getattr(self, "config", {})
         warning_filters = getattr(self, "warning_filters", [])
         if not config or not warning_filters:
@@ -185,6 +229,10 @@ class _FuncWrapper:
 
 
 def _get_threadpool_controller():
+    # [FUNCTION DOC]
+    # HELPER: Returns the module-global ThreadpoolController, creating it on first use
+    # (which inspects loaded native libraries).
+    # Side effects: sets the global _threadpool_controller.
     """Return the global threadpool controller instance."""
     global _threadpool_controller
 
@@ -195,6 +243,11 @@ def _get_threadpool_controller():
 
 
 def _threadpool_controller_decorator(limits=1, user_api="blas"):
+    # [FUNCTION DOC]
+    # HELPER: Decorator factory; the decorated function runs under
+    # controller.limit(limits, user_api), so libraries are only inspected at call
+    # time. Inputs: limits - int or limits spec (default 1); user_api - e.g. "blas".
+    # Outputs: decorator.
     """Decorator to limit the number of threads used at the function level.
 
     It should be preferred over `threadpoolctl.ThreadpoolController.wrap` because this
@@ -203,8 +256,12 @@ def _threadpool_controller_decorator(limits=1, user_api="blas"):
     """
 
     def decorator(func):
+        # [FUNCTION DOC]
+        # HELPER: Wraps func with the thread limiting wrapper.
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Calls func with the threadpool limit active.
             controller = _get_threadpool_controller()
             with controller.limit(limits=limits, user_api=user_api):
                 return func(*args, **kwargs)

@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the Cython bitset helpers in sklearn.utils._bitset used by
+# histogram gradient boosting categorical splits.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -20,6 +23,9 @@ from sklearn.utils._bitset import (
     ],
 )
 def test_set_get_bitset(values_to_insert, expected_bitset):
+    # [FUNCTION DOC]
+    # Verifies set_bitset_memoryview sets the expected bits in a 3-word uint32 bitset
+    # and in_bitset_memoryview reports membership exactly for inserted values.
     n_32bits_ints = 3
     bitset = np.zeros(n_32bits_ints, dtype=np.uint32)
     for value in values_to_insert:
@@ -46,6 +52,9 @@ def test_set_get_bitset(values_to_insert, expected_bitset):
 def test_raw_bitset_from_binned_bitset(
     raw_categories, binned_cat_to_insert, expected_raw_bitset
 ):
+    # [FUNCTION DOC]
+    # Verifies set_raw_bitset_from_binned_bitset maps set binned categories to bits
+    # of their raw category values, and membership checks on raw values match.
     binned_bitset = np.zeros(2, dtype=np.uint32)
     raw_bitset = np.zeros(2, dtype=np.uint32)
     raw_categories = np.asarray(raw_categories, dtype=np.float64)

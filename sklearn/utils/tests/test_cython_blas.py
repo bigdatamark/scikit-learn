@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the fused-type Cython BLAS wrappers in sklearn.utils._cython_blas,
+# comparing each level 1/2/3 routine against NumPy for float32 and float64, and
+# for row/column-major layouts and transposition flags where applicable.
 import numpy as np
 import pytest
 
@@ -20,6 +24,10 @@ from sklearn.utils._testing import assert_allclose
 
 
 def _numpy_to_cython(dtype):
+    # [FUNCTION DOC]
+    # HELPER: Maps np.float32/np.float64 to cython.float/cython.double, used to index
+    # the fused-type memview functions; skips the test if Cython is missing. Returns
+    # None for other dtypes.
     cython = pytest.importorskip("cython")
     if dtype == np.float32:
         return cython.float
@@ -32,11 +40,15 @@ ORDER = {BLAS_Order.RowMajor: "C", BLAS_Order.ColMajor: "F"}
 
 
 def _no_op(x):
+    # [FUNCTION DOC]
+    # HELPER: Identity function used as the "no transpose" operator.
     return x
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_dot(dtype):
+    # [FUNCTION DOC]
+    # Verifies _dot_memview equals numpy dot for random vectors.
     dot = _dot_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -51,6 +63,8 @@ def test_dot(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_asum(dtype):
+    # [FUNCTION DOC]
+    # Verifies _asum_memview equals the sum of absolute values.
     asum = _asum_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -64,6 +78,8 @@ def test_asum(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_axpy(dtype):
+    # [FUNCTION DOC]
+    # Verifies _axpy_memview updates y in place to alpha * x + y.
     axpy = _axpy_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -79,6 +95,8 @@ def test_axpy(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_nrm2(dtype):
+    # [FUNCTION DOC]
+    # Verifies _nrm2_memview equals the Euclidean norm.
     nrm2 = _nrm2_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -92,6 +110,8 @@ def test_nrm2(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_copy(dtype):
+    # [FUNCTION DOC]
+    # Verifies _copy_memview copies x into y.
     copy = _copy_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -106,6 +126,8 @@ def test_copy(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_scal(dtype):
+    # [FUNCTION DOC]
+    # Verifies _scal_memview scales x in place by alpha.
     scal = _scal_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -120,6 +142,9 @@ def test_scal(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_rotg(dtype):
+    # [FUNCTION DOC]
+    # Verifies _rotg_memview returns (r, z, c, s) of a Givens rotation matching a
+    # Python reference implementation of the reference BLAS rotg.
     rotg = _rotg_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -128,6 +153,11 @@ def test_rotg(dtype):
     c, s = 0.0, 0.0
 
     def expected_rotg(a, b):
+        # [FUNCTION DOC]
+        # HELPER: Reference rotg: r = sign(roe) * hypot(a, b) where roe is the larger
+        # magnitude input, c = a/r, s = b/r, and z = s if |a| > |b|, else 1/c (or 1 if
+        # c == 0); all-zero inputs give (r, z, c, s) = (0, 0, 1, 0).
+        # Outputs: tuple (r, z, c, s).
         roe = a if abs(a) > abs(b) else b
         if a == 0 and b == 0:
             c, s, r, z = (1, 0, 0, 0)
@@ -145,6 +175,8 @@ def test_rotg(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_rot(dtype):
+    # [FUNCTION DOC]
+    # Verifies _rot_memview applies the plane rotation in place to x and y.
     rot = _rot_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -174,6 +206,9 @@ def test_rot(dtype):
     ids=["RowMajor", "ColMajor"],
 )
 def test_gemv(dtype, opA, transA, order):
+    # [FUNCTION DOC]
+    # Verifies _gemv_memview computes y = alpha * op(A) x + beta * y in place for
+    # both orders and transposition flags.
     gemv = _gemv_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -197,6 +232,9 @@ def test_gemv(dtype, opA, transA, order):
     ids=["BLAS_Order.RowMajor", "BLAS_Order.ColMajor"],
 )
 def test_ger(dtype, order):
+    # [FUNCTION DOC]
+    # Verifies _ger_memview computes A = alpha * outer(x, y) + A in place for both
+    # orders.
     ger = _ger_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)
@@ -230,6 +268,9 @@ def test_ger(dtype, order):
     ids=["BLAS_Order.RowMajor", "BLAS_Order.ColMajor"],
 )
 def test_gemm(dtype, opA, transA, opB, transB, order):
+    # [FUNCTION DOC]
+    # Verifies _gemm_memview computes C = alpha * op(A) op(B) + beta * C in place for
+    # all transposition combinations and both orders.
     gemm = _gemm_memview[_numpy_to_cython(dtype)]
 
     rng = np.random.RandomState(0)

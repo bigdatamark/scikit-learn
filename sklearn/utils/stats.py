@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Statistical helpers; currently only the array-API compatible weighted
+# percentile used across estimators and metrics.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -10,6 +13,22 @@ from sklearn.utils._array_api import (
 def _weighted_percentile(
     array, sample_weight, percentile_rank=50, average=False, xp=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Casts array, weights and ranks to a common floating dtype; returns NaN
+    # if all weights are zero and a 0D array unchanged. Reshapes 1D input to a single
+    # column, tiles 1D weights per column, sorts each column (NaNs last) and zeroes
+    # weights of NaNs. Builds the per-column cumulative weight (CDF). For each rank p,
+    # target = p/100 * total weight (nudged above 0 for p=0 to skip leading zero
+    # weights), finds the first index whose CDF >= target via searchsorted (clipped),
+    # and takes that sorted value. With average=True, when the CDF at that index
+    # equals the target (within eps), averages with the next sorted value having
+    # non-zero weight.
+    # Inputs/Outputs: as the docstring describes.
+    # Exceptions: none raised directly.
+    # KNOWN ISSUE: the xp argument is ignored; the namespace is always inferred from
+    # array. The all-zero-weight early return gives a scalar NaN regardless of the
+    # expected output shape. The zero-weight next-index check reads the original
+    # sample_weight, so a NaN value with non-zero weight is not treated as zero there.
     """Compute the weighted percentile.
 
     Implement an array API compatible (weighted version) of NumPy's 'inverted_cdf'
