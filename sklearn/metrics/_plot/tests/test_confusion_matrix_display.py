@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for ConfusionMatrixDisplay: input validation, label handling, rendering
+# of normalized matrices and cell texts, re-plotting, text contrast, pipelines, unseen
+# labels and forwarding of im_kw / text_kw. Uses the pyplot fixture and a 5-class
+# make_classification dataset fitted with SVC in most tests.
 import numpy as np
 import pytest
 from numpy.testing import (
@@ -16,6 +21,11 @@ from sklearn.svm import SVC, SVR
 
 
 def test_confusion_matrix_display_validation(pyplot):
+    # [FUNCTION DOC]
+    # Verifies the errors raised: NotFittedError for an unfitted SVC in from_estimator,
+    # ValueError for a regressor in from_estimator, ValueError 'Mix type of y' when
+    #   either
+    # y_true or y_pred is continuous, and ValueError for inconsistent sample counts.
     """Check that we raise the proper error when validating parameters."""
     X, y = make_classification(
         n_samples=100, n_informative=5, n_classes=5, random_state=0
@@ -50,6 +60,10 @@ def test_confusion_matrix_display_validation(pyplot):
 def test_confusion_matrix_display_custom_labels(
     pyplot, constructor_name, with_labels, with_display_labels
 ):
+    # [FUNCTION DOC]
+    # Verifies for both constructors and combinations of labels (a custom order) and
+    # display_labels that the matrix equals confusion_matrix with those labels and that
+    # display_labels and x/y tick texts equal display_labels, else labels, else 0..4.
     """Check the resulting plot when labels are given."""
     n_classes = 5
     X, y = make_classification(
@@ -103,6 +117,13 @@ def test_confusion_matrix_display_plotting(
     normalize,
     include_values,
 ):
+    # [FUNCTION DOC]
+    # Verifies for both constructors, every normalize mode and include_values on/off:
+    # the given ax is used, the matrix and image data equal the manually normalized
+    # confusion matrix, the colormap is applied, artist types, axis labels, default tick
+    # labels 0..4, and that cell texts use the '.2g' format (or text_ is None when
+    #   values
+    # are hidden).
     """Check the overall plotting rendering."""
     n_classes = 5
     X, y = make_classification(
@@ -175,6 +196,11 @@ def test_confusion_matrix_display_plotting(
 
 @pytest.mark.parametrize("constructor_name", ["from_estimator", "from_predictions"])
 def test_confusion_matrix_display(pyplot, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies the default plot (rotation 45, text array shape, image data) and that
+    # re-calling plot on the same display applies a new cmap, hides values, changes the
+    #   x
+    # tick rotation and uses a custom values_format ('e').
     """Check the behaviour of the default constructor without using the class
     methods."""
     n_classes = 5
@@ -225,6 +251,15 @@ def test_confusion_matrix_display(pyplot, constructor_name):
 
 
 def test_confusion_matrix_contrast(pyplot):
+    # [FUNCTION DOC]
+    # Verifies text color contrast: with gray and gray_r colormaps on a scaled identity
+    # matrix the text is black on light cells and white on dark cells; and (regression
+    #   for
+    # #15920) with Blues on an integer matrix only the maximum cell uses the colormap's
+    #   low
+    # color, the others the high color.
+    # KNOWN ISSUE: in the gray_r block the inline comments ('diagonal text is white',
+    # 'off-diagonal text is black') are swapped relative to the cells actually asserted.
     """Check that the text color is appropriate depending on background."""
 
     cm = np.eye(2) / 2
@@ -274,6 +309,10 @@ def test_confusion_matrix_contrast(pyplot):
     ids=["clf", "pipeline-clf", "pipeline-column_transformer-clf"],
 )
 def test_confusion_matrix_pipeline(pyplot, clf):
+    # [FUNCTION DOC]
+    # Verifies that a plain classifier and pipelines (with scaler or column transformer)
+    # raise NotFittedError before fitting and afterwards produce the expected confusion
+    # matrix and a full text array.
     """Check the behaviour of the plotting with more complex pipeline."""
     n_classes = 5
     X, y = make_classification(
@@ -293,6 +332,11 @@ def test_confusion_matrix_pipeline(pyplot, clf):
 
 @pytest.mark.parametrize("constructor_name", ["from_estimator", "from_predictions"])
 def test_confusion_matrix_with_unknown_labels(pyplot, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies that with labels=None and y_true shifted by one (introducing a label
+    #   unseen
+    # by the classifier), tick labels are the union of labels from y_true and y_pred
+    #   (0..5).
     """Check that when labels=None, the unique values in `y_pred` and `y_true`
     will be used.
     Non-regression test for:
@@ -323,6 +367,10 @@ def test_confusion_matrix_with_unknown_labels(pyplot, constructor_name):
 
 
 def test_colormap_max(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that with a 1024-entry gray colormap, a zero cell on an identity matrix
+    #   is
+    # annotated in the colormap's maximum color (white).
     """Check that the max color is used for the color of the text."""
     gray = pyplot.get_cmap("gray", 1024)
     confusion_matrix = np.array([[1.0, 0.0], [0.0, 1.0]])
@@ -335,6 +383,8 @@ def test_colormap_max(pyplot):
 
 
 def test_im_kw_adjust_vmin_vmax(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that im_kw vmin/vmax are passed to imshow, through the image clim.
     """Check that im_kw passes kwargs to imshow"""
 
     confusion_matrix = np.array([[0.48, 0.04], [0.08, 0.4]])
@@ -347,6 +397,9 @@ def test_im_kw_adjust_vmin_vmax(pyplot):
 
 
 def test_confusion_matrix_text_kw(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that text_kw fontsize is applied to every cell text via from_estimator,
+    # re-plotting with a new text_kw, and from_predictions.
     """Check that text_kw is passed to the text call."""
     font_size = 15.0
     X, y = make_classification(random_state=0)

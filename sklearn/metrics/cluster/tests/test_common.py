@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Common invariance tests run over every clustering metric. Metrics are registered in
+# SUPERVISED_METRICS / UNSUPERVISED_METRICS dictionaries and grouped by property lists
+# (symmetric, non-symmetric, normalized); module-level y1, y2 are random 3-class
+# labelings of 30 samples from a seeded RandomState. Also runs array API compliance
+# checks for the metrics that support it.
 from functools import partial
 from itertools import chain
 
@@ -95,6 +101,9 @@ y2 = rng.randint(3, size=30)
 
 
 def test_symmetric_non_symmetric_union():
+    # [FUNCTION DOC]
+    # Verifies that the symmetric and non-symmetric lists together cover exactly the
+    # supervised metrics, so no metric escapes the symmetry tests.
     assert sorted(SYMMETRIC_METRICS + NON_SYMMETRIC_METRICS) == sorted(
         SUPERVISED_METRICS
     )
@@ -104,6 +113,9 @@ def test_symmetric_non_symmetric_union():
     "metric_name, y1, y2", [(name, y1, y2) for name in SYMMETRIC_METRICS]
 )
 def test_symmetry(metric_name, y1, y2):
+    # [FUNCTION DOC]
+    # For each symmetric metric, checks that swapping the two labelings gives
+    # approximately the same score.
     metric = SUPERVISED_METRICS[metric_name]
     assert metric(y1, y2) == pytest.approx(metric(y2, y1))
 
@@ -112,12 +124,19 @@ def test_symmetry(metric_name, y1, y2):
     "metric_name, y1, y2", [(name, y1, y2) for name in NON_SYMMETRIC_METRICS]
 )
 def test_non_symmetry(metric_name, y1, y2):
+    # [FUNCTION DOC]
+    # For homogeneity and completeness, checks that swapping the labelings changes the
+    # score.
     metric = SUPERVISED_METRICS[metric_name]
     assert metric(y1, y2) != pytest.approx(metric(y2, y1))
 
 
 @pytest.mark.parametrize("metric_name", NORMALIZED_METRICS)
 def test_normalized_output(metric_name):
+    # [FUNCTION DOC]
+    # For metrics bounded by 1, checks scores on small imperfect labelings are strictly
+    # between 0 and 1, identical labelings give 1, and a single-cluster versus
+    # all-singleton pair (both orders) gives a non-negative score.
     upper_bound_1 = [0, 0, 0, 1, 1, 1]
     upper_bound_2 = [0, 0, 0, 1, 1, 1]
     metric = SUPERVISED_METRICS[metric_name]
@@ -137,6 +156,11 @@ def test_normalized_output(metric_name):
 
 @pytest.mark.parametrize("metric_name", chain(SUPERVISED_METRICS, UNSUPERVISED_METRICS))
 def test_permute_labels(metric_name):
+    # [FUNCTION DOC]
+    # Checks every metric is invariant to swapping label values 0 and 1: for supervised
+    # metrics in either or both labelings, for unsupervised metrics in the cluster
+    # labels with a random integer feature matrix.
+    # Side effects: uses the global unseeded numpy random generator for X.
     # All clustering metrics do not change score due to permutations of labels
     # that is when 0 and 1 exchanged.
     y_label = np.array([0, 0, 0, 1, 1, 0, 1])
@@ -158,10 +182,19 @@ def test_permute_labels(metric_name):
 # For all clustering metrics Input parameters can be both
 # in the form of arrays lists, positive, negative or string
 def test_format_invariance(metric_name):
+    # [FUNCTION DOC]
+    # Checks every metric gives identical scores whether labels are numpy int arrays,
+    # int lists, string lists, object string arrays, or shifted negative/positive ints;
+    # for unsupervised metrics also that integer and float X agree.
+    # Side effects: uses the global unseeded numpy random generator for X.
     y_true = [0, 0, 0, 0, 1, 1, 1, 1]
     y_pred = [0, 1, 2, 3, 4, 5, 6, 7]
 
     def generate_formats(y):
+        # [FUNCTION DOC]
+        # HELPER: Generator yielding (labels, description) pairs of the same labeling in
+        # six encodings: int array, int list, string list, object string array, values
+        # minus one, values plus one.
         y = np.array(y)
         yield y, "array of ints"
         yield y.tolist(), "list of ints"
@@ -192,6 +225,9 @@ def test_format_invariance(metric_name):
 
 @pytest.mark.parametrize("metric", SUPERVISED_METRICS.values())
 def test_single_sample(metric):
+    # [FUNCTION DOC]
+    # Smoke test: every supervised metric must run without error on all single-sample
+    # labelings with labels 0/1.
     # only the supervised metrics support single sample
     for i, j in [(0, 0), (0, 1), (1, 0), (1, 1)]:
         metric([i], [j])
@@ -201,6 +237,11 @@ def test_single_sample(metric):
     "metric_name, metric_func", dict(SUPERVISED_METRICS, **UNSUPERVISED_METRICS).items()
 )
 def test_inf_nan_input(metric_name, metric_func):
+    # [FUNCTION DOC]
+    # Checks that every metric raises ValueError mentioning NaN or infinity when the
+    # label input contains inf/nan.
+    # KNOWN ISSUE: the pytest.raises block wraps the whole loop, so only the first
+    # invalid case is actually exercised; later cases never run.
     if metric_name in SUPERVISED_METRICS:
         invalids = [
             ([0, 1], [np.inf, np.inf]),
@@ -217,6 +258,9 @@ def test_inf_nan_input(metric_name, metric_func):
 
 @pytest.mark.parametrize("name", chain(SUPERVISED_METRICS, UNSUPERVISED_METRICS))
 def test_returned_value_consistency(name):
+    # [FUNCTION DOC]
+    # Checks each metric returns a built-in Python float rather than a numpy float
+    # scalar, using seeded random labels and features.
     """Ensure that the returned values of all metrics are consistent.
 
     It can only be a float. It should not be a numpy float64 or float32.
@@ -241,6 +285,11 @@ def test_returned_value_consistency(name):
 def check_array_api_unsupervised_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Array API checker for unsupervised metrics; builds a random integer X of
+    # shape (7, 10) and fixed labels, then delegates to check_array_api_metric for the
+    # given namespace, device and dtype.
+    # Side effects: uses the global unseeded numpy random generator.
     y_pred = np.array([1, 0, 1, 0, 1, 1, 0])
     X = np.random.randint(10, size=(7, 10))
 
@@ -265,6 +314,9 @@ array_api_metric_checkers = {
 
 
 def yield_metric_checker_combinations(metric_checkers=array_api_metric_checkers):
+    # [FUNCTION DOC]
+    # HELPER: Yields (metric, checker) pairs flattened from a mapping of metric to list
+    # of checker functions; defaults to array_api_metric_checkers.
     for metric, checkers in metric_checkers.items():
         for checker in checkers:
             yield metric, checker
@@ -278,4 +330,7 @@ def yield_metric_checker_combinations(metric_checkers=array_api_metric_checkers)
 def test_array_api_compliance(
     metric, array_namespace, device_name, dtype_name, check_func
 ):
+    # [FUNCTION DOC]
+    # Runs each registered array API checker for each metric across all available
+    # namespace/device/dtype combinations (unavailable ones are skipped by the checker).
     check_func(metric, array_namespace, device_name, dtype_name)
