@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# HELPER: CI script (pull_request_target workflow) that labels a PR from its title.
+# Inputs: env var CONTEXT_GITHUB holding the JSON GitHub context (repository, token,
+# event.number).
+# Behavior: searches the title for the whole word "DOC" (adds "Documentation") and
+# "CI" (adds "Build / CI"); adds all matching labels in one API call.
+# Exceptions: TypeError if CONTEXT_GITHUB is unset; KeyError on missing context keys.
+# Side effects: network calls to GitHub, adds labels to the PR.
 """Labels PRs based on title. Must be run in a github action with the
 pull_request_target event."""
 

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Script comparing coordinate-descent Lasso and LassoLars fit times (alpha 0.01, no
+# intercept): first 10 features with n_samples from 100 to 1e6 (precomputed Gram),
+# then 2000 samples with 500..3000 features (no precompute); plots both curves.
+# Side effects: unseeded random data, prints progress, shows a figure.
 """
 Benchmarks of Lasso vs LassoLars
 
@@ -21,6 +26,17 @@ from sklearn.datasets import make_regression
 
 
 def compute_bench(alpha, n_samples, n_features, precompute):
+    # [FUNCTION DOC]
+    # HELPER: For every (ns, nf) pair in the cartesian product of n_samples and
+    # n_features, generates make_regression data with nf // 10 informative features and
+    # noise 0.1, normalizes each column to unit L2 norm, then times Lasso and LassoLars
+    # fits with the given alpha and precompute.
+    # Inputs: alpha float; n_samples, n_features iterables of ints; precompute bool.
+    # Outputs: (lasso_times, lars_times) lists of seconds, one entry per pair.
+    # Side effects: prints, calls gc.collect.
+    # KNOWN ISSUE: Lasso and LassoLars are imported only inside the main block, so calling
+    # this function after a plain import raises NameError. The printed iteration total
+    # is max(len) rather than the product of lengths.
     lasso_results = []
     lars_lasso_results = []
 

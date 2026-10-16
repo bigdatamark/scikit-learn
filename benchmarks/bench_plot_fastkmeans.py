@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Script comparing KMeans and MiniBatchKMeans speed and inertia: a grid of sample
+# counts (50..150) and feature counts (150..50000) on random integer data, and a
+# batch-size sweep (500..10000) for MiniBatchKMeans on 8 Gaussian blobs in 2D; plots
+# 3D surfaces and line plots.
+# Side effects: unseeded global RNG, prints, shows a figure.
+# KNOWN ISSUE: the plotting code matches labels against lowercase "speed", but the
+# MiniBatchKMeans keys use "Speed", so its timings are drawn on the inertia subplot and
+# counted in max_inertia instead of max_time.
 from collections import defaultdict
 from time import time
 
@@ -8,6 +17,14 @@ from sklearn.cluster import KMeans, MiniBatchKMeans
 
 
 def compute_bench(samples_range, features_range):
+    # [FUNCTION DOC]
+    # HELPER: For each (n_samples, n_features) pair draws integers in [-50, 50], fits
+    # KMeans (10 clusters, k-means++) and MiniBatchKMeans (batch_size 100), recording fit
+    # time and inertia.
+    # Inputs: samples_range, features_range - iterables of ints.
+    # Outputs: defaultdict of lists keyed "kmeans_speed", "kmeans_quality",
+    # "MiniBatchKMeans Speed", "MiniBatchKMeans Quality" (row-major over the grid).
+    # Side effects: prints progress.
     it = 0
     results = defaultdict(lambda: [])
     chunk = 100
@@ -54,6 +71,14 @@ def compute_bench(samples_range, features_range):
 
 
 def compute_bench_2(chunks):
+    # [FUNCTION DOC]
+    # HELPER: Builds 8 Gaussian clusters (std 0.8, 50000 points each, around fixed 2D
+    # means) and, for each batch size in chunks, times MiniBatchKMeans (8 clusters) fit.
+    # Inputs: chunks - iterable of batch sizes.
+    # Outputs: defaultdict with "MiniBatchKMeans Speed" and "MiniBatchKMeans Quality"
+    # lists. Side effects: prints.
+    # KNOWN ISSUE: n_features actually holds the per-cluster sample count, and the
+    # inertia print uses a seconds suffix.
     results = defaultdict(lambda: [])
     n_features = 50000
     means = np.array(

@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Standalone benchmark script on the covertype dataset (binary task, see docstring).
+# CLI: --classifiers (names from ESTIMATORS, default liblinear, GaussianNB, SGD, CART),
+# --n-jobs (default 1), --order C/F, --random-seed (default 13).
+# Behavior: loads cached split, prints dataset stats, for each classifier sets every
+# *random_state param to the seed and n_jobs if supported, times fit and predict,
+# computes zero-one loss, prints a table sorted by error.
+# Side effects: downloads data, writes joblib cache under the sklearn data home,
+# prints to stdout, mutates module-level estimators.
+# KNOWN ISSUE: LinearSVC(loss="l2") is not a valid loss in current scikit-learn
+# (expects "squared_hinge"), so the default "liblinear" classifier fails at fit.
+# KNOWN ISSUE: y is 1 for classes other than 1, so the "positive" class counted in the
+# stats is not spruce/fir, contrary to the docstring wording.
 """
 ===========================
 Covertype dataset benchmark
@@ -73,6 +86,15 @@ memory = Memory(
 
 @memory.cache
 def load_data(dtype=np.float32, order="C", random_state=13):
+    # [FUNCTION DOC]
+    # Loads covertype shuffled with random_state, converts X to dtype with the given
+    # memory order, makes binary labels (target != 1), splits first 522911 rows as train
+    # and the rest as test, and standardizes the first 10 (numerical) columns using train
+    # mean/std (other columns untouched).
+    # Inputs: dtype (default float32); order "C"/"F"; random_state int (default 13).
+    # Outputs: (X_train, X_test, y_train, y_test); memmapped read-only when loaded from
+    # the joblib cache.
+    # Side effects: download, disk cache, prints progress.
     """Load the data, then cache and memmap the train/test split"""
     ######################################################################
     # Load dataset

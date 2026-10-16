@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Custom commands for the "spin" developer CLI (registered via pyproject).
+# Currently defines only the "clean" command.
 import shutil
 import sys
 
@@ -7,6 +10,12 @@ from spin.cmds import util
 
 @click.command()
 def clean():
+    # [FUNCTION DOC]
+    # Click command "spin clean": uninstalls scikit-learn from the current interpreter
+    # with pip, then deletes the default Meson build dir build/cp<major><minor>.
+    # Inputs: none. Outputs: none.
+    # Exceptions: errors from util.run propagate; rmtree errors are ignored.
+    # Side effects: subprocess pip uninstall, prints a colored message, deletes files.
     """🪥 Clean build folder.
 
     Very rarely needed since meson-python recompiles as needed when sklearn is

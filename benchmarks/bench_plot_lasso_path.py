@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Script timing Lasso regularization path computation with LARS (lars_path_gram with
+# a precomputed Gram, lars_path without) and coordinate descent (lasso_path with and
+# without precompute) over a 5x5 grid of n_samples and n_features from 10 to 2000;
+# plots one 3D time surface per method.
+# Side effects: unseeded random data, prints, shows a figure.
 """Benchmarks of Lasso regularization path computation using Lars and CD
 
 The input data is mostly low rank but is a fat infinite tail.
@@ -15,6 +21,16 @@ from sklearn.linear_model import lars_path, lars_path_gram, lasso_path
 
 
 def compute_bench(samples_range, features_range):
+    # [FUNCTION DOC]
+    # HELPER: For each (n_samples, n_features) pair generates low-rank make_regression
+    # data (n_features // 10 informative, effective_rank min(n_samples, n_features) / 10,
+    # no bias) and times the four path methods (the Gram variant includes computing X^T X
+    # and X^T y).
+    # Inputs: samples_range, features_range - iterables of ints.
+    # Outputs: defaultdict mapping method label to list of seconds (row-major over grid).
+    # Side effects: prints, gc.collect.
+    # KNOWN ISSUE: effective_rank is a float; make_regression's parameter validation
+    # expects an integer or None, so current scikit-learn may reject it.
     it = 0
 
     results = defaultdict(lambda: [])

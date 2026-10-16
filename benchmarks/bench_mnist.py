@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Script benchmarking classifiers on MNIST (60000 train / 10000 test, pixels scaled to
+# [0, 1]). CLI: --classifiers (names from ESTIMATORS, default ExtraTrees and
+# Nystroem-SVM), --n-jobs, --order C/F, --random-seed (default 0). For each classifier
+# sets every *random_state param to the seed and n_jobs if supported, times fit and
+# predict, prints a table sorted by zero-one error.
+# Side effects: downloads data, joblib cache under sklearn data home, prints,
+# mutates module-level estimators.
+# KNOWN ISSUE: the docstring example names (MLP_adam, LinearRegression-SAG) do not
+# match the ESTIMATORS keys (MLP-adam, LogisticRegression-SAG).
 """
 =======================
 MNIST dataset benchmark
@@ -55,6 +65,13 @@ memory = Memory(os.path.join(get_data_home(), "mnist_benchmark_data"), mmap_mode
 
 @memory.cache
 def load_data(dtype=np.float32, order="F"):
+    # [FUNCTION DOC]
+    # Fetches mnist_784 from OpenML, converts X to dtype with the given memory order,
+    # divides by 255, and splits the first 60000 rows as train, the rest as test.
+    # Inputs: dtype (default float32); order "F" or "C".
+    # Outputs: (X_train, X_test, y_train, y_test); y are string-category Series; arrays
+    # memmapped read-only when served from the cache.
+    # Side effects: download, disk cache, prints progress.
     """Load the data, then cache and memmap the train/test split"""
     ######################################################################
     # Load dataset

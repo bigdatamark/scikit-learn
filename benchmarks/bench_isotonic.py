@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Script timing sklearn.isotonic.isotonic_regression on synthetic 1d data of growing
+# size, averaging over --iterations runs per size; prints "n time" lines or shows a
+# log-log plot (--show_plot). CLI also takes --seed, --dataset and the base-10 log
+# bounds of the problem size.
+# Side effects: seeds the global numpy RNG, prints / plots.
+# KNOWN ISSUE: sizes iterate over range(min, max), so 10**log_max_problem_size is
+# excluded, contrary to the "[min, max]" in the docstring.
 """
 Benchmarks of isotonic regression performance.
 
@@ -23,15 +31,26 @@ from sklearn.isotonic import isotonic_regression
 
 
 def generate_perturbed_logarithm_dataset(size):
+    # [FUNCTION DOC]
+    # HELPER: 50*log(1+i) for i in 0..size-1 plus uniform integer noise in [-50, 50).
+    # Outputs: float array of length size. Uses the global RNG.
     return np.random.randint(-50, 50, size=size) + 50.0 * np.log(1 + np.arange(size))
 
 
 def generate_logistic_dataset(size):
+    # [FUNCTION DOC]
+    # HELPER: Bernoulli draws with probability expit(x) for sorted standard normal x.
+    # Outputs: boolean array of length size. Uses the global RNG.
     X = np.sort(np.random.normal(size=size))
     return np.random.random(size=size) < expit(X)
 
 
 def generate_pathological_dataset(size):
+    # [FUNCTION DOC]
+    # HELPER: Deterministic sequence: 0..size-1, then -(size-1)..size-1, then
+    # -(size-1)..0, which was quadratic for an older algorithm.
+    # KNOWN ISSUE: the output length is 4*size - 2, not size, so reported n understates the
+    # actual problem size for this dataset.
     # Triggers O(n^2) complexity on the original implementation.
     return np.r_[
         np.arange(size), np.arange(-(size - 1), size), np.arange(-(size - 1), 1)
@@ -46,6 +65,9 @@ DATASET_GENERATORS = {
 
 
 def bench_isotonic_regression(Y):
+    # [FUNCTION DOC]
+    # HELPER: Runs gc.collect, then times one isotonic_regression call on Y.
+    # Inputs: Y 1d array. Outputs: elapsed seconds (float).
     """
     Runs a single iteration of isotonic regression on the input data,
     and reports the total time taken (in seconds).

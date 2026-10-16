@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Script (runs at import): compares OneClassSVM (RBF, gamma 1/n_features, nu 0.05)
+# against StandardScaler + Nystroem + SGDOneClassSVM on KDD99 (http, smtp, SA, SF)
+# and forestcover. For each dataset: binarize labels (1 = outlier), one-hot KDD
+# categorical columns, shuffle per seed, train on half (SA: 1/20) of the rows
+# (optionally only inliers if novelty_detection), score test rows with the negated
+# decision_function, interpolate the ROC on a 1000-point FPR grid, then report AUC,
+# fit and predict times as bar charts.
+# Side effects: downloads data, sets global matplotlib font, prints, shows figures.
+# KNOWN ISSUE: results_online stores tpr_libsvm instead of tpr_online (unused later,
+# but wrong). The same StandardScaler instance is shared by both pipelines.
 """
 =====================================
 SGDOneClassSVM benchmark
@@ -38,6 +49,9 @@ print(__doc__)
 
 
 def print_outlier_ratio(y):
+    # [FUNCTION DOC]
+    # HELPER: Prints the count of each distinct label in y and the ratio of the least
+    # frequent label count to len(y) (treated as outlier ratio). Side effects: prints.
     """
     Helper function to show the distinct value count of element in the target.
     Useful indicator for the datasets used in bench_isolation_forest.py.
@@ -230,6 +244,9 @@ x_tickslabels = [
 
 
 def autolabel_auc(rects, ax):
+    # [FUNCTION DOC]
+    # HELPER: For each bar in rects writes its height with 3 decimals slightly above it.
+    # Inputs: rects - bar container; ax - matplotlib Axes. Side effects: draws text.
     """Attach a text label above each bar displaying its height."""
     for rect in rects:
         height = rect.get_height()
@@ -243,6 +260,8 @@ def autolabel_auc(rects, ax):
 
 
 def autolabel_time(rects, ax):
+    # [FUNCTION DOC]
+    # HELPER: Same as autolabel_auc but formats heights with 1 decimal (times).
     """Attach a text label above each bar displaying its height."""
     for rect in rects:
         height = rect.get_height()

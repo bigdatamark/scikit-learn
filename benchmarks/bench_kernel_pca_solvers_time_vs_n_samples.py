@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Script (runs at import): times KernelPCA (100 components) fit+transform with dense,
+# optional arpack, and randomized solvers for 4 training sizes between 101 and 4000
+# make_circles samples (seed 0), transforming the training set itself; 3 repeats,
+# asserts approximate results match dense up to sign, plots mean time with std bars.
+# Exceptions: AssertionError on mismatch. Side effects: prints, shows a figure.
+# KNOWN ISSUE: the docstring mentions nb_n_samples_to_try, but the variable is named
+# n_samples_grid_size.
 """
 ==========================================================
 Kernel PCA Solvers comparison benchmark: time vs n_samples

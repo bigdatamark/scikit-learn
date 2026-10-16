@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# ASV benchmark for sklearn.metrics.pairwise.pairwise_distances.
 from sklearn.metrics.pairwise import pairwise_distances
 
 from .common import Benchmark
@@ -5,6 +7,9 @@ from .datasets import _random_dataset
 
 
 class PairwiseDistancesBenchmark(Benchmark):
+    # [CLASS DOC]
+    # Pairwise distance benchmark over representation, metric (cosine, euclidean,
+    # manhattan, correlation) and n_jobs. Uses only Benchmark settings (no estimator).
     """
     Benchmarks for pairwise distances.
     """
@@ -17,6 +22,11 @@ class PairwiseDistancesBenchmark(Benchmark):
     )
 
     def setup(self, *params):
+        # [FUNCTION DOC]
+        # ASV setup: raises NotImplementedError (skip) for sparse + correlation; picks
+        # n_samples (4000/12000 small, 8000/24000 large; lower for manhattan/correlation),
+        # loads a random 1000-feature dataset and stores X and pdist_params (metric, n_jobs).
+        # Side effects: sets self.X, X_val, y, y_val, pdist_params.
         representation, metric, n_jobs = params
 
         if representation == "sparse" and metric == "correlation":
@@ -39,7 +49,11 @@ class PairwiseDistancesBenchmark(Benchmark):
         self.pdist_params = {"metric": metric, "n_jobs": n_jobs}
 
     def time_pairwise_distances(self, *args):
+        # [FUNCTION DOC]
+        # Benchmark: time of computing all pairwise distances within X.
         pairwise_distances(self.X, **self.pdist_params)
 
     def peakmem_pairwise_distances(self, *args):
+        # [FUNCTION DOC]
+        # Benchmark: peak memory of the same computation.
         pairwise_distances(self.X, **self.pdist_params)

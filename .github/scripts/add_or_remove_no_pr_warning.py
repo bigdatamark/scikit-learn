@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# HELPER: CI script run by the not_ready_for_pr_warning GitHub workflow. Adds or
+# removes a "not ready for a PR" warning banner at the top of a GitHub issue body.
+# Inputs: CLI flag --mode ("add" or "remove"); env vars GITHUB_TOKEN, GITHUB_REPO,
+# ISSUE_NUMBER.
+# Behavior: "add" prepends the warning plus a blank line unless the body already
+# starts with it. Any other mode (i.e. "remove") strips the banner only if no label
+# on the issue starts with "Needs" and no label is "RFC".
+# Exceptions: KeyError if an env var is missing; GitHub API errors propagate.
+# Side effects: network calls to GitHub, edits the issue body, prints to stdout.
+# KNOWN ISSUE: if the body equals the warning exactly (no trailing blank line), the
+# remove path matches startswith but removeprefix of message+"\n\n" strips nothing,
+# yet issue.edit is still called and "Removed warning" is printed.
+# KNOWN ISSUE: --mode is not required; when omitted it is None and the remove path runs.
 # Used in Github Action .github/workflows/not_ready_for_pr_warning.yml
 import argparse
 import os

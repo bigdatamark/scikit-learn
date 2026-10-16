@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Script (runs at import, no main guard): times PolynomialFeatures(degree 2, no bias)
+# fit_transform on CSR vs dense input of 1000 rows for densities 0.01, 0.1, 1.0 and
+# dimensionalities 1..64, accumulated over 3 trials, then plots mean time per
+# density in stacked subplots.
+# Side effects: unseeded random data, prints progress, opens a matplotlib window.
 from time import time
 
 import matplotlib.pyplot as plt

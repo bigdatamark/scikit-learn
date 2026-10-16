@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Script (runs at import): measures how HistGradientBoosting (and optionally LightGBM,
+# XGBoost, CatBoost) fit and score times scale with the number of threads (powers of 2
+# below cpu_count, plus cpu_count). sklearn's OpenMP threads are limited with
+# threadpool_limits; other libs get their own thread parameter.
+# CLI: like bench_hist_gradient_boosting.py with --n-samples (train and test size),
+# plus --print-params, --plot and --plot-filename.
+# Side effects: unseeded global RNG for NaN mask / weights, prints, optional figure
+# shown and/or saved.
 import argparse
 import os
 from pprint import pprint
@@ -68,6 +77,12 @@ print(f"n_features: {args.n_features}")
 
 
 def get_estimator_and_data():
+    # [FUNCTION DOC]
+    # HELPER: Builds 2 * n_samples synthetic samples (classification with
+    # n_features // 2 informative features and one cluster per class, or regression),
+    # seed 0. Outputs: (X, y, estimator class).
+    # KNOWN ISSUE: the regression branch reads args.n_samples_max, which this script does
+    # not define, so --problem regression raises AttributeError.
     if args.problem == "classification":
         X, y = make_classification(
             args.n_samples * 2,
@@ -141,6 +156,16 @@ if args.print_params:
 
 
 def one_run(n_threads, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Slices the first n_samples rows of train/test pools, clones the configured
+    # sklearn estimator and times fit and score under an OpenMP limit of n_threads; for each
+    # enabled library builds an equivalent estimator, sets its thread count to n_threads
+    # and times fit/score.
+    # Inputs: n_threads int; n_samples int.
+    # Outputs: 12-tuple (score, fit time, score time) for sklearn, lightgbm, xgboost,
+    # catboost, None for disabled libraries.
+    # Exceptions: AssertionError if a pool is smaller than n_samples. Side effects: prints.
+    # KNOWN ISSUE: the sklearn fit timer starts before clone, slightly inflating it.
     X_train = X_train_[:n_samples]
     X_test = X_test_[:n_samples]
     y_train = y_train_[:n_samples]

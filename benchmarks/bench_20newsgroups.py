@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Standalone benchmark script: trains selected classifiers (dummy, random forest,
+# extra trees, logistic regression, multinomial NB, AdaBoost) on the vectorized
+# 20newsgroups train set and reports fit time, predict time and test accuracy.
+# Inputs: CLI -e/--estimators (one or more names from ESTIMATORS, required).
+# Behavior: train X converted to float32 CSC, test X to float32 CSR; random_state set
+# to 0 where supported; results printed sorted by increasing accuracy.
+# Side effects: downloads data on first run, prints to stdout; module-level ESTIMATORS
+# instances are fitted in place.
+# KNOWN ISSUE: set_params(random_state=0) on estimators lacking that param raises
+# ValueError, which is swallowed as intended; nothing else is caught.
 import argparse
 from time import time
 

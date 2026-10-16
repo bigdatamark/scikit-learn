@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Script (runs at import): compares PCA and IncrementalPCA fit time and mean absolute
+# reconstruction error on LFW faces (resize 0.2, at least 5 images per person, first
+# 5000 images, standardized per feature): first varying n_components at batch size
+# 1000, then varying batch size for 4 n_components values.
+# Side effects: downloads data, prints, opens several figures.
+# KNOWN ISSUE: the comment says "5000 people" but the slice keeps 5000 images.
 """
 ========================
 IncrementalPCA benchmark
@@ -19,10 +26,19 @@ from sklearn.decomposition import PCA, IncrementalPCA
 
 
 def plot_results(X, y, label):
+    # [FUNCTION DOC]
+    # HELPER: Plots y against X with circle markers and the given legend label on the
+    # current figure.
     plt.plot(X, y, label=label, marker="o")
 
 
 def benchmark(estimator, data):
+    # [FUNCTION DOC]
+    # HELPER: Runs gc.collect, times estimator.fit(data), then computes the mean absolute
+    # difference between data and inverse_transform(transform(data)).
+    # Inputs: estimator - PCA-like transformer; data 2d array.
+    # Outputs: dict with "time" (seconds) and "error" (float). Side effects: prints,
+    # fits the estimator.
     gc.collect()
     print("Benching %s" % estimator)
     t0 = time()
@@ -35,6 +51,9 @@ def benchmark(estimator, data):
 
 
 def plot_feature_times(all_times, batch_size, all_components, data):
+    # [FUNCTION DOC]
+    # HELPER: New figure of fit time vs n_components for "pca" and "ipca" entries of
+    # all_times, labelled with batch_size and data shape.
     plt.figure()
     plot_results(all_components, all_times["pca"], label="PCA")
     plot_results(
@@ -50,6 +69,8 @@ def plot_feature_times(all_times, batch_size, all_components, data):
 
 
 def plot_feature_errors(all_errors, batch_size, all_components, data):
+    # [FUNCTION DOC]
+    # HELPER: New figure of reconstruction error vs n_components for "pca" and "ipca".
     plt.figure()
     plot_results(all_components, all_errors["pca"], label="PCA")
     plot_results(
@@ -64,6 +85,9 @@ def plot_feature_errors(all_errors, batch_size, all_components, data):
 
 
 def plot_batch_times(all_times, n_features, all_batch_sizes, data):
+    # [FUNCTION DOC]
+    # HELPER: New figure of fit time vs batch size for "pca" and "ipca"; n_features is
+    # the number of components shown in the title.
     plt.figure()
     plot_results(all_batch_sizes, all_times["pca"], label="PCA")
     plot_results(all_batch_sizes, all_times["ipca"], label="IncrementalPCA")
@@ -77,6 +101,8 @@ def plot_batch_times(all_times, n_features, all_batch_sizes, data):
 
 
 def plot_batch_errors(all_errors, n_features, all_batch_sizes, data):
+    # [FUNCTION DOC]
+    # HELPER: New figure of reconstruction error vs batch size for "pca" and "ipca".
     plt.figure()
     plot_results(all_batch_sizes, all_errors["pca"], label="PCA")
     plot_results(all_batch_sizes, all_errors["ipca"], label="IncrementalPCA")
@@ -90,6 +116,10 @@ def plot_batch_errors(all_errors, n_features, all_batch_sizes, data):
 
 
 def fixed_batch_size_comparison(data):
+    # [FUNCTION DOC]
+    # HELPER: For 5 n_components values evenly spaced from n_features // 10 to n_features,
+    # benchmarks PCA and IncrementalPCA(batch_size=1000) and plots time and error figures.
+    # Inputs: data 2d array. Side effects: fits, prints, creates figures.
     all_features = [
         i.astype(int) for i in np.linspace(data.shape[1] // 10, data.shape[1], num=5)
     ]
@@ -113,6 +143,12 @@ def fixed_batch_size_comparison(data):
 
 
 def variable_batch_size_comparison(data):
+    # [FUNCTION DOC]
+    # HELPER: For 4 n_components values, benchmarks PCA and randomized PCA once (repeated
+    # as flat baselines), then IncrementalPCA for 10 batch sizes from n_samples // 10 to
+    # n_samples, and plots time and error vs batch size.
+    # Inputs: data 2d array. Side effects: fits, prints, creates figures.
+    # KNOWN ISSUE: the randomized PCA ("rpca") results are computed but never plotted.
     batch_sizes = [
         i.astype(int) for i in np.linspace(data.shape[0] // 10, data.shape[0], num=10)
     ]

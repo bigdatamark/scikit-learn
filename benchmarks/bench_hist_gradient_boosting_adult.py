@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Script (runs at import): benchmarks HistGradientBoostingClassifier with native
+# categorical support on the OpenML Adult dataset (id 179), optionally vs LightGBM.
+# Categorical columns are ordinal-encoded and moved first (column transformer order),
+# which is what the is_categorical mask assumes; 80/20 split with seed 0.
+# CLI: --n-leaf-nodes, --n-trees, --lightgbm, --learning-rate, --max-bins,
+# --no-predict, --verbose.
+# Side effects: downloads data, prints timings, ROC AUC and accuracy.
 import argparse
 from time import time
 
@@ -30,6 +38,9 @@ verbose = args.verbose
 
 
 def fit(est, data_train, target_train, libname, **fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Fits est on the training data with extra fit_params and prints the
+    # library name and fit time. Outputs: none. Side effects: fits est, prints.
     print(f"Fitting a {libname} model...")
     tic = time()
     est.fit(data_train, target_train, **fit_params)
@@ -38,6 +49,10 @@ def fit(est, data_train, target_train, libname, **fit_params):
 
 
 def predict(est, data_test, target_test):
+    # [FUNCTION DOC]
+    # HELPER: Unless --no-predict, times predict and predict_proba on the test data and
+    # prints elapsed time, ROC AUC (using the second-class probability column) and
+    # accuracy. Outputs: none.
     if args.no_predict:
         return
     tic = time()

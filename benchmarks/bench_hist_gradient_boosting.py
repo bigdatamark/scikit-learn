@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Script (runs at import): benchmarks HistGradientBoosting classifier/regressor vs
+# optional LightGBM, XGBoost and CatBoost equivalents on synthetic data, for training
+# sizes 1e3..1e7 capped by --n-samples-max; plots score, fit time and score time
+# (log x axis).
+# CLI: --n-leaf-nodes, --n-trees, --learning-rate, --max-bins, --problem
+# (classification/regression), --loss ("default" maps to log_loss / squared_error),
+# --missing-fraction (fraction of entries set to NaN), --n-classes, --n-samples-max,
+# --n-features, --random-sample-weights (uniform weights in [0, 10)), and library flags.
+# Data: 2 * n_samples_max samples split 50/50 into train/test pools (seed 0).
+# Side effects: unseeded global RNG for NaN mask and weights, prints, plot window.
 import argparse
 from time import time
 
@@ -52,6 +63,11 @@ max_bins = args.max_bins
 
 
 def get_estimator_and_data():
+    # [FUNCTION DOC]
+    # HELPER: Generates the full dataset per args.problem: make_classification with one
+    # cluster per class and n_classes informative features, or make_regression; both use
+    # 2 * n_samples_max samples and seed 0.
+    # Outputs: (X, y, estimator class).
     if args.problem == "classification":
         X, y = make_classification(
             args.n_samples_max * 2,
@@ -91,6 +107,15 @@ else:
 
 
 def one_run(n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Takes the first n_samples rows of the train and test pools (and weights),
+    # fits the sklearn estimator (no early stopping, seed 0, chosen loss) timing fit and
+    # score; for each enabled library builds the equivalent model via
+    # get_equivalent_estimator and times it likewise.
+    # Inputs: n_samples int. Outputs: 12-tuple of (score, fit time, score time) for
+    # sklearn, lightgbm, xgboost, catboost; None for disabled libraries.
+    # Exceptions: AssertionError if a pool has fewer than n_samples rows.
+    # Side effects: prints results.
     X_train = X_train_[:n_samples]
     X_test = X_test_[:n_samples]
     y_train = y_train_[:n_samples]

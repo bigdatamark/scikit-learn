@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Script (runs at import): fits LocalOutlierFactor (20 neighbors) on each whole
+# anomaly detection dataset (KDD99 http/smtp/SA/SF, shuttle, forestcover), binarizes
+# labels (1 = outlier), one-hot encodes KDD categorical columns, and plots the ROC
+# curve of the negated negative_outlier_factor_ with AUC and fit time.
+# Side effects: downloads datasets, prints progress, shows a figure.
 """
 ============================
 LocalOutlierFactor benchmark

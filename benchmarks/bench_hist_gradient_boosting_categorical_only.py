@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Script (runs at import): timing benchmark of HistGradientBoostingClassifier where all
+# features are categorical. Synthetic make_classification data (seed 0) is discretized
+# with KBinsDiscretizer into --n-cats ordinal bins per feature; fits and predicts on
+# the same data, optionally comparing with LightGBM (one-hot disabled).
+# CLI: --n-leaf-nodes, --n-trees, --n-features, --n-cats, --n-samples, --lightgbm,
+# --learning-rate, --max-bins, --no-predict, --verbose.
+# Side effects: prints timings only (no accuracy, see comment in predict).
 import argparse
 from time import time
 
@@ -30,6 +38,8 @@ verbose = args.verbose
 
 
 def fit(est, data_train, target_train, libname, **fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Fits est with fit_params, printing library name and fit time.
     print(f"Fitting a {libname} model...")
     tic = time()
     est.fit(data_train, target_train, **fit_params)
@@ -38,6 +48,8 @@ def fit(est, data_train, target_train, libname, **fit_params):
 
 
 def predict(est, data_test):
+    # [FUNCTION DOC]
+    # HELPER: Unless --no-predict, times est.predict on data_test and prints the time.
     # We don't report accuracy or ROC because the dataset doesn't really make
     # sense: we treat ordered features as un-ordered categories.
     if args.no_predict:

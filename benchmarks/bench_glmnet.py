@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Script comparing scikit-learn Lasso with glmnet-python Lasso (alpha 0.1): first with
+# 1000 features and growing training size (500..10000), then 500 training samples and
+# growing feature count (100..2000); prints timing/RMSE/coef error and plots times.
+# Side effects: unseeded random data, prints, matplotlib windows; needs glmnet.
+# KNOWN ISSUE: n_informative is computed as a float (n_features / 10); make_regression
+# validates it as an integer, so current scikit-learn raises an error.
+# KNOWN ISSUE: the first plot's x values start at 0 while training sizes start at step.
+# KNOWN ISSUE: in the second benchmark n_samples is (i*step)+1000 but only the first 500
+# rows are used for training; the comment's description is otherwise accurate.
 """
 To run this, you'll need to have installed.
 
@@ -29,10 +39,19 @@ alpha = 0.1
 
 
 def rmse(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Root mean squared error between arrays a and b (same shape). Outputs: float.
     return np.sqrt(np.mean((a - b) ** 2))
 
 
 def bench(factory, X, Y, X_test, Y_test, ref_coef):
+    # [FUNCTION DOC]
+    # HELPER: Runs garbage collection, fits factory(alpha=alpha) on (X, Y) timing the fit,
+    # prints duration, test RMSE and mean absolute difference between ref_coef and the
+    # fitted coef_.
+    # Inputs: factory - estimator class accepting alpha; X, Y training data; X_test,
+    # Y_test held-out data; ref_coef - true coefficients (n_features,).
+    # Outputs: fit duration in seconds (float). Side effects: prints.
     gc.collect()
 
     # start time

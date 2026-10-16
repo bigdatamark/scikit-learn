@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Script plotting NearestNeighbors build and query time for kd_tree, brute and
+# ball_tree while varying number of points N, dimension D and neighbors k, on digits
+# and uniform random data. Side effects: figures shown in the main block.
 """
 Plot the scaling of the nearest neighbors algorithms with k, D, and N
 """
@@ -12,6 +16,12 @@ from sklearn import datasets, neighbors
 
 
 def get_data(N, D, dataset="dense"):
+    # [FUNCTION DOC]
+    # HELPER: Returns an N x D data matrix. "dense": uniform [0, 1) after seeding the
+    # global RNG with 0. "digits": digits images with columns reordered by decreasing
+    # value of the first sample, truncated to the first N rows and D columns.
+    # Exceptions: ValueError for any other dataset name.
+    # Side effects: reseeds the global numpy RNG for "dense".
     if dataset == "dense":
         np.random.seed(0)
         return np.random.random((N, D))
@@ -34,6 +44,16 @@ def barplot_neighbors(
     leaf_size=30,
     dataset="digits",
 ):
+    # [FUNCTION DOC]
+    # HELPER: Times fit (build) and kneighbors on the training points (query) for each
+    # algorithm while varying N over Nrange (k capped at N), D over Drange and k over
+    # krange, holding the other quantities at the fiducial values N, D, k; then draws
+    # stacked log-scale bars (red build, blue query) in three subplots.
+    # Inputs: Nrange, Drange, krange - int arrays; N, D, k - fiducial ints; leaf_size int;
+    # dataset "digits" or "dense".
+    # Outputs: none. Side effects: prints progress, creates a matplotlib figure.
+    # KNOWN ISSUE: the varying-k section uses DD (last value of Drange) instead of D; it
+    # only matches D because the default Drange ends at 64.
     algorithms = ("kd_tree", "brute", "ball_tree")
     fiducial_values = {"N": N, "D": D, "k": k}
 

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Script (runs at import): evaluates IsolationForest (n_jobs=-1, seed 1) on six anomaly
+# detection datasets (KDD99 http/smtp/SA/SF, shuttle, forestcover). Each dataset is
+# binarized (1 = outlier), categorical KDD columns are one-hot encoded with
+# LabelBinarizer, data are split in half (first half train), and the test ROC curve of
+# the negated decision_function is plotted with AUC and timings.
+# Side effects: downloads datasets, prints, shows figures.
+# KNOWN ISSUE: predict_time is measured after the optional histogram plotting, so it
+# includes plotting time when with_decision_function_histograms is True.
 """
 ==========================================
 IsolationForest benchmark
@@ -31,6 +40,10 @@ print(__doc__)
 
 
 def print_outlier_ratio(y):
+    # [FUNCTION DOC]
+    # HELPER: Prints the count of each distinct label in y and the ratio of the least
+    # frequent label count to len(y) (taken as the outlier ratio).
+    # Inputs: y - 1d array of labels. Outputs: none. Side effects: prints.
     """
     Helper function to show the distinct value count of element in the target.
     Useful indicator for the datasets used in bench_isolation_forest.py.

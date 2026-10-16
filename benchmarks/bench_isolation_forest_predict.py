@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Script comparing IsolationForest decision_function time across branches. "bench"
+# subcommand writes <bench_results>/<branch>.csv with fit/predict times over a grid of
+# test sizes, feature counts, contamination levels and n_jobs (threading backend);
+# "plot" subcommand reads two such CSVs and saves a side-by-side seaborn line plot.
 """
 ==========================================
 IsolationForest prediction benchmark
@@ -48,6 +53,14 @@ print(__doc__)
 def get_data(
     n_samples_train, n_samples_test, n_features, contamination=0.1, random_state=0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Generates two Gaussian clusters (std 0.3, centered at +2 and -2 in every
+    # feature) for train and test, then replaces floor(contamination * n_samples_test)
+    # randomly chosen test rows with uniform noise in [-4, 4].
+    # Inputs: n_samples_train, n_samples_test, n_features ints; contamination float;
+    # random_state int. Outputs: (X_train, X_test) with 2 * n_samples_* rows each.
+    # KNOWN ISSUE: because each cluster has n_samples_* rows, the arrays have twice the
+    # named sample count and outliers are only drawn from the first half (the +2 cluster).
     """Function based on code from: https://scikit-learn.org/stable/
     auto_examples/ensemble/plot_isolation_forest.html#sphx-glr-auto-
     examples-ensemble-plot-isolation-forest-py
@@ -70,6 +83,14 @@ def get_data(
 
 
 def plot(args):
+    # [FUNCTION DOC]
+    # HELPER: Loads <pr_name>.csv and <main_name>.csv from bench_results, merges them on
+    # (n_samples_test, n_jobs), and draws predict time vs n_samples_test per n_jobs for
+    # each branch; saves to bench_results/image_path.
+    # Inputs: args namespace (bench_results, pr_name, main_name, image_path).
+    # Side effects: reads CSVs, prints n_jobs values, writes an image.
+    # KNOWN ISSUE: merging only on n_samples_test and n_jobs creates a cartesian product
+    # over n_features/contamination rows; seaborn then averages over those pairings.
     import matplotlib.pyplot as plt
     import seaborn as sns
 
@@ -140,6 +161,14 @@ def plot(args):
 
 
 def bench(args):
+    # [FUNCTION DOC]
+    # HELPER: For every combination of n_samples_test (1000, 10000, 50000), n_features
+    # (10, 100, 1000), contamination (0.01, 0.1, 0.5) and n_jobs (1-4), generates data,
+    # fits IsolationForest on 1000 (x2) training rows and times decision_function under
+    # a threading parallel_config with n_jobs. Writes results to <bench_results>/<branch>.csv.
+    # Inputs: args namespace (bench_results, branch). Side effects: prints, writes CSV.
+    # KNOWN ISSUE: the "clearcache" loop does nothing useful; the model is fit with
+    # n_jobs=-1 so only prediction respects the n_jobs grid value.
     results_dir = Path(args.bench_results)
     branch = args.branch
     random_state = 1

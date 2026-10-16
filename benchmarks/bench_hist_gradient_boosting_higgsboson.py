@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Script (runs at import): benchmarks HistGradientBoostingClassifier on the HIGGS
+# dataset (downloaded next to this file, parsed CSV cached via joblib in --cache-loc),
+# 80/20 split seed 0, optional training subsample, optional per-feature interaction
+# constraints, and optional LightGBM/XGBoost/CatBoost equivalents.
+# CLI: --n-leaf-nodes, --n-trees, --learning-rate (default 1.0), --subsample,
+# --max-bins, --no-predict, --cache-loc, --no-interactions, --max-features, lib flags.
+# Side effects: 2.6 GB download, disk cache, verbose prints.
+# KNOWN ISSUE: --no-interactions uses type=bool, so any non-empty value (even "False")
+# enables it.
+# KNOWN ISSUE: est is overwritten by each library's estimator, so when several of
+# --lightgbm/--xgboost/--catboost are given, later get_equivalent_estimator calls
+# receive a non-sklearn estimator.
 import argparse
 import os
 from gzip import GzipFile
@@ -42,6 +55,10 @@ max_features = args.max_features
 
 @m.cache
 def load_data():
+    # [FUNCTION DOC]
+    # HELPER: Downloads HIGGS.csv.gz if missing, parses it as float32 DataFrame without
+    # header. Outputs: DataFrame (first column target, then 28 features); memoized.
+    # Side effects: network download, file write, prints.
     filename = os.path.join(HERE, URL.rsplit("/", 1)[-1])
     if not os.path.exists(filename):
         print(f"Downloading {URL} to {filename} (2.6 GB)...")
@@ -58,6 +75,8 @@ def load_data():
 
 
 def fit(est, data_train, target_train, libname):
+    # [FUNCTION DOC]
+    # HELPER: Fits est on the training data, printing library name and fit time.
     print(f"Fitting a {libname} model...")
     tic = time()
     est.fit(data_train, target_train)
@@ -66,6 +85,9 @@ def fit(est, data_train, target_train, libname):
 
 
 def predict(est, data_test, target_test):
+    # [FUNCTION DOC]
+    # HELPER: Unless --no-predict, times predict + predict_proba and prints time, ROC AUC
+    # (positive-class column) and accuracy.
     if args.no_predict:
         return
     tic = time()

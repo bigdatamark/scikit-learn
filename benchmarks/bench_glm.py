@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Script: for 40 iterations fits Ridge(alpha=1), LinearRegression and LassoLars on
+# random square Gaussian data of size 10*i+3 and plots wall-clock fit times.
+# Side effects: unseeded global RNG, prints progress, shows a matplotlib figure.
+# KNOWN ISSUE: the x-axis "dimensions" is 500, 1000, ..., 20000, which does not match
+# the actual problem sizes (3, 13, ..., 393).
 """
 A comparison of different methods in GLM
 

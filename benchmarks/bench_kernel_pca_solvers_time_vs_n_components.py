@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Script (runs at import): times KernelPCA fit+transform with dense, arpack (only for
+# n_components < 100 unless arpack_all) and randomized eigen solvers over 10
+# log-spaced n_components from 1 to 1999, on make_circles data (2000 train, 1000
+# test, seed 0), 3 repeats each; asserts approximate solvers match the dense result up
+# to sign, then plots mean time with std error bars.
+# Exceptions: AssertionError if an approximate solver's absolute projections differ.
+# Side effects: prints docstring and progress, shows a figure.
 """
 =============================================================
 Kernel PCA Solvers comparison benchmark: time vs n_components

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Script timing AgglomerativeClustering (10 clusters) with single, average, complete
+# and ward linkage on random integer data for n_samples 1000..15000 and n_features
+# 2, 10, 20, 50; plots time vs n_samples in one subplot per feature count.
+# Side effects: unseeded global RNG, prints, shows a figure.
 from collections import defaultdict
 from time import time
 
@@ -8,6 +13,12 @@ from sklearn.cluster import AgglomerativeClustering
 
 
 def compute_bench(samples_range, features_range):
+    # [FUNCTION DOC]
+    # HELPER: For each (n_samples, n_features) pair draws integers in [-50, 50] and times
+    # an AgglomerativeClustering fit for each linkage.
+    # Inputs: samples_range, features_range - iterables of ints.
+    # Outputs: defaultdict mapping linkage name to list of seconds (row-major over the
+    # grid). Side effects: prints.
     it = 0
     results = defaultdict(lambda: [])
 

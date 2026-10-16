@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Script (notebook-style cells, runs at import): times PCA fit and fit_transform for
+# solvers full, covariance_eigh, arpack, randomized and auto on standard normal data
+# (seed 0) of shapes (ref_dim, k) and (k, ref_dim) for ref_dim in 100, 1000, 10000 and
+# k in 10^i and 3*10^i (total size up to about 1e7), with n_components 2 and 50.
+# Skips covariance_eigh for >5000 features and arpack/full when size > 1e7.
+# Writes bench_pca_solvers.csv in the cwd and draws log-log time plots varying
+# n_samples and n_features.
+# Side effects: large memory use, prints, writes a CSV, creates figures (not shown).
 # %%
 #
 # This benchmark compares the speed of PCA solvers on datasets of different
@@ -45,6 +54,12 @@ datasets = [rng.normal(size=shape) for shape in data_shapes]
 
 # %%
 def measure_one(data, n_components, solver, method_name="fit"):
+    # [FUNCTION DOC]
+    # HELPER: Builds PCA(n_components, svd_solver=solver, random_state=0) and calls the
+    # method named method_name on data repeatedly (with assume_finite) until total elapsed
+    # time reaches 0.5 s; each call refits the same instance.
+    # Inputs: data 2d array; n_components int; solver str; method_name "fit" or
+    # "fit_transform". Outputs: median duration in seconds. Side effects: prints.
     print(
         f"Benchmarking {solver=!r}, {n_components=}, {method_name=!r} on data with"
         f" shape {data.shape}"
