@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# HELPER: Testing/benchmark utility that translates a HistGradientBoosting estimator's
+# hyperparameters into an equivalent unfitted LightGBM, XGBoost or CatBoost estimator,
+# so that results can be compared across libraries. Third-party libraries are imported
+# lazily inside the function only.
 """This module contains utility routines."""
 
 # Authors: The scikit-learn developers
@@ -8,6 +13,32 @@ from sklearn.ensemble._hist_gradient_boosting.binning import _BinMapper
 
 
 def get_equivalent_estimator(estimator, lib="lightgbm", n_classes=None):
+    # [FUNCTION DOC]
+    # HELPER: Builds an unfitted estimator of another library whose hyperparameters mirror
+    # those of the given sklearn HistGradientBoosting estimator.
+    # Behavior: validates lib; reads estimator.get_params(); rejects loss "auto" and
+    # early_stopping; builds three parameter dicts (LightGBM, XGBoost, CatBoost) mapping
+    # loss, learning_rate, max_iter, max_leaf_nodes, max_depth, min_samples_leaf,
+    # l2_regularization, max_bins, verbose and max_features to library names, plus fixed
+    # settings (min hessian 1e-3, no bundling, lossguide growth, Median borders, Newton
+    # leaf estimation). For LightGBM multiclass log_loss, doubles min_sum_hessian_in_leaf
+    # and scales learning_rate by n_classes / (n_classes - 1) to match LightGBM's hessian
+    # scaling. Returns the classifier or regressor class depending on is_classifier.
+    # Inputs: estimator - HistGradientBoostingClassifier/Regressor instance; lib - one of
+    # "lightgbm" (default), "xgboost", "catboost"; n_classes - int or None, used to pick
+    # binary vs multiclass objectives.
+    # Outputs: unfitted LGBM*/XGB*/CatBoost* Classifier or Regressor.
+    # Exceptions: ValueError for unknown lib or loss "auto"; NotImplementedError when
+    # early_stopping is truthy; KeyError for losses absent from the mappings (e.g.
+    # quantile); ImportError if the chosen library is missing.
+    # Side effects: imports the third-party library on demand.
+    # KNOWN ISSUE: the condition n_classes > 2 is evaluated before the inner "n_classes is
+    # not None" check, so with log_loss and n_classes=None a TypeError is raised and the
+    # inner check is dead code.
+    # KNOWN ISSUE: absolute_error maps to placeholder strings for XGBoost/CatBoost and
+    # gamma maps to None for CatBoost; these produce invalid objectives in those libraries.
+    # KNOWN ISSUE: "auto" is no longer a valid loss value in current sklearn, so that check
+    # is effectively dead.
     """Return an unfitted estimator from another lib with matching hyperparams.
 
     This utility function takes care of renaming the sklearn parameters into
