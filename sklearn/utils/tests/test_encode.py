@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the private label encoding utilities in sklearn.utils._encode: _unique,
+# _encode, _check_unknown and _get_counts, covering numeric, string and object dtypes
+# and missing values (None and NaN), including uniques that went through pickling.
 import pickle
 
 import numpy as np
@@ -28,6 +32,11 @@ from sklearn.utils._encode import _check_unknown, _encode, _get_counts, _unique
     ids=["int64", "float32-nan", "object", "object-None", "str"],
 )
 def test_encode_util(values, expected):
+    # [FUNCTION DOC]
+    # Verifies, for int, float-with-NaN, object, object-with-None and str inputs, that
+    # _unique returns sorted uniques (missing values last), and that return_inverse and
+    # return_counts (alone and combined) give the expected codes and counts; also that
+    # _encode with the uniques reproduces the inverse codes.
     uniques = _unique(values)
     assert_array_equal(uniques, expected)
 
@@ -49,6 +58,10 @@ def test_encode_util(values, expected):
 
 
 def test_encode_with_check_unknown():
+    # [FUNCTION DOC]
+    # Verifies _encode raises ValueError for unseen labels when check_unknown=True, not
+    # when False for numeric input, and still raises for object dtype even with
+    # check_unknown=False (the flag is ignored for object arrays).
     # test for the check_unknown parameter of _encode()
     uniques = np.array([1, 2, 3])
     values = np.array([1, 2, 3, 4])
@@ -68,6 +81,11 @@ def test_encode_with_check_unknown():
 
 
 def _assert_check_unknown(values, uniques, expected_diff, expected_mask):
+    # [FUNCTION DOC]
+    # HELPER: Asserts _check_unknown returns expected_diff (the unknown values) both
+    # without and with return_mask, and that the returned valid mask equals expected_mask.
+    # Inputs: values, uniques - arrays; expected_diff, expected_mask - array-likes.
+    # Exceptions: AssertionError on mismatch.
     diff = _check_unknown(values, uniques)
     assert_array_equal(diff, expected_diff)
 
@@ -127,12 +145,20 @@ def _assert_check_unknown(values, uniques, expected_diff, expected_mask):
     ],
 )
 def test_check_unknown(values, uniques, expected_diff, expected_mask):
+    # [FUNCTION DOC]
+    # Verifies _check_unknown over parametrized numeric (with/without NaN on either side),
+    # object and str cases via _assert_check_unknown.
     _assert_check_unknown(values, uniques, expected_diff, expected_mask)
 
 
 @pytest.mark.parametrize("missing_value", [None, np.nan, float("nan")])
 @pytest.mark.parametrize("pickle_uniques", [True, False])
 def test_check_unknown_missing_values(missing_value, pickle_uniques):
+    # [FUNCTION DOC]
+    # Verifies _check_unknown on object arrays with a missing value (None or NaN):
+    # missing in both values and uniques is known; missing only in values is reported in
+    # the diff; and a missing value in values is unknown when uniques have none. Repeated
+    # with uniques round-tripped through pickle (NaN identity changes).
     # check for check_unknown with missing values with object dtypes
     values = np.array(["d", "c", "a", "b", missing_value], dtype=object)
     uniques = np.array(["c", "a", "b", missing_value], dtype=object)
@@ -166,6 +192,9 @@ def test_check_unknown_missing_values(missing_value, pickle_uniques):
 @pytest.mark.parametrize("missing_value", [np.nan, None, float("nan")])
 @pytest.mark.parametrize("pickle_uniques", [True, False])
 def test_unique_util_missing_values_objects(missing_value, pickle_uniques):
+    # [FUNCTION DOC]
+    # Verifies _unique on object arrays with one missing value places it last (checking
+    # NaN via isnan), and _encode maps values to correct codes, also after pickling uniques.
     # check for _unique and _encode with missing values with object dtypes
     values = np.array(["a", "c", "c", missing_value, "b"], dtype=object)
     expected_uniques = np.array(["a", "b", "c", missing_value], dtype=object)
@@ -186,6 +215,9 @@ def test_unique_util_missing_values_objects(missing_value, pickle_uniques):
 
 
 def test_unique_util_missing_values_numeric():
+    # [FUNCTION DOC]
+    # Verifies _unique, its inverse and _encode for a float array containing repeated NaN:
+    # NaN is a single unique sorted last.
     # Check missing values in numerical values
     values = np.array([3, 1, np.nan, 5, 3, np.nan], dtype=float)
     expected_uniques = np.array([1, 3, 5, np.nan], dtype=float)
@@ -203,6 +235,9 @@ def test_unique_util_missing_values_numeric():
 
 
 def test_unique_util_with_all_missing_values():
+    # [FUNCTION DOC]
+    # Verifies an object array mixing NaN, float("nan") and None yields uniques with None
+    # before a single trailing NaN, and the inverse codes group both NaN kinds together.
     # test for all types of missing values for object dtype
     values = np.array([np.nan, "a", "c", "c", None, float("nan"), None], dtype=object)
 
@@ -217,6 +252,9 @@ def test_unique_util_with_all_missing_values():
 
 
 def test_check_unknown_with_both_missing_values():
+    # [FUNCTION DOC]
+    # Verifies _check_unknown on object values containing both None and NaN against known
+    # "a"/"c" reports None then NaN as unknown, and the valid mask flags them as False.
     # test for both types of missing values for object dtype
     values = np.array([np.nan, "a", "c", "c", None, np.nan, None], dtype=object)
 
@@ -270,5 +308,8 @@ def test_check_unknown_with_both_missing_values():
     ],
 )
 def test_get_counts(values, uniques, expected_counts):
+    # [FUNCTION DOC]
+    # Verifies _get_counts returns occurrence counts in the order of the given uniques,
+    # including zero for absent uniques and NaN handling for numeric and object inputs.
     counts = _get_counts(values, uniques)
     assert_array_equal(counts, expected_counts)
