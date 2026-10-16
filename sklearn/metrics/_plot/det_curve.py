@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines DetCurveDisplay, the matplotlib visualization of a Detection Error
+# Tradeoff curve (false negative rate versus false positive rate, both on a normal
+# deviate / probit scale) for a binary classifier. No import-time side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -12,6 +16,11 @@ from sklearn.utils._plotting import (
 
 
 class DetCurveDisplay(_BinaryClassifierCurveDisplayMixin):
+    # [CLASS DOC]
+    # Holds precomputed fpr/fnr arrays plus naming metadata and draws them; built
+    # directly or via from_estimator / from_predictions. Validation helpers come from
+    # _BinaryClassifierCurveDisplayMixin. Attributes set by plot: line_ (Line2D), ax_,
+    # figure_.
     """Detection Error Tradeoff (DET) curve visualization.
 
     It is recommended to use :func:`~sklearn.metrics.DetCurveDisplay.from_estimator`
@@ -81,6 +90,13 @@ class DetCurveDisplay(_BinaryClassifierCurveDisplayMixin):
     """
 
     def __init__(self, *, fpr, fnr, estimator_name=None, pos_label=None):
+        # [FUNCTION DOC]
+        # Stores inputs without validation.
+        # Inputs: fpr, fnr - ndarrays of equal length with rates in [0, 1];
+        #   estimator_name -
+        # optional legend label; pos_label - optional positive class label shown in axis
+        # labels.
+        # Side effects: sets the four same-named attributes.
         self.fpr = fpr
         self.fnr = fnr
         self.estimator_name = estimator_name
@@ -101,6 +117,21 @@ class DetCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         ax=None,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Obtains binary scores from the estimator (via _get_response_values_binary with
+        # response_method 'auto', i.e. predict_proba or decision_function), resolves
+        #   pos_label
+        # and defaults name to the estimator class name, then delegates to
+        #   from_predictions.
+        # Inputs: estimator - fitted binary classifier; X, y; sample_weight;
+        # drop_intermediate bool; response_method; pos_label; name; ax; kwargs forwarded
+        #   to
+        # matplotlib plot.
+        # Outputs: DetCurveDisplay.
+        # Exceptions: ImportError without matplotlib; ValueError from response
+        #   validation
+        # (e.g. non-binary classifier, invalid pos_label).
+        # Side effects: calls estimator prediction methods; plots.
         """Plot DET curve given an estimator and data.
 
         For general information regarding `scikit-learn` visualization tools, see
@@ -215,6 +246,21 @@ class DetCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         y_pred="deprecated",
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Resolves the deprecated y_pred alias into y_score (FutureWarning when used,
+        # ValueError if both are given), validates binary target and lengths, computes
+        # (fpr, fnr) with det_curve and plots. name defaults to 'Classifier'.
+        # Inputs: y_true (n_samples,) binary; y_score (n_samples,) scores;
+        #   sample_weight;
+        # drop_intermediate; pos_label; name; ax; y_pred (deprecated); kwargs for
+        #   matplotlib.
+        # Outputs: DetCurveDisplay.
+        # Exceptions: ValueError for non-binary y_true, inconsistent lengths, invalid
+        # pos_label, or both y_score and y_pred passed.
+        # Side effects: may emit FutureWarning; plots.
+        # KNOWN ISSUE: det_curve receives the raw pos_label rather than the validated
+        #   one; the
+        # result is equivalent because det_curve performs the same resolution.
         """Plot the DET curve given the true and predicted labels.
 
         For general information regarding `scikit-learn` visualization tools, see
@@ -323,6 +369,24 @@ class DetCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         return viz.plot(ax=ax, name=name, **kwargs)
 
     def plot(self, ax=None, *, name=None, **kwargs):
+        # [FUNCTION DOC]
+        # Creates or reuses axes, determines the legend label (argument name, else
+        # estimator_name), clips fpr and fnr to [eps, 1 - eps] for the array dtype, maps
+        #   them
+        # through the standard normal inverse CDF and draws a single line. Axis labels
+        #   include
+        # the positive label when known; a legend is added only when a label exists.
+        #   Both axes
+        # get fixed ticks at 0.1%, 1%, 5%, 20%, 50%, 80%, 95%, 99%, 99.9% (formatted as
+        # percentages) and limits [-3, 3].
+        # Inputs: ax - Axes or None; name - str or None; kwargs - Line2D properties
+        #   overriding
+        # the label.
+        # Outputs: self.
+        # Exceptions: ImportError without matplotlib.
+        # Side effects: overwrites self.fpr and self.fnr with the clipped arrays; sets
+        #   ax_,
+        # figure_, line_.
         """Plot visualization.
 
         Parameters

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Locally Linear Embedding: reconstruction-weight helpers, the null-space eigen
+# solver, the four LLE variants (standard, hessian, modified, ltsa) behind the
+# public locally_linear_embedding function, and the LocallyLinearEmbedding
+# transformer.
 """Locally Linear Embedding"""
 
 # Authors: The scikit-learn developers
@@ -27,6 +32,20 @@ from sklearn.utils.validation import FLOAT_DTYPES, check_is_fitted, validate_dat
 
 
 def barycenter_weights(X, Y, indices, reg=1e-3):
+    # [FUNCTION DOC]
+    # For each row i of X, solve for weights over its neighbors Y[indices[i]] that
+    # best reconstruct X[i] and sum to 1. Per sample: center neighbors on X[i] (C),
+    # form the Gram matrix G = C times C transposed, add reg times trace(G) to the
+    # diagonal (or reg alone when the trace is not positive), solve G w = ones with a
+    # positive-definite solver and normalize w to sum 1.
+    # Inputs: X (n_samples, n_dim); Y (n_points, n_dim); indices int
+    # (n_samples, n_neighbors) into Y; reg - float regularization, default 1e-3.
+    # Outputs: B ndarray (n_samples, n_neighbors) of X's float dtype.
+    # Exceptions: AssertionError if X and indices row counts differ; LinAlgError from
+    # solve if G is singular.
+    # Side effects: none.
+    # KNOWN ISSUE: docstring gives indices shape as (n_samples, n_dim); it is
+    # (n_samples, n_neighbors).
     """Compute barycenter weights of X from Y along the first axis
 
     We estimate the weights to assign to each point in Y[indices] to recover
@@ -81,6 +100,20 @@ def barycenter_weights(X, Y, indices, reg=1e-3):
 
 
 def barycenter_kneighbors_graph(X, n_neighbors, reg=1e-3, n_jobs=None):
+    # [FUNCTION DOC]
+    # Builds the sparse barycenter weight graph: fit NearestNeighbors with
+    # n_neighbors + 1 neighbors, query the training points against themselves and drop
+    # the first column (self), compute barycenter_weights of each point from its
+    # neighbors, and pack them into a CSR array with exactly n_neighbors entries per
+    # row.
+    # Inputs: X - array or fitted-able NearestNeighbors; n_neighbors int; reg float;
+    # n_jobs for the neighbor search.
+    # Outputs: sparse CSR (n_samples, n_samples), API aligned via _align_api_if_sparse.
+    # Side effects: fits a new NearestNeighbors (refits if X is a NearestNeighbors).
+    # KNOWN ISSUE: docstring says reg is "only relevant if mode='barycenter'" and "if
+    # None use the default"; there is no mode parameter and None is not handled.
+    # Dropping the first neighbor assumes it is the point itself (not true with
+    # duplicate points).
     """Computes the barycenter weighted graph of k-Neighbors for points in X
 
     Parameters
@@ -126,6 +159,18 @@ def barycenter_kneighbors_graph(X, n_neighbors, reg=1e-3, n_jobs=None):
 def null_space(
     M, k, k_skip=1, eigen_solver="arpack", tol=1e-6, max_iter=100, random_state=None
 ):
+    # [FUNCTION DOC]
+    # Finds the eigenvectors of M for the smallest eigenvalues, skipping the first
+    # k_skip. "auto" picks arpack when M has more than 200 rows and k + k_skip < 10,
+    # else dense. arpack: shift-invert eigsh around sigma 0 for k + k_skip pairs with
+    # a random initial vector from random_state. dense: densify sparse M and call eigh
+    # for index range [k_skip, k + k_skip - 1], then reorder by absolute eigenvalue.
+    # Inputs: M symmetric PSD (dense, sparse or LinearOperator); k int; k_skip int
+    # default 1; eigen_solver; tol and max_iter (arpack only); random_state.
+    # Outputs: tuple (eigenvectors ndarray (n, k), float sum of kept eigenvalues).
+    # Exceptions: ValueError wrapping ARPACK RuntimeError; ValueError for an unknown
+    # eigen_solver.
+    # Side effects: dense path overwrites a dense input M in place (overwrite_a).
     """
     Find the null space of a matrix M.
 
@@ -214,6 +259,38 @@ def _locally_linear_embedding(
     random_state=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Unvalidated implementation of locally_linear_embedding.
+    # Steps: fit NearestNeighbors(n_neighbors + 1) on X (array or estimator) and use
+    # its stored data; check n_components <= n_features and n_neighbors < n_samples.
+    # Build the N x N alignment matrix M (lil sparse unless eigen_solver is dense):
+    # standard - M = (I - W)^T (I - W) with W from barycenter_kneighbors_graph.
+    # hessian - require n_neighbors > n_components + n_components(n_components+1)/2;
+    # per point, center its neighbors, get the local principal directions (SVD if
+    # n_neighbors > n_features, else eigh of the Gram matrix), build Yi = [ones,
+    # top directions, all pairwise products of directions], QR it, take the trailing
+    # columns as Hessian estimator w, normalize columns by their sums (sums below
+    # hessian_tol replaced by 1) and add w w^T to the neighbor block of M.
+    # modified - require n_neighbors >= n_components; per point get eigen
+    # decomposition of the local Gram matrix, compute regularized weights (reg = 1e-3
+    # times eigenvalue sum), eta = median ratio of small to large eigenvalue sums,
+    # per point size s_i of the almost-null space, then build Householder-corrected
+    # multiple weight vectors Wi and accumulate Wi Wi^T, minus row sums on the
+    # point/neighbor cross entries, plus s_i on the diagonal.
+    # ltsa - per point, centered neighbors give n_components top directions; Gi =
+    # [constant 1/sqrt(k), directions]; subtract Gi Gi^T from neighbor block and add
+    # 1 to neighbor diagonal entries.
+    # Convert sparse M to CSR and return null_space(M, n_components, k_skip=1, ...).
+    # Inputs: as in locally_linear_embedding.
+    # Outputs: (embedding ndarray (N, n_components), float error).
+    # Exceptions: ValueError for the dimension/neighbor checks above and from
+    # null_space.
+    # Side effects: none on inputs (neighbor subsets are copies). Overrides the reg
+    # argument in the modified branch.
+    # KNOWN ISSUE: the "reg" parameter is ignored for method="modified" (overwritten by
+    # a fixed 1e-3 scaling), and hessian/modified/ltsa build their own kNN query
+    # instead of reusing W. An unrecognized method leaves M undefined (NameError),
+    # though validation upstream prevents this.
     nbrs = NearestNeighbors(n_neighbors=n_neighbors + 1, n_jobs=n_jobs)
     nbrs.fit(X)
     X = nbrs._fit_X
@@ -483,6 +560,16 @@ def locally_linear_embedding(
     random_state=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Public, parameter-validated wrapper that forwards every argument to
+    # _locally_linear_embedding.
+    # Inputs: see docstring (X array or NearestNeighbors; n_neighbors, n_components
+    # required keyword ints).
+    # Outputs: tuple (Y ndarray (n_samples, n_components), squared_error float).
+    # Exceptions: InvalidParameterError from validate_params; ValueError from the
+    # implementation.
+    # KNOWN ISSUE: the docstring's hessian requirement formula has an unbalanced
+    # parenthesis; the code requires n_neighbors > n_components*(n_components+3)/2.
     """Perform a Locally Linear Embedding analysis on the data.
 
     Read more in the :ref:`User Guide <locally_linear_embedding>`.
@@ -611,6 +698,11 @@ class LocallyLinearEmbedding(
     _UnstableArchMixin,
     BaseEstimator,
 ):
+    # [CLASS DOC]
+    # Transformer wrapper around _locally_linear_embedding. Fit stores nbrs_,
+    # embedding_, reconstruction_error_; transform maps new points by barycentric
+    # interpolation of training embeddings. Marked as architecture-unstable
+    # (_UnstableArchMixin) and with class-name-prefixed output feature names.
     """Locally Linear Embedding.
 
     Read more in the :ref:`User Guide <locally_linear_embedding>`.
@@ -774,6 +866,9 @@ class LocallyLinearEmbedding(
         random_state=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged (keyword-only). Side effects: sets
+        # attributes on self.
         self.n_neighbors = n_neighbors
         self.n_components = n_components
         self.reg = reg
@@ -788,6 +883,17 @@ class LocallyLinearEmbedding(
         self.n_jobs = n_jobs
 
     def _fit_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Creates nbrs_ with n_neighbors, neighbors_algorithm and n_jobs, validates
+        # X as float, fits nbrs_, then runs _locally_linear_embedding on the fitted nbrs_
+        # with the stored hyperparameters and a RandomState from random_state.
+        # Inputs: X array-like (n_samples, n_features).
+        # Outputs: None.
+        # Side effects: sets nbrs_, n_features_in_ (and feature_names_in_), embedding_,
+        # reconstruction_error_, _n_features_out.
+        # KNOWN ISSUE: nbrs_ is fitted with n_neighbors but _locally_linear_embedding
+        # refits a fresh NearestNeighbors(n_neighbors + 1) from it, ignoring
+        # neighbors_algorithm for the actual neighbor graph.
         self.nbrs_ = NearestNeighbors(
             n_neighbors=self.n_neighbors,
             algorithm=self.neighbors_algorithm,
@@ -815,6 +921,8 @@ class LocallyLinearEmbedding(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via _fit_transform and returns self. y is ignored.
         """Compute the embedding vectors for data X.
 
         Parameters
@@ -835,6 +943,10 @@ class LocallyLinearEmbedding(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via _fit_transform and returns embedding_ (n_samples, n_components).
+        # KNOWN ISSUE: docstring says it "Returns the instance itself"; it returns the
+        # embedding.
         """Compute the embedding vectors for data X and transform X.
 
         Parameters
@@ -854,6 +966,16 @@ class LocallyLinearEmbedding(
         return self.embedding_
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Embeds new points: validate X against the fitted feature count, find each point's
+        # n_neighbors nearest training points, compute barycenter_weights with reg, and
+        # output for each point the weighted sum of its neighbors' embedding_ rows.
+        # Inputs: X (n_queries, n_features).
+        # Outputs: ndarray (n_queries, n_components), float64.
+        # Exceptions: NotFittedError; ValueError on feature mismatch.
+        # KNOWN ISSUE: docstring describes X as "Training set" and the return as "the
+        # instance itself"; neither is accurate. A query equal to a training point is not
+        # excluded from its own neighbors (expected behavior for new points).
         """
         Transform new points into embedding space.
 

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Spectral embedding (Laplacian Eigenmaps): graph connectivity helpers, Laplacian
+# preparation, the spectral_embedding function (also used by spectral clustering)
+# and the SpectralEmbedding estimator.
 """Spectral Embedding."""
 
 # Authors: The scikit-learn developers
@@ -25,6 +29,17 @@ from sklearn.utils.validation import validate_data
 
 
 def _graph_connected_component(graph, node_id):
+    # [FUNCTION DOC]
+    # HELPER: Breadth-first expansion from node_id over a dense or sparse adjacency
+    # matrix. Each round ORs the frontier into the visited mask, stops when the
+    # visited count no longer grows, and builds the next frontier as the OR of the
+    # nonzero patterns of the frontier nodes' rows (sparse rows densified one at a
+    # time; sparse graphs converted to CSR first).
+    # Inputs: graph (n, n) adjacency, nonzero means edge; node_id int.
+    # Outputs: boolean ndarray (n,) marking the component containing node_id.
+    # Side effects: none on the input.
+    # KNOWN ISSUE: docstring says "largest" connected component; it returns the
+    # component containing node_id, whatever its size.
     """Find the largest graph connected components that contains one
     given node.
 
@@ -70,6 +85,12 @@ def _graph_connected_component(graph, node_id):
 
 
 def _graph_is_connected(graph):
+    # [FUNCTION DOC]
+    # HELPER: Returns True when the graph has a single connected component. Sparse
+    # graphs are validated (64-bit indices allowed only for scipy >= 1.11.3) and passed
+    # to scipy connected_components; dense graphs use _graph_connected_component from
+    # node 0 and compare its size to n.
+    # Inputs: graph (n, n) dense or sparse. Outputs: bool.
     """Return whether the graph is connected (True) or Not (False).
 
     Parameters
@@ -102,6 +123,16 @@ def _graph_is_connected(graph):
 
 
 def _set_diag(laplacian, value, norm_laplacian):
+    # [FUNCTION DOC]
+    # HELPER: Prepares a Laplacian for eigensolvers. Dense: when norm_laplacian, write
+    # value on the diagonal in place. Sparse: convert to COO, when norm_laplacian set
+    # existing stored diagonal entries to value, then convert to DIA if there are at
+    # most 7 distinct diagonals, else CSR.
+    # Inputs: laplacian dense or sparse (n, n); value float; norm_laplacian bool.
+    # Outputs: dense array (same object, mutated) or DIA/CSR sparse matrix.
+    # Side effects: mutates dense input in place.
+    # KNOWN ISSUE: for sparse input, diagonal entries that are not explicitly stored
+    # are not set to value.
     """Set the diagonal of the laplacian matrix and convert it to a
     sparse format well suited for eigenvalue decomposition.
 
@@ -169,6 +200,11 @@ def spectral_embedding(
     norm_laplacian=True,
     drop_first=True,
 ):
+    # [FUNCTION DOC]
+    # Public validated entry point: converts random_state to a RandomState and calls
+    # _spectral_embedding with the same arguments.
+    # Outputs: ndarray (n_samples, n_components).
+    # Exceptions: InvalidParameterError; ValueError from the implementation.
     """Project the sample on the first eigenvectors of the graph Laplacian.
 
     The adjacency matrix is used to compute a normalized graph Laplacian
@@ -302,6 +338,33 @@ def _spectral_embedding(
     norm_laplacian=True,
     drop_first=True,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Laplacian eigenmaps implementation.
+    # Steps: symmetrize adjacency (check_symmetric warns and averages if needed); for
+    # amg import pyamg (ValueError if missing); default solver arpack; request one
+    # extra eigenvector when drop_first; warn if the graph is not connected; compute
+    # the (normalized if norm_laplacian) Laplacian and degree vector dd. Fall back from
+    # amg to arpack (RuntimeWarning) for fewer than 5 * n_components nodes or dense
+    # Laplacians.
+    # arpack: set diagonal to 1, shift-invert eigsh with sigma -1e-5 for the k
+    # smallest eigenpairs (tol 0 if auto), divide by dd when normalized; on
+    # RuntimeError warn and fall back to lobpcg.
+    # amg: set diagonal, add 1e-5 identity shift, build a smoothed aggregation
+    # preconditioner, remove shift, run lobpcg from random normal start whose first
+    # column is dd.
+    # lobpcg: for fewer than 5 * n_components + 1 nodes use a dense eigh; otherwise
+    # set diagonal and run lobpcg (maxiter 2000) from a random start.
+    # Finally flip signs deterministically and return rows 1..k-1 (drop_first) or
+    # 0..k-1, transposed.
+    # Inputs: adjacency (n, n); n_components; eigen_solver; random_state (RandomState);
+    # eigen_tol; norm_laplacian; drop_first.
+    # Outputs: ndarray (n, n_components).
+    # Exceptions: ValueError if pyamg is missing, or (amg/lobpcg) when only one
+    # eigenvector comes back.
+    # Side effects: UserWarning/RuntimeWarning as described; consumes random_state.
+    # KNOWN ISSUE: the bare "raise ValueError" in the amg and lobpcg branches has no
+    # message; after an amg fallback to arpack the "amg" pyamg import is wasted. amg
+    # also requests n_components + 1 vectors and relies on the final slice.
     adjacency = check_symmetric(adjacency)
 
     if eigen_solver == "amg":
@@ -478,6 +541,11 @@ def _spectral_embedding(
 
 
 class SpectralEmbedding(BaseEstimator):
+    # [CLASS DOC]
+    # Estimator that builds an affinity matrix from X according to affinity and embeds
+    # it with _spectral_embedding (drop_first and norm_laplacian at their defaults).
+    # Fitted: affinity_matrix_, embedding_, n_features_in_, and n_neighbors_ or gamma_
+    # depending on the affinity. No transform for new data.
     """Spectral embedding for non-linear dimensionality reduction.
 
     Forms an affinity matrix given by the specified function and
@@ -647,6 +715,8 @@ class SpectralEmbedding(BaseEstimator):
         n_neighbors=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged. Side effects: sets attributes on self.
         self.n_components = n_components
         self.affinity = affinity
         self.gamma = gamma
@@ -657,6 +727,9 @@ class SpectralEmbedding(BaseEstimator):
         self.n_jobs = n_jobs
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks sparse input as supported and input as pairwise for the precomputed
+        # affinities. Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.pairwise = self.affinity in [
@@ -666,6 +739,19 @@ class SpectralEmbedding(BaseEstimator):
         return tags
 
     def _get_affinity_matrix(self, X, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Builds and stores affinity_matrix_.
+        # precomputed - X itself. precomputed_nearest_neighbors - fit NearestNeighbors with
+        # metric precomputed and symmetrize its connectivity graph by averaging with its
+        # transpose. nearest_neighbors - for dense X, n_neighbors_ is n_neighbors or
+        # max(n_samples/10, 1), connectivity kNN graph including self, symmetrized; sparse
+        # X warns and falls through to rbf. rbf - gamma_ is gamma or 1/n_features,
+        # rbf_kernel(X). callable - affinity(X).
+        # Inputs: X (n_samples, n_features) or (n, n); Y ignored.
+        # Outputs: affinity matrix (n, n), dense or sparse.
+        # Side effects: sets affinity_matrix_, n_neighbors_ or gamma_.
+        # KNOWN ISSUE: on sparse input with nearest_neighbors it overwrites the public
+        # hyperparameter self.affinity with "rbf", mutating the estimator's parameters.
         """Calculate the affinity matrix from data
         Parameters
         ----------
@@ -725,6 +811,11 @@ class SpectralEmbedding(BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR allowed, at least 2 samples), builds the affinity matrix and
+        # stores embedding_ from _spectral_embedding with a RandomState from random_state.
+        # Inputs: X; y ignored. Outputs: self.
+        # Side effects: sets fitted attributes (see class block).
         """Fit the model from data in X.
 
         Parameters
@@ -761,6 +852,8 @@ class SpectralEmbedding(BaseEstimator):
         return self
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Calls fit and returns embedding_ (n_samples, n_components). y ignored.
         """Fit the model from data in X and transform X.
 
         Parameters

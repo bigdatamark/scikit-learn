@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Metric and non-metric multidimensional scaling via the SMACOF stress
+# majorization algorithm: a single-run helper, the public multi-start smacof
+# function and the MDS estimator.
 """
 Multi-dimensional Scaling (MDS).
 """
@@ -37,6 +41,30 @@ def _smacof_single(
     random_state=None,
     normalized_stress=False,
 ):
+    # [FUNCTION DOC]
+    # HELPER: One SMACOF run from one starting configuration.
+    # Steps: check dissimilarities is symmetric; flatten its strict upper triangle and
+    # keep nonzero entries (zeros are "missing" in non-metric mode). Start X uniform
+    # random in [0, 1) of shape (n_samples, n_components), or use init (whose column
+    # count overrides n_components). Each iteration: disparities are the raw
+    # dissimilarities (metric) or, non-metric, the isotonic regression of current
+    # embedding distances on observed dissimilarities (raw dissimilarities on the first
+    # iteration), scattered back into a symmetric matrix and rescaled so the sum of
+    # squared upper-triangle disparities equals n_samples(n_samples-1)/2. Then apply
+    # the Guttman transform (zero distances replaced by 1e-5; B = diag(row sums of
+    # ratio) minus ratio; X = B X / n_samples), recompute distances and raw stress
+    # (half the sum of squared distance minus disparity). Stop when the stress decrease
+    # divided by half the sum of squared distances drops below eps. Optionally convert
+    # to Stress-1 (sqrt of stress over half the sum of squared distances).
+    # Inputs: dissimilarities (n, n) symmetric; metric bool; n_components int; init
+    # array (n, k) or None; max_iter; verbose; eps; random_state; normalized_stress.
+    # Outputs: (X ndarray (n, n_components), stress float, number of iterations run).
+    # Exceptions: ValueError if not symmetric or init has the wrong number of rows.
+    # Side effects: prints progress when verbose; consumes random_state.
+    # KNOWN ISSUE: with max_iter=0 the loop variable "it" is undefined (NameError);
+    # public callers validate max_iter >= 1. The metric branch also returns stress
+    # w.r.t. unrescaled disparities while non-metric rescales, so stress values are
+    # not comparable between modes.
     """Computes multidimensional scaling using SMACOF algorithm.
 
     Parameters
@@ -227,6 +255,18 @@ def smacof(
     return_n_iter=False,
     normalized_stress="auto",
 ):
+    # [FUNCTION DOC]
+    # Public multi-start SMACOF. Validates inputs, resolves normalized_stress "auto"
+    # to (not metric), copies an array init and forces n_init to 1 (with a warning)
+    # when init is given. Runs _smacof_single n_init times, sequentially sharing one
+    # RandomState, or in parallel with joblib each seeded by a random int32 drawn from
+    # random_state; keeps the run with the lowest stress.
+    # Inputs: see docstring; dissimilarities (n, n).
+    # Outputs: (best_pos, best_stress) or (best_pos, best_stress, best_iter) when
+    # return_n_iter.
+    # Exceptions: InvalidParameterError; ValueError from _smacof_single.
+    # Side effects: UserWarning when init is given with n_init != 1; prints when
+    # verbose. Sequential and parallel paths give different results for the same seed.
     """Compute multidimensional scaling using the SMACOF algorithm.
 
     The SMACOF (Scaling by MAjorizing a COmplicated Function) algorithm is a
@@ -429,6 +469,11 @@ def smacof(
 # TODO(1.10): drop support for boolean `metric`, see PR #32229
 # TODO(1.10): drop support for `dissimilarity`, see PR #32229
 class MDS(BaseEstimator):
+    # [CLASS DOC]
+    # MDS estimator wrapping smacof. Handles deprecated parameters (dissimilarity,
+    # boolean metric, implicit init default) and computes dissimilarity_matrix_ before
+    # running SMACOF. Fitted: dissimilarity_matrix_, embedding_, stress_, n_iter_,
+    # n_features_in_, plus private _init, _metric, _metric_mds. No transform method.
     """Multidimensional scaling.
 
     Read more in the :ref:`User Guide <multidimensional_scaling>`.
@@ -657,6 +702,11 @@ class MDS(BaseEstimator):
         metric_params=None,
         normalized_stress="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged. init defaults to the sentinel "warn" and
+        # dissimilarity to "deprecated". Side effects: sets attributes on self.
+        # KNOWN ISSUE: n_init accepts a hidden "warn" value in _parameter_constraints but
+        # fit never resolves it, so passing it would fail later in smacof validation.
         self.n_components = n_components
         self.dissimilarity = dissimilarity
         self.metric = metric
@@ -672,6 +722,9 @@ class MDS(BaseEstimator):
         self.normalized_stress = normalized_stress
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks input as pairwise when either dissimilarity or metric equals
+        # "precomputed". Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = (self.dissimilarity == "precomputed") | (
             self.metric == "precomputed"
@@ -679,6 +732,8 @@ class MDS(BaseEstimator):
         return tags
 
     def fit(self, X, y=None, init=None):
+        # [FUNCTION DOC]
+        # Runs fit_transform(X, init=init) and returns self. y ignored.
         """
         Compute the position of the points in the embedding space.
 
@@ -707,6 +762,23 @@ class MDS(BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None, init=None):
+        # [FUNCTION DOC]
+        # Behavior: resolve _init ("warn" emits FutureWarning and means "random"); if
+        # dissimilarity is not "deprecated" raise when a non-default non-bool metric is
+        # also given, else warn (FutureWarning) and use it as _metric; a boolean metric
+        # warns (FutureWarning), selects euclidean (unless dissimilarity set) and becomes
+        # _metric_mds, otherwise metric/metric_mds are used. Validate X, warn if X is
+        # square but not precomputed, then build dissimilarity_matrix_ (checked symmetric
+        # X if precomputed, else pairwise_distances with metric_params). Initial positions:
+        # explicit init argument, else ClassicalMDS embedding if _init is classical_mds,
+        # else random. Run smacof with return_n_iter.
+        # Inputs: X (n_samples, n_features) or (n_samples, n_samples); y ignored; init
+        # optional (n_samples, n_components) array.
+        # Outputs: embedding_ ndarray (n_samples, n_components).
+        # Exceptions: ValueError for conflicting dissimilarity/metric or asymmetric
+        # precomputed input; validation errors.
+        # Side effects: sets _init, _metric, _metric_mds, dissimilarity_matrix_,
+        # embedding_, stress_, n_iter_, n_features_in_; emits FutureWarning/UserWarning.
         """
         Fit the data from `X`, and returns the embedded coordinates.
 

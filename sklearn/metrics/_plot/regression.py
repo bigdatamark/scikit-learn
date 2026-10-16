@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Defines PredictionErrorDisplay, a matplotlib scatter visualization of a
+# regressor's predictions against targets ('actual_vs_predicted') or of residuals
+# against predictions ('residual_vs_predicted'), with a reference line. No import-time
+# side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -11,6 +16,9 @@ from sklearn.utils._plotting import _validate_style_kwargs
 
 
 class PredictionErrorDisplay:
+    # [CLASS DOC]
+    # Stores y_true / y_pred arrays and draws them. Attributes set by plot: line_
+    # (Line2D reference line), scatter_ (PathCollection), ax_, figure_.
     """Visualization of the prediction error of a regression model.
 
     This tool can display "residuals vs predicted" or "actual vs predicted"
@@ -79,6 +87,10 @@ class PredictionErrorDisplay:
     """
 
     def __init__(self, *, y_true, y_pred):
+        # [FUNCTION DOC]
+        # Stores the inputs without validation.
+        # Inputs: y_true, y_pred - array-like of shape (n_samples,).
+        # Side effects: sets self.y_true and self.y_pred.
         self.y_true = y_true
         self.y_pred = y_pred
 
@@ -90,6 +102,32 @@ class PredictionErrorDisplay:
         scatter_kwargs=None,
         line_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Validates kind, merges user style dicts over defaults (scatter: color
+        #   tab:blue,
+        # alpha 0.8; line: black, alpha 0.7, dashed) via _validate_style_kwargs, creates
+        #   axes
+        # if needed, then:
+        # - actual_vs_predicted: draws the diagonal from the global min to the global
+        #   max of
+        # both arrays, scatters (y_pred, y_true), forces equal aspect (adjustable
+        #   datalim) and
+        # puts 5 evenly spaced ticks between min and max on both axes;
+        # - residual_vs_predicted: draws a horizontal line at 0 spanning the range of
+        #   y_pred and
+        # scatters (y_pred, y_true - y_pred).
+        # Sets axis labels accordingly.
+        # Inputs: ax - Axes or None; kind - one of the two strings; scatter_kwargs,
+        #   line_kwargs
+        # - dicts or None.
+        # Outputs: self.
+        # Exceptions: ImportError without matplotlib; ValueError for an unknown kind;
+        #   TypeError
+        # from _validate_style_kwargs on conflicting aliases.
+        # Side effects: draws; sets line_, scatter_, ax_, figure_.
+        # KNOWN ISSUE: the defaults are merged a second time after
+        #   _validate_style_kwargs
+        # already merged them; redundant but harmless.
         """Plot visualization.
 
         Extra keyword arguments will be passed to matplotlib's ``plot``.
@@ -200,6 +238,14 @@ class PredictionErrorDisplay:
         scatter_kwargs=None,
         line_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Calls estimator.predict(X) and delegates to from_predictions with all
+        # remaining arguments.
+        # Inputs: estimator - fitted regressor; X; y - true targets; others as in
+        # from_predictions.
+        # Outputs: PredictionErrorDisplay.
+        # Exceptions: ImportError without matplotlib.
+        # Side effects: calls predict; plots.
         """Plot the prediction error given a regressor and some data.
 
         For general information regarding `scikit-learn` visualization tools,
@@ -304,6 +350,28 @@ class PredictionErrorDisplay:
         scatter_kwargs=None,
         line_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Optionally subsamples the points then plots. subsample: positive int = number
+        #   of
+        # points, float in (0, 1) = fraction of n_samples (converted with int
+        #   truncation),
+        # None = no subsampling. When the resulting size is smaller than n_samples,
+        #   indices are
+        # drawn with random_state.choice and both arrays are indexed with
+        #   _safe_indexing.
+        # Inputs: y_true, y_pred - (n_samples,); kind; subsample (default 1000);
+        #   random_state -
+        # None, int or RandomState; ax; scatter_kwargs; line_kwargs.
+        # Outputs: PredictionErrorDisplay.
+        # Exceptions: ImportError without matplotlib; ValueError for a non-positive int
+        #   or a
+        # float outside (0, 1); ValueError for invalid kind from plot.
+        # Side effects: consumes randomness from random_state; plots.
+        # KNOWN ISSUE: choice is called without replace=False, so the subsample is drawn
+        #   with
+        # replacement and may contain duplicate points while omitting others. A float
+        #   subsample
+        # so small that int truncation yields 0 creates an empty plot.
         """Plot the prediction error given the true and predicted targets.
 
         For general information regarding `scikit-learn` visualization tools,

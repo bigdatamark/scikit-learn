@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Tests for LogisticRegression, LogisticRegressionCV and the private helpers
+# _logistic_regression_path and _log_reg_scoring_path: predictions on toy data, solver
+# validation and agreement (lbfgs, liblinear, newton-cg, newton-cholesky, sag, saga),
+# reference values from glmnet, sparse/dense consistency, class and sample weights,
+# CV attribute layouts (legacy dict layout and new array layout), warm starting,
+# elastic-net penalties, deprecations (penalty, l1_ratio=None, n_jobs, default
+# scoring, use_legacy_attributes), metadata routing, array API support and callbacks.
+# Module globals: SOLVERS (all solver names), a 3-sample 2-feature toy X with binary
+# labels Y1 and 3-class labels Y2, and the iris dataset loaded at import time.
+# KNOWN ISSUE: pytestmark is assigned twice; the second assignment (ignoring the
+# l1_ratios FutureWarning) replaces the first, so the intended module-wide filter that
+# turns sklearn ConvergenceWarnings into errors is not applied.
 import itertools
 import os
 import re
@@ -72,6 +85,14 @@ iris = load_iris()
 
 
 def check_predictions(clf, X, y):
+    # [FUNCTION DOC]
+    # HELPER: Fits clf on (X, y) and asserts it is a perfect classifier on the training
+    # data: classes_ equals the sorted unique labels, predict returns shape (n_samples,)
+    # equal to y, predict_proba has shape (n_samples, n_classes), rows summing to 1, and
+    # its argmax equals y.
+    # Inputs: clf - unfitted classifier; X - array-like or sparse; y - integer labels
+    # (argmax comparison assumes labels are 0..n_classes-1).
+    # Side effects: fits clf in place. Raises AssertionError on mismatch.
     """Check that the model is able to fit the classification data"""
     n_samples = len(y)
     classes = np.unique(y)
@@ -91,6 +112,10 @@ def check_predictions(clf, X, y):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_predict_2_classes(csr_container):
+    # [FUNCTION DOC]
+    # Verifies check_predictions passes on the binary toy data (dense and CSR) for
+    #   default
+    # LogisticRegression, C=100 and fit_intercept=False.
     # Simple sanity check on a 2 classes dataset
     # Make sure it predicts the correct result on simple datasets.
     check_predictions(LogisticRegression(), X, Y1)
@@ -105,6 +130,9 @@ def test_predict_2_classes(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_predict_3_classes(csr_container):
+    # [FUNCTION DOC]
+    # Verifies check_predictions passes on the 3-class toy data (dense and CSR) with
+    #   C=10.
     check_predictions(LogisticRegression(C=10), X, Y2)
     check_predictions(LogisticRegression(C=10), csr_container(X), Y2)
 
@@ -112,6 +140,13 @@ def test_predict_3_classes(csr_container):
 @pytest.mark.filterwarnings("error::sklearn.exceptions.ConvergenceWarning")
 @pytest.mark.parametrize("solver", ["lbfgs", "newton-cholesky"])
 def test_logistic_glmnet(solver):
+    # [FUNCTION DOC]
+    # Compares L2-penalized fits of lbfgs and newton-cholesky with reference
+    #   coefficients
+    # computed by R glmnet (lambda=1, so C = 1/n_samples) on a 9-sample, 2-feature
+    #   dataset:
+    # binomial intercept/coef and multinomial (3 classes) intercepts/coefs must match to
+    # rtol 1e-5. ConvergenceWarning is turned into an error.
     """Compare Logistic regression with L2 regularization to glmnet"""
     # 2 classes
     # library("glmnet")
@@ -186,6 +221,14 @@ def test_logistic_glmnet(solver):
 @pytest.mark.filterwarnings("ignore:.*use_legacy_attributes.*:FutureWarning")
 @pytest.mark.parametrize("LR", [LogisticRegression, LogisticRegressionCV])
 def test_check_solver_option(LR):
+    # [FUNCTION DOC]
+    # For LogisticRegression and LogisticRegressionCV on iris, verifies ValueError
+    #   messages:
+    # liblinear rejects multiclass; lbfgs/newton-cg/newton-cholesky/sag reject an L1
+    #   penalty
+    # (l1_ratio=1 or l1_ratios=(1,)); every non-liblinear solver rejects dual=True;
+    # liblinear rejects elastic-net (l1_ratio 0.5); and LogisticRegression rejects C=inf
+    # (no penalty) with liblinear.
     X, y = iris.data, iris.target
 
     # only 'liblinear' solver
@@ -240,6 +283,10 @@ def test_check_solver_option(LR):
     [(LogisticRegression, "l1_ratio"), (LogisticRegressionCV, "l1_ratios")],
 )
 def test_elasticnet_l1_ratio_err_helpful(LR, arg):
+    # [FUNCTION DOC]
+    # Verifies that penalty='elasticnet' with l1_ratio/l1_ratios=None raises a
+    #   ValueError
+    # mentioning l1_ratio, for both estimators.
     # Check that an informative error message is raised when penalty="elasticnet"
     # but l1_ratio is not specified.
     model = LR(penalty="elasticnet", solver="saga", **{arg: None})
@@ -249,6 +296,12 @@ def test_elasticnet_l1_ratio_err_helpful(LR, arg):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_sparsify(coo_container):
+    # [FUNCTION DOC]
+    # Verifies sparsify makes coef_ sparse and densify restores it, with
+    #   decision_function
+    # on scaled iris identical (almost-equal) for every combination of dense/sparse
+    #   coef_
+    # and dense/COO input.
     # Test sparsify and densify members.
     n_samples, n_features = iris.data.shape
     target = iris.target_names[iris.target]
@@ -273,6 +326,13 @@ def test_sparsify(coo_container):
 
 
 def test_inconsistent_input():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError for mismatched X/y lengths and predict raises
+    # ValueError when called with 12 features after fitting on 10.
+    # KNOWN ISSUE: the length-mismatch check fits the module-level toy X (3 samples)
+    #   rather
+    # than the local X_ (5 samples); it still mismatches y_wrong (4 labels), so the test
+    # passes, but it does not exercise the intended data.
     # Test that an exception is raised on inconsistent input
     rng = np.random.RandomState(0)
     X_ = rng.random_sample((5, 10))
@@ -295,6 +355,9 @@ def test_inconsistent_input():
 
 
 def test_write_parameters():
+    # [FUNCTION DOC]
+    # Verifies coef_ and intercept_ are writable in place: zeroing them makes
+    # decision_function return zeros.
     # Test that we can write to coef_ and intercept_
     clf = LogisticRegression()
     clf.fit(X, Y1)
@@ -304,6 +367,9 @@ def test_write_parameters():
 
 
 def test_nan():
+    # [FUNCTION DOC]
+    # Regression test (issue 252): fit on data containing NaN must raise ValueError
+    # ("Input X contains NaN.") instead of looping forever.
     # Test proper NaN handling.
     # Regression test for Issue #252: fit used to go into an infinite loop.
     Xnan = np.array(X, dtype=np.float64)
@@ -315,6 +381,11 @@ def test_nan():
 
 
 def test_consistency_path(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies _logistic_regression_path matches LogisticRegression fitted at each C:
+    # without intercept for sag and saga over 10 Cs (4 decimals), and with intercept
+    # (intercept_scaling 1e4, single C=1e3) for all solvers, comparing coef concatenated
+    # with intercept to the path output.
     # Test that the path algorithm is consistent
     rng = np.random.RandomState(global_random_seed)
     X = np.concatenate((rng.randn(100, 2) + [1, 1], rng.randn(100, 2)))
@@ -379,6 +450,10 @@ def test_consistency_path(global_random_seed):
 
 
 def test_logistic_regression_path_convergence_fail():
+    # [FUNCTION DOC]
+    # Verifies _logistic_regression_path with max_iter=1 and tol=0 emits exactly one
+    # ConvergenceWarning whose message mentions the lbfgs iteration count, increasing
+    # iterations, scaling the data and the logistic-regression documentation anchor.
     rng = np.random.RandomState(0)
     X = np.concatenate((rng.randn(100, 2) + [1, 1], rng.randn(100, 2)))
     y = [1] * 100 + [-1] * 100
@@ -404,6 +479,10 @@ def test_logistic_regression_path_convergence_fail():
 # https://github.com/scikit-learn/scikit-learn/issues/31883
 @pytest.mark.thread_unsafe
 def test_liblinear_dual_random_state(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies random_state matters for liblinear with dual=True: equal seeds give equal
+    # coef_, a different seed gives coefficients that differ at 6 decimals.
+    # Marked thread-unsafe.
     # random_state is relevant for liblinear solver only if dual=True
     X, y = make_classification(n_samples=20, random_state=global_random_seed)
     lr1 = LogisticRegression(
@@ -439,6 +518,13 @@ def test_liblinear_dual_random_state(global_random_seed):
 # TODO(1.12): remove deprecated use_legacy_attributes
 @pytest.mark.parametrize("use_legacy_attributes", [True, False])
 def test_logistic_cv(global_random_seed, use_legacy_attributes):
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV with a single C=1, liblinear and no intercept
+    #   matches
+    # LogisticRegression(C=1) and checks shapes of coef_, classes_, Cs_, l1_ratios_,
+    # coefs_paths_, scores_ (and scalar C_/l1_ratio_) for both the legacy (dict keyed by
+    # class) and new (array) attribute layouts.
+    # Inputs: global_random_seed; use_legacy_attributes - parametrized bool.
     # test for LogisticRegressionCV object
     n_samples, n_features, n_cv = 50, 5, 3
     rng = np.random.RandomState(global_random_seed)
@@ -485,6 +571,9 @@ def test_logistic_cv(global_random_seed, use_legacy_attributes):
 # TODO(1.11): remove filterwarnings with change of default scoring
 @pytest.mark.filterwarnings("ignore:The default value.*scoring.*:FutureWarning")
 def test_logistic_cv_refit_false_non_elasticnet(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies refit=False with use_legacy_attributes=False and l1_ratios=[0] works and
+    # stores l1_ratio_ as 0.0 (previously None caused a TypeError on float conversion).
     """Test that non-elasticnet penalty with refit=False and
     use_legacy_attributes=False works without error.
 
@@ -504,14 +593,28 @@ def test_logistic_cv_refit_false_non_elasticnet(global_random_seed):
 
 
 def test_logistic_cv_mock_scorer():
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV calls a custom scorer once per (fold, C) and selects
+    #   the
+    # C with highest score, and that score() uses the scorer exactly once.
     """Test that LogisticRegressionCV calls the scorer."""
 
     class MockScorer:
+        # [CLASS DOC]
+        # HELPER: Callable scorer returning a fixed cyclic sequence of scores and
+        #   counting
+        # calls.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: Sets calls to 0 and scores to [0.1, 0.4, 0.8, 0.5].
             self.calls = 0
             self.scores = [0.1, 0.4, 0.8, 0.5]
 
         def __call__(self, model, X, y, sample_weight=None):
+            # [FUNCTION DOC]
+            # HELPER: Ignores model, X, y and sample_weight; returns scores[calls modulo
+            #   4] and
+            # increments calls (side effect).
             score = self.scores[self.calls % len(self.scores)]
             self.calls += 1
             return score
@@ -560,6 +663,12 @@ def test_logistic_cv_mock_scorer():
     ],
 )
 def test_logistic_cv_multinomial_score(scoring, multiclass_agg_list):
+    # [FUNCTION DOC]
+    # Regression test (issue 8720): verifies _log_reg_scoring_path computes, for a
+    # 3-class problem, the same test score as applying the scorer (accuracy, macro and
+    # weighted precision/f1/recall, neg_log_loss) to a LogisticRegression fitted on the
+    # train split. The estimator params are passed through, with penalty forced to 'l2'
+    # and C, n_jobs, warm_start removed.
     # test that LogisticRegressionCV uses the right score to compute its
     # cross-validation scores when using a multinomial scoring
     # see https://github.com/scikit-learn/scikit-learn/issues/8720
@@ -600,6 +709,14 @@ def test_logistic_cv_multinomial_score(scoring, multiclass_agg_list):
 
 
 def test_multinomial_logistic_regression_string_inputs():
+    # [FUNCTION DOC]
+    # Verifies string labels are encoded internally: fits on numeric labels and on the
+    # corresponding strings give the same coef_ and probabilities for LogisticRegression
+    # and LogisticRegressionCV; predictions are returned as the original strings;
+    #   explicit
+    # Cs makes CV predict every label; a class_weight dict keyed by strings (weight 0
+    #   for
+    # 'foo') is accepted and suppresses that class in predictions.
     """Test internally encode labels"""
     n_samples, n_features, n_classes = 50, 5, 3
     X_ref, y = make_classification(
@@ -663,6 +780,22 @@ def test_multinomial_logistic_regression_string_inputs():
 # TODO(1.12): remove deprecated use_legacy_attributes
 @pytest.mark.parametrize("use_legacy_attributes", [True, False])
 def test_multinomial_cv_iris(use_legacy_attributes):
+    # [FUNCTION DOC]
+    # On iris, verifies multinomial LogisticRegressionCV attribute shapes with
+    # precomputed stratified folds, that multinomial CV models for lbfgs, newton-cg, sag
+    # and saga beat a grid-searched one-vs-rest model in training accuracy, that the L2
+    # norm of coefficient paths is non-decreasing in C (both attribute layouts), and
+    #   that
+    # with KFold(3) on the ordered iris targets (each test fold contains an unseen
+    #   class)
+    # accuracy scores are all 0 and the Brier score picks the smallest C with scores in
+    #   the
+    # expected range.
+    # KNOWN ISSUE: the first model hard-codes use_legacy_attributes=True regardless of
+    #   the
+    # parameter. X is rescaled in place of the variable when solver is lbfgs and stays
+    # scaled for the following solvers and the later KFold checks, so only lbfgs and the
+    # first loop iteration see raw data.
     # Test that multinomial LogisticRegressionCV is correct using the iris dataset.
     X, y = iris.data, iris.target
     n_samples, n_features = X.shape
@@ -803,6 +936,13 @@ def test_multinomial_cv_iris(use_legacy_attributes):
 @pytest.mark.parametrize("enable_metadata_routing", [False, True])
 @pytest.mark.parametrize("n_classes", [2, 3])
 def test_logistic_cv_folds_with_classes_missing(enable_metadata_routing, n_classes):
+    # [FUNCTION DOC]
+    # Verifies scores_ are correct when each CV test fold contains a class absent from
+    #   its
+    # training fold (2 or 3 string classes, KFold): the smallest C is selected and, for
+    # each fold, -scores_ equals the Brier score of a LogisticRegression whose coef_ and
+    # intercept_ are overwritten with the fold's path coefficients. Run with and without
+    # metadata routing.
     """Test that LogisticRegressionCV correctly computes scores even when classes are
     missing on CV folds.
     """
@@ -849,6 +989,9 @@ def test_logistic_cv_folds_with_classes_missing(enable_metadata_routing, n_class
 
 
 def test_logistic_regression_solvers(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies every pair of solvers produces the same coef_ (atol 1e-3, rtol 1e-4) on a
+    # binary problem with C=0.1 and no intercept.
     """Test solvers converge to the same result."""
     X, y = make_classification(
         n_samples=200, n_features=10, n_informative=5, random_state=global_random_seed
@@ -876,6 +1019,13 @@ def test_logistic_regression_solvers(global_random_seed):
 # means that there is one coefficient that is slightly different.
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_logistic_regression_solvers_multiclass(fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies all non-liblinear solvers give coef_ of shape (3, 20) and pairwise agree
+    #   on
+    # coef_ and intercept_ (rtol 1e-3, 5e-3 involving saga) on a 3-class problem, and
+    #   that
+    # LogisticRegressionCV with Cs=[1] gives coefficients within rtol 1e-2 of the plain
+    #   fit.
     """Test solvers converge to the same result for multiclass problems."""
     n_samples, n_features, n_classes = 20, 20, 3
     X, y = make_classification(
@@ -948,6 +1098,14 @@ def test_logistic_regression_solvers_multiclass(fit_intercept):
 def test_logistic_regression_solvers_multiclass_unpenalized(
     fit_intercept, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Builds a well-conditioned low-rank design (checked via singular values) and
+    #   samples
+    # 3-class labels from a known multinomial model, then verifies unpenalized (C=inf)
+    # fits of all non-liblinear solvers have coef_ summing to 0 over classes and agree
+    # pairwise on coef_ and intercept_.
+    # KNOWN ISSUE: the fitted classifiers are stored in a dict misleadingly named
+    # regressors.
     """Test and compare solver results for unpenalized multinomial multiclass."""
     # We want to avoid perfect separation.
     n_samples, n_features, n_classes = 100, 4, 3
@@ -1017,6 +1175,10 @@ def test_logistic_regression_solvers_multiclass_unpenalized(
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_logistic_cv_sparse(global_random_seed, solver, csr_container):
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV gives the same coef_, intercept_ (rtol 1e-5, 6e-2
+    #   for
+    # sag/saga) and C_ on dense and CSR input for each solver.
     """Test that sparse and dense X gives same result for each solver."""
     X, y = make_classification(
         n_samples=100, n_features=5, random_state=global_random_seed
@@ -1048,6 +1210,11 @@ def test_logistic_cv_sparse(global_random_seed, solver, csr_container):
 @pytest.mark.parametrize("weight", [{0: 0.1, 1: 0.2}, {0: 0.1, 1: 0.2, 2: 0.5}])
 @pytest.mark.parametrize("class_weight", ["weight", "balanced"])
 def test_logistic_regressioncv_class_weights(weight, class_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies class_weight (explicit dict or 'balanced', 2 or 3 classes) is handled
+    # consistently by newton-cg, sag and saga compared to lbfgs in LogisticRegressionCV
+    # with a single C and no intercept (coef rtol 1e-3). lbfgs ConvergenceWarnings are
+    # ignored.
     """Test class_weight for LogisticRegressionCV."""
     n_classes = len(weight)
     if class_weight == "weight":
@@ -1109,6 +1276,12 @@ def test_logistic_regressioncv_class_weights(weight, class_weight, global_random
 @pytest.mark.parametrize("problem", ("single", "cv"))
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_logistic_regression_sample_weights(problem, solver, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies integer sample weights are equivalent to repeating rows: for each solver,
+    # a model fitted with weights (first 200 rows weighted 0-4) matches one fitted on
+    #   the
+    # repeated data. For the CV variant, LeaveOneGroupOut splits over 3 groups are built
+    # for both datasets and the scores_ for class 1 must also match.
     n_samples_per_cv_group = 200
     n_cv_groups = 3
 
@@ -1177,6 +1350,9 @@ def test_logistic_regression_sample_weights(problem, solver, global_random_seed)
 
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_logistic_regression_solver_class_weights(solver, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies class_weight {0: 1, 1: 2} equals sample weights of 1 and 2 by class for
+    # each solver (coef_ atol 1e-6).
     # Test that passing class_weight as [1, 2] is the same as
     # passing class weight = [1,1] but adjusting sample weights
     # to be 2 for all instances of class 1.
@@ -1207,6 +1383,10 @@ def test_logistic_regression_solver_class_weights(solver, global_random_seed):
 
 
 def test_sample_and_class_weight_equivalence_liblinear(global_random_seed):
+    # [FUNCTION DOC]
+    # Same class/sample weight equivalence for liblinear specifically, with L1 primal
+    #   and
+    # L2 dual formulations (atol 1e-10).
     # Test the above for l1 penalty and l2 penalty with dual=True.
     # since the patched liblinear code is different.
 
@@ -1266,6 +1446,10 @@ def test_sample_and_class_weight_equivalence_liblinear(global_random_seed):
 
 
 def _compute_class_weight_dictionary(y):
+    # [FUNCTION DOC]
+    # HELPER: Returns a dict mapping each unique label in y to its 'balanced' class
+    #   weight
+    # computed by compute_class_weight.
     # helper for returning a dictionary instead of an array
     classes = np.unique(y)
     class_weight = compute_class_weight("balanced", classes=classes, y=y)
@@ -1275,6 +1459,15 @@ def _compute_class_weight_dictionary(y):
 
 @pytest.mark.parametrize("csr_container", [lambda x: x] + CSR_CONTAINERS)
 def test_logistic_regression_class_weights(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # On scaled iris with 90 percent of class 0 removed, verifies
+    #   class_weight='balanced'
+    # equals the explicit balanced dict and the equivalent sample weights (multiclass,
+    # dense or CSR, non-liblinear/newton-cholesky solvers, rtol 1e-4), and that the
+    #   binary
+    # subset gives the same balanced/dict coefficients for all solvers.
+    # KNOWN ISSUE: the binary part reassigns X from the dense array without applying
+    # csr_container, so sparse input is only tested in the multiclass part.
     # Scale data to avoid convergence warnings with the lbfgs solver
     X_iris = scale(iris.data)
     # Multinomial case: remove 90% of class 0
@@ -1314,6 +1507,9 @@ def test_logistic_regression_class_weights(global_random_seed, csr_container):
 
 
 def test_liblinear_decision_function_zero(global_random_seed):
+    # [FUNCTION DOC]
+    # Regression test (issue 3600): with liblinear, samples whose decision function is
+    # exactly zero are predicted as the negative class (0).
     # Test negative prediction when decision_function values are zero.
     # Liblinear predicts the positive class when decision_function values
     # are zero. This is a test to verify that we do not do the same.
@@ -1333,6 +1529,8 @@ def test_liblinear_decision_function_zero(global_random_seed):
 
 
 def test_logreg_intercept_scaling_zero():
+    # [FUNCTION DOC]
+    # Verifies intercept_ is 0 when fit_intercept=False.
     # Test that intercept_scaling is ignored when fit_intercept is False
 
     clf = LogisticRegression(fit_intercept=False)
@@ -1345,6 +1543,11 @@ def test_logreg_intercept_scaling_zero():
 @pytest.mark.thread_unsafe
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_logreg_l1(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies L1-penalized liblinear and saga (no intercept) give similar coef_ (atol
+    #   0.3)
+    # on data with noise and constant features, and that CSR input gives the same
+    # coefficients as dense for each solver. Marked thread-unsafe.
     # Because liblinear penalizes the intercept and saga does not, we do not
     # fit the intercept to make it possible to compare the coefficients of
     # the two models at convergence.
@@ -1385,6 +1588,10 @@ def test_logreg_l1(global_random_seed, csr_container):
 
 @pytest.mark.parametrize("l1_ratio", [1, 0])  # L1 and L2 penalty
 def test_logistic_regression_cv_refit(global_random_seed, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV with saga, a single C and refit=True converges to
+    #   the
+    # same coef_ as LogisticRegression(C=1) for L1 and L2 penalties.
     # Test that when refit=True, logistic regression cv with the saga solver
     # converges to the same solution as logistic regression with a fixed
     # regularization parameter.
@@ -1417,6 +1624,11 @@ def test_logistic_regression_cv_refit(global_random_seed, l1_ratio):
 
 
 def test_logreg_predict_proba_multinomial(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies the multinomial model has lower log loss than one-vs-rest and that
+    #   softmax
+    # probabilities have lower log loss than the one-vs-rest style normalized logistic
+    # probabilities from _predict_proba_lr.
     X, y = make_classification(
         n_samples=10,
         n_features=20,
@@ -1461,6 +1673,10 @@ def test_logreg_predict_proba_multinomial(global_random_seed):
     ],
 )
 def test_max_iter(global_random_seed, max_iter, solver, message):
+    # [FUNCTION DOC]
+    # Verifies each solver emits its specific ConvergenceWarning message when max_iter
+    # (1 to 4) is reached with tol=1e-15 on binary iris, and n_iter_[0] equals max_iter.
+    # newton-cholesky is skipped for max_iter > 1.
     # Test that the maximum number of iteration is reached
     X, y_bin = iris.data, iris.target.copy()
     y_bin[y_bin == 2] = 0
@@ -1483,6 +1699,10 @@ def test_max_iter(global_random_seed, max_iter, solver, message):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("use_legacy_attributes", [True, False])
 def test_n_iter(solver, use_legacy_attributes):
+    # [FUNCTION DOC]
+    # Verifies n_iter_ shapes: (1,) for LogisticRegression (binary and multinomial) and,
+    # for LogisticRegressionCV, (1, n_folds, n_Cs, n_l1_ratios) in the legacy layout or
+    # (n_folds, n_l1_ratios, n_Cs) otherwise. liblinear skips the multiclass part.
     # Test that self.n_iter_ has the correct format.
     X, y = iris.data, iris.target
     if solver == "lbfgs":
@@ -1542,6 +1762,10 @@ def test_n_iter(solver, use_legacy_attributes):
 @pytest.mark.parametrize("warm_start", (True, False))
 @pytest.mark.parametrize("fit_intercept", (True, False))
 def test_warm_start(global_random_seed, solver, warm_start, fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies warm_start: after a full fit, a second fit with max_iter=1 changes the
+    # coefficients little (sum of absolute differences below 2) when warm starting and a
+    # lot (above 2) otherwise, for every non-liblinear solver.
     # A 1-iteration second fit on same data should give almost same result
     # with warm starting, and quite different result without warm starting.
     # Warm starting does not work with liblinear solver.
@@ -1575,6 +1799,9 @@ def test_warm_start(global_random_seed, solver, warm_start, fit_intercept):
 @pytest.mark.parametrize("fit_intercept", (True, False))
 @pytest.mark.parametrize("C", (1, np.inf))
 def test_warm_start_newton_solver(solver, fit_intercept, C):
+    # [FUNCTION DOC]
+    # Verifies two warm-started 1-iteration fits equal one 2-iteration fit for
+    # newton-cholesky and newton-cg, with C=1 or inf and with/without intercept.
     """Test that 2 steps at once are the same as 2 single steps with warm start."""
     X, y = iris.data, iris.target
 
@@ -1606,6 +1833,11 @@ def test_warm_start_newton_solver(solver, fit_intercept, C):
 @pytest.mark.parametrize("l1_ratio", (0, 1))
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_saga_vs_liblinear(global_random_seed, csr_container, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies saga and liblinear (no intercept) agree to 3 decimals for L1 or L2
+    #   penalties
+    # at several regularization strengths on tripled binary iris and a sparse random
+    # problem.
     iris = load_iris()
     X, y = iris.data, iris.target
     X = np.concatenate([X] * 3)
@@ -1653,6 +1885,11 @@ def test_saga_vs_liblinear(global_random_seed, csr_container, l1_ratio):
 @pytest.mark.parametrize("fit_intercept", [False, True])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dtype_match(solver, fit_intercept, csr_container):
+    # [FUNCTION DOC]
+    # Verifies float32 input yields float32 coef_ (float64 for liblinear) and float64
+    # input yields float64, for dense and CSR data, and that 32/64-bit and dense/sparse
+    # solutions agree within a tolerance derived from solver_tol and the Hessian norm
+    # (relaxed on 32-bit Windows and for sag/saga with intercept).
     # Test that np.float32 input data is not cast to np.float64 when possible
     # and that the output is approximately the same no matter the input format.
 
@@ -1721,6 +1958,9 @@ def test_dtype_match(solver, fit_intercept, csr_container):
 
 
 def test_warm_start_converge_LR(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression test (issue 10836): five warm-started sag fits reach the same log
+    # loss (rtol 1e-5) as a single cold fit.
     # Test to see that the logistic regression converges on warm start on
     # a multiclass/multinomial problem. Non-regressive test for #10836
 
@@ -1742,6 +1982,9 @@ def test_warm_start_converge_LR(global_random_seed):
 
 
 def test_elastic_net_coeffs(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies saga with l1_ratio 0.5, 1 and 0 produce pairwise different coefficients
+    # (not allclose with atol 1e-3).
     # make sure elasticnet penalty gives different coefficients from l1 and l2
     # with saga solver (l1_ratio different from 0 or 1)
     X, y = make_classification(random_state=global_random_seed)
@@ -1773,6 +2016,10 @@ def test_elastic_net_coeffs(global_random_seed):
 @pytest.mark.parametrize("C", [0.001, 0.1, 1, 10, 100, 1000, 1e6])
 @pytest.mark.parametrize("penalty, l1_ratio", [("l1", 1), ("l2", 0)])
 def test_elastic_net_l1_l2_equivalence(global_random_seed, C, penalty, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies deprecated penalty='elasticnet' with l1_ratio 1 or 0 equals penalty 'l1'
+    #   or
+    # 'l2' respectively for several C values (saga).
     # Make sure elasticnet is equivalent to l1 when l1_ratio=1 and to l2 when
     # l1_ratio=0.
     X, y = make_classification(random_state=global_random_seed)
@@ -1797,6 +2044,9 @@ def test_elastic_net_l1_l2_equivalence(global_random_seed, C, penalty, l1_ratio)
 # FIXME: Random state is fixed in order to make the test pass
 @pytest.mark.parametrize("C", [0.001, 1, 100, 1e6])
 def test_elastic_net_vs_l1_l2(C):
+    # [FUNCTION DOC]
+    # Verifies a GridSearchCV over l1_ratio scores at least as well on held-out data as
+    # pure L1 or pure L2 saga models for several C.
     # Make sure that elasticnet with grid search on l1_ratio gives same or
     # better results than just l1 or just l2.
 
@@ -1832,6 +2082,9 @@ def test_elastic_net_vs_l1_l2(C):
 @pytest.mark.parametrize("C", np.logspace(-3, 2, 4))
 @pytest.mark.parametrize("l1_ratio", [0.1, 0.5, 0.9])
 def test_LogisticRegression_elastic_net_objective(C, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies the elastic-net-trained model has a lower elastic-net objective than the
+    # L2-trained one, for several C and l1_ratio values.
     # Check that training with a penalty matching the objective leads
     # to a lower objective.
     # Here we train a logistic regression with l2 (a) and elasticnet (b)
@@ -1862,6 +2115,16 @@ def test_LogisticRegression_elastic_net_objective(C, l1_ratio):
     lr_l2.fit(X, y)
 
     def enet_objective(lr):
+        # [FUNCTION DOC]
+        # HELPER: Returns C times the mean log loss of lr on the enclosing X, y plus
+        #   l1_ratio
+        # times the L1 norm of coef plus (1 - l1_ratio) times half the squared L2 norm.
+        # Input: lr - fitted LogisticRegression without intercept. Output: float.
+        # KNOWN ISSUE: log_loss is a mean over samples while LogisticRegression's
+        #   objective
+        # uses a sum scaled by C; the comparison is still valid as both models are
+        #   scored
+        # with the same function, but it is not the solver's exact objective.
         coef = lr.coef_.ravel()
         obj = C * log_loss(y, lr.predict_proba(X))
         obj += l1_ratio * np.sum(np.abs(coef))
@@ -1874,6 +2137,10 @@ def test_LogisticRegression_elastic_net_objective(C, l1_ratio):
 # FIXME: Random state is fixed in order to make the test pass
 @pytest.mark.parametrize("n_classes", (2, 3))
 def test_LogisticRegressionCV_GridSearchCV_elastic_net(n_classes):
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV (saga, 3 l1_ratios x 3 Cs) selects the same C and
+    # l1_ratio as GridSearchCV with neg_log_loss and the same folds, for 2 and 3
+    #   classes.
     # make sure LogisticRegressionCV gives same best params (l1 and C) as
     # GridSearchCV when penalty is elasticnet
 
@@ -1917,6 +2184,10 @@ def test_LogisticRegressionCV_GridSearchCV_elastic_net(n_classes):
 @pytest.mark.parametrize("l1_ratios", ((0,), np.linspace(0, 1, 2)))
 @pytest.mark.parametrize("n_classes", (2, 3))
 def test_LogisticRegressionCV_no_refit(l1_ratios, n_classes):
+    # [FUNCTION DOC]
+    # Verifies with refit=False and legacy attributes that C_, l1_ratio_ have shape
+    # (n_classes,) (1 for binary), coef_ has shape (n_classes, n_features), and the
+    # selected values are identical across classes.
     # Test LogisticRegressionCV attribute shapes when refit is False
 
     n_features = 20
@@ -1953,6 +2224,11 @@ def test_LogisticRegressionCV_no_refit(l1_ratios, n_classes):
 
 @pytest.mark.parametrize("n_classes", (2, 3))
 def test_LogisticRegressionCV_elasticnet_attribute_shapes(n_classes):
+    # [FUNCTION DOC]
+    # Verifies legacy-layout shapes with several l1_ratios: coefs_paths_ values
+    # (n_classes, n_folds, n_Cs, n_l1_ratios, n_features + 1), scores_ values and
+    #   n_iter_
+    # (1, n_folds, n_Cs, n_l1_ratios), with C_ and l1_ratio_ constant across classes.
     # Make sure the shapes of scores_ and coefs_paths_ attributes are correct
     # when using elasticnet (added one dimension for l1_ratios)
 
@@ -2001,6 +2277,11 @@ def test_LogisticRegressionCV_elasticnet_attribute_shapes(n_classes):
 
 
 def test_LogisticRegressionCV_on_folds():
+    # [FUNCTION DOC]
+    # Verifies coefs_paths_ (legacy layout) for selected (fold, C) pairs equals the
+    #   coef_
+    # and intercept_ of a LogisticRegression fitted on that training fold with that C,
+    # using the same default StratifiedKFold(5) split.
     """Test that LogisticRegressionCV produces the correct result on a fold."""
     X, y = iris.data, iris.target
     lrcv = LogisticRegressionCV(
@@ -2042,6 +2323,8 @@ def test_LogisticRegressionCV_on_folds():
 # TODO(1.10): remove whole test with the removal of penalty
 @pytest.mark.filterwarnings("ignore:.*'penalty' was deprecated.*:FutureWarning")
 def test_l1_ratio_non_elasticnet():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning is emitted when l1_ratio is given with penalty='l1'.
     msg = (
         r"l1_ratio parameter is only used when penalty is"
         r" 'elasticnet'\. Got \(penalty=l1\)"
@@ -2053,6 +2336,9 @@ def test_l1_ratio_non_elasticnet():
 @pytest.mark.parametrize("C", np.logspace(-3, 2, 4))
 @pytest.mark.parametrize("l1_ratio", [0.1, 0.5, 0.9])
 def test_elastic_net_versus_sgd(global_random_seed, C, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies saga elastic-net LogisticRegression and SGDClassifier with log loss and
+    # alpha = 1/(C n_samples) give similar coef_ (atol 0.35).
     # Compare elasticnet penalty in LogisticRegression() and SGD(loss='log_loss')
     n_samples = 500
     X, y = make_classification(
@@ -2093,6 +2379,12 @@ def test_elastic_net_versus_sgd(global_random_seed, C, l1_ratio):
 
 
 def test_logistic_regression_path_coefs_multinomial():
+    # [FUNCTION DOC]
+    # Regression test: _logistic_regression_path with L1/saga on a 3-class problem
+    #   returns
+    # distinct coefficients for different Cs (they previously overwrote each other);
+    #   each
+    # pair must differ at 1 decimal.
     # Make sure that the returned coefs by logistic_regression_path on a
     # multiclass/multinomial don't override each other (used to be a
     # bug).
@@ -2125,6 +2417,12 @@ def test_logistic_regression_path_coefs_multinomial():
 
 
 def test_logistic_regression_path_init_coefs():
+    # [FUNCTION DOC]
+    # Verifies the coef initialization shape check of _logistic_regression_path:
+    # multiclass accepts (n_classes, n_features + 1) with intercept and raises
+    #   ValueError
+    # when the intercept is disabled; binary accepts (n_features + 1,) and
+    # (1, n_features + 1) and raises ValueError without intercept.
     X, y = make_classification(
         n_samples=200,
         n_classes=3,
@@ -2201,6 +2499,10 @@ def test_logistic_regression_path_init_coefs():
 @pytest.mark.filterwarnings("ignore:.*'penalty' was deprecated.*:FutureWarning")
 @pytest.mark.parametrize("solver", sorted(set(SOLVERS) - set(["liblinear"])))
 def test_penalty_none(global_random_seed, solver):
+    # [FUNCTION DOC]
+    # Verifies the deprecated penalty=None warns when C is set, and that penalty=None
+    #   gives
+    # the same predictions as penalty='l2' with C=inf, for each non-liblinear solver.
     # - Make sure warning is raised if penalty=None and C is set to a
     #   non-default value.
     # - Make sure setting penalty=None is equivalent to setting C=np.inf with
@@ -2232,6 +2534,9 @@ def test_penalty_none(global_random_seed, solver):
 # TODO(1.10): remove whole test with the removal of penalty
 @pytest.mark.parametrize("solver", sorted(set(SOLVERS) - set(["liblinear"])))
 def test_c_inf_no_warning(solver):
+    # [FUNCTION DOC]
+    # Non-regression test (issue 32927): C=inf emits no warnings other than
+    # ConvergenceWarning (all other warnings are turned into errors).
     """Test that C=np.inf (recommended approach) produces no warnings.
 
     Non-regression test for:
@@ -2258,6 +2563,11 @@ def test_c_inf_no_warning(solver):
     ],
 )
 def test_logisticregression_liblinear_sample_weight(global_random_seed, params):
+    # [FUNCTION DOC]
+    # Verifies liblinear supports sample_weight for L1-primal, L2-dual and L2-primal: a
+    # dataset duplicated with flipped labels whose duplicates get zero weight (shuffled)
+    # gives the same predict, predict_proba and decision_function as the original data.
+    # Marked thread-unsafe.
     # check that we support sample_weight with liblinear in all possible cases:
     # l1-primal, l2-primal, l2-dual
     X = np.array(
@@ -2305,6 +2615,11 @@ def test_logisticregression_liblinear_sample_weight(global_random_seed, params):
 
 
 def test_scores_attribute_layout_elasticnet():
+    # [FUNCTION DOC]
+    # Non-regression test (issue 14955): verifies the legacy scores_[1] averaged over
+    #   folds
+    # is indexed as [C, l1_ratio] by comparing each entry to cross_val_score of a
+    # LogisticRegression with that C and l1_ratio.
     # Non regression test for issue #14955.
     # when penalty is elastic net the scores_ attribute has shape
     # (n_classes, n_Cs, n_l1_ratios)
@@ -2352,6 +2667,10 @@ def test_scores_attribute_layout_elasticnet():
 @pytest.mark.parametrize("solver", ["lbfgs", "newton-cg", "newton-cholesky"])
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_multinomial_identifiability_on_iris(solver, fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies the L2-penalized multinomial fit satisfies the symmetric identifiability
+    # constraint: coef_ (and intercept_ when fitted) sum to zero over classes on scaled
+    # iris, for lbfgs, newton-cg and newton-cholesky.
     """Test that the multinomial classification is identifiable.
 
     A multinomial with c classes can be modeled with
@@ -2393,6 +2712,10 @@ def test_multinomial_identifiability_on_iris(solver, fit_intercept):
 
 @pytest.mark.parametrize("class_weight", [{0: 1.0, 1: 10.0, 2: 1.0}, "balanced"])
 def test_sample_weight_not_modified(class_weight):
+    # [FUNCTION DOC]
+    # Verifies fit does not mutate the user's sample_weight array when class_weight is a
+    # dict or 'balanced'.
+    # KNOWN ISSUE: the variable n_features actually holds the number of samples.
     X, y = load_iris(return_X_y=True)
     n_features = len(X)
     W = np.ones(n_features)
@@ -2411,6 +2734,11 @@ def test_sample_weight_not_modified(class_weight):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_large_sparse_matrix(solver, csr_container):
+    # [FUNCTION DOC]
+    # Non-regression test (PR 21093): CSR input with int64 indices is accepted by lbfgs,
+    # newton-cg and newton-cholesky, and rejected with a helpful ValueError by
+    #   liblinear,
+    # sag and saga.
     # Solvers either accept large sparse matrices, or raise helpful error.
     # Non-regression test for pull-request #21093.
 
@@ -2430,6 +2758,10 @@ def test_large_sparse_matrix(solver, csr_container):
 
 
 def test_liblinear_with_large_values():
+    # [FUNCTION DOC]
+    # Verifies liblinear raises ValueError (instead of freezing, issue 7486) when X has
+    #   a
+    # value above 1e30.
     # Liblinear freezes when X.max() ~ 1e100, see issue #7486.
     # We preemptively raise an error when X.max() > 1e30.
 
@@ -2447,6 +2779,9 @@ def test_liblinear_with_large_values():
 
 
 def test_single_feature_newton_cg():
+    # [FUNCTION DOC]
+    # Non-regression test (issue 23605): newton-cg fits a single-feature problem with
+    # intercept without error.
     # Test that Newton-CG works with a single feature and intercept.
     # Non-regression test for issue #23605.
 
@@ -2457,6 +2792,11 @@ def test_single_feature_newton_cg():
 
 
 def test_liblinear_not_stuck(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression test (issue 18264): L1 liblinear with large intercept_scaling and C
+    # derived from l1_min_c converges on standardized binary iris without a
+    # ConvergenceWarning.
+    # KNOWN ISSUE: l1_min_c is computed on the unscaled X while the fit uses X_prep.
     # Non-regression https://github.com/scikit-learn/scikit-learn/issues/18264
     X = iris.data.copy()
     y = iris.target.copy()
@@ -2483,6 +2823,12 @@ def test_liblinear_not_stuck(global_random_seed):
 
 @config_context(enable_metadata_routing=True)
 def test_lr_cv_scores_differ_when_sample_weight_is_requested(global_random_seed):
+    # [FUNCTION DOC]
+    # With metadata routing enabled, verifies an accuracy scorer requesting
+    #   sample_weight
+    # yields different CV scores_ and score() results than one not requesting it, and
+    #   that
+    # passing sample_weight to score() when unrequested raises TypeError.
     """Test that `sample_weight` is correctly passed to the scorer in
     `LogisticRegressionCV.fit` and `LogisticRegressionCV.score` by
     checking the difference in scores with the case when `sample_weight`
@@ -2519,6 +2865,10 @@ def test_lr_cv_scores_differ_when_sample_weight_is_requested(global_random_seed)
 
 
 def test_lr_cv_scores_without_enabling_metadata_routing():
+    # [FUNCTION DOC]
+    # Verifies that without metadata routing sample_weight is still forwarded to the
+    # scorer in fit and score, matching the routing-enabled results with an explicit
+    # request.
     """Test that `sample_weight` is passed correctly to the scorer in
     `LogisticRegressionCV.fit` and `LogisticRegressionCV.score` even
     when `enable_metadata_routing=False`
@@ -2555,6 +2905,10 @@ def test_lr_cv_scores_without_enabling_metadata_routing():
 
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_zero_max_iter(solver):
+    # [FUNCTION DOC]
+    # Verifies max_iter=0 leaves the model in its initial state: n_iter_ is 0 (except
+    # sag/saga), and except for lbfgs coef_ is zero, the decision function equals the
+    # intercept, probabilities are 0.5, and accuracy is below 0.7.
     # Make sure we can inspect the state of LogisticRegression right after
     # initialization (before the first weight update).
     X, y = load_iris(return_X_y=True)
@@ -2580,6 +2934,10 @@ def test_zero_max_iter(solver):
 
 
 def test_passing_params_without_enabling_metadata_routing():
+    # [FUNCTION DOC]
+    # Verifies fit and score of LogisticRegressionCV raise ValueError when extra
+    #   metadata
+    # is passed while metadata routing is disabled.
     """Test that the right error message is raised when metadata params
     are passed while not supported when `enable_metadata_routing=False`."""
     X, y = make_classification(n_samples=10, random_state=0)
@@ -2600,6 +2958,15 @@ def test_passing_params_without_enabling_metadata_routing():
 
 
 def test_newton_cholesky_fallback_to_lbfgs():
+    # [FUNCTION DOC]
+    # On wide (10x20) data with huge C, verifies newton-cholesky detects the rank-
+    #   deficient
+    # Hessian, falls back to lbfgs with the same iteration count as plain lbfgs, and
+    #   that
+    # with max_iter = lbfgs iterations - 1 it emits the lbfgs ConvergenceWarning.
+    # KNOWN ISSUE: the final assertion expects n_iter_ to equal max_iter - 1 rather than
+    # max_iter; this relies on how iterations are counted across the fallback and is not
+    # explained by the surrounding comments.
     # Wide data matrix should lead to a rank-deficient Hessian matrix
     # hence make the Newton-Cholesky solver raise a warning and fallback to
     # lbfgs.
@@ -2645,6 +3012,8 @@ def test_newton_cholesky_fallback_to_lbfgs():
 @pytest.mark.filterwarnings("ignore:.*use_legacy_attributes.*:FutureWarning")
 @pytest.mark.parametrize("Estimator", [LogisticRegression, LogisticRegressionCV])
 def test_liblinear_multiclass_raises(Estimator):
+    # [FUNCTION DOC]
+    # Verifies liblinear raises ValueError on multiclass iris for both estimators.
     """Check that liblinear raises an error on multiclass problems."""
     msg = "The 'liblinear' solver does not support multiclass classification"
     with pytest.raises(ValueError, match=msg):
@@ -2656,6 +3025,9 @@ def test_liblinear_multiclass_raises(Estimator):
 @pytest.mark.filterwarnings("ignore:.*default.*use_legacy_attributes.*:FutureWarning")
 @pytest.mark.parametrize("est", [LogisticRegression, LogisticRegressionCV])
 def test_penalty_deprecated(est):
+    # [FUNCTION DOC]
+    # Verifies passing penalty emits the 'penalty was deprecated' FutureWarning for both
+    # estimators.
     """Check that penalty in LogisticRegression and *CV is deprecated."""
     X, y = make_classification(n_classes=2, n_samples=20, n_informative=6)
     lr = est(penalty="l2")
@@ -2666,6 +3038,9 @@ def test_penalty_deprecated(est):
 
 # TODO(1.10): use_legacy_attributes gets deprecated
 def test_logisticregressioncv_warns_with_use_legacy_attributes():
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV warns (FutureWarning) that the default of
+    # use_legacy_attributes will change when it is not set.
     X, y = make_classification(n_classes=3, n_samples=50, n_informative=6)
     lr = LogisticRegressionCV(
         scoring="neg_log_loss",  # TODO(1.11): remove because it is default now
@@ -2679,6 +3054,9 @@ def test_logisticregressioncv_warns_with_use_legacy_attributes():
 @pytest.mark.filterwarnings("ignore:l1_ratios parameter is only us.*:UserWarning")
 @pytest.mark.filterwarnings("ignore:.*default.*use_legacy_attributes.*:FutureWarning")
 def test_l1_ratio_None_deprecated():
+    # [FUNCTION DOC]
+    # Verifies FutureWarnings for l1_ratio=None in LogisticRegression, for the unset
+    # l1_ratios default in LogisticRegressionCV, and for explicit l1_ratios=None.
     """Check that l1_ratio=None in LogisticRegression is deprecated."""
     X, y = make_classification(n_classes=2, n_samples=20, n_informative=6)
 
@@ -2705,6 +3083,8 @@ def test_l1_ratio_None_deprecated():
 
 # TODO(1.10): remove this test when n_jobs gets removed
 def test_logisticregression_warns_with_n_jobs():
+    # [FUNCTION DOC]
+    # Verifies setting n_jobs warns (FutureWarning) that it has no effect.
     X, y = make_classification(n_classes=3, n_samples=50, n_informative=6)
     lr = LogisticRegression(n_jobs=1)
     msg = "'n_jobs' has no effect"
@@ -2730,6 +3110,18 @@ def test_logistic_regression_array_api_compliance(
     device_name,
     dtype_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies lbfgs LogisticRegression under array API dispatch matches a NumPy
+    #   reference
+    # fit (C=1e-2, tol 1e-12) for each namespace/device/dtype, binary or multiclass,
+    # numeric or string labels, with or without sample weights and class weights:
+    #   n_iter_
+    # shape and convergence, coef_ and intercept_ values, dtype and device, and
+    # predict_proba, predict_log_proba and predict outputs.
+    # KNOWN ISSUE: the reference fit is wrapped in warnings.catch_warnings without a
+    # filter, so the comment "make sure that we converge" is enforced only by the
+    #   n_iter_
+    # assertion and the test-level ConvergenceWarning filter.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     X_np = iris.data.astype(dtype_name, copy=True)
     n_samples, _ = X_np.shape
@@ -2849,6 +3241,10 @@ def test_logistic_regression_array_api_compliance(
 @pytest.mark.filterwarnings("ignore:'penalty' was deprecated")
 @pytest.mark.parametrize("penalty, l1_ratio", [("l1", 0.0), ("l2", 1.0)])
 def test_lr_penalty_l1ratio_incompatible(penalty, l1_ratio):
+    # [FUNCTION DOC]
+    # Verifies a UserWarning about inconsistent values for penalty='l1' with l1_ratio=0
+    #   and
+    # penalty='l2' with l1_ratio=1.
     """Check that incompatible penalty and l1_ratio raise a warning."""
     X, y = make_classification(n_samples=20)
     lr = LogisticRegression(solver="saga", penalty=penalty, l1_ratio=l1_ratio)
@@ -2860,6 +3256,9 @@ def test_lr_penalty_l1ratio_incompatible(penalty, l1_ratio):
 # TODO(1.11): remove when default of scoring has changed
 @pytest.mark.filterwarnings("ignore:.*default.*use_legacy_attributes.*:FutureWarning")
 def test_lr_scoring_warns():
+    # [FUNCTION DOC]
+    # Verifies LogisticRegressionCV warns (FutureWarning) that the default scoring will
+    # change.
     """Check that scoring raises a warning."""
     X, y = make_classification(n_samples=20)
     lr = LogisticRegressionCV(l1_ratios=[0])
@@ -2871,6 +3270,8 @@ def test_lr_scoring_warns():
 # TODO(1.11): remove test when default of scoring has changed
 @pytest.mark.filterwarnings("ignore:The default value.*scoring.*:FutureWarning")
 def test_get_default_scorer():
+    # [FUNCTION DOC]
+    # Verifies the default scorer of LogisticRegressionCV wraps accuracy_score.
     """Test that LogisticRegressionCV gets correct default scorer."""
     lr = LogisticRegressionCV()
     assert lr._get_scorer()._score_func.__name__ == "accuracy_score"
@@ -2888,6 +3289,9 @@ def test_logistic_regression_array_api_warm_start(
     device_name,
     dtype_name,
 ):
+    # [FUNCTION DOC]
+    # Smoke test: under array API dispatch, warm_start=True lbfgs can fit, predict and
+    # refit (binary and multiclass) without errors or ConvergenceWarning.
     """Test that warm_start=True works with array API inputs across
     multiple fit calls for both binary and multiclass classification."""
     xp, device_ = _array_api_for_tests(array_namespace, device_name, dtype_name)
@@ -2911,6 +3315,10 @@ def test_logistic_regression_array_api_warm_start(
 @pytest.mark.parametrize("max_iter", [0, 2, 1000])
 @skip_callback_test_if_wasm
 def test_logistic_regression_callback_support(max_iter):
+    # [FUNCTION DOC]
+    # Verifies a RecordingCallback with lbfgs sees one setup and one teardown hook, and
+    # 1 + max(n_iter_, 1) + 1 task begin/end hooks (root, one per iteration, one empty
+    # task) for max_iter 0, 2 and 1000.
     """Test the callback support for LogisticRegression."""
     X, y = make_classification(n_features=4, random_state=0)
 
@@ -2930,6 +3338,11 @@ def test_logistic_regression_callback_support(max_iter):
 @pytest.mark.parametrize("fit_intercept", [True, False])
 @skip_callback_test_if_wasm
 def test_logistic_regression_callback_fitted_estimator(n_classes, fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies the fitted_estimator passed to iteration hooks: task ids are sequential;
+    # at the start of iteration i (i > 0) and the end of iteration i (i < n_iter) it has
+    # the coef_, intercept_ and predictions of a model fitted with max_iter i or i + 1;
+    # the final extra lbfgs task gets None.
     """Check the fitted_estimator in callback hooks.
 
     It is able to predict, with learned parameters identical to the ones obtained if the
@@ -2997,6 +3410,9 @@ def test_logistic_regression_callback_fitted_estimator(n_classes, fit_intercept)
 # TODO(callbacks): update/remove as more solvers get supported.
 @skip_callback_test_if_wasm
 def test_logistic_regression_callback_support_warning():
+    # [FUNCTION DOC]
+    # Verifies setting callbacks with solver='liblinear' warns that callbacks are only
+    # supported for lbfgs.
     """Test the warning message when trying to set a callback with solver!='lbfgs'."""
     cb = RecordingCallback()
     with pytest.warns(

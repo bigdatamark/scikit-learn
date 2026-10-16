@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for coordinate descent linear models: Lasso, ElasticNet, their multi-task and
+# CV variants, the path functions enet_path / lasso_path, the Cython solvers in
+# _cd_fast and the _set_order helper. Covers toy solutions and dual gaps, CV alpha and
+# l1_ratio selection, positivity, warm starts, sparse/dense and float32/float64
+# consistency, precomputed Gram handling, copy_X/check_input semantics, convergence
+# warnings, sample weight semantics (including inside CV), agreement with Ridge, OLS,
+# LARS and GridSearchCV, and parameter validation/deprecations.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -52,6 +60,9 @@ from sklearn.utils.fixes import COO_CONTAINERS, CSC_CONTAINERS, CSR_CONTAINERS
 @pytest.mark.parametrize("order", ["C", "F"])
 @pytest.mark.parametrize("input_order", ["C", "F"])
 def test_set_order_dense(order, input_order):
+    # [FUNCTION DOC]
+    # Verifies _set_order returns X and y contiguous in the requested order ("C" or "F")
+    # and returns the very same objects when the input already has that order.
     """Check that _set_order returns arrays with promised order."""
     X = np.array([[0], [0], [0]], order=input_order)
     y = np.array([0, 0, 0], order=input_order)
@@ -72,6 +83,13 @@ def test_set_order_dense(order, input_order):
 @pytest.mark.parametrize("input_order", ["C", "F"])
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_set_order_sparse(order, input_order, coo_container):
+    # [FUNCTION DOC]
+    # Verifies _set_order converts sparse inputs to CSC for order "F" and CSR for "C".
+    # Inputs start as COO and are converted to CSC/CSR according to input_order.
+    # KNOWN ISSUE: y is reassigned from X (y = X.asformat(...)) instead of from y, so
+    #   the
+    # sparse 1-D y built from coo_container is never exercised; y2 checks X's
+    #   conversion.
     """Check that _set_order returns sparse matrices in promised format."""
     X = coo_container(np.array([[0], [0], [0]]))
     y = coo_container(np.array([0, 0, 0]))
@@ -87,6 +105,21 @@ def test_set_order_sparse(order, input_order, coo_container):
 
 @pytest.mark.parametrize("sparse_csc_type", [sparse.csc_array, sparse.csc_matrix])
 def test_cython_solver_equivalence(sparse_csc_type):
+    # [FUNCTION DOC]
+    # Verifies the dense, sparse and Gram Cython solvers of _cd_fast agree for a 1-D
+    #   target.
+    # On centered make_regression data (dense X centered and Fortran-ordered, y
+    #   centered),
+    # with beta=0 (pure Lasso), tol 1e-10 and cyclic updates: at alpha_max = infinity
+    #   norm
+    # of X^T y all coefficients stay zero with and without gap safe screening; at
+    # alpha_max/10 the dense solver without screening gives between 2 and n_features-1
+    # nonzeros, and the dense solver with screening, the sparse solver (raw X plus
+    #   X_mean
+    # for implicit centering, both screening settings) and the Gram solver (Q = Xc^T Xc,
+    # q = Xc^T y) all reproduce it.
+    # Inputs: sparse_csc_type - csc_array or csc_matrix.
+    # Side effects: solvers update coefficient arrays in place.
     """Test that all 3 Cython solvers for 1-d targets give same results."""
     X, y = make_regression()
     X_mean = X.mean(axis=0)
@@ -104,6 +137,9 @@ def test_cython_solver_equivalence(sparse_csc_type):
     }
 
     def zc():
+        # [FUNCTION DOC]
+        # HELPER: Returns a fresh float64 zero vector of length n_features (enclosing
+        #   X).
         """Create a new zero coefficient array (zc)."""
         return np.zeros(X.shape[1])
 
@@ -169,6 +205,9 @@ def test_cython_solver_equivalence(sparse_csc_type):
 
 
 def test_lasso_zero():
+    # [FUNCTION DOC]
+    # Verifies Lasso fit on all-zero X and y yields coef 0, zero predictions and zero
+    # dual gap.
     # Check that the lasso can handle zero data without crashing
     X = [[0], [0], [0]]
     y = [0, 0, 0]
@@ -182,6 +221,10 @@ def test_lasso_zero():
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")  # overflow and similar
 def test_enet_nonfinite_params():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet raises ValueError "Coordinate descent iterations resulted in
+    # non-finite parameter values" when X is scaled to near the float64 maximum,
+    # causing overflow. Convergence and runtime warnings are ignored.
     # Check ElasticNet throws ValueError when dealing with non-finite parameter
     # values
     rng = np.random.RandomState(0)
@@ -197,6 +240,10 @@ def test_enet_nonfinite_params():
 
 
 def test_lasso_toy():
+    # [FUNCTION DOC]
+    # Verifies Lasso closed-form solutions on X = [-1, 0, 1], y = X for alpha 1e-8, 0.1,
+    # 0.5 and 1 (coef 1, 0.85, 0.25, 0): coef_, predictions on [2, 3, 4] and zero dual
+    # gap.
     # Test Lasso on a toy example for various values of alpha.
     # When validating this against glmnet notice that glmnet divides it
     # against nobs.
@@ -235,6 +282,12 @@ def test_lasso_toy():
 
 
 def test_enet_toy():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet toy solutions on the same line data: l1_ratio=1 with tiny
+    #   alpha
+    # behaves like Lasso; alpha=0.5, l1_ratio=0.3 gives coef ~0.50819 with precompute
+    # False, True and an explicit Gram matrix; alpha=0.5, l1_ratio=0.5 gives ~0.45454.
+    # Also checks predictions and zero dual gap.
     # Test ElasticNet for various parameters of alpha and l1_ratio.
     # Actually, the parameters alpha = 0 should not be allowed. However,
     # we test it as a border case.
@@ -282,6 +335,13 @@ def test_enet_toy():
 
 
 def test_lasso_dual_gap():
+    # [FUNCTION DOC]
+    # Verifies dual_gap_ equals primal minus dual objective for a Lasso without
+    #   intercept
+    # on a 10x30 problem: primal = half mean squared residual + alpha L1 norm; dual
+    #   point
+    # is the residual rescaled so that the infinity norm of X^T theta / n_samples is at
+    # most alpha; dual = half (mean y^2 - mean (y - rescaled R)^2).
     """
     Check that Lasso.dual_gap_ matches its objective formulation, with the
     datafit normalized by n_samples
@@ -300,6 +360,15 @@ def test_lasso_dual_gap():
 
 
 def build_dataset(n_samples=50, n_features=200, n_informative_features=10, n_targets=1):
+    # [FUNCTION DOC]
+    # HELPER: Builds an ill-posed noiseless linear regression problem. With a fixed
+    # RandomState(0), draws Gaussian weights (vector, or matrix (n_features, n_targets)
+    # when n_targets > 1), zeroes all but the first n_informative_features rows, draws
+    # Gaussian train and test X and computes y as X times weights.
+    # Inputs: n_samples (50), n_features (200), n_informative_features (10),
+    # n_targets (1).
+    # Outputs: X, y, X_test, y_test; y is 1-D if n_targets == 1, else (n_samples,
+    # n_targets). Deterministic.
     """
     build an ill-posed linear regression problem with many noisy features and
     comparatively few samples
@@ -318,6 +387,11 @@ def build_dataset(n_samples=50, n_features=200, n_informative_features=10, n_tar
 
 
 def test_lasso_cv():
+    # [FUNCTION DOC]
+    # Verifies LassoCV with a 10-alpha grid and cv=3 selects alpha_ ~0.056 with and
+    # without precompute, that LassoLarsCV selects an alpha within one grid position of
+    # it, that the interpolated LARS CV MSE matches at alphas_[5] (rtol 1e-2), and that
+    # test R2 exceeds 0.99.
     X, y, X_test, y_test = build_dataset()
     max_iter = 150
     clf = LassoCV(alphas=10, eps=1e-3, max_iter=max_iter, cv=3).fit(X, y)
@@ -348,6 +422,9 @@ def test_lasso_cv():
 
 
 def test_lasso_cv_with_some_model_selection():
+    # [FUNCTION DOC]
+    # Smoke test: a StandardScaler plus LassoCV(cv=ShuffleSplit) pipeline fits on the
+    # diabetes data without error.
     from sklearn import datasets
     from sklearn.model_selection import ShuffleSplit
 
@@ -360,6 +437,9 @@ def test_lasso_cv_with_some_model_selection():
 
 
 def test_lasso_cv_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies LassoCV(positive=True) yields nonnegative coef_ on data where the
+    # unconstrained fit has a negative coefficient.
     X, y, X_test, y_test = build_dataset()
     max_iter = 500
 
@@ -393,6 +473,9 @@ def test_lasso_cv_positive_constraint():
     ],
 )
 def test_lassocv_alphas_validation(alphas, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies LassoCV fit raises the expected ValueError for negative alphas and
+    # TypeError for a non-numeric alpha, with the indexed error message.
     """Check the `alphas` validation in LassoCV."""
 
     n_samples, n_features = 5, 5
@@ -405,6 +488,10 @@ def test_lassocv_alphas_validation(alphas, err_type, err_msg):
 
 
 def test_lasso_path_return_models_vs_new_return_gives_same_coefficients():
+    # [FUNCTION DOC]
+    # Verifies lasso_path at alphas [5, 1, 0.5] matches the LARS lasso path, both
+    #   linearly
+    # interpolated in alpha, to 1 decimal on a 3x2 toy problem.
     # Test that lasso_path with lars_path style output gives the
     # same result
 
@@ -430,6 +517,13 @@ def test_lasso_path_return_models_vs_new_return_gives_same_coefficients():
 
 
 def test_enet_path():
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV on a dense-truth, well-conditioned 200x100 problem picks the
+    # smallest alpha and smallest l1_ratio (more ridge-like), with and without
+    #   precompute,
+    # and scores test R2 > 0.99; MultiTaskElasticNetCV on 3 targets scores > 0.99 with
+    # coef_ shape (3, 10); and ElasticNetCV and MultiTaskElasticNetCV on a single target
+    # pick the same alpha_ and l1_ratio_.
     # We use a large number of samples and of informative features so that
     # the l1_ratio selected is more toward ridge than lasso
     X, y, X_test, y_test = build_dataset(
@@ -494,6 +588,10 @@ def test_enet_path():
 
 
 def test_warm_start():
+    # [FUNCTION DOC]
+    # Verifies warm_start: two ElasticNet fits of max_iter=5 each give the same coef_ as
+    #   a
+    # single cold fit with max_iter=10 (convergence warnings ignored).
     X, y, _, _ = build_dataset()
     clf = ElasticNet(alpha=0.1, max_iter=5, warm_start=True)
     ignore_warnings(clf.fit)(X, y)
@@ -506,6 +604,8 @@ def test_warm_start():
 
 @pytest.mark.filterwarnings("ignore:.*with no regularization.*:UserWarning")
 def test_lasso_alpha_warning():
+    # [FUNCTION DOC]
+    # Verifies Lasso(alpha=0) emits the UserWarning recommending LinearRegression.
     X = [[-1], [0], [1]]
     Y = [-1, 0, 1]  # just a straight line
 
@@ -520,6 +620,10 @@ def test_lasso_alpha_warning():
 
 
 def test_lasso_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies Lasso(positive=True), with and without precompute, gives nonnegative
+    #   coef_
+    # on data with a negative slope.
     X = [[-1], [0], [1]]
     y = [1, 0, -1]  # just a straight line with negative slope
 
@@ -533,6 +637,9 @@ def test_lasso_positive_constraint():
 
 
 def test_enet_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet(positive=True) gives nonnegative coef_ on a negative-slope
+    #   line.
     X = [[-1], [0], [1]]
     y = [1, 0, -1]  # just a straight line with negative slope
 
@@ -542,6 +649,10 @@ def test_enet_positive_constraint():
 
 
 def test_enet_cv_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV(positive=True) gives nonnegative coef_ where the
+    #   unconstrained
+    # fit has a negative coefficient.
     X, y, X_test, y_test = build_dataset()
     max_iter = 500
 
@@ -561,6 +672,10 @@ def test_enet_cv_positive_constraint():
 
 
 def test_uniform_targets():
+    # [FUNCTION DOC]
+    # Verifies CV estimators on constant targets (0 and 5; for multi-task, columns c and
+    # 2c) predict the constant exactly and produce an alpha grid of three copies of
+    # float resolution (alpha_max is zero).
     enet = ElasticNetCV(alphas=3)
     m_enet = MultiTaskElasticNetCV(alphas=3)
     lasso = LassoCV(alphas=3)
@@ -593,6 +708,10 @@ def test_uniform_targets():
 
 @pytest.mark.filterwarnings("error::sklearn.exceptions.ConvergenceWarning")
 def test_multi_task_lasso_vs_skglm():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskLasso (alpha=0.1, tol 1e-10, 5000 iterations) matches skglm 0.5
+    # reference values: objective 0.4965993692547902, intercepts and per-task identical
+    # coefficients, on a 5x4 Vandermonde X and 3 tasks. Fails on ConvergenceWarning.
     """Test that MultiTaskLasso gives same results as the one from skglm.
 
     To reproduce numbers, just use
@@ -604,6 +723,15 @@ def test_multi_task_lasso_vs_skglm():
     Y = np.arange(n_samples * n_tasks).reshape(n_samples, n_tasks)
 
     def obj(W, X, y, alpha):
+        # [FUNCTION DOC]
+        # HELPER: Multi-task Lasso objective for a stacked matrix W whose last column is
+        #   the
+        # intercept: squared Frobenius norm of residuals divided by 2 * n_samples plus
+        #   alpha
+        # times the L2,1 norm (sum over features of the column L2 norm across tasks).
+        # Inputs: W (n_tasks, n_features + 1), X, y, alpha. Outputs: float.
+        # KNOWN ISSUE: uses the enclosing Y instead of the y parameter (same value
+        #   here).
         intercept = W[:, -1]
         W = W[:, :-1]
         l21_norm = np.sqrt(np.sum(W**2, axis=0)).sum()
@@ -632,6 +760,11 @@ def test_multi_task_lasso_vs_skglm():
 
 
 def test_multi_task_lasso_and_enet():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskLasso and MultiTaskElasticNet on two identical target columns
+    #   give
+    # identical per-task coef_ and a small positive dual gap, and that max_iter=1 emits
+    # the "Objective did not converge" ConvergenceWarning.
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
     # Y_test = np.c_[y_test, y_test]
@@ -653,6 +786,10 @@ def test_multi_task_lasso_and_enet():
 
 
 def test_lasso_readonly_data():
+    # [FUNCTION DOC]
+    # Verifies Lasso(alpha=0.5) works on read-only memmapped X and y, reproducing the
+    #   toy
+    # solution coef 0.25.
     X = np.array([[-1], [0], [1]])
     Y = np.array([-1, 0, 1])  # just a straight line
     T = np.array([[2], [3], [4]])  # test sample
@@ -666,6 +803,11 @@ def test_lasso_readonly_data():
 
 
 def test_multi_task_lasso_readonly_data():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskLasso fits on memmapped (read-only) X with identical per-task
+    # coefficients.
+    # KNOWN ISSUE: Y is rebuilt from the in-memory y inside the context, so only X is
+    # read-only; the memmapped Y is unused.
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
     with TempMemmap((X, Y)) as (X, Y):
@@ -676,6 +818,10 @@ def test_multi_task_lasso_readonly_data():
 
 
 def test_enet_multitarget():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet on a 3-target y gives, per target, the same coef_, intercept_
+    #   and
+    # dual_gap_ as separate single-target fits.
     n_targets = 3
     X, y, _, _ = build_dataset(
         n_samples=10, n_features=8, n_informative_features=10, n_targets=n_targets
@@ -696,6 +842,8 @@ def test_enet_multitarget():
 
 
 def test_multioutput_enetcv_error():
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV raises ValueError on a 2-D target.
     rng = np.random.RandomState(0)
     X = rng.randn(10, 2)
     y = rng.randn(10, 2)
@@ -705,6 +853,13 @@ def test_multioutput_enetcv_error():
 
 
 def test_multitask_enet_and_lasso_cv():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskElasticNetCV and MultiTaskLassoCV select reference alphas
+    #   (0.00556,
+    # 0.00278) and that fitted attributes have the expected shapes: coef_ (3,
+    #   n_features),
+    # intercept_ (3,), mse_path_ (n_l1_ratio, n_alphas, n_folds) or (n_alphas, n_folds),
+    # alphas_ (n_l1_ratio, n_alphas) or (n_alphas,); l1_ratio_ selected is 0.5.
     X, y, _, _ = build_dataset(n_features=50, n_targets=3)
     clf = MultiTaskElasticNetCV(cv=3).fit(X, y)
     assert_almost_equal(clf.alpha_, 0.00556, 3)
@@ -732,6 +887,9 @@ def test_multitask_enet_and_lasso_cv():
 
 
 def test_1d_multioutput_enet_and_multitask_enet_cv():
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV on y and MultiTaskElasticNetCV on y as one column agree on
+    # l1_ratio_, alpha_, coef_ and intercept_.
     X, y, _, _ = build_dataset(n_features=10)
     y = y[:, np.newaxis]
     clf = ElasticNetCV(alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7])
@@ -745,6 +903,9 @@ def test_1d_multioutput_enet_and_multitask_enet_cv():
 
 
 def test_1d_multioutput_lasso_and_multitask_lasso_cv():
+    # [FUNCTION DOC]
+    # Same as the enet variant for LassoCV versus MultiTaskLassoCV (alpha_, coef_,
+    # intercept_).
     X, y, _, _ = build_dataset(n_features=10)
     y = y[:, np.newaxis]
     clf = LassoCV(alphas=5, eps=2e-3)
@@ -761,6 +922,9 @@ def test_1d_multioutput_lasso_and_multitask_lasso_cv():
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_input_dtype_enet_and_lassocv(estimator, csr_container):
+    # [FUNCTION DOC]
+    # Verifies CV estimators on CSR X in float64 and float32 select the same alpha_ and
+    # coef_ (rtol 1e-5); multi-task estimators get 2 targets.
     if issubclass(estimator, (MultiTaskElasticNetCV, MultiTaskLassoCV)):
         n_targets = 2
     else:
@@ -775,6 +939,9 @@ def test_sparse_input_dtype_enet_and_lassocv(estimator, csr_container):
 
 
 def test_elasticnet_precompute_incorrect_gram():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet raises ValueError ("Gram matrix ... did not pass validation")
+    # when the precomputed Gram matrix comes from unrelated random data.
     # check that passing an invalid precomputed Gram matrix will raise an
     # error.
     X, y, _, _ = build_dataset()
@@ -792,6 +959,10 @@ def test_elasticnet_precompute_incorrect_gram():
 
 
 def test_elasticnet_precompute_gram_weighted_samples():
+    # [FUNCTION DOC]
+    # Verifies a user Gram matrix built from weighted-centered, sqrt-weight-scaled X
+    # (weights normalized to sum to n_samples) gives the same coef_ as internal
+    # computation with the same lognormal sample weights.
     # check the equivalence between passing a precomputed Gram matrix and
     # internal computation using sample weights.
     X, y, _, _ = build_dataset()
@@ -814,6 +985,10 @@ def test_elasticnet_precompute_gram_weighted_samples():
 
 
 def test_elasticnet_precompute_gram():
+    # [FUNCTION DOC]
+    # Verifies the dtype-aware Gram validation accepts a float32 Gram that matches X_c^T
+    # X_c only within float32 tolerance (PR #22059, issue #21997), giving the same coef_
+    # as precompute=False on uncentered X.
     # Check the dtype-aware check for a precomputed Gram matrix
     # (see https://github.com/scikit-learn/scikit-learn/pull/22059
     # and https://github.com/scikit-learn/scikit-learn/issues/21997).
@@ -839,6 +1014,9 @@ def test_elasticnet_precompute_gram():
 @pytest.mark.parametrize("sparse_csr_type", [sparse.csr_array, sparse.csr_matrix])
 @pytest.mark.parametrize("sparse_X", [True, False])
 def test_warm_start_convergence(sparse_X, sparse_csr_type):
+    # [FUNCTION DOC]
+    # Verifies n_iter_ is reproducible on refit with warm_start=False and becomes 0 when
+    # refitting with warm_start=True (dual gap checked before the loop), dense or CSR X.
     X, y, _, _ = build_dataset()
     if sparse_X:
         X = sparse_csr_type(X)
@@ -862,6 +1040,11 @@ def test_warm_start_convergence(sparse_X, sparse_csr_type):
 
 
 def test_warm_start_convergence_with_regularizer_decrement():
+    # [FUNCTION DOC]
+    # Verifies on diabetes data that a weakly regularized ElasticNet needs more
+    #   iterations
+    # than a 10x more regularized one, and that warm starting the weak problem from the
+    # strong solution converges in fewer iterations than from zero.
     X, y = load_diabetes(return_X_y=True)
 
     # Train a model to converge on a lightly regularized problem
@@ -886,6 +1069,11 @@ def test_warm_start_convergence_with_regularizer_decrement():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_random_descent(csr_container):
+    # [FUNCTION DOC]
+    # Verifies selection="random" (random_state=42) and "cyclic" converge to the same
+    #   coef_
+    # and intercept_ with tol 1e-9 for: Gram-trick dense fit, a wide problem (X.T,
+    # n_features > n_samples) without Gram, CSR input, and MultiTaskElasticNet on CSR.
     # Test that both random and cyclic selection give the same results.
     # Ensure that the test models fully converge and check a wide
     # range of conditions.
@@ -929,6 +1117,10 @@ def test_random_descent(csr_container):
 @pytest.mark.parametrize("n_targets", [1, 2])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_dense_descent_paths(path, n_targets, csr_container):
+    # [FUNCTION DOC]
+    # Verifies enet_path and lasso_path give the same coefficient paths for dense and
+    #   CSR
+    # X, for 1 and 2 targets.
     # Test that dense and sparse input give the same result for descent paths.
     X, y, _, _ = build_dataset(n_targets=n_targets, n_samples=50, n_features=20)
     csr = csr_container(X)
@@ -939,6 +1131,9 @@ def test_sparse_dense_descent_paths(path, n_targets, csr_container):
 
 @pytest.mark.parametrize("path", [enet_path, lasso_path])
 def test_enet_path_positive(path):
+    # [FUNCTION DOC]
+    # Verifies path functions with positive=True return nonnegative coefficients for a
+    # single target and raise ValueError for a multi-target y.
     # Test positive parameter
 
     X, Y, _, _ = build_dataset(n_samples=50, n_features=50, n_targets=2)
@@ -956,6 +1151,10 @@ def test_enet_path_positive(path):
 
 @pytest.mark.parametrize("path_func", [enet_path, lasso_path])
 def test_path_unknown_parameter(path_func):
+    # [FUNCTION DOC]
+    # Verifies path functions raise ValueError "Unexpected parameters in params" when
+    #   given
+    # normalize and fit_intercept keywords.
     """Check that passing parameter not used by the coordinate descent solver
     will raise an error."""
     X, y, _, _ = build_dataset(n_samples=50, n_features=20)
@@ -965,6 +1164,11 @@ def test_path_unknown_parameter(path_func):
 
 
 def test_check_input_false():
+    # [FUNCTION DOC]
+    # Verifies fit with check_input=False works for F-ordered float64 and float32 X, and
+    # raises ValueError for C-ordered X.
+    # KNOWN ISSUE: y is built from X (y = check_array(X, ...)), so the fits are
+    # multi-output with a 2-D y equal to X rather than single-target.
     X, y, _, _ = build_dataset(n_samples=20, n_features=10)
     X = check_array(X, order="F", dtype="float64")
     y = check_array(X, order="F", dtype="float64")
@@ -985,6 +1189,10 @@ def test_check_input_false():
 
 @pytest.mark.parametrize("check_input", [True, False])
 def test_enet_copy_X_True(check_input):
+    # [FUNCTION DOC]
+    # Verifies ElasticNet(copy_X=True) leaves an F-ordered X unchanged with check_input
+    #   True
+    # or False.
     X, y, _, _ = build_dataset()
     X = X.copy(order="F")
 
@@ -996,6 +1204,9 @@ def test_enet_copy_X_True(check_input):
 
 
 def test_enet_copy_X_False_check_input_False():
+    # [FUNCTION DOC]
+    # Verifies ElasticNet(copy_X=False) with check_input=False modifies X in place
+    # (centering), i.e. no copy is made.
     X, y, _, _ = build_dataset()
     X = X.copy(order="F")
 
@@ -1008,6 +1219,10 @@ def test_enet_copy_X_False_check_input_False():
 
 
 def test_overridden_gram_matrix():
+    # [FUNCTION DOC]
+    # Verifies a Gram matrix from uncentered X triggers the UserWarning that X was
+    #   centered
+    # and the Gram matrix is recomputed (fit_intercept=True).
     X, y, _, _ = build_dataset(n_samples=20, n_features=10)
     Gram = X.T.dot(X)
     clf = ElasticNet(selection="cyclic", tol=1e-8, precompute=Gram)
@@ -1021,6 +1236,10 @@ def test_overridden_gram_matrix():
 
 @pytest.mark.parametrize("model", [ElasticNet, Lasso])
 def test_lasso_non_float_y(model):
+    # [FUNCTION DOC]
+    # Verifies integer y gives exactly the same coef_ as the float version, for
+    #   ElasticNet
+    # and Lasso without intercept.
     X = [[0, 0], [1, 1], [-1, -1]]
     y = [0, 1, 2]
     y_float = [0.0, 1.0, 2.0]
@@ -1033,6 +1252,16 @@ def test_lasso_non_float_y(model):
 
 
 def test_enet_float_precision():
+    # [FUNCTION DOC]
+    # Verifies float32 and float64 fits agree to 4 decimals in coef_ and intercept_ for
+    # ElasticNet and MultiTaskElasticNet (two identical target columns), with and
+    #   without
+    # intercept; that coef_ keeps the input dtype; and that a precomputed Gram matches
+    #   the
+    # plain fit (max_iter=100, warnings ignored).
+    # KNOWN ISSUE: the dtype assertion after the multi-task fit re-checks clf
+    #   (ElasticNet)
+    # instead of clf_multioutput.
     # Generate dataset
     X, y, X_test, y_test = build_dataset(n_samples=20, n_features=10)
     # Here we have a small number of iterations, and thus the
@@ -1092,6 +1321,13 @@ def test_enet_float_precision():
 
 
 def test_enet_l1_ratio():
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV and MultiTaskElasticNetCV with l1_ratio=0 and an automatic
+    #   alpha
+    # grid raise ValueError; ElasticNetCV(l1_ratio=[0], alphas=[1]) fits without any
+    # warning; and with a user alpha grid, l1_ratio=0 matches l1_ratio=1e-5 to 5
+    #   decimals
+    # for both estimators.
     # Test that an error message is raised if an estimator that
     # uses _alpha_grid is called with l1_ratio=0
     msg = (
@@ -1131,12 +1367,18 @@ def test_enet_l1_ratio():
 
 
 def test_coef_shape_not_zero():
+    # [FUNCTION DOC]
+    # Verifies Lasso without intercept on a single constant feature yields coef_ of
+    #   shape
+    # (1,).
     est_no_intercept = Lasso(fit_intercept=False)
     est_no_intercept.fit(np.c_[np.ones(3)], np.ones(3))
     assert est_no_intercept.coef_.shape == (1,)
 
 
 def test_warm_start_multitask_lasso():
+    # [FUNCTION DOC]
+    # Verifies warm_start for MultiTaskLasso: two fits of 5 iterations equal one of 10.
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
     clf = MultiTaskLasso(alpha=0.1, max_iter=5, warm_start=True)
@@ -1156,6 +1398,10 @@ def test_warm_start_multitask_lasso():
     ],
 )
 def test_enet_coordinate_descent_raises_convergence(est, kwargs):
+    # [FUNCTION DOC]
+    # Verifies Lasso (precompute True and False) emits the "Objective did not converge"
+    # ConvergenceWarning when warm started from bad coefficients with max_iter=1,
+    # tol=1e-10 and tiny alpha.
     """Test that a warning is issued if model does not converge"""
     reg = est(
         alpha=1e-10,
@@ -1178,6 +1424,9 @@ def test_enet_coordinate_descent_raises_convergence(est, kwargs):
 
 
 def test_convergence_warnings():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskElasticNet with defaults converges without ConvergenceWarning on
+    # 1000x500 Gaussian X with 3 targets (warning turned into an error).
     random_state = np.random.RandomState(0)
     X = random_state.standard_normal((1000, 500))
     y = random_state.standard_normal((1000, 3))
@@ -1193,6 +1442,9 @@ def test_convergence_warnings():
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_input_convergence_warning(estimator, csr_container):
+    # [FUNCTION DOC]
+    # Verifies CV estimators on float32 CSR X emit ConvergenceWarning with max_iter=1,
+    # tol=0, and converge without the warning with default settings.
     if issubclass(estimator, (MultiTaskElasticNetCV, MultiTaskLassoCV)):
         n_targets = 2
     else:
@@ -1217,11 +1469,24 @@ def test_sparse_input_convergence_warning(estimator, csr_container):
     ],
 )
 def test_lassoCV_does_not_set_precompute(monkeypatch, precompute, inner_precompute):
+    # [FUNCTION DOC]
+    # Verifies LassoCV passes the expected precompute value to the final Lasso refit
+    # (True stays True; "auto" and False become False). Monkeypatches the module-level
+    # Lasso with LassoMock and asserts it was called at least once.
     X, y, _, _ = build_dataset()
     calls = 0
 
     class LassoMock(Lasso):
+        # [CLASS DOC]
+        # HELPER: Lasso subclass used to intercept LassoCV's final refit and inspect the
+        # precompute value it received; counts calls in the enclosing calls variable.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Runs Lasso.fit on X, y, increments the enclosing calls counter and
+            #   asserts
+            # self.precompute equals the expected inner_precompute. Returns None (not
+            #   self).
+            # Exceptions: AssertionError on mismatch.
             super().fit(X, y)
             nonlocal calls
             calls += 1
@@ -1234,6 +1499,10 @@ def test_lassoCV_does_not_set_precompute(monkeypatch, precompute, inner_precompu
 
 
 def test_multi_task_lasso_cv_dtype():
+    # [FUNCTION DOC]
+    # Verifies MultiTaskLassoCV accepts integer binary X and recovers coef ~[1, 0, 0]
+    #   for
+    # two targets both equal to the first column.
     n_samples, n_features = 10, 3
     rng = np.random.RandomState(42)
     X = rng.binomial(1, 0.5, size=(n_samples, n_features))
@@ -1251,6 +1520,15 @@ def test_multi_task_lasso_cv_dtype():
 def test_enet_sample_weight_consistency(
     estimator, fit_intercept, alpha, precompute, sparse_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies sample_weight semantics for ElasticNet and MultiTaskElasticNet (dense or
+    #   CSR,
+    # precompute only for single task; multi-task with precompute returns early):
+    # (1) unit weights equal no weights; (2) a scalar weight equals no weights;
+    # (3) rescaling weights has no effect; (4) zero weights equal removing those samples
+    # (their targets are inflated 1000x to make it matter); (5) doubling the weight of
+    # the first half equals duplicating those rows.
+    # Side effects: mutates local y in step 4.
     """Test that the impact of sample_weight is consistent.
 
     Note that this test is stricter than the common test
@@ -1349,6 +1627,14 @@ def test_enet_sample_weight_consistency(
 def test_enet_cv_sample_weight_correctness(
     estimator, fit_intercept, sparse_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV / MultiTaskElasticNetCV with integer sample weights (0..4)
+    #   on
+    # the first of three CV groups match a fit on data where those rows are repeated
+    #   (and
+    # zero-weight rows removed), using LeaveOneGroupOut splits computed on each dataset:
+    # mse_path_, alphas_, alpha_, coef_ (atol 1e-10) and intercept_ must agree. Dense or
+    # CSC X.
     """Test that ElasticNetCV with sample weights gives correct results.
 
     We fit the same model twice, once with weighted training data, once with repeated
@@ -1430,6 +1716,10 @@ def test_enet_cv_sample_weight_correctness(
 )
 @pytest.mark.parametrize("sample_weight", [False, True])
 def test_enet_cv_grid_search(estimatorCV, estimator, sample_weight):
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV / MultiTaskElasticNetCV select the same alpha_ and l1_ratio_
+    # as GridSearchCV over the same grid with neg MSE scoring and cv=5, with and without
+    # linearly increasing sample weights.
     """Test that ElasticNetCV gives same result as GridSearchCV."""
     n_samples, n_features = 200, 10
     if issubclass(estimatorCV, MultiTaskElasticNetCV):
@@ -1486,6 +1776,12 @@ def test_enet_cv_grid_search(estimatorCV, estimator, sample_weight):
 def test_enet_cv_sample_weight_consistency(
     estimator, l1_ratio, fit_intercept, precompute, sparse_container
 ):
+    # [FUNCTION DOC]
+    # Verifies for CV estimators (LassoCV/MultiTaskLassoCV use l1_ratio placeholder 0,
+    # meaning not set) that unit weights, a scalar weight and a constant weight of 2 all
+    # reproduce the unweighted coef_ and intercept_, for dense or CSC X, with and
+    #   without
+    # intercept and precompute (precompute dropped for multi-task).
     """Test that the impact of sample_weight is consistent."""
     rng = np.random.RandomState(0)
     n_samples, n_features = 10, 5
@@ -1549,6 +1845,13 @@ def test_enet_cv_sample_weight_consistency(
 def test_enet_alpha_max(
     estimatorCV, estimator, X_is_sparse, fit_intercept, positive, sample_weight
 ):
+    # [FUNCTION DOC]
+    # Verifies the computed alpha_max: a CV estimator with a single alpha (alphas=1,
+    #   eps=1)
+    # gets all-zero coef_, while the plain estimator at 0.99 * alpha_max has some
+    # coefficient above 1e-3. When positive=True, also checks alpha_max differs from the
+    # unconstrained one so the data distinguishes them. Covers sparse X, intercept and
+    # sample weights; multi-task skips positive=True.
     X = np.array([[3.0, -1.0], [2.0, -5.0], [5.0, -3.0], [1.0, -4.0]])
     beta = np.array([1, -2])
     y = X @ beta
@@ -1587,6 +1890,10 @@ def test_enet_alpha_max(
 
 @pytest.mark.parametrize("estimator", [ElasticNetCV, LassoCV])
 def test_linear_models_cv_fit_with_loky(estimator):
+    # [FUNCTION DOC]
+    # Verifies ElasticNetCV and LassoCV fit with n_jobs=2 under the loky backend on data
+    # larger than 1 MB, which triggers read-only memmapping and fancy indexing
+    # (numpy#14132). Smoke test without numeric assertions.
     # LinearModelsCV.fit performs operations on fancy-indexed memmapped
     # data when using the loky backend, causing an error due to unexpected
     # behavior of fancy indexing of read-only memmaps (cf. numpy#14132).
@@ -1603,6 +1910,10 @@ def test_linear_models_cv_fit_with_loky(estimator):
 # TODO:
 @pytest.mark.parametrize("check_input", [True, False])
 def test_enet_sample_weight_does_not_overwrite_sample_weight(check_input):
+    # [FUNCTION DOC]
+    # Verifies ElasticNet.fit does not modify the caller's sample_weight array, with
+    # check_input True or False.
+    # KNOWN ISSUE: a bare "TODO:" comment precedes this test with no content.
     """Check that ElasticNet does not overwrite sample_weights."""
 
     rng = np.random.RandomState(0)
@@ -1625,6 +1936,12 @@ def test_enet_sample_weight_does_not_overwrite_sample_weight(check_input):
     ["precompute", "n_targets"], [(False, 1), (True, 1), (False, 3)]
 )
 def test_enet_ridge_consistency(ridge_alpha, precompute, n_targets, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies ElasticNet(l1_ratio=0) (or MultiTaskElasticNet for 3 targets, without
+    # weights) matches Ridge(solver="svd") when alpha is rescaled: ridge_alpha divided
+    #   by
+    # the sum of sample weights (single target) or by n_samples (multi-task). Very tight
+    # tol; tolerance looser for the Gram-based solver.
     # Check that ElasticNet(l1_ratio=0) converges to the same solution as Ridge
     # provided that the value of alpha is adapted.
 
@@ -1670,6 +1987,10 @@ def test_enet_ridge_consistency(ridge_alpha, precompute, n_targets, global_rando
 @pytest.mark.parametrize("precompute", [False, True])
 @pytest.mark.parametrize("effective_rank", [None, 10])
 def test_enet_ols_consistency(precompute, effective_rank, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies ElasticNet(alpha=0) with tol 1e-15 matches weighted LinearRegression in
+    # predictions, near-zero weighted squared error for both, and coefficients and
+    # intercept to atol 1e-11, for full and low effective rank designs.
     """Test that ElasticNet(alpha=0) converges to the same solution as OLS."""
     rng = np.random.RandomState(global_random_seed)
     n_samples = 300
@@ -1707,6 +2028,11 @@ def test_enet_ols_consistency(precompute, effective_rank, global_random_seed):
     ],
 )
 def test_sample_weight_invariance(estimator):
+    # [FUNCTION DOC]
+    # Verifies for Lasso and ElasticNet (tol 1e-12) that zeroing the weights of the
+    #   first
+    # third of samples equals trimming them, and that doubling all weights equals
+    # duplicating the dataset (coef_ and intercept_ compared).
     rng = np.random.RandomState(42)
     X, y = make_regression(
         n_samples=100,
@@ -1757,6 +2083,10 @@ def test_sample_weight_invariance(estimator):
     [ElasticNetCV, LassoCV, MultiTaskElasticNetCV, MultiTaskLassoCV],
 )
 def test_cv_estimators_reject_params_with_no_routing_enabled(EstimatorCV):
+    # [FUNCTION DOC]
+    # Verifies LinearModelCV subclasses raise ValueError when extra fit params (groups)
+    #   are
+    # passed without metadata routing enabled.
     """Check that the models inheriting from class:`LinearModelCV` raise an
     error when any `params` are passed when routing is not enabled.
     """
@@ -1770,6 +2100,9 @@ def test_cv_estimators_reject_params_with_no_routing_enabled(EstimatorCV):
 
 @pytest.mark.parametrize("precompute", ["auto", True, False])
 def test_enet_path_check_input_false(precompute):
+    # [FUNCTION DOC]
+    # Smoke test: enet_path with check_input=False on F-ordered X runs for precompute
+    # "auto", True and False. No assertions; outputs are discarded.
     """Test enet_path works with check_input=False and various precompute settings."""
     X, y = make_regression(n_samples=100, n_features=5, n_informative=2, random_state=0)
     X = np.asfortranarray(X)
@@ -1779,6 +2112,10 @@ def test_enet_path_check_input_false(precompute):
 # TODO(1.11): remove
 @pytest.mark.parametrize("path_func", [lasso_path, enet_path])
 def test_path_function_deprecated_n_alphas(path_func):
+    # [FUNCTION DOC]
+    # Verifies lasso_path / enet_path emit FutureWarning for n_alphas and for
+    #   alphas=None,
+    # and no warning at all for an integer alphas.
     """Check deprecation of n_alphas in favor of alphas."""
     X, y = make_regression(n_samples=9, n_features=5, n_informative=2, random_state=42)
 

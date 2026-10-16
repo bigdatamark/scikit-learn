@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tests for least angle regression: lars_path / lars_path_gram (LAR and LARS-Lasso),
+# Lars, LassoLars, LarsCV, LassoLarsCV and LassoLarsIC. Covers the tied-correlation
+# property, precomputed Gram/Xy equivalence, least-squares end of path, collinear and
+# rank-deficient designs, agreement with coordinate descent Lasso, multi-target y,
+# CV/IC alpha selection, positive constraint, copy_X behaviour, jitter, dtypes and
+# input validation errors.
+# Module globals (computed at import): diabetes dataset, X, y, Gram G = X^T X,
+# Xy = X^T y and n_samples, shared by many tests.
+# KNOWN ISSUE: module-level default_parameter and estimator_parameter_map are dead;
+# test_estimatorclasses_positive_constraint redefines and uses local copies.
 import warnings
 
 import numpy as np
@@ -35,6 +46,12 @@ n_samples = y.size
 
 
 def test_simple():
+    # [FUNCTION DOC]
+    # Verifies the LAR invariant on the diabetes data with verbose=10 (stdout captured
+    #   in
+    # a StringIO and restored in finally): for each step i of the coefficient path, the
+    # number of features whose absolute residual correlation is within 1e-3 of the max
+    # equals i+1, capped at n_features once all features are active.
     # Principle of Lars is to keep covariances tied and decreasing
 
     # also test verbose output
@@ -65,6 +82,9 @@ def test_simple():
 
 
 def test_simple_precomputed():
+    # [FUNCTION DOC]
+    # Same tied-correlation check as test_simple, using a precomputed Gram matrix and no
+    # verbose output.
     # The same, with precomputed Gram matrix
 
     _, _, coef_path_ = linear_model.lars_path(X, y, Gram=G, method="lar")
@@ -83,6 +103,10 @@ def test_simple_precomputed():
 
 
 def _assert_same_lars_path_result(output1, output2):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two lars_path output tuples have equal length and elementwise
+    #   close
+    # entries (assert_allclose on each pair). Raises AssertionError otherwise.
     assert len(output1) == len(output2)
     for o1, o2 in zip(output1, output2):
         assert_allclose(o1, o2)
@@ -91,6 +115,10 @@ def _assert_same_lars_path_result(output1, output2):
 @pytest.mark.parametrize("method", ["lar", "lasso"])
 @pytest.mark.parametrize("return_path", [True, False])
 def test_lars_path_gram_equivalent(method, return_path):
+    # [FUNCTION DOC]
+    # Verifies lars_path_gram(Xy, Gram, n_samples) returns the same tuple as lars_path
+    #   with
+    # X, y and Gram, for both methods and with/without return_path.
     _assert_same_lars_path_result(
         linear_model.lars_path_gram(
             Xy=Xy, Gram=G, n_samples=n_samples, method=method, return_path=return_path
@@ -100,6 +128,8 @@ def test_lars_path_gram_equivalent(method, return_path):
 
 
 def test_x_none_gram_none_raises_value_error():
+    # [FUNCTION DOC]
+    # Verifies lars_path raises ValueError when both X and Gram are None (Xy given).
     # Test that lars_path with no X and Gram raises exception
     Xy = np.dot(X.T, y)
     with pytest.raises(ValueError, match="X and Gram cannot both be unspecified"):
@@ -107,6 +137,10 @@ def test_x_none_gram_none_raises_value_error():
 
 
 def test_all_precomputed():
+    # [FUNCTION DOC]
+    # Verifies lars_path with precomputed Gram and Xy matches the plain call for "lar"
+    #   and
+    # "lasso".
     # Test that lars_path with precomputed Gram and Xy gives the right answer
     G = np.dot(X.T, X)
     Xy = np.dot(X.T, y)
@@ -120,6 +154,10 @@ def test_all_precomputed():
 # TODO: remove warning filter when numpy min version >= 2.0.0
 @pytest.mark.filterwarnings("ignore: `rcond` parameter will change")
 def test_lars_lstsq():
+    # [FUNCTION DOC]
+    # Verifies LassoLars with alpha=0 on unnormalized 3*X reaches the least-squares
+    # solution from numpy lstsq.
+    # KNOWN ISSUE: the comment says "Lars" but LassoLars is tested.
     # Test that Lars gives least square solution at the end
     # of the path
     X1 = 3 * X  # use un-normalized dataset
@@ -132,6 +170,8 @@ def test_lars_lstsq():
 # TODO: remove warning filter when numpy min version >= 2.0.0
 @pytest.mark.filterwarnings("ignore: `rcond` parameter will change")
 def test_lasso_gives_lstsq_solution():
+    # [FUNCTION DOC]
+    # Verifies the last column of the lasso lars_path equals the least-squares solution.
     # Test that Lars Lasso gives least square solution at the end
     # of the path
     _, _, coef_path_ = linear_model.lars_path(X, y, method="lasso")
@@ -140,6 +180,13 @@ def test_lasso_gives_lstsq_solution():
 
 
 def test_collinearity():
+    # [FUNCTION DOC]
+    # Verifies robustness to collinear input: on a 3x3 design with two identical
+    #   columns,
+    # the path has no NaN and the final residual sum of squares is below 1. Then on
+    #   random
+    # 10x5 X with an all-zero target, the lasso path (Gram="auto", no copies) is all
+    # zeros.
     # Check that lars_path is robust to collinearity in input
     X = np.array([[3.0, 3.0, 1.0], [2.0, 2.0, 0.0], [1.0, 1.0, 0]])
     y = np.array([1.0, 0.0, 0])
@@ -169,6 +216,10 @@ def test_collinearity():
 
 
 def test_no_path():
+    # [FUNCTION DOC]
+    # Verifies return_path=False returns the last coefficients and last alpha of the
+    #   full
+    # LAR path.
     # Test that the ``return_path=False`` option returns the correct output
     alphas_, _, coef_path_ = linear_model.lars_path(X, y, method="lar")
     alpha_, _, coef = linear_model.lars_path(X, y, method="lar", return_path=False)
@@ -178,6 +229,8 @@ def test_no_path():
 
 
 def test_no_path_precomputed():
+    # [FUNCTION DOC]
+    # Same as test_no_path with a precomputed Gram.
     # Test that the ``return_path=False`` option with Gram remains correct
     alphas_, _, coef_path_ = linear_model.lars_path(X, y, method="lar", Gram=G)
     alpha_, _, coef = linear_model.lars_path(
@@ -189,6 +242,8 @@ def test_no_path_precomputed():
 
 
 def test_no_path_all_precomputed():
+    # [FUNCTION DOC]
+    # Same as test_no_path for the lasso method with Gram, Xy and alpha_min=0.9 on 3*X.
     # Test that the ``return_path=False`` option with Gram and Xy remains
     # correct
     X, y = 3 * diabetes.data, diabetes.target
@@ -209,6 +264,10 @@ def test_no_path_all_precomputed():
     "classifier", (linear_model.Lars, linear_model.LarsCV, linear_model.LassoLarsIC)
 )
 def test_lars_precompute(classifier):
+    # [FUNCTION DOC]
+    # Verifies coef_ with a Gram matrix passed as precompute matches precompute True,
+    # False, "auto" and None (8 decimals) for Lars, LarsCV and LassoLarsIC.
+    # KNOWN ISSUE: the parameter is named classifier but holds regressor classes.
     # Check for different values of precompute
     G = np.dot(X.T, X)
 
@@ -221,6 +280,9 @@ def test_lars_precompute(classifier):
 
 
 def test_singular_matrix():
+    # [FUNCTION DOC]
+    # Verifies lars_path on a singular 2x2 design (identical columns) yields the path
+    # [[0, 0], [1, 0]] (only the first feature enters).
     # Test when input is a singular matrix
     X1 = np.array([[1, 1.0], [1.0, 1.0]])
     y1 = np.array([1, 1])
@@ -229,6 +291,13 @@ def test_singular_matrix():
 
 
 def test_rank_deficient_design():
+    # [FUNCTION DOC]
+    # Verifies LassoLars(0.1) reaches an objective (1/(2n)) * squared residual norm +
+    # 0.1 * L1 norm no worse than coordinate descent Lasso on two rank-deficient
+    #   3-sample
+    # designs.
+    # KNOWN ISSUE: the comment says "n_features < rank", which cannot happen; it means
+    # rank < n_features. The normalization remark is outdated.
     # consistency test that checks that LARS Lasso is handling rank
     # deficient input data (with n_features < rank) in the same way
     # as coordinate descent Lasso
@@ -250,6 +319,14 @@ def test_rank_deficient_design():
 
 
 def test_lasso_lars_vs_lasso_cd():
+    # [FUNCTION DOC]
+    # Verifies LARS-Lasso and coordinate descent agree: (1) at each nonzero alpha of the
+    # lars_path on 3*X, Lasso without intercept matches the path column (error < 0.01);
+    # (2) LassoLars and Lasso estimators agree (< 1e-3) on 20 alphas in [0.01, 0.99];
+    # (3) repeat (1) on "normalized" data.
+    # KNOWN ISSUE: the normalization subtracts the column sum rather than the column
+    #   mean,
+    # so the data is not centered (only shifted and then scaled to unit norm).
     # Test that LassoLars and Lasso using coordinate descent give the
     # same results.
     X = 3 * diabetes.data
@@ -287,6 +364,12 @@ def test_lasso_lars_vs_lasso_cd():
 
 
 def test_lasso_lars_vs_lasso_cd_early_stopping():
+    # [FUNCTION DOC]
+    # Verifies that with alpha_min early stopping (10, 0.9, 1e-4) the last lars_path
+    # coefficients match Lasso fitted at the last reached alpha, on raw data (no
+    # intercept) and on "normalized" data (Lasso with intercept).
+    # KNOWN ISSUE: as in test_lasso_lars_vs_lasso_cd, normalization subtracts the column
+    # sum rather than the mean.
     # Test that LassoLars and Lasso using coordinate descent give the
     # same results when early stopping is used.
     # (test : before, in the middle, and in the last part of the path)
@@ -320,6 +403,9 @@ def test_lasso_lars_vs_lasso_cd_early_stopping():
 
 
 def test_lasso_lars_path_length():
+    # [FUNCTION DOC]
+    # Verifies a LassoLars fit with alpha set to alphas_[2] of a default fit stops after
+    # the first three alphas of that path, and that alphas_ is strictly decreasing.
     # Test that the path length of the LassoLars is right
     lasso = linear_model.LassoLars()
     lasso.fit(X, y)
@@ -331,6 +417,11 @@ def test_lasso_lars_path_length():
 
 
 def test_lasso_lars_vs_lasso_cd_ill_conditioned():
+    # [FUNCTION DOC]
+    # Verifies on a 70x100 Gaussian design with a 5-sparse true weight vector plus
+    #   uniform
+    # noise that lars_path(lasso) coefficients match lasso_path evaluated at the same
+    # alphas to 1 decimal.
     # Test lasso lars on a very ill-conditioned design, and check that
     # it does not blow up, and stays somewhat close to a solution given
     # by the coordinate descent solver
@@ -360,6 +451,12 @@ def test_lasso_lars_vs_lasso_cd_ill_conditioned():
 
 
 def test_lasso_lars_vs_lasso_cd_ill_conditioned2():
+    # [FUNCTION DOC]
+    # Verifies that on a very ill-conditioned 3x3 design (entries 1e20 and -1e-32)
+    #   LassoLars
+    # emits ConvergenceWarning "Regressors in active set degenerate." and still reaches
+    #   an
+    # objective no worse than coordinate descent Lasso.
     # Create an ill-conditioned situation in which the LARS has to go
     # far in the path to converge, and check that LARS and coordinate
     # descent give the same answers
@@ -371,6 +468,10 @@ def test_lasso_lars_vs_lasso_cd_ill_conditioned2():
     alpha = 0.0001
 
     def objective_function(coef):
+        # [FUNCTION DOC]
+        # HELPER: Lasso objective for the enclosing X, y, alpha: squared residual norm
+        #   divided
+        # by 2 * n_samples plus alpha times the L1 norm of coef. Outputs: float.
         return 1.0 / (2.0 * len(X)) * linalg.norm(
             y - np.dot(X, coef)
         ) ** 2 + alpha * linalg.norm(coef, 1)
@@ -390,6 +491,9 @@ def test_lasso_lars_vs_lasso_cd_ill_conditioned2():
 
 
 def test_lars_add_features():
+    # [FUNCTION DOC]
+    # Verifies Lars without intercept on a 5x5 Hilbert matrix with target 0..4 produces
+    # finite coefficients (features get added despite ill conditioning).
     # assure that at least some features get added if necessary
     # test for 6d2b4c
     # Hilbert matrix
@@ -400,6 +504,10 @@ def test_lars_add_features():
 
 
 def test_lars_n_nonzero_coefs(verbose=False):
+    # [FUNCTION DOC]
+    # Verifies Lars(n_nonzero_coefs=6) yields exactly 6 nonzero coefficients and 7
+    #   alphas.
+    # Inputs: verbose - bool, default False (not a fixture), forwarded to Lars.
     lars = linear_model.Lars(n_nonzero_coefs=6, verbose=verbose)
     lars.fit(X, y)
     assert len(lars.coef_.nonzero()[0]) == 6
@@ -409,6 +517,12 @@ def test_lars_n_nonzero_coefs(verbose=False):
 
 
 def test_multitarget():
+    # [FUNCTION DOC]
+    # Verifies estimators fit on a 2-column Y (y and y squared) give, per target, the
+    #   same
+    # alphas_, active_, coef_, coef_path_ and predictions as separate single-target
+    #   fits,
+    # for Lars and LassoLars with and without intercept (gh-1615).
     # Assure that estimators receiving multidimensional y do the right thing
     Y = np.vstack([y, y**2]).T
     n_targets = Y.shape[1]
@@ -440,6 +554,13 @@ def test_multitarget():
 
 
 def test_lars_cv():
+    # [FUNCTION DOC]
+    # Verifies LassoLarsCV selected alpha_ strictly increases as the training set
+    #   shrinks
+    # from 400 to 200 to 100 diabetes samples, and that no n_nonzero_coefs attribute
+    # exists.
+    # KNOWN ISSUE: the comment says alpha increases with the number of samples, but the
+    # loop goes over decreasing lengths, so the assertion checks the opposite.
     # Test the LassoLarsCV object by checking that the optimal alpha
     # increases as the number of samples increases.
     # This property is not actually guaranteed in general and is just a
@@ -456,6 +577,11 @@ def test_lars_cv():
 
 
 def test_lars_cv_max_iter(recwarn):
+    # [FUNCTION DOC]
+    # Verifies LassoLarsCV(max_iter=5) on standardized diabetes data with two identical
+    # random extra columns emits no warnings at all (warnings recorded via recwarn with
+    # filter "always") and no numpy divide/invalid errors (errstate raise).
+    # Side effects: sets the global warnings filter to "always" (reset by pytest).
     warnings.simplefilter("always")
     with np.errstate(divide="raise", invalid="raise"):
         X = diabetes.data
@@ -477,6 +603,9 @@ def test_lars_cv_max_iter(recwarn):
 
 
 def test_lasso_lars_ic():
+    # [FUNCTION DOC]
+    # Verifies LassoLarsIC with 5 random noise features added: BIC picks a larger alpha_
+    # and fewer nonzero coefficients than AIC, and BIC selects only original features.
     # Test the LassoLarsIC object by checking that
     # - some good features are selected.
     # - alpha_bic > alpha_aic
@@ -497,6 +626,9 @@ def test_lasso_lars_ic():
 
 
 def test_lars_path_readonly_data():
+    # [FUNCTION DOC]
+    # Verifies _lars_path_residues with copy=False does not fail on read-only memmapped
+    # train/test splits (issue #4597).
     # When using automated memory mapping on large input, the
     # fold data is in read-only mode
     # This is a non-regression test for:
@@ -508,6 +640,12 @@ def test_lars_path_readonly_data():
 
 
 def test_lars_path_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies positive=True with method "lar" raises ValueError, and that for "lasso"
+    #   the
+    # unconstrained path contains negative coefficients while the constrained path is
+    #   all
+    # nonnegative.
     # this is the main test for the positive parameter on the lars_path method
     # the estimator classes just make use of this function
 
@@ -547,6 +685,11 @@ estimator_parameter_map = {
 
 
 def test_estimatorclasses_positive_constraint():
+    # [FUNCTION DOC]
+    # Verifies the positive option is forwarded by LassoLars(alpha=0.1), LassoLarsCV and
+    # LassoLarsIC (no intercept): positive=False gives some negative coef_,
+    #   positive=True
+    # gives all nonnegative coef_.
     # testing the transmissibility for the positive option of all estimator
     # classes in this same function here
     default_parameter = {"fit_intercept": False}
@@ -568,6 +711,14 @@ def test_estimatorclasses_positive_constraint():
 
 
 def test_lasso_lars_vs_lasso_cd_positive():
+    # [FUNCTION DOC]
+    # Positive-constrained version of test_lasso_lars_vs_lasso_cd: path versus Lasso at
+    #   each
+    # nonzero alpha on 3*X; estimators compared on alphas restricted to [0.6, 0.99]
+    # because LARS-Lasso with positivity stops before the least-squares end; then the
+    #   path
+    # on "normalized" data excluding the final alpha=0.
+    # KNOWN ISSUE: normalization subtracts the column sum rather than the mean.
     # Test that LassoLars and Lasso using coordinate descent give the
     # same results when using the positive option
 
@@ -620,6 +771,9 @@ def test_lasso_lars_vs_lasso_cd_positive():
 
 
 def test_lasso_lars_vs_R_implementation():
+    # [FUNCTION DOC]
+    # Verifies LassoLars(alpha=0, no intercept) coef_path_ equals the path from R's lars
+    # package (hardcoded matrix r) to 12 decimals on the 5x5 data of bug report 7778.
     # Test that sklearn LassoLars implementation agrees with the LassoLars
     # implementation available in R (lars library) when fit_intercept=False.
 
@@ -708,6 +862,10 @@ def test_lasso_lars_vs_R_implementation():
 
 @pytest.mark.parametrize("copy_X", [True, False])
 def test_lasso_lars_copyX_behaviour(copy_X):
+    # [FUNCTION DOC]
+    # Verifies the copy_X constructor parameter of LassoLarsIC is honoured: X is
+    #   unchanged
+    # after fit if and only if copy_X is True.
     """
     Test that user input regarding copy_X is not being overridden (it was until
     at least version 0.21)
@@ -724,6 +882,9 @@ def test_lasso_lars_copyX_behaviour(copy_X):
 
 @pytest.mark.parametrize("copy_X", [True, False])
 def test_lasso_lars_fit_copyX_behaviour(copy_X):
+    # [FUNCTION DOC]
+    # Verifies copy_X passed to LassoLarsIC.fit overrides the constructor default: X is
+    # unchanged if and only if copy_X is True.
     """
     Test that user input to .fit for copy_X overrides default __init__ value
 
@@ -739,6 +900,11 @@ def test_lasso_lars_fit_copyX_behaviour(copy_X):
 
 @pytest.mark.parametrize("est", (LassoLars(alpha=1e-3), Lars()))
 def test_lars_with_jitter(est):
+    # [FUNCTION DOC]
+    # Verifies jitter improves stability (issue #2746): on a 2x5 design with constant
+    # target and no intercept, the jittered fit (jitter=1e-7, random_state=0) differs
+    # substantially from the plain fit and recovers coef [0, 2.5, 0, 2.5, 0] (rtol
+    #   1e-3).
     est = clone(est)  # Avoid side effects from previous tests.
     # Test that a small amount of jitter helps stability,
     # using example provided in issue #2746
@@ -760,11 +926,15 @@ def test_lars_with_jitter(est):
 
 
 def test_X_none_gram_not_none():
+    # [FUNCTION DOC]
+    # Verifies lars_path raises ValueError when X is None but Gram is given.
     with pytest.raises(ValueError, match="X cannot be None if Gram is not None"):
         lars_path(X=None, y=np.array([1]), Gram=True)
 
 
 def test_copy_X_with_auto_gram():
+    # [FUNCTION DOC]
+    # Verifies lars_path with Gram="auto" and copy_X=True leaves X unchanged (#17789).
     # Non-regression test for #17789, `copy_X=True` and Gram='auto' does not
     # overwrite X
     rng = np.random.RandomState(42)
@@ -790,6 +960,9 @@ def test_copy_X_with_auto_gram():
 )
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 def test_lars_dtype_match(LARS, has_coef_path, args, dtype):
+    # [FUNCTION DOC]
+    # Verifies fit preserves float32/float64: coef_, coef_path_ (when the estimator has
+    # one) and intercept_ have the input dtype.
     # The test ensures that the fit method preserves input dtype
     rng = np.random.RandomState(0)
     X = rng.rand(20, 6).astype(dtype)
@@ -815,6 +988,10 @@ def test_lars_dtype_match(LARS, has_coef_path, args, dtype):
     ),
 )
 def test_lars_numeric_consistency(LARS, has_coef_path, args):
+    # [FUNCTION DOC]
+    # Verifies coef_, coef_path_ (if present) and intercept_ fitted on float32 and
+    #   float64
+    # versions of the same random data agree to rtol and atol 1e-5.
     # The test ensures numerical consistency between trained coefficients
     # of float32 and float64.
     rtol = 1e-5
@@ -835,6 +1012,9 @@ def test_lars_numeric_consistency(LARS, has_coef_path, args):
 
 @pytest.mark.parametrize("criterion", ["aic", "bic"])
 def test_lassolarsic_alpha_selection(criterion):
+    # [FUNCTION DOC]
+    # Verifies AIC/BIC computation by reproducing Fig. 2 of Zou et al.: on standardized
+    # diabetes data the argmin of criterion_ is at step index 7.
     """Check that we properly compute the AIC and BIC score.
 
     In this test, we reproduce the example of the Fig. 2 of Zou et al.
@@ -850,6 +1030,11 @@ def test_lassolarsic_alpha_selection(criterion):
 
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_lassolarsic_noise_variance(fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies LassoLarsIC raises ValueError when n_samples is not larger than the
+    #   number of
+    # degrees of freedom and noise_variance is not provided, and that fitting succeeds
+    # once noise_variance=1.0 is set.
     """Check the behaviour when `n_samples` < `n_features` and that one needs
     to provide the noise variance."""
     rng = np.random.RandomState(0)

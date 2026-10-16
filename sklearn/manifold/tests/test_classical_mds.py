@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.manifold.ClassicalMDS (classical / Torgerson multidimensional
+#   scaling). Checks equivalence with PCA for Euclidean input, equivalence between raw
+#   data and precomputed distances, input validation for precomputed dissimilarities,
+#   and the forwarding of metric_params to the distance computation. Uses the iris
+#   dataset.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -9,6 +15,11 @@ from sklearn.metrics import euclidean_distances
 
 
 def test_classical_mds_equivalent_to_pca():
+    # [FUNCTION DOC]
+    # Verifies that 2-component classical MDS with the Euclidean metric gives the same
+    #   embedding as 2-component PCA on iris, after aligning the sign of each PCA
+    #   component to the MDS component using the first sample, and that the square roots
+    #   of eigenvalues_ equal PCA's singular_values_.
     X, _ = load_iris(return_X_y=True)
 
     cmds = ClassicalMDS(n_components=2, metric="euclidean")
@@ -28,6 +39,10 @@ def test_classical_mds_equivalent_to_pca():
 
 
 def test_classical_mds_equivalent_on_data_and_distances():
+    # [FUNCTION DOC]
+    # Verifies that fitting on raw iris data with metric "euclidean" yields the same
+    #   embedding as fitting with metric "precomputed" on the Euclidean distance matrix
+    #   of the same data.
     X, _ = load_iris(return_X_y=True)
 
     cmds = ClassicalMDS(n_components=2, metric="euclidean")
@@ -40,6 +55,10 @@ def test_classical_mds_equivalent_on_data_and_distances():
 
 
 def test_classical_mds_wrong_inputs():
+    # [FUNCTION DOC]
+    # Verifies that metric "precomputed" rejects a non-symmetric 3x3 matrix (ValueError
+    #   "Array must be symmetric") and a non-square 2x3 matrix (ValueError "array must
+    #   be 2-dimensional and square").
     # Non-symmetric input
     dissim = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]])
     with pytest.raises(ValueError, match="Array must be symmetric"):
@@ -52,6 +71,9 @@ def test_classical_mds_wrong_inputs():
 
 
 def test_classical_mds_metric_params():
+    # [FUNCTION DOC]
+    # Verifies that metric_params is used: minkowski with p=2 matches the euclidean
+    #   embedding, while minkowski with p=1 (Manhattan) gives a different embedding.
     X, _ = load_iris(return_X_y=True)
 
     cmds = ClassicalMDS(n_components=2, metric="euclidean")

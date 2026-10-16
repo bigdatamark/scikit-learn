@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Implements the Isomap estimator: builds a neighbors graph, computes geodesic
+# (shortest-path) distances on it and embeds them with kernel PCA.
 """Isomap for manifold learning"""
 
 # Authors: The scikit-learn developers
@@ -27,6 +30,11 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Isomap transformer. Fitting builds nbrs_ (NearestNeighbors), the neighbors graph,
+    # the geodesic distance matrix dist_matrix_ and a precomputed-kernel KernelPCA
+    # (kernel_pca_); transform projects new points via geodesic distances through
+    # their training neighbors. Output feature names are prefixed with the class name.
     """Isomap Embedding.
 
     Non-linear dimensionality reduction through Isometric Mapping
@@ -197,6 +205,9 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         p=2,
         metric_params=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged (keyword-only). Validation happens in fit.
+        # Side effects: sets the attributes on self.
         self.n_neighbors = n_neighbors
         self.radius = radius
         self.n_components = n_components
@@ -211,6 +222,25 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         self.metric_params = metric_params
 
     def _fit_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Core fitting routine shared by fit and fit_transform.
+        # Steps: (1) reject both n_neighbors and radius being set; (2) fit a
+        # NearestNeighbors on X and copy n_features_in_ / feature_names_in_ from it;
+        # (3) create KernelPCA with kernel="precomputed" and default output container;
+        # (4) build a distance-mode kNN graph (n_neighbors) or radius graph; (5) if the
+        # graph has more than one connected component: raise for sparse precomputed input,
+        # otherwise warn and connect the components with _fix_connected_components using
+        # the effective metric; (6) cast graph indices to int32 and compute all-pairs
+        # undirected shortest paths with path_method into dist_matrix_ (cast to float32 when
+        # the fitted data is float32); (7) form G = -0.5 * dist_matrix_ squared and set
+        # embedding_ to kernel_pca_.fit_transform(G).
+        # Inputs: X - array, sparse matrix, tree or precomputed distances.
+        # Outputs: None.
+        # Exceptions: ValueError if n_neighbors and radius are both not None;
+        # RuntimeError for a disconnected sparse precomputed graph.
+        # Side effects: sets nbrs_, n_features_in_, feature_names_in_, kernel_pca_,
+        # dist_matrix_, embedding_, _n_features_out; emits UserWarning on disconnected
+        # graphs. Mutates G in place (local).
         if self.n_neighbors is not None and self.radius is not None:
             raise ValueError(
                 "Both n_neighbors and radius are provided. Use"
@@ -313,6 +343,12 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         self._n_features_out = self.embedding_.shape[1]
 
     def reconstruction_error(self):
+        # [FUNCTION DOC]
+        # Computes the reconstruction error: center the kernel -0.5 * dist_matrix_
+        # squared with KernelCenterer, then return the square root of (squared Frobenius
+        # norm of the centered kernel minus the sum of squared kernel PCA eigenvalues)
+        # divided by n_samples.
+        # Outputs: float. Requires a fitted estimator (raises AttributeError otherwise).
         """Compute the reconstruction error for the embedding.
 
         Returns
@@ -342,6 +378,10 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model via _fit_transform and returns self.
+        # Inputs: X - training data (see _fit_transform); y - ignored.
+        # Outputs: self. Side effects: sets all fitted attributes.
         """Compute the embedding vectors for data X.
 
         Parameters
@@ -367,6 +407,9 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via _fit_transform and returns embedding_ (n_samples, n_components).
+        # Inputs: X; y - ignored. Side effects: sets fitted attributes.
         """Fit the model from data in X and transform X.
 
         Parameters
@@ -387,6 +430,19 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return self.embedding_
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Embeds new points. For each query find its training neighbors (kneighbors or
+        # radius_neighbors, depending on n_neighbors) with distances; the geodesic distance
+        # from query i to every training point is the minimum over its neighbors of
+        # (neighbor's dist_matrix_ row plus distance to that neighbor), computed row by row
+        # to bound memory. Square, multiply by -0.5 and project with kernel_pca_.transform.
+        # Dtype is float32 when X is float32 array, else float64.
+        # Inputs: X - (n_queries, n_features), or distances if metric is precomputed.
+        # Outputs: ndarray (n_queries, n_components).
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: docstring says neighbors_algorithm='precomputed', but the relevant
+        # setting is metric='precomputed' (neighbors_algorithm has no such option). A query
+        # with no neighbors within radius yields an infinite-min row.
         """Transform X.
 
         This is implemented by linking the points X into the graph of geodesic
@@ -438,6 +494,9 @@ class Isomap(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return self.kernel_pca_.transform(G_X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: transformer preserves float64 and float32, sparse input
+        # accepted. Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         tags.input_tags.sparse = True

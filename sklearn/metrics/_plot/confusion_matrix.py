@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines ConfusionMatrixDisplay, the matplotlib visualization of a (possibly
+# normalized) confusion matrix as a colored image with per-cell value annotations.
+# Matplotlib is imported lazily inside plot; importing this module has no side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +17,11 @@ from sklearn.utils.multiclass import unique_labels
 
 
 class ConfusionMatrixDisplay:
+    # [CLASS DOC]
+    # Stores a square confusion matrix and optional tick labels; plot draws it.
+    # Attributes set by plot: im_ (AxesImage), text_ (object ndarray of Text, or None
+    #   when
+    # values are not shown), ax_ (Axes), figure_ (Figure).
     """Confusion Matrix visualization.
 
     It is recommended to use
@@ -82,6 +91,12 @@ class ConfusionMatrixDisplay:
     """
 
     def __init__(self, confusion_matrix, *, display_labels=None):
+        # [FUNCTION DOC]
+        # Stores the inputs without validation.
+        # Inputs: confusion_matrix - ndarray (n_classes, n_classes); display_labels -
+        #   optional
+        # sequence of n_classes tick labels (None means 0..n_classes-1 at plot time).
+        # Side effects: sets self.confusion_matrix and self.display_labels.
         self.confusion_matrix = confusion_matrix
         self.display_labels = display_labels
 
@@ -97,6 +112,31 @@ class ConfusionMatrixDisplay:
         im_kw=None,
         text_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Draws the matrix with imshow (defaults interpolation='nearest', cmap=cmap,
+        #   merged
+        # with im_kw via _validate_style_kwargs). If include_values, annotates every
+        #   cell (i, j)
+        # at x=j, y=i, centered; the text color is the colormap's low end when the value
+        #   is at
+        # or above the midpoint of min and max, else the high end. Value formatting:
+        #   with
+        # values_format None, use '.2g' and, for non-float matrices, the plain integer
+        #   form if
+        # it is shorter; otherwise use values_format. text_kw is merged over the default
+        #   text
+        # kwargs. Optionally adds a colorbar, sets ticks/labels ('Predicted label' on x,
+        #   'True
+        # label' on y), inverts y limits so row 0 is at the top, and rotates x tick
+        #   labels.
+        # Inputs: include_values bool; cmap str or Colormap; xticks_rotation 'vertical',
+        # 'horizontal' or float; values_format str or None; ax Axes or None (new figure
+        # created); colorbar bool; im_kw, text_kw dicts or None.
+        # Outputs: self.
+        # Exceptions: ImportError if matplotlib is missing; errors from
+        #   _validate_style_kwargs
+        # on conflicting aliases.
+        # Side effects: draws on the axes/figure; sets im_, text_, figure_, ax_.
         """Plot visualization.
 
         Parameters
@@ -221,6 +261,17 @@ class ConfusionMatrixDisplay:
         im_kw=None,
         text_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Predicts y with the fitted classifier on X and delegates to from_predictions
+        #   with
+        # all other arguments forwarded.
+        # Inputs: estimator - fitted classifier; X - features; y - true labels;
+        #   remaining
+        # parameters as in from_predictions.
+        # Outputs: the ConfusionMatrixDisplay returned by from_predictions.
+        # Exceptions: ImportError without matplotlib; ValueError if estimator is not a
+        # classifier.
+        # Side effects: calls estimator.predict; plots.
         """Plot Confusion Matrix given an estimator and some data.
 
         For general information regarding `scikit-learn` visualization tools, see
@@ -369,6 +420,17 @@ class ConfusionMatrixDisplay:
         im_kw=None,
         text_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Computes the confusion matrix with sklearn.metrics.confusion_matrix (labels,
+        # sample_weight, normalize in {None,'true','pred','all'}) and plots it. When
+        # display_labels is None it uses labels if given, else unique_labels(y_true,
+        #   y_pred).
+        # Inputs: y_true, y_pred - array-like (n_samples,); remaining plot parameters
+        #   are
+        # forwarded to plot.
+        # Outputs: the plotted display instance.
+        # Exceptions: ImportError without matplotlib; errors from confusion_matrix.
+        # Side effects: creates/draws on a figure.
         """Plot Confusion Matrix given true and predicted labels.
 
         For general information regarding `scikit-learn` visualization tools, see

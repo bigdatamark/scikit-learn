@@ -1,3 +1,10 @@
+# [PACKAGE DOC]
+# Public entry point of sklearn.manifold (non-linear dimensionality reduction).
+# Re-exports the estimators ClassicalMDS, Isomap, LocallyLinearEmbedding, MDS,
+# SpectralEmbedding and TSNE, and the functions locally_linear_embedding, smacof,
+# spectral_embedding and trustworthiness, all listed in __all__.
+# Import-time side effects: imports every private submodule (and transitively
+# scipy, sklearn.neighbors, sklearn.decomposition, ...); nothing else.
 """Data embedding techniques."""
 
 # Authors: The scikit-learn developers

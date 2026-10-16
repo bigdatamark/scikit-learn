@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# SGD-based linear models: SGDClassifier (one-vs-all for multiclass), SGDRegressor
+# and SGDOneClassSVM, built on the shared BaseSGD logic and the Cython
+# _plain_sgd32/_plain_sgd64 kernels from _sgd_fast.
+# Module constants: LEARNING_RATE_TYPES and PENALTY_TYPES map option strings to the
+# integer codes the kernel expects; DEFAULT_EPSILON is the default epsilon for
+# epsilon-based losses; MAX_INT is the int32 maximum used to draw kernel seeds.
+# Also contains the early-stopping validation callback and the module-level
+# fit_binary used (possibly in parallel) for each one-vs-all problem.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -66,9 +75,17 @@ MAX_INT = np.iinfo(np.int32).max
 
 
 class _ValidationScoreCallback:
+    # [CLASS DOC]
+    # HELPER: Callable passed to the SGD kernel for early stopping. Holds a clone of the
+    # estimator and a held-out validation set, and scores candidate parameters on it.
     """Callback for early stopping based on validation score"""
 
     def __init__(self, estimator, X_val, y_val, sample_weight_val, classes=None):
+        # [FUNCTION DOC]
+        # HELPER: Clones estimator (unfitted copy), sets its t_ to 1 so check_is_fitted
+        # passes, sets classes_ if given, and stores X_val, y_val, sample_weight_val.
+        # Inputs: estimator - SGD estimator; X_val, y_val, sample_weight_val - validation
+        # arrays; classes - optional array of class labels (binary case uses [-1, 1]).
         self.estimator = clone(estimator)
         self.estimator.t_ = 1  # to pass check_is_fitted
         if classes is not None:
@@ -78,6 +95,13 @@ class _ValidationScoreCallback:
         self.sample_weight_val = sample_weight_val
 
     def __call__(self, coef, intercept):
+        # [FUNCTION DOC]
+        # HELPER: Sets coef_ to coef reshaped to one row and intercept_ to a 1D array on
+        # the cloned estimator, and returns its score (accuracy or R^2) on the validation
+        # set with the validation sample weights.
+        # Inputs: coef - 1D coefficient array; intercept - scalar.
+        # Outputs: float score.
+        # Side effects: overwrites coef_ and intercept_ of the internal clone.
         est = self.estimator
         est.coef_ = coef.reshape(1, -1)
         est.intercept_ = np.atleast_1d(intercept)
@@ -85,6 +109,12 @@ class _ValidationScoreCallback:
 
 
 class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for all SGD estimators. Stores hyperparameters, validates
+    # cross-parameter constraints, maps loss/penalty/learning-rate strings to kernel
+    # objects/codes, allocates coefficient (and averaging) buffers and builds the
+    # early-stopping validation split and callback. Subclasses define loss_functions
+    # (name -> (loss class, *default args)) and fit.
     """Base class for SGD classification and regression."""
 
     _parameter_constraints: dict = {
@@ -122,6 +152,9 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Stores every hyperparameter unchanged as an attribute of the same name.
+        # Inputs: see subclass docstrings.
         self.loss = loss
         self.penalty = penalty
         self.learning_rate = learning_rate
@@ -144,9 +177,23 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Abstract fit; subclasses implement it. Body is only the docstring.
         """Fit model."""
 
     def _more_validate_params(self, for_partial_fit=False):
+        # [FUNCTION DOC]
+        # HELPER: Validates parameter combinations not covered by _parameter_constraints.
+        # Inputs: for_partial_fit - bool, default False.
+        # Exceptions: ValueError if early_stopping is used with partial_fit; if
+        # learning_rate is 'optimal' with alpha 0; if learning_rate is 'pa1'/'pa2' and the
+        # loss is not 'hinge' (classifiers) or 'epsilon_insensitive' (other estimators);
+        # if penalty is 'elasticnet' with l1_ratio None; KeyError if penalty or
+        # learning_rate is not in the lookup tables.
+        # KNOWN ISSUE: the trailing comment says unregistered values raise ValueError, but
+        # the dictionary lookups raise KeyError (normally pre-empted by param validation).
+        # For SGDOneClassSVM (not a classifier, loss 'hinge') pa1/pa2 always fail with a
+        # message about 'epsilon_insensitive', which is not a valid loss for it.
         """Validate input params."""
         if self.early_stopping and for_partial_fit:
             raise ValueError("early_stopping should be False with partial_fit")
@@ -179,6 +226,8 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
         self._get_learning_rate_type(self.learning_rate)
 
     def _get_l1_ratio(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns l1_ratio, or 0.0 when it is None (unused unless elasticnet).
         if self.l1_ratio is None:
             # plain_sgd expects a float. Any value is fine since at this point
             # penalty can't be "elsaticnet" so l1_ratio is not used.
@@ -186,6 +235,11 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
         return self.l1_ratio
 
     def _get_loss_function(self, loss):
+        # [FUNCTION DOC]
+        # HELPER: Instantiates the kernel loss object for the loss name using the class's
+        # loss_functions table; for 'huber', 'epsilon_insensitive' and
+        # 'squared_epsilon_insensitive' the default argument is replaced by self.epsilon.
+        # Inputs: loss - string key. Outputs: loss object. Exceptions: KeyError if unknown.
         """Get concrete ``LossFunction`` object for str ``loss``."""
         loss_ = self.loss_functions[loss]
         loss_class, args = loss_[0], loss_[1:]
@@ -194,9 +248,14 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
         return loss_class(*args)
 
     def _get_learning_rate_type(self, learning_rate):
+        # [FUNCTION DOC]
+        # HELPER: Maps a learning-rate name to its integer kernel code (KeyError if unknown).
         return LEARNING_RATE_TYPES[learning_rate]
 
     def _get_penalty_type(self, penalty):
+        # [FUNCTION DOC]
+        # HELPER: Maps a penalty to its integer code after string conversion and lowering,
+        # so None maps to 'none' (code 0). KeyError if unknown.
         penalty = str(penalty).lower()
         return PENALTY_TYPES[penalty]
 
@@ -209,6 +268,19 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
         intercept_init=None,
         one_class=0,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Creates coef_ and intercept_ (or offset_ for one-class) buffers in the
+        # input dtype, C order, from the provided initial values or zeros.
+        # For n_classes > 2: coef_ is (n_classes, n_features), intercept_ is (n_classes,).
+        # Otherwise: coef_ is flattened to (n_features,), intercept is shape (1,) and is
+        # stored in offset_ when one_class is truthy, else in intercept_.
+        # When average > 0, also sets _standard_coef (same object as coef_),
+        # _average_coef zeros, _standard_intercept (intercept_, or 1 - offset_ for
+        # one-class) and _average_intercept zeros.
+        # Inputs: n_classes, n_features - ints; input_dtype - numpy dtype; coef_init,
+        # intercept_init - optional array-likes; one_class - 0/1 flag.
+        # Exceptions: ValueError when provided initial values have the wrong shape.
+        # Side effects: sets the attributes above.
         """Allocate mem for parameters; initialize if provided."""
         if n_classes > 2:
             # allocate coef_ for multi-class
@@ -278,6 +350,15 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
             )
 
     def _make_validation_split(self, y, sample_mask):
+        # [FUNCTION DOC]
+        # HELPER: Returns a boolean mask (n_samples,) marking validation samples. All False
+        # when early_stopping is off. Otherwise draws one split with StratifiedShuffleSplit
+        # (classifiers) or ShuffleSplit using validation_fraction and random_state.
+        # Inputs: y - target array; sample_mask - boolean array, True for positive weight.
+        # Exceptions: ValueError if every validation sample has zero weight, or if either
+        # side of the split is empty.
+        # KNOWN ISSUE: the zero-weight check runs first, so an empty validation set raises
+        # the misleading zero-weight error instead of the empty-set error.
         """Split the dataset between training set and validation set.
 
         Parameters
@@ -335,6 +416,9 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
     def _make_validation_score_cb(
         self, validation_mask, X, y, sample_weight, classes=None
     ):
+        # [FUNCTION DOC]
+        # HELPER: Returns None when early_stopping is off, else a _ValidationScoreCallback
+        # built from the masked rows of X, y and sample_weight (and optional classes).
         if not self.early_stopping:
             return None
 
@@ -348,6 +432,18 @@ class BaseSGD(SparseCoefMixin, BaseEstimator, metaclass=ABCMeta):
 
 
 def _prepare_fit_binary(est, y, i, input_dtype, label_encode=True):
+    # [FUNCTION DOC]
+    # HELPER: Builds the binary target and selects parameter views for class index i.
+    # Target is 1 for samples of class classes_[i], else 0 (label_encode, for log loss)
+    # or -1. For two classes it uses the flattened single-row parameters; otherwise
+    # row i. With averaging, coef/intercept come from the _standard_* buffers and the
+    # _average_* values are also returned.
+    # Inputs: est - classifier with classes_ and allocated parameters; y - labels;
+    # i - class index; input_dtype - dtype for the target; label_encode - bool.
+    # Outputs: (y_i, coef, intercept, average_coef, average_intercept); coef and
+    # average_coef are views into the estimator arrays (updated in place later);
+    # intercepts are scalars; average_coef is None and average_intercept 0 when not
+    # averaging.
     """Initialization for fit_binary.
 
     Returns y, coef, intercept, average_coef, average_intercept.
@@ -398,6 +494,22 @@ def fit_binary(
     validation_mask=None,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Trains one binary (one-vs-rest) problem for class i with the SGD kernel.
+    # Encodes the target via _prepare_fit_binary (0/1 for log loss, else -1/+1),
+    # builds a shuffled SequentialDataset, computes the validation split from y_i if
+    # none was given and an early-stopping callback (classes -1/+1), draws an int32
+    # seed from random_state, uses tol = -inf when tol is None, and calls the
+    # dtype-matched _plain_sgd with class weights pos_weight/neg_weight, starting
+    # from est.t_.
+    # Inputs: est - BaseSGDClassifier; i - class index; X, y - training data;
+    # alpha - float; learning_rate - string; max_iter - int; pos_weight, neg_weight -
+    # floats; sample_weight - array (n_samples,); validation_mask - optional bool
+    # array; random_state - seed or RandomState.
+    # Outputs: (coef, intercept, n_iter_) as returned by the kernel.
+    # Side effects: the kernel updates est coefficient arrays in place (via views);
+    # with averaging, stores the averaged intercept into est._average_intercept.
+    # Raises AssertionError if y and sample_weight lengths disagree.
     """Fit a single binary classifier.
 
     The i'th class is considered the "positive" class.
@@ -516,10 +628,17 @@ def fit_binary(
 
 
 def _get_plain_sgd_function(input_dtype):
+    # [FUNCTION DOC]
+    # HELPER: Returns _plain_sgd32 for float32 input dtype, else _plain_sgd64.
     return _plain_sgd32 if input_dtype == np.float32 else _plain_sgd64
 
 
 class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for SGD linear classifiers. Adds classification losses, class
+    # weights, n_jobs, and the one-vs-all training scheme on top of BaseSGD.
+    # Fitted attributes: classes_, coef_, intercept_, n_iter_, t_,
+    # _expanded_class_weight, _loss_function_ (plus averaging buffers).
     loss_functions = {
         "hinge": (Hinge, 1.0),
         "squared_hinge": (SquaredHinge, 1.0),
@@ -568,6 +687,8 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards common hyperparameters to BaseSGD and stores class_weight and n_jobs.
         super().__init__(
             loss=loss,
             penalty=penalty,
@@ -605,6 +726,20 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
         coef_init,
         intercept_init,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Core training routine shared by fit and partial_fit. Validates X (CSR or
+        # dense, float32/64, C order), resetting feature checks on first call (no
+        # classes_); sets classes_ on first call from classes; computes per-class weights;
+        # validates sample weights (all-zero allowed when early_stopping); allocates
+        # parameters if none exist or coef_init is given, else checks feature count;
+        # builds the loss object, initializes t_ to 1 if missing, then dispatches to
+        # _fit_multiclass (> 2 classes) or _fit_binary (2 classes).
+        # Inputs: X, y; alpha; loss; learning_rate; max_iter; classes; sample_weight;
+        # coef_init, intercept_init.
+        # Outputs: self.
+        # Exceptions: ValueError for one class, feature mismatch, bad init shapes, or
+        # invalid classes on partial_fit.
+        # Side effects: sets the fitted attributes listed on the class.
         first_call = not hasattr(self, "classes_")
         X, y = validate_data(
             self,
@@ -693,6 +828,14 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
         intercept_init=None,
         sample_weight=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Full fit. Deletes classes_ so the run is treated as a first call, finds
+        # the sorted unique labels, reuses existing coef_/intercept_ as initial values when
+        # warm_start (unless explicit init is given) or resets them to None, resets the
+        # averaging buffers, sets t_ to 1 and runs _partial_fit with max_iter.
+        # Outputs: self.
+        # Side effects: ConvergenceWarning when tol is set and n_iter_ reaches max_iter;
+        # FutureWarning when power_t is negative.
         if hasattr(self, "classes_"):
             # delete the attribute otherwise _partial_fit thinks it's not the first call
             delattr(self, "classes_")
@@ -758,6 +901,13 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
         return self
 
     def _fit_binary(self, X, y, alpha, sample_weight, learning_rate, max_iter):
+        # [FUNCTION DOC]
+        # HELPER: Trains the 2-class case via fit_binary with class index 1 as positive,
+        # using class weight of class 1 as positive weight and class 0 as negative.
+        # Increments t_ by n_iter_ times n_samples and stores n_iter_. Sets coef_ to a
+        # (1, n_features) array and intercept_ to shape (1,): averaged values once at least
+        # average updates have happened (average <= t_ - 1), otherwise the standard ones.
+        # Side effects: sets coef_, intercept_, t_, n_iter_, maybe _standard_intercept.
         """Fit a binary classifier on X and y."""
         coef, intercept, n_iter_ = fit_binary(
             self,
@@ -791,6 +941,17 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
             self.intercept_ = np.atleast_1d(intercept)
 
     def _fit_multiclass(self, X, y, alpha, learning_rate, sample_weight, max_iter):
+        # [FUNCTION DOC]
+        # HELPER: One-vs-all training. Computes one stratified validation split from the
+        # multiclass labels, draws one seed per class from random_state, and runs
+        # fit_binary for every class in parallel with shared memory (positive weight is the
+        # class weight, negative weight 1.0). Coefficient rows are updated in place by the
+        # kernels; intercepts are written into intercept_; n_iter_ is the maximum over
+        # classes and t_ grows by n_iter_ times n_samples. With averaging, coef_ and
+        # intercept_ point to the averaged buffers once average <= t_ - 1.
+        # Side effects: sets intercept_, coef_, t_, n_iter_, maybe _standard_intercept.
+        # KNOWN ISSUE: in the non-averaged path the returned coefficients are discarded and
+        # correctness relies on the kernel mutating the coef_ row views in place.
         """Fit a multi-class classifier by combining binary classifiers
 
         Each binary classifier predicts one class versus all others. This
@@ -846,6 +1007,12 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, classes=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Runs a single epoch (max_iter 1) of SGD on the batch. On the first call
+        # (no classes_) it validates parameter combinations for partial_fit and rejects
+        # class_weight 'balanced'. Coefficient init is never passed.
+        # Inputs: X, y; classes - required on first call; sample_weight - optional.
+        # Outputs: self. Exceptions: ValueError as described.
         """Perform one epoch of stochastic gradient descent on given samples.
 
         Internally, this method uses ``max_iter = 1``. Therefore, it is not
@@ -909,6 +1076,10 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, coef_init=None, intercept_init=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates parameter combinations and runs _fit with the estimator's alpha, loss
+        # and learning_rate plus optional coef_init, intercept_init and sample_weight.
+        # Outputs: self.
         """Fit linear model with Stochastic Gradient Descent.
 
         Parameters
@@ -950,12 +1121,18 @@ class BaseSGDClassifier(LinearClassifierMixin, BaseSGD, metaclass=ABCMeta):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares support for sparse input on top of the inherited tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class SGDClassifier(BaseSGDClassifier):
+    # [CLASS DOC]
+    # Public SGD linear classifier. Restricts penalty, alpha, l1_ratio, power_t,
+    # epsilon and learning_rate options, and adds probability estimates for
+    # 'log_loss' and 'modified_huber'.
     """Linear classifiers (SVM, logistic regression, etc.) with SGD training.
 
     This estimator implements regularized linear models with stochastic
@@ -1289,6 +1466,8 @@ class SGDClassifier(BaseSGDClassifier):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseSGDClassifier unchanged.
         super().__init__(
             loss=loss,
             penalty=penalty,
@@ -1314,6 +1493,10 @@ class SGDClassifier(BaseSGDClassifier):
         )
 
     def _check_proba(self):
+        # [FUNCTION DOC]
+        # HELPER: Availability check for predict_proba and predict_log_proba.
+        # Returns True for loss 'log_loss' or 'modified_huber'; raises AttributeError
+        # otherwise (making the methods appear absent).
         if self.loss not in ("log_loss", "modified_huber"):
             raise AttributeError(
                 "probability estimates are not available for loss=%r" % self.loss
@@ -1322,6 +1505,17 @@ class SGDClassifier(BaseSGDClassifier):
 
     @available_if(_check_proba)
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns class probabilities, shape (n_samples, n_classes).
+        # For log_loss: delegates to _predict_proba_lr (logistic of the decision function,
+        # one-vs-rest normalized). For modified_huber: clip decision scores to [-1, 1],
+        # add 1 and halve. Binary: the result is the positive-class column and the negative
+        # column is 1 minus it. Multiclass: rows are normalized to sum 1, and rows that are
+        # all zero become uniform.
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: the NotImplementedError branch is unreachable because availability
+        # is already restricted by _check_proba. In the multiclass case the clip writes
+        # into the scores array in place (harmless since it is a fresh array).
         """Probability estimates.
 
         This method is only available for log loss and modified Huber loss.
@@ -1403,6 +1597,8 @@ class SGDClassifier(BaseSGDClassifier):
 
     @available_if(_check_proba)
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the natural logarithm of predict_proba (may contain -inf for zeros).
         """Log of probability estimates.
 
         This method is only available for log loss and modified Huber loss.
@@ -1428,6 +1624,10 @@ class SGDClassifier(BaseSGDClassifier):
 
 
 class BaseSGDRegressor(RegressorMixin, BaseSGD):
+    # [CLASS DOC]
+    # Abstract base for SGD linear regression: regression losses, single-output
+    # training via _fit_regressor, prediction as a linear function.
+    # Fitted attributes: coef_ (n_features,), intercept_ (1,), n_iter_, t_.
     loss_functions = {
         "squared_error": (CyHalfSquaredError,),
         "huber": (CyHuberLoss, DEFAULT_EPSILON),
@@ -1467,6 +1667,8 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseSGD unchanged.
         super().__init__(
             loss=loss,
             penalty=penalty,
@@ -1501,6 +1703,15 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         coef_init,
         intercept_init,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Shared training routine. Validates X (CSR or dense, float32/64, C order)
+        # and y, casts y to X dtype, validates sample weights, allocates parameters on the
+        # first call (coef_ None), creates averaging buffers if needed, then calls
+        # _fit_regressor.
+        # Outputs: self.
+        # Exceptions: ValueError from validation or bad initial shapes.
+        # KNOWN ISSUE: coef_init and intercept_init are ignored when coef_ already exists
+        # (only used on a first call).
         first_call = getattr(self, "coef_", None) is None
         X, y = validate_data(
             self,
@@ -1538,6 +1749,9 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Runs one SGD epoch (max_iter 1) on the batch; validates parameter combinations on
+        # the first call. Inputs: X, y, optional sample_weight. Outputs: self.
         """Perform one epoch of stochastic gradient descent on given samples.
 
         Internally, this method uses ``max_iter = 1``. Therefore, it is not
@@ -1588,6 +1802,12 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         intercept_init=None,
         sample_weight=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Full fit. Uses existing coef_/intercept_ as init when warm_start, else
+        # resets them to None (forcing reallocation); resets t_ to 1 and runs _partial_fit
+        # with max_iter.
+        # Outputs: self. Side effects: ConvergenceWarning if max_iter reached with tol
+        # set; FutureWarning for negative power_t.
         if self.warm_start and getattr(self, "coef_", None) is not None:
             if coef_init is None:
                 coef_init = self.coef_
@@ -1638,6 +1858,9 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, coef_init=None, intercept_init=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates parameter combinations and calls _fit with the estimator settings
+        # plus optional coef_init, intercept_init, sample_weight. Outputs: self.
         """Fit linear model with Stochastic Gradient Descent.
 
         Parameters
@@ -1676,6 +1899,9 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         )
 
     def _decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X (no reset), returns X times coef_ plus
+        # intercept_ as a flat array of shape (n_samples,).
         """Predict using the linear model
 
         Parameters
@@ -1695,6 +1921,8 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         return scores.ravel()
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns the linear predictions from _decision_function, shape (n_samples,).
         """Predict using the linear model.
 
         Parameters
@@ -1710,6 +1938,17 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
         return self._decision_function(X)
 
     def _fit_regressor(self, X, y, alpha, loss, learning_rate, sample_weight, max_iter):
+        # [FUNCTION DOC]
+        # HELPER: Runs the SGD kernel for regression. Builds loss, penalty and
+        # learning-rate codes, initializes t_ if missing, builds the early-stopping split
+        # and callback, draws an int32 seed, builds a shuffled dataset, and calls the
+        # dtype-matched kernel with unit class weights starting from t_ (standard buffers
+        # when averaging, coef_/intercept_ otherwise).
+        # Side effects: sets n_iter_, increments t_ by n_iter_ times n_samples, sets
+        # intercept_ (shape (1,)); with averaging stores _average_intercept and
+        # _standard_intercept and exposes averaged coef_/intercept_ once
+        # average <= t_ - 1, else the standard ones. Without averaging, coef_ is updated
+        # in place by the kernel.
         loss_function = self._get_loss_function(loss)
         penalty_type = self._get_penalty_type(self.penalty)
         learning_rate_type = self._get_learning_rate_type(learning_rate)
@@ -1794,12 +2033,17 @@ class BaseSGDRegressor(RegressorMixin, BaseSGD):
             self.intercept_ = np.atleast_1d(intercept)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares support for sparse input on top of the inherited tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class SGDRegressor(BaseSGDRegressor):
+    # [CLASS DOC]
+    # Public SGD linear regressor with constrained penalty, alpha, l1_ratio, power_t,
+    # learning_rate and epsilon options.
     """Linear model fitted by minimizing a regularized empirical loss with SGD.
 
     SGD stands for Stochastic Gradient Descent: the gradient of the loss is
@@ -2099,6 +2343,8 @@ class SGDRegressor(BaseSGDRegressor):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseSGDRegressor unchanged.
         super().__init__(
             loss=loss,
             penalty=penalty,
@@ -2123,6 +2369,11 @@ class SGDRegressor(BaseSGDRegressor):
 
 
 class SGDOneClassSVM(OutlierMixin, BaseSGD):
+    # [CLASS DOC]
+    # Linear One-Class SVM trained by SGD with hinge loss and L2 penalty on a target of
+    # all ones. The kernel intercept equals 1 - offset_; decision is X times coef_
+    # minus offset_. nu plays the role of alpha. Fitted attributes: coef_, offset_,
+    # n_iter_, t_, _loss_function_.
     """Solves linear One-Class SVM using Stochastic Gradient Descent.
 
     This implementation is meant to be used with a kernel approximation
@@ -2295,6 +2546,9 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Stores nu, then forwards to BaseSGD with fixed loss 'hinge', penalty 'l2',
+        # l1_ratio 0 and early stopping disabled.
         self.nu = nu
         super().__init__(
             loss="hinge",
@@ -2318,6 +2572,18 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         )
 
     def _fit_one_class(self, X, alpha, sample_weight, learning_rate, max_iter):
+        # [FUNCTION DOC]
+        # HELPER: Runs the SGD kernel in one-class mode. Target is all ones; dataset is
+        # built without an explicit random_state; validation mask is all False and no
+        # callback (early stopping is off); seed drawn from random_state; tol -inf if None;
+        # class weights 1. Starting intercept is 1 - offset_ (or the standard buffer when
+        # averaging).
+        # Inputs: X; alpha (nu); sample_weight; learning_rate; max_iter.
+        # Side effects: sets n_iter_, t_ (incremented by n_iter_ times n_samples), offset_
+        # as 1 minus the resulting (averaged or standard) intercept, and with averaging
+        # _average_intercept, _standard_intercept and possibly coef_.
+        # Note: neg_weight and pos_weight are passed in swapped positions compared to
+        # fit_binary; harmless since both are 1.
         """Uses SGD implementation with X and y=np.ones(n_samples)."""
 
         # The One-Class SVM uses the SGD implementation with
@@ -2423,6 +2689,12 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         coef_init,
         offset_init,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (no y), validates sample weights, allocates coef_/offset_
+        # when missing or when coef_init is given (else checks feature count), creates
+        # averaging buffers if needed, builds the loss, initializes t_ and calls
+        # _fit_one_class.
+        # Outputs: self. Exceptions: ValueError on feature mismatch or bad init shapes.
         first_call = getattr(self, "coef_", None) is None
         X = validate_data(
             self,
@@ -2479,6 +2751,9 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Runs one SGD epoch with alpha = nu; validates parameter combinations on first
+        # call. y is ignored. Outputs: self.
         """Fit linear One-Class SVM with Stochastic Gradient Descent.
 
         Parameters
@@ -2522,6 +2797,10 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         offset_init=None,
         sample_weight=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Full fit with optional warm start from coef_/offset_, otherwise resets
+        # them; resets t_, runs _partial_fit with max_iter, then emits ConvergenceWarning
+        # or FutureWarning (negative power_t) like the other estimators. Outputs: self.
         if self.warm_start and hasattr(self, "coef_"):
             if coef_init is None:
                 coef_init = self.coef_
@@ -2571,6 +2850,9 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, coef_init=None, offset_init=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates parameter combinations and fits with alpha = nu and optional
+        # coef_init, offset_init, sample_weight. y is ignored. Outputs: self.
         """Fit linear One-Class SVM with Stochastic Gradient Descent.
 
         This solves an equivalent optimization problem of the
@@ -2618,6 +2900,9 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         return self
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns X times coef_ minus offset_, shape (n_samples,); positive for inliers.
+        # Exceptions: NotFittedError if coef_ missing; validation errors for X.
         """Signed distance to the separating hyperplane.
 
         Signed distance is positive for an inlier and negative for an
@@ -2642,6 +2927,8 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         return decisions.ravel()
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Returns the raw score X times coef_ (decision_function plus offset_).
         """Raw scoring function of the samples.
 
         Parameters
@@ -2658,6 +2945,8 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         return score_samples
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns int32 labels: 1 where decision_function >= 0, else -1.
         """Return labels (1 inlier, -1 outlier) of the samples.
 
         Parameters
@@ -2675,6 +2964,8 @@ class SGDOneClassSVM(OutlierMixin, BaseSGD):
         return y
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares support for sparse input on top of the inherited tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags

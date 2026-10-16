@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.manifold.Isomap: distance preservation on a grid, agreement of
+#   reconstruction_error with a manually computed kernel error, transform of noisy data,
+#   pipelines (including precomputed KNeighborsTransformer input), metric handling,
+#   sparse input, precomputed radius graphs, dtype preservation, parameter validation,
+#   behavior with disconnected neighbor graphs and feature names. Module-level
+#   eigen_solvers and path_methods list the solver/path options used in
+#   parametrizations.
 import math
 from itertools import product
 
@@ -19,6 +27,16 @@ path_methods = ["auto", "FW", "D"]
 
 
 def create_sample_data(dtype, n_pts=25, add_noise=False):
+    # [FUNCTION DOC]
+    # HELPER: Builds a regular 2-D grid of points with integer coordinates.
+    # Inputs: dtype - numpy dtype for the output; n_pts - number of points (default 25),
+    #   the grid side is the integer square root, so n_pts should be a perfect square;
+    #   add_noise - if True, append a third column of Gaussian noise (scale 0.1, seed
+    #   0).
+    # Outputs: array of shape (side*side, 2), or (n_pts, 3) with noise.
+    # Exceptions: concatenation fails if n_pts is not a perfect square and add_noise is
+    #   True.
+    # Side effects: none (uses a local RandomState).
     # grid of equidistant points in 2D, n_components = n_dim
     n_per_side = int(math.sqrt(n_pts))
     X = np.array(list(product(range(n_per_side), repeat=2))).astype(dtype, copy=False)
@@ -36,6 +54,12 @@ def create_sample_data(dtype, n_pts=25, add_noise=False):
 def test_isomap_simple_grid(
     global_dtype, n_neighbors, radius, eigen_solver, path_method
 ):
+    # [FUNCTION DOC]
+    # Parametrized over neighbor mode (24 neighbors or infinite radius), eigen solver
+    #   and path method. With all points as neighbors on a flat 5x5 grid, the geodesic
+    #   distances equal Euclidean ones, so the neighbor distance graph of the 2-D
+    #   embedding must equal the graph of the input (exactly for float64, atol 1e-5 for
+    #   float32).
     # Isomap should preserve distances when all neighbors are used
     n_pts = 25
     X = create_sample_data(global_dtype, n_pts=n_pts, add_noise=False)
@@ -71,6 +95,14 @@ def test_isomap_simple_grid(
 def test_isomap_reconstruction_error(
     global_dtype, n_neighbors, radius, eigen_solver, path_method
 ):
+    # [FUNCTION DOC]
+    # Same parametrization as test_isomap_simple_grid but on the grid with a noisy third
+    #   dimension. Computes the centered kernel of minus half the squared neighbor-graph
+    #   distances for both the input and the embedding, and checks that the Frobenius
+    #   norm of their difference divided by n_pts equals Isomap.reconstruction_error().
+    #   Skipped for float32 because of numerical instability.
+    # KNOWN ISSUE: since float32 is skipped, the float32 branch of the atol selection is
+    #   dead code.
     if global_dtype is np.float32:
         pytest.skip(
             "Skipping test due to numerical instabilities on float32 data"
@@ -116,6 +148,11 @@ def test_isomap_reconstruction_error(
 
 @pytest.mark.parametrize("n_neighbors, radius", [(2, None), (None, 0.5)])
 def test_transform(global_dtype, n_neighbors, radius):
+    # [FUNCTION DOC]
+    # Fits Isomap with 10 components on a 200-sample S-curve (2 neighbors or radius
+    #   0.5), then transforms a copy perturbed with Gaussian noise of scale 0.01, and
+    #   checks that the RMS difference between the two embeddings is below twice the
+    #   noise scale.
     n_samples = 200
     n_components = 10
     noise_scale = 0.01
@@ -142,6 +179,9 @@ def test_transform(global_dtype, n_neighbors, radius):
 
 @pytest.mark.parametrize("n_neighbors, radius", [(2, None), (None, 10.0)])
 def test_pipeline(n_neighbors, radius, global_dtype):
+    # [FUNCTION DOC]
+    # Smoke test: Isomap (k-neighbors or radius mode) followed by KNeighborsClassifier
+    #   in a Pipeline fits make_blobs data and scores above 0.9 on the training set.
     # check that Isomap works fine as a transformer in a Pipeline
     # only checks that no error is raised.
     # TODO check that it actually does something useful
@@ -158,6 +198,10 @@ def test_pipeline(n_neighbors, radius, global_dtype):
 
 
 def test_pipeline_with_nearest_neighbors_transformer(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies that a pipeline KNeighborsTransformer(mode="distance") followed by Isomap
+    #   with metric="precomputed" gives the same fit_transform and transform results (on
+    #   a second blobs dataset) as a single Isomap computing neighbors itself.
     # Test chaining NearestNeighborsTransformer and Isomap with
     # neighbors_algorithm='precomputed'
     algorithm = "auto"
@@ -200,6 +244,11 @@ def test_pipeline_with_nearest_neighbors_transformer(global_dtype):
     ],
 )
 def test_different_metric(global_dtype, metric, p, is_euclidean):
+    # [FUNCTION DOC]
+    # Parametrized over metric/p combinations including a callable. Checks that
+    #   Euclidean equivalent settings (euclidean, minkowski with p=2) reproduce the
+    #   default Isomap embedding, and that non-Euclidean ones produce a different
+    #   embedding (the comparison is expected to fail with "Not equal to tolerance").
     # Isomap must work on various metric parameters work correctly
     # and must default to euclidean.
     X, _ = datasets.make_blobs(random_state=0)
@@ -216,6 +265,10 @@ def test_different_metric(global_dtype, metric, p, is_euclidean):
 
 
 def test_isomap_clone_bug():
+    # [FUNCTION DOC]
+    # Regression test for #6062: after set_params(n_neighbors=k) and refitting, the
+    #   internal nbrs_ NearestNeighbors object must use the new k, for k in 10, 15, 20.
+    # Side effects: draws data from the global numpy random state (unseeded).
     # regression test for bug reported in #6062
     model = manifold.Isomap()
     for n_neighbors in [10, 15, 20]:
@@ -230,6 +283,10 @@ def test_isomap_clone_bug():
 def test_sparse_input(
     global_dtype, eigen_solver, path_method, global_random_seed, csr_container
 ):
+    # [FUNCTION DOC]
+    # Fits Isomap (2 components, 8 neighbors) on a random 100x3 sparse CSR matrix
+    #   (density 0.1) and on its dense version, for every eigen solver, path method and
+    #   CSR container, and checks the embeddings agree within rtol/atol 1e-4.
     # TODO: compare results on dense and sparse data as proposed in:
     # https://github.com/scikit-learn/scikit-learn/pull/23585#discussion_r968388186
     X = csr_container(
@@ -257,6 +314,10 @@ def test_sparse_input(
 
 
 def test_isomap_fit_precomputed_radius_graph(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies that fitting on a precomputed radius-neighbors distance graph (radius 10)
+    #   of an S-curve gives the same embedding as fitting on raw data with metric
+    #   "minkowski" and the same radius.
     # Isomap.fit_transform must yield similar result when using
     # a precomputed distance matrix.
 
@@ -276,6 +337,8 @@ def test_isomap_fit_precomputed_radius_graph(global_dtype):
 
 
 def test_isomap_fitted_attributes_dtype(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies dist_matrix_ and embedding_ keep the dtype of the input (global_dtype).
     """Check that the fitted attributes are stored accordingly to the
     data type of X."""
     iso = manifold.Isomap(n_neighbors=2)
@@ -289,6 +352,9 @@ def test_isomap_fitted_attributes_dtype(global_dtype):
 
 
 def test_isomap_dtype_equivalence():
+    # [FUNCTION DOC]
+    # Verifies dist_matrix_ is numerically the same when fitting float32 and float64
+    #   versions of the same tiny dataset.
     """Check the equivalence of the results with 32 and 64 bits input."""
     iso_32 = manifold.Isomap(n_neighbors=2)
     X_32 = np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
@@ -302,6 +368,9 @@ def test_isomap_dtype_equivalence():
 
 
 def test_isomap_raise_error_when_neighbor_and_radius_both_set():
+    # [FUNCTION DOC]
+    # Verifies fit_transform raises ValueError "Both n_neighbors and radius are
+    #   provided" when both parameters are set (digits data).
     # Isomap.fit_transform must raise a ValueError if
     # radius and n_neighbors are provided.
 
@@ -313,6 +382,10 @@ def test_isomap_raise_error_when_neighbor_and_radius_both_set():
 
 
 def test_multiple_connected_components():
+    # [FUNCTION DOC]
+    # Verifies that a UserWarning mentioning "number of connected components" is emitted
+    #   when the 2-nearest-neighbor graph of 1-D data with two separated clusters is
+    #   disconnected.
     # Test that a warning is raised when the graph has multiple components
     X = np.array([0, 1, 2, 5, 6, 7])[:, None]
     with pytest.warns(UserWarning, match="number of connected components"):
@@ -320,6 +393,11 @@ def test_multiple_connected_components():
 
 
 def test_multiple_connected_components_metric_precomputed(global_dtype):
+    # [FUNCTION DOC]
+    # With metric="precomputed": a dense full distance matrix of disconnected data only
+    #   triggers the connected-components UserWarning, whereas a sparse precomputed
+    #   neighbors graph that is disconnected raises RuntimeError (it cannot be
+    #   completed).
     # Test that an error is raised when the graph has multiple components
     # and when X is a precomputed neighbors graph.
     X = np.array([0, 1, 2, 5, 6, 7])[:, None].astype(global_dtype, copy=False)
@@ -336,6 +414,8 @@ def test_multiple_connected_components_metric_precomputed(global_dtype):
 
 
 def test_get_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns "isomap0", "isomap1" for 2 components.
     """Check get_feature_names_out for Isomap."""
     X, y = make_blobs(random_state=0, n_features=4)
     n_components = 2

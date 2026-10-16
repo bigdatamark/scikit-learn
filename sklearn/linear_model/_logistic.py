@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Logistic regression: the shared path solver _logistic_regression_path (lbfgs,
+# newton-cg, newton-cholesky, liblinear, sag, saga), the per-fold scoring helper used
+# by cross-validation, the LogisticRegression and LogisticRegressionCV estimators, and
+# a bridge forwarding L-BFGS iterations to the callback API. Defines
+# _LOGISTIC_SOLVER_CONVERGENCE_MSG appended to solver convergence warnings.
 """
 Logistic Regression
 """
@@ -79,6 +85,13 @@ _LOGISTIC_SOLVER_CONVERGENCE_MSG = (
 
 
 def _check_solver(solver, penalty, dual):
+    # [FUNCTION DOC]
+    # HELPER: Validates the solver / penalty / dual combination.
+    # Inputs: solver str; penalty "l1", "l2", "elasticnet" or None; dual bool.
+    # Outputs: the solver unchanged.
+    # Exceptions: ValueError if a non liblinear/saga solver gets a penalty other than l2
+    # or None, if dual is used with a solver other than liblinear, if elasticnet is used
+    # with a solver other than saga, or if liblinear is used with penalty None.
     if solver not in ["liblinear", "saga"] and penalty not in ("l2", None):
         raise ValueError(
             f"Solver {solver} supports only 'l2' or None penalties, got {penalty} "
@@ -102,6 +115,11 @@ def _check_solver(solver, penalty, dual):
 
 
 class _LbfgsCallbackBridge:
+    # [CLASS DOC]
+    # HELPER: Adapter passed as scipy.optimize.minimize's callback for L-BFGS. Each scipy
+    # iteration is mapped to a callback subcontext named "lbfgs-iter": a begin hook opens
+    # it and the next scipy callback (or close) ends it, exposing the current coef_ and
+    # intercept_ as reconstruction attributes.
     """Forward sklearn callbacks to ``scipy.optimize.minimize`` for L-BFGS.
 
     ``scipy.optimize.minimize`` calls ``callback(xk)`` at the end of each L-BFGS
@@ -134,6 +152,13 @@ class _LbfgsCallbackBridge:
         xp,
         device_,
     ):
+        # [FUNCTION DOC]
+        # Stores the callback context, estimator, data and metadata, and the keyword arguments
+        # needed to convert a flat parameter vector into coef/intercept; immediately opens the
+        # first iteration subcontext using the initial weights w0.
+        # Inputs: callback_ctx; estimator; X; y; metadata dict or None; w0 initial flat
+        # weights; n_classes, is_binary, fit_intercept, coefs_order, xp, device_ keywords.
+        # Side effects: calls the begin hook of the first subcontext.
         self._callback_ctx = callback_ctx
         self._estimator = estimator
         self._X = X
@@ -152,6 +177,9 @@ class _LbfgsCallbackBridge:
         self._iter_ctx = self._start_iter(w0)
 
     def _start_iter(self, w):
+        # [FUNCTION DOC]
+        # HELPER: Converts w to coef/intercept, creates a new "lbfgs-iter" subcontext and calls
+        # its fit-task-begin hook. Inputs: w flat weights. Outputs: the subcontext.
         coef, intercept = _compute_coef_intercept(w, **self._coef_kwargs)
         ctx = self._callback_ctx.subcontext(task_name="lbfgs-iter")
         ctx.call_on_fit_task_begin(
@@ -164,6 +192,11 @@ class _LbfgsCallbackBridge:
         return ctx
 
     def __call__(self, xk):
+        # [FUNCTION DOC]
+        # Called by scipy after each iteration with the current weights xk: ends the current
+        # subcontext with the converted coef/intercept, then opens the next one. Return value
+        # of the end hook (early-stop request) is currently ignored.
+        # Inputs: xk ndarray. Outputs: None. Side effects: callback hooks.
         coef, intercept = _compute_coef_intercept(xk, **self._coef_kwargs)
         # End hook for the iteration that scipy just finished.
         self._iter_ctx.call_on_fit_task_end(
@@ -182,6 +215,9 @@ class _LbfgsCallbackBridge:
         self._iter_ctx = self._start_iter(xk)
 
     def close(self):
+        # [FUNCTION DOC]
+        # Ends the last (empty) iteration subcontext opened after the final scipy callback.
+        # Side effects: calls the end hook with only the estimator.
         """Invoke ``on_fit_task_end`` for the left-over subcontext.
 
         The last subcontext created by ``__call__`` corresponds to an iteration
@@ -195,6 +231,14 @@ class _LbfgsCallbackBridge:
 def _compute_coef_intercept(
     w, *, n_classes, is_binary, fit_intercept, coefs_order, dtype, xp, device_
 ):
+    # [FUNCTION DOC]
+    # HELPER: Converts a flat solver weight vector into (coef, intercept) arrays in the
+    # target namespace/device/dtype. Binary: coef of shape (1, n_features) and intercept
+    # (1,) (last entry, or zeros without intercept). Multiclass: w reshaped in Fortran
+    # order to (n_classes, n_dof), last column is the intercept (or zeros).
+    # Inputs: w ndarray; n_classes; is_binary; fit_intercept; coefs_order memory order
+    # for the copy; dtype; xp namespace; device_.
+    # Outputs: (coef, intercept) - copies, never views of w.
     """Helper to compute coef and intercept from a flattened array of parameters."""
     if is_binary:
         coef = xp.asarray(w.copy(order=coefs_order), dtype=dtype, device=device_)
@@ -241,6 +285,39 @@ def _logistic_regression_path(
     callback_ctx=None,
     estimator=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits logistic regression models for a sequence of inverse regularisation
+    # strengths Cs, warm-starting each fit from the previous solution.
+    # Steps: an integer Cs becomes Cs log-spaced values in [1e-4, 1e4]; check the solver;
+    # optionally validate X (csr, float32/64) and y. Validate sample_weight (copied) when
+    # sample or class weights are given; multiply it by per-sample class weights. Binary:
+    # target is 1 for classes[1] and 0 (or -1 for liblinear) otherwise; multiclass: target
+    # is the label-encoded y and w0 is (n_classes, n_dof) Fortran ordered (raveled for
+    # lbfgs/newton solvers). Validate and copy an initial coef into w0. Build a
+    # LinearModelLoss with the (multinomial) half binomial loss. For each C: lbfgs
+    # minimises loss_gradient with L2 strength 1/(C * weight_sum) through scipy L-BFGS-B
+    # (maxls 50, gtol tol, optional callback bridge); newton-cg uses _newton_cg with the
+    # hessian-vector product; newton-cholesky uses NewtonCholeskySolver; liblinear calls
+    # _fit_liblinear (binary only) and concatenates coef and intercept; sag/saga call
+    # sag_solver with alpha (L2) and beta (L1) derived from 1/C and l1_ratio, carrying the
+    # sag warm-start state. The resulting weights are stored per C (reshaped to
+    # (n_classes, n_dof) for multiclass lbfgs/newton solvers).
+    # Inputs: X (n_samples, n_features) dense/csr or array-API; y (n_samples,); classes -
+    # all class labels; Cs int or sequence; fit_intercept; max_iter; tol; verbose; solver;
+    # coef initial weights or None; class_weight dict/"balanced"/None; dual; penalty;
+    # intercept_scaling (liblinear); random_state; check_input; max_squared_sum (sag step
+    # size); sample_weight; l1_ratio (elasticnet); n_threads; callback_ctx and estimator
+    # for the callback bridge.
+    # Outputs: (coefs stacked (n_Cs, n_dof) binary or (n_Cs, n_classes, n_dof), Cs as an
+    # array, n_iter int32 array (n_Cs,)).
+    # Exceptions: ValueError from _check_solver, for liblinear with more than 2 classes,
+    # for a wrongly shaped initial coef, or an unknown solver.
+    # Side effects: ConvergenceWarning from solvers; consumes random_state.
+    # KNOWN ISSUE: in the lbfgs branch the local name loss (the LinearModelLoss) is
+    # overwritten by the final objective value; harmless today because func was bound
+    # earlier, but misleading and fragile.
+    # KNOWN ISSUE: with penalty None the sag/saga branch falls into the elasticnet formula,
+    # which raises a TypeError if l1_ratio is None.
     """Compute a Logistic Regression model for a list of regularization
     parameters.
 
@@ -742,6 +819,21 @@ def _log_reg_scoring_path(
     l1_ratio,
     score_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For one CV split, fits the regularisation path on the training part and
+    # scores every C on the test part.
+    # Slices X, y and sample weights by train/test indices, runs
+    # _logistic_regression_path (no input checks, no callbacks) with all dataset classes
+    # so every fold has coefficients for every class. Creates a bare LogisticRegression
+    # with classes_ set; with scoring None scores use its score method (accuracy with
+    # test sample weights); otherwise resolves the scorer, slices score params to the test
+    # indices, and if the scorer's function accepts labels rebuilds it with labels=classes
+    # (and pos_label=classes[-1] for binary when supported). For each C, sets C, coef_ and
+    # intercept_ on the dummy model and computes the score.
+    # Inputs: X, y full data; train, test index arrays; classes; Cs; scoring; the solver
+    # options forwarded to the path; sample_weight full-length or None; l1_ratio;
+    # score_params dict of routed scorer params.
+    # Outputs: (coefs per C, Cs array, scores ndarray (n_Cs,), n_iter array).
     """Computes scores across logistic_regression_path
 
     Parameters
@@ -919,6 +1011,9 @@ def _log_reg_scoring_path(
     if scoring is None:
 
         def calc_score(log_reg):
+            # [FUNCTION DOC]
+            # HELPER: Returns the dummy model's accuracy on the test fold using test sample
+            # weights. Inputs: log_reg with coef_/intercept_ set. Outputs: float.
             return log_reg.score(X_test, y_test, sample_weight=sw_test)
 
     else:
@@ -955,6 +1050,9 @@ def _log_reg_scoring_path(
             )
 
         def calc_score(log_reg):
+            # [FUNCTION DOC]
+            # HELPER: Returns the configured scorer's value for the dummy model on the test fold
+            # with the sliced score params. Inputs: log_reg. Outputs: float.
             return scoring(log_reg, X_test, y_test, **score_params)
 
     for w, C in zip(coefs, Cs):
@@ -974,6 +1072,10 @@ def _log_reg_scoring_path(
 class LogisticRegression(
     CallbackSupportMixin, LinearClassifierMixin, SparseCoefMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Regularised logistic regression classifier (binary or multinomial). The penalty is
+    # derived from l1_ratio and C (penalty parameter deprecated). Supports the callback
+    # API (lbfgs only) and array API inputs (lbfgs only).
     """
     Logistic Regression (aka logit, MaxEnt) classifier.
 
@@ -1292,6 +1394,8 @@ class LogisticRegression(
         warm_start=False,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged on self (no validation).
         self.penalty = penalty
         self.C = C
         self.l1_ratio = l1_ratio
@@ -1309,6 +1413,10 @@ class LogisticRegression(
 
     # TODO(callbacks): update/remove as more solvers get supported.
     def set_callbacks(self, *callbacks):
+        # [FUNCTION DOC]
+        # Registers callbacks via the mixin, warning (UserWarning) first if the solver is not
+        # lbfgs since other solvers ignore callbacks. Outputs: whatever the mixin returns
+        # (self).
         """Set callbacks for the estimator.
 
         Parameters
@@ -1331,6 +1439,34 @@ class LogisticRegression(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the model.
+        # Penalty resolution: with penalty "deprecated", l1_ratio 0 or None gives "l2" (None
+        # also emits a FutureWarning), 1 gives "l1", otherwise "elasticnet", and C == inf
+        # gives None; an explicitly set penalty is used with a FutureWarning. Checks the
+        # solver; warns if l1_ratio is in (0, 1) without elasticnet or is inconsistent with an
+        # explicit penalty. Explicit penalty None means C_ = inf with an l2 formulation (warns
+        # if C was changed). Warns (FutureWarning) if n_jobs is set. Validates X (csr,
+        # float32/64, C order) and classification targets; classes_ are the unique labels.
+        # Opens a callback context sized max(max_iter, 1) + 1 and calls its begin hook.
+        # liblinear: requires binary targets and max(X) <= 1e30, fits through _fit_liblinear
+        # with self.C and returns. Other solvers: compute max_squared_sum for sag/saga, require
+        # at least 2 classes, build a warm-start coef (coef_ plus intercept column) if
+        # warm_start, run _logistic_regression_path with the single C_, then split the result
+        # into coef_ (1 or n_classes rows) and intercept_ and call the end hook.
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight (n_samples,) or
+        # None.
+        # Outputs: self.
+        # Exceptions: ValueError from _check_solver, for elasticnet without l1_ratio, for
+        # liblinear with non-binary targets or huge X values, or for fewer than 2 classes.
+        # Side effects: sets classes_, coef_, intercept_, n_iter_; FutureWarning and
+        # UserWarning as described; callback hooks.
+        # KNOWN ISSUE: the liblinear branch returns without calling the callback context's
+        # end hook that was begun earlier.
+        # KNOWN ISSUE: with a single class and solver liblinear the error claims
+        # "n_classes >= 3" instead of reporting a single class.
+        # KNOWN ISSUE: the "l1_ratio is None with elasticnet" error is unreachable when
+        # penalty is derived (None maps to l2) and only reachable via an explicit penalty.
         """
         Fit the model according to the given training data.
 
@@ -1571,6 +1707,12 @@ class LogisticRegression(
         return self
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns class probabilities. Checks fitted state and namespace consistency; binary
+        # uses the base-class one-vs-rest logistic formula (sigmoid of the decision
+        # function), multiclass applies softmax to the decision function.
+        # Inputs: X (n_samples, n_features). Outputs: (n_samples, n_classes) probabilities.
+        # Exceptions: NotFittedError; namespace mismatch errors.
         """
         Probability estimates.
 
@@ -1603,6 +1745,11 @@ class LogisticRegression(
             return softmax(decision_2d, copy=False)
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the natural log of predict_proba in X's namespace after checking namespace
+        # consistency. Inputs: X. Outputs: (n_samples, n_classes).
+        # KNOWN ISSUE: the namespace check reads coef_ before predict_proba's fitted check, so
+        # an unfitted model may fail with a less clear error.
         """
         Predict logarithm of probability estimates.
 
@@ -1626,6 +1773,9 @@ class LogisticRegression(
         return xp.log(self.predict_proba(X))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks sparse input as supported, array API support only for lbfgs, and disables
+        # multiclass support for liblinear.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.array_api_support = self.solver == "lbfgs"
@@ -1636,6 +1786,10 @@ class LogisticRegression(
 
 
 class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Logistic regression with built-in cross-validation over a grid of Cs and l1_ratios;
+    # optionally refits on all data with the best parameters. Keeps legacy per-class
+    # dictionary attributes unless use_legacy_attributes is False.
     """Logistic Regression CV (aka logit, MaxEnt) classifier.
 
     See glossary entry for :term:`cross-validation estimator`.
@@ -2019,6 +2173,8 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
         random_state=None,
         use_legacy_attributes="warn",
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged on self (no validation).
         self.Cs = Cs
         self.l1_ratios = l1_ratios
         self.fit_intercept = fit_intercept
@@ -2039,6 +2195,38 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None, **params):
+        # [FUNCTION DOC]
+        # Fits by cross-validation.
+        # Resolve deprecated defaults: l1_ratios "warn" -> None with FutureWarning; penalty
+        # derived from l1_ratios (all 0 or None -> l2, all 1 -> l1, else elasticnet) or taken
+        # from an explicit penalty with FutureWarning; scoring "warn" -> None (accuracy) with
+        # FutureWarning; use_legacy_attributes "warn" -> True with FutureWarning. Check the
+        # solver; for elasticnet require non-empty l1_ratios within [0, 1]; otherwise use
+        # [None] when l1_ratios is None. Validate X (float64, csr) and targets, label-encode
+        # classes (require >= 2). Compute max_squared_sum for sag/saga, route params (sample
+        # weight to the scorer), build folds, validate dict class_weight keys or convert
+        # "balanced" to a dict computed on the full data. Run _log_reg_scoring_path in parallel
+        # (threads for sag/saga) for every fold and l1_ratio. Reshape coefficient paths,
+        # scores and iteration counts to (n_classes, n_folds, n_Cs, n_l1_ratios, ...) (binary
+        # uses one class keyed by the positive label) and store them as dicts keyed by class.
+        # With refit: pick the (C, l1_ratio) maximising the score summed over folds, average
+        # the fold coefficients at that point as the initial coef, and refit on all data.
+        # Without refit: per fold take the best (C, l1_ratio), average the corresponding
+        # coefficients, and set C_/l1_ratio_ to the means of the chosen values. Split
+        # weights into coef_ and intercept_, tile C_/l1_ratio_ per class for multiclass,
+        # squeeze out the l1_ratio axis when l1_ratios was None, and if use_legacy_attributes
+        # is False convert to the new array layouts (coefs_paths_ (n_folds, n_l1_ratios, n_cs,
+        # n_classes, n_dof), scores_ and n_iter_ (n_folds, n_l1_ratios, n_cs), scalar C_ and
+        # l1_ratio_).
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight or None; **params
+        # routed to the splitter and scorer.
+        # Outputs: self.
+        # Exceptions: ValueError from _check_solver, invalid l1_ratios for elasticnet, fewer
+        # than 2 classes, or class_weight dict keys not among the classes.
+        # Side effects: sets classes_, Cs_, l1_ratios_, coefs_paths_, scores_, n_iter_, C_,
+        # l1_ratio_, coef_, intercept_; warnings as described.
+        # KNOWN ISSUE: without refit and with elasticnet, l1_ratios_ is indexed with an
+        # integer array; this fails when l1_ratios was given as a plain list or tuple.
         """Fit the model according to the given training data.
 
         Parameters
@@ -2461,6 +2649,12 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
     #  signature
     @_deprecate_positional_args(version="1.11")
     def score(self, X, y, *, sample_weight=None, **score_params):
+        # [FUNCTION DOC]
+        # Scores the model with the configured scorer (accuracy when scoring is None or
+        # "warn"). sample_weight is merged into the score params (keyword-only from 1.11);
+        # with routing disabled only sample_weight is forwarded.
+        # Inputs: X; y; sample_weight; **score_params. Outputs: float score.
+        # Exceptions: errors for unexpected params when routing is disabled.
         """Score using the `scoring` option on the given test data and labels.
 
         Parameters
@@ -2520,6 +2714,9 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter with the estimator's own requests, the cv splitter (fit to
+        # split) and the scorer (score and fit to score).
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -2551,6 +2748,9 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
         return router
 
     def _get_scorer(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the scorer object for self.scoring, using accuracy for None or the
+        # "warn" sentinel.
         """Get the scorer based on the scoring method specified.
         The default scoring method is `accuracy`.
         """
@@ -2560,6 +2760,8 @@ class LogisticRegressionCV(LogisticRegression, LinearClassifierMixin, BaseEstima
         return get_scorer(scoring)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks sparse input as supported and array API as unsupported.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.array_api_support = False

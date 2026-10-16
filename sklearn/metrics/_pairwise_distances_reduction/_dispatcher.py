@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Python-level dispatchers for the Cython pairwise-distances-reduction backends.
+# Each public dispatcher class exposes classmethods that check whether the fast backend
+# applies (is_usable_for, valid_metrics) and a compute classmethod that picks the
+# float64 or float32 specialised Cython class from the dtype of X and Y and forwards
+# all arguments to it. Also provides sqeuclidean_row_norms with the same dtype dispatch.
+# No state is kept; classes are used only through their classmethods.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -29,6 +36,16 @@ from sklearn.metrics._pairwise_distances_reduction._radius_neighbors_classmode i
 
 
 def sqeuclidean_row_norms(X, num_threads):
+    # [FUNCTION DOC]
+    # Computes the squared Euclidean norm of each row of X using the compiled
+    # routine matching X.dtype (float64 or float32), run with num_threads OpenMP
+    #   threads.
+    # Inputs: X - C-contiguous ndarray or CSR matrix (n_samples, n_features);
+    #   num_threads -
+    # int.
+    # Outputs: ndarray of shape (n_samples,) with the same float dtype as X.
+    # Exceptions: ValueError if X.dtype is neither float64 nor float32.
+    # Side effects: none.
     """Compute the squared euclidean norm of the rows of X in parallel.
 
     Parameters
@@ -56,6 +73,12 @@ def sqeuclidean_row_norms(X, num_threads):
 
 
 class BaseDistancesReductionDispatcher:
+    # [CLASS DOC]
+    # Abstract base for the dispatchers: defines the default set of supported metrics,
+    # the usability test for the Cython backend, and the abstract compute classmethod.
+    # Not meant to be instantiated; all members are classmethods.
+    # KNOWN ISSUE: compute is decorated with abstractmethod but the class does not use
+    # ABCMeta, so the abstractness is not enforced at instantiation time.
     """Abstract base dispatcher for pairwise distance computation & reduction.
 
     Each dispatcher extending the base :class:`BaseDistancesReductionDispatcher`
@@ -64,6 +87,13 @@ class BaseDistancesReductionDispatcher:
 
     @classmethod
     def valid_metrics(cls) -> List[str]:
+        # [FUNCTION DOC]
+        # Returns the sorted list of metric names accepted by the backend: 'sqeuclidean'
+        #   plus
+        # every key of METRIC_MAPPING64, minus 'pyfunc', 'mahalanobis', 'hamming' and
+        #   all
+        # boolean metrics (BOOL_METRICS).
+        # Outputs: list of str. Side effects: none.
         excluded = {
             # PyFunc cannot be supported because it necessitates interacting with
             # the CPython interpreter to call user defined functions.
@@ -81,6 +111,25 @@ class BaseDistancesReductionDispatcher:
 
     @classmethod
     def is_usable_for(cls, X, Y, metric) -> bool:
+        # [FUNCTION DOC]
+        # Decides whether the Cython reduction can handle the given inputs.
+        # Returns False immediately when both X and Y are sparse and metric is a string
+        # containing 'euclidean' (temporary fallback to SciPy for speed reasons).
+        #   Otherwise
+        # returns True only if all of these hold: the global config flag
+        # enable_cython_pairwise_dist is truthy (default True); each of X and Y is
+        #   either a
+        # C-contiguous array or a valid CSR matrix (CSR format, at least one stored
+        #   element,
+        # int32 indices and indptr); X and Y share a dtype which is float32 or float64;
+        #   and
+        # metric is in cls.valid_metrics() or is a DistanceMetric instance.
+        # Inputs: X, Y - arrays or sparse matrices (n_samples_*, n_features); metric -
+        #   str or
+        # DistanceMetric.
+        # Outputs: bool. Exceptions: none raised directly (inputs lacking dtype would
+        #   raise
+        # AttributeError). Side effects: reads global config only.
         """Return True if the dispatcher can be used for the
         given parameters.
 
@@ -114,9 +163,18 @@ class BaseDistancesReductionDispatcher:
             return False
 
         def is_numpy_c_ordered(X):
+            # [FUNCTION DOC]
+            # HELPER: True if the object has a flags attribute whose c_contiguous flag
+            #   is true.
+            # Inputs: X - any object. Outputs: bool. Side effects: none.
             return hasattr(X, "flags") and getattr(X.flags, "c_contiguous", False)
 
         def is_valid_sparse_matrix(X):
+            # [FUNCTION DOC]
+            # HELPER: True if X is a scipy sparse matrix in CSR format with nnz > 0 and
+            #   both
+            # indices and indptr of dtype int32.
+            # Inputs: X - any object. Outputs: bool. Side effects: none.
             return (
                 issparse(X)
                 and X.format == "csr"
@@ -148,6 +206,12 @@ class BaseDistancesReductionDispatcher:
         Y,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Abstract hook: subclasses compute the reduction of X against Y with
+        # reduction-specific keyword arguments. The base body is only a docstring and
+        #   returns
+        # None.
+        # Inputs: X, Y - arrays or CSR matrices; kwargs - reduction parameters.
         """Compute the reduction.
 
         Parameters
@@ -168,6 +232,9 @@ class BaseDistancesReductionDispatcher:
 
 
 class ArgKmin(BaseDistancesReductionDispatcher):
+    # [CLASS DOC]
+    # Dispatcher for the k-smallest-distance (argkmin) reduction used by brute-force
+    # k-nearest-neighbor queries. Inherits the default metric list and usability check.
     """Compute the argkmin of row vectors of X on the ones of Y.
 
     For each row vector of X, computes the indices of k first the rows
@@ -193,6 +260,16 @@ class ArgKmin(BaseDistancesReductionDispatcher):
         strategy=None,
         return_distance=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards all arguments unchanged to ArgKmin64.compute when X and Y are both
+        # float64, or to ArgKmin32.compute when both are float32.
+        # Inputs: see docstring (k int, metric str, chunk_size/metric_kwargs/strategy
+        #   optional,
+        # return_distance bool).
+        # Outputs: indices array (n_samples_X, k), or a (distances, indices) pair when
+        # return_distance is True, as returned by the backend.
+        # Exceptions: ValueError if the dtypes differ or are not float32/float64.
+        # Side effects: none beyond backend allocation and multithreaded computation.
         """Compute the argkmin reduction.
 
         Parameters
@@ -304,6 +381,9 @@ class ArgKmin(BaseDistancesReductionDispatcher):
 
 
 class RadiusNeighbors(BaseDistancesReductionDispatcher):
+    # [CLASS DOC]
+    # Dispatcher for the radius-neighborhood reduction: for each row of X, all rows of Y
+    # within distance radius. Inherits the default metric list and usability check.
     """Compute radius-based neighbors for two sets of vectors.
 
     For each row-vector X[i] of the queries X, find all the indices j of
@@ -332,6 +412,19 @@ class RadiusNeighbors(BaseDistancesReductionDispatcher):
         return_distance=False,
         sort_results=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards all arguments to RadiusNeighbors64.compute or
+        #   RadiusNeighbors32.compute
+        # according to the common float dtype of X and Y.
+        # Inputs: radius float; sort_results bool; return_distance bool; others as in
+        #   ArgKmin.
+        # Outputs: object array of per-query index arrays, or (distances, indices) pair
+        #   when
+        # return_distance is True, as returned by the backend.
+        # KNOWN ISSUE: the docstring lists the return_distance=True outputs as
+        # (indices, distances); the backend returns distances first, matching ArgKmin.
+        # Exceptions: ValueError if the dtypes differ or are not float32/float64.
+        # Side effects: none.
         """Return the results of the reduction for the given arguments.
 
         Parameters
@@ -450,6 +543,9 @@ class RadiusNeighbors(BaseDistancesReductionDispatcher):
 
 
 class ArgKminClassMode(BaseDistancesReductionDispatcher):
+    # [CLASS DOC]
+    # Dispatcher for argkmin followed by a (weighted) vote over neighbor labels, used by
+    # KNeighborsClassifier.predict/predict_proba. Excludes euclidean metrics.
     """Compute the argkmin of row vectors of X on the ones of Y with labels.
 
     For each row vector of X, computes the indices of k first the rows
@@ -466,6 +562,12 @@ class ArgKminClassMode(BaseDistancesReductionDispatcher):
 
     @classmethod
     def valid_metrics(cls) -> List[str]:
+        # [FUNCTION DOC]
+        # Returns the base valid metrics minus 'euclidean' and 'sqeuclidean'.
+        # Outputs: list of str.
+        # KNOWN ISSUE: unlike the base and RadiusNeighborsClassMode versions, the list
+        #   is built
+        # from a set and is not sorted, so its order is not deterministic across runs.
         excluded = {
             # Euclidean is technically usable for ArgKminClassMode
             # but its current implementation would not be competitive.
@@ -489,6 +591,20 @@ class ArgKminClassMode(BaseDistancesReductionDispatcher):
         metric_kwargs=None,
         strategy=None,
     ):
+        # [FUNCTION DOC]
+        # Validates weights then forwards to ArgKminClassMode64/32.compute according to
+        #   the
+        # common float dtype, converting Y_labels and unique_Y_labels to intp numpy
+        #   arrays.
+        # Inputs: k int; weights - str 'uniform' or 'distance' (despite the docstring
+        #   saying
+        # ndarray); Y_labels - label index per row of Y; unique_Y_labels - all label
+        #   indices;
+        # metric, chunk_size, metric_kwargs, strategy as in ArgKmin.
+        # Outputs: probabilities ndarray (n_samples_X, n_classes).
+        # Exceptions: ValueError if weights is not 'uniform'/'distance', or dtypes
+        #   unsupported.
+        # Side effects: none.
         """Compute the argkmin reduction.
 
         Parameters
@@ -614,6 +730,10 @@ class ArgKminClassMode(BaseDistancesReductionDispatcher):
 
 
 class RadiusNeighborsClassMode(BaseDistancesReductionDispatcher):
+    # [CLASS DOC]
+    # Dispatcher for radius neighbors followed by a (weighted) vote over neighbor
+    #   labels,
+    # used by RadiusNeighborsClassifier. Excludes euclidean metrics.
     """Compute radius-based class modes of row vectors of X using the
     those of Y.
 
@@ -634,6 +754,9 @@ class RadiusNeighborsClassMode(BaseDistancesReductionDispatcher):
 
     @classmethod
     def valid_metrics(cls) -> List[str]:
+        # [FUNCTION DOC]
+        # Returns the sorted base valid metrics minus 'euclidean' and 'sqeuclidean'.
+        # Outputs: list of str.
         excluded = {
             # Euclidean is technically usable for RadiusNeighborsClassMode
             # but it would not be competitive.
@@ -658,6 +781,20 @@ class RadiusNeighborsClassMode(BaseDistancesReductionDispatcher):
         metric_kwargs=None,
         strategy=None,
     ):
+        # [FUNCTION DOC]
+        # Validates weights then forwards to RadiusNeighborsClassMode64/32.compute
+        #   according
+        # to the common float dtype, converting Y_labels and unique_Y_labels to intp
+        #   arrays and
+        # passing outlier_label through.
+        # Inputs: radius float; weights - 'uniform' or 'distance'; Y_labels,
+        #   unique_Y_labels;
+        # outlier_label - label for queries without neighbors (handled by backend);
+        #   remaining
+        # as in RadiusNeighbors.
+        # Outputs: probabilities ndarray (n_samples_X, n_classes).
+        # Exceptions: ValueError for invalid weights or unsupported dtypes.
+        # Side effects: none.
         """Return the results of the reduction for the given arguments.
         Parameters
         ----------

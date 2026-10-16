@@ -1,3 +1,10 @@
+# [PACKAGE DOC]
+# Pure-Python re-export facade for the pairwise distances reduction machinery.
+# Exposes the dtype-agnostic dispatchers ArgKmin, ArgKminClassMode, RadiusNeighbors,
+# RadiusNeighborsClassMode, their base BaseDistancesReductionDispatcher and the helper
+# sqeuclidean_row_norms, all imported from the _dispatcher submodule (which in turn
+# loads the compiled Cython 32/64-bit implementations). Side effects at import: loads
+# the compiled extension modules; no global state is changed.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 

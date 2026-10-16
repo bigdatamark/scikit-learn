@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Least Angle Regression (LARS) and its Lasso variant (LARS-Lasso): the path solvers
+# lars_path / lars_path_gram (both thin wrappers around _lars_path_solver), the
+# estimators Lars and LassoLars, the cross-validated LarsCV and LassoLarsCV, and the
+# information-criterion based LassoLarsIC. Defines SOLVE_TRIANGULAR_ARGS (disables
+# finiteness checks in triangular solves).
 """
 Least Angle Regression algorithm. See the documentation on the
 Generalized Linear Model for a complete discussion.
@@ -80,6 +86,20 @@ def lars_path(
     return_n_iter=False,
     positive=False,
 ):
+    # [FUNCTION DOC]
+    # Public LARS / LARS-Lasso path computation from X and y (optionally with a
+    # precomputed or auto-computed Gram matrix and Xy). Only checks that X is given when
+    # Gram is given and delegates everything to _lars_path_solver with n_samples=None.
+    # Inputs: X (n_samples, n_features) ndarray or None; y (n_samples,) or None; Xy
+    # (n_features,) or None; Gram - None, bool, "auto" or (n_features, n_features);
+    # remaining options as in _lars_path_solver.
+    # Outputs: see _lars_path_solver.
+    # Exceptions: ValueError if X is None while Gram is given; parameter validation
+    # errors.
+    # KNOWN ISSUE: the error message lacks a separator between its two sentences
+    # ("...is not NoneUse lars_path_gram...").
+    # KNOWN ISSUE: with X and Gram both None and y None, the solver fails on y.size with
+    # an AttributeError before reaching its own "both unspecified" ValueError.
     """Compute Least Angle Regression or Lasso path using the LARS algorithm.
 
     The optimization objective for the case method='lasso' is::
@@ -269,6 +289,12 @@ def lars_path_gram(
     return_n_iter=False,
     positive=False,
 ):
+    # [FUNCTION DOC]
+    # Public LARS path computation in sufficient-statistics mode: only Xy, Gram and
+    # n_samples are given (X and y are None). Delegates to _lars_path_solver.
+    # Inputs: Xy (n_features,); Gram (n_features, n_features); n_samples int (used to
+    # scale alphas); other options as in _lars_path_solver (copy_X is irrelevant here).
+    # Outputs: see _lars_path_solver.
     """The lars_path in the sufficient stats mode.
 
     The optimization objective for the case method='lasso' is::
@@ -428,6 +454,52 @@ def _lars_path_solver(
     return_n_iter=False,
     positive=False,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Core LARS / LARS-Lasso homotopy solver for a single target.
+    # Setup: reject positive with method "lar"; n_samples defaults to y.size; Cov is the
+    # correlation vector X'y (or a copy of Xy). Gram None/False means work on X; "auto"
+    # or True computes X'X ("auto" only if n_samples > n_features); a given Gram is copied
+    # if copy_Gram. X is copied to Fortran order when working on X with copy_X. The
+    # number of steps is bounded by max_features = min(max_iter, n_features). Output dtype
+    # is the common input dtype, or float64 if they differ. Allocates the path arrays (or
+    # single current/previous coef and alpha when return_path is False), the lower
+    # Cholesky factor L, and sign storage.
+    # Loop: find the inactive feature with maximal |Cov| (or maximal Cov when positive);
+    # the current alpha is that correlation / n_samples. If alpha falls to alpha_min
+    # (within float32 eps), linearly interpolate the last coefficient step so alpha equals
+    # alpha_min exactly and stop. Stop also when max_iter steps or all features are
+    # active. Unless the previous step dropped a variable: record the sign, swap the
+    # chosen feature to the boundary of the active block (in Cov, indices and X columns or
+    # Gram rows/cols), and add a row to the Cholesky factor via a triangular solve; if the
+    # new pivot is < 1e-7 warn (ConvergenceWarning), zero that correlation and retry
+    # without adding. For lasso, stop with a ConvergenceWarning if alpha increased versus
+    # the previous step (numerical breakdown). Solve L L' w = signs to get the
+    # equiangular direction, normalise by AA = 1/sqrt(signs . w) (adding increasing
+    # jitter to L's diagonal while AA is not finite). Compute correlations of inactive
+    # features with the direction (from X or Gram), round them, and compute the step
+    # gamma as the smallest positive of (C - Cov)/(AA - a), (C + Cov)/(AA + a) (not for
+    # positive) and C/AA. For each active coefficient compute the step at which it would
+    # cross zero; if that comes before gamma, flip those signs and (lasso only) shorten
+    # the step to that point and mark them for dropping. Advance: grow the path arrays
+    # when full, set the new coefficients to previous + gamma times direction, and
+    # update Cov. For lasso drops: downdate the Cholesky factor, remove the variables from
+    # the active list, shift their columns past the active block, recompute their
+    # correlation from the residual (X mode) or from the original Gram/Cov copies, and
+    # prepend it to Cov.
+    # Inputs: X, y, Xy, Gram, n_samples as above; max_iter int; alpha_min float stop
+    # level; method "lar" or "lasso"; copy_X, copy_Gram bool; eps float floor for
+    # Cholesky pivots; verbose int (prints a step table when > 1, a dot when 1);
+    # return_path, return_n_iter, positive bool.
+    # Outputs: with return_path, (alphas (n_steps+1,), active list of feature indices,
+    # coefs (n_features, n_steps+1)[, n_iter]); otherwise (alpha array of length 1,
+    # active, coef (n_features,)[, n_iter]).
+    # Exceptions: ValueError for positive with "lar", missing X and Gram, or Gram/Xy shape
+    # mismatch.
+    # Side effects: may permute X (when copy_X False) and Gram (when copy_Gram False) in
+    # place; prints to stdout when verbose; emits ConvergenceWarning.
+    # KNOWN ISSUE: in-code comment notes that after a drop in Gram mode the recomputed
+    # correlation uses the unswapped original Xy/Gram copies, which the authors flag as
+    # possibly wrong with multiple drops.
     """Compute Least Angle Regression or Lasso path using LARS algorithm [1]
 
     The optimization objective for the case method='lasso' is::
@@ -921,6 +993,11 @@ def _lars_path_solver(
 
 
 class Lars(RegressorMixin, MultiOutputLinearModel):
+    # [CLASS DOC]
+    # Least Angle Regression estimator. Class attributes method="lar" and positive=False
+    # are read by the shared fitting code; subclasses override them. Stops after
+    # n_nonzero_coefs steps; supports multi-output targets (one path per target) and
+    # optional jitter noise on y.
     """Least Angle Regression model aka LAR.
 
     Read more in the :ref:`User Guide <least_angle_regression>`.
@@ -1058,6 +1135,8 @@ class Lars(RegressorMixin, MultiOutputLinearModel):
         jitter=None,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged on self (no validation).
         self.fit_intercept = fit_intercept
         self.verbose = verbose
         self.precompute = precompute
@@ -1070,6 +1149,13 @@ class Lars(RegressorMixin, MultiOutputLinearModel):
 
     @staticmethod
     def _get_gram(precompute, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Resolves the precompute setting into a Gram matrix or a flag.
+        # Returns X'X when precompute is True, or "auto" with either more samples than
+        # features or more than one target; otherwise returns precompute unchanged (an array,
+        # False, or "auto" which lars_path will resolve again).
+        # Inputs: precompute - bool, "auto" or array; X (n_samples, n_features); y 2-D.
+        # Outputs: ndarray Gram or the original precompute value.
         if (not hasattr(precompute, "__array__")) and (
             (precompute is True)
             or (precompute == "auto" and X.shape[0] > X.shape[1])
@@ -1080,6 +1166,19 @@ class Lars(RegressorMixin, MultiOutputLinearModel):
         return precompute
 
     def _fit(self, X, y, max_iter, alpha, fit_path, Xy=None):
+        # [FUNCTION DOC]
+        # HELPER: Shared fitting routine for Lars-family estimators.
+        # Centers X/y (and copies if copy_X) via _preprocess_data, makes y 2-D, resolves the
+        # Gram matrix, then for each target runs lars_path with alpha_min=alpha, method and
+        # positive from the class, and verbose reduced by one. With fit_path it stores the
+        # alphas, active sets, full coefficient paths and uses the last path column as coef;
+        # otherwise only the final coefficients. For a single target the per-target lists are
+        # unwrapped. Finally sets intercept_ from the offsets.
+        # Inputs: X, y validated arrays; max_iter int; alpha float; fit_path bool; Xy optional
+        # (n_features, n_targets) precomputed X'y.
+        # Outputs: self.
+        # Side effects: sets alphas_, n_iter_, coef_, intercept_, and with fit_path also
+        # active_ and coef_path_.
         """Auxiliary method to fit the model using X, y as training data"""
         n_features = X.shape[1]
 
@@ -1161,6 +1260,17 @@ class Lars(RegressorMixin, MultiOutputLinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, Xy=None):
+        # [FUNCTION DOC]
+        # Validates X and y (writeable, numeric, multi-output). Uses alpha from the estimator
+        # (0.0 for Lars); if the estimator has n_nonzero_coefs, that is the step limit and
+        # alpha is forced to 0, otherwise max_iter is used. If jitter is set, adds uniform
+        # noise in [0, jitter) to y drawn from random_state. Delegates to _fit.
+        # Inputs: X (n_samples, n_features); y (n_samples,) or (n_samples, n_targets);
+        # Xy optional precomputed X'y.
+        # Outputs: self.
+        # Side effects: fitted attributes via _fit; consumes randomness when jitter is set.
+        # KNOWN ISSUE: the jitter noise has shape (n_samples,), which broadcasts incorrectly
+        # (or fails) when y has several targets.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -1211,6 +1321,9 @@ class Lars(RegressorMixin, MultiOutputLinearModel):
 
 
 class LassoLars(Lars):
+    # [CLASS DOC]
+    # Lasso fitted with the LARS algorithm (method="lasso"); parameterised by alpha and
+    # max_iter instead of n_nonzero_coefs, and supports positive coefficients.
     """Lasso model fit with Least Angle Regression aka Lars.
 
     It is a Linear Model trained with an L1 prior as regularizer.
@@ -1376,6 +1489,9 @@ class LassoLars(Lars):
         jitter=None,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged on self (does not call Lars.__init__, so no
+        # n_nonzero_coefs attribute exists and Lars.fit uses alpha and max_iter).
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -1394,6 +1510,9 @@ class LassoLars(Lars):
 
 
 def _check_copy_and_writeable(array, copy=False):
+    # [FUNCTION DOC]
+    # HELPER: Returns a copy of array if copy is True or the array is read-only,
+    # otherwise the array itself. Inputs: array ndarray; copy bool. Outputs: ndarray.
     if copy or not array.flags.writeable:
         return array.copy()
     return array
@@ -1413,6 +1532,17 @@ def _lars_path_residues(
     eps=np.finfo(float).eps,
     positive=False,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Computes LARS path test residuals for one CV fold.
+    # Copies arrays as needed (also when read-only), centers train and test data with the
+    # training means when fit_intercept, runs lars_path on the training data (no further
+    # copies; Gram passed through), and computes test predictions for every path step
+    # minus y_test.
+    # Inputs: X_train, y_train, X_test, y_test arrays; Gram None/bool/"auto"; copy bool;
+    # method; verbose; fit_intercept; max_iter; eps; positive.
+    # Outputs: (alphas (n_steps,), active list, coefs (n_features, n_steps), residues
+    # (n_steps, n_test_samples)).
+    # Side effects: mutates inputs in place when copy is False and they are writeable.
     """Compute the residues on left-out data for a full LARS path
 
     Parameters
@@ -1516,6 +1646,9 @@ def _lars_path_residues(
 
 
 class LarsCV(Lars):
+    # [CLASS DOC]
+    # Cross-validated Lars: picks alpha on a merged grid of path breakpoints by minimal
+    # mean held-out MSE, then refits the full path up to that alpha. Single-output only.
     """Cross-validated Least Angle Regression model.
 
     See glossary entry for :term:`cross-validation estimator`.
@@ -1678,6 +1811,9 @@ class LarsCV(Lars):
         eps=np.finfo(float).eps,
         copy_X=True,
     ):
+        # [FUNCTION DOC]
+        # Stores max_iter, cv, max_n_alphas, n_jobs and forwards the rest to Lars.__init__
+        # with n_nonzero_coefs=500 and fit_path=True.
         self.max_iter = max_iter
         self.cv = cv
         self.max_n_alphas = max_n_alphas
@@ -1693,12 +1829,28 @@ class LarsCV(Lars):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns inherited tags with multi-output support disabled.
         tags = super().__sklearn_tags__()
         tags.target_tags.multi_output = False
         return tags
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Validates X and y, converts to float (copying if copy_X), resolves cv and routed
+        # splitter params. An array precompute is replaced by "auto" with a warning. Computes
+        # per-fold path residues in parallel. Builds the union of all fold alphas (sorted,
+        # unique), subsampled with a stride so at most about max_n_alphas remain. For each
+        # fold, reverses the path to increasing alphas, pads it with alpha 0 and with the
+        # largest grid alpha (repeating edge residues), linearly interpolates residues onto the
+        # grid, squares and averages them to get the fold MSE. Removes grid points where any
+        # fold MSE is non-finite, selects the alpha with minimal mean MSE, stores it, and
+        # refits with _fit using that alpha and fit_path=True.
+        # Inputs: X (n_samples, n_features); y (n_samples,); **params routed to the splitter.
+        # Outputs: self.
+        # Side effects: sets alpha_, cv_alphas_, mse_path_ and the attributes set by _fit;
+        # UserWarning for array precompute.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -1811,6 +1963,8 @@ class LarsCV(Lars):
         return self
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter routing fit params to the resolved cv splitter's split.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1832,6 +1986,9 @@ class LarsCV(Lars):
 
 
 class LassoLarsCV(LarsCV):
+    # [CLASS DOC]
+    # Cross-validated LassoLars (method="lasso"); same procedure as LarsCV, adds the
+    # positive option.
     """Cross-validated Lasso, using the LARS algorithm.
 
     See glossary entry for :term:`cross-validation estimator`.
@@ -2015,6 +2172,9 @@ class LassoLarsCV(LarsCV):
         copy_X=True,
         positive=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters directly on self without calling the parent __init__, so
+        # n_nonzero_coefs is never set.
         self.fit_intercept = fit_intercept
         self.verbose = verbose
         self.max_iter = max_iter
@@ -2030,6 +2190,9 @@ class LassoLarsCV(LarsCV):
 
 
 class LassoLarsIC(LassoLars):
+    # [CLASS DOC]
+    # LassoLars with alpha selected by AIC or BIC along a single full lasso path, using an
+    # estimated or user-given noise variance.
     """Lasso model fit with Lars using BIC or AIC for model selection.
 
     The optimization objective for Lasso is::
@@ -2208,6 +2371,8 @@ class LassoLarsIC(LassoLars):
         positive=False,
         noise_variance=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters on self and fixes fit_path to True.
         self.criterion = criterion
         self.fit_intercept = fit_intercept
         self.positive = positive
@@ -2220,12 +2385,29 @@ class LassoLarsIC(LassoLars):
         self.noise_variance = noise_variance
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns inherited tags with multi-output support disabled.
         tags = super().__sklearn_tags__()
         tags.target_tags.multi_output = False
         return tags
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, copy_X=None):
+        # [FUNCTION DOC]
+        # Validates and centers X/y (copy controlled by the copy_X argument, defaulting to
+        # the attribute), computes the full lasso path with lars_path (alpha_min 0). For
+        # each path step computes the residual sum of squares and the degrees of freedom as
+        # the number of coefficients whose magnitude exceeds machine eps. Noise variance is
+        # estimated with _estimate_noise_variance unless given. The criterion is
+        # n_samples * log(2 pi sigma^2) + RSS / sigma^2 + factor * dof, with factor 2 (AIC) or
+        # log(n_samples) (BIC). Picks the step with minimal criterion.
+        # Inputs: X (n_samples, n_features); y (n_samples,); copy_X bool or None.
+        # Outputs: self.
+        # Exceptions: ValueError from noise variance estimation when n_samples is too small.
+        # Side effects: sets alphas_, n_iter_, noise_variance_, criterion_, alpha_, coef_,
+        # intercept_.
+        # KNOWN ISSUE: the ValueError branch for an unknown criterion is unreachable because
+        # parameter validation restricts criterion to "aic"/"bic".
         """Fit the model using X, y as training data.
 
         Parameters
@@ -2316,6 +2498,14 @@ class LassoLarsIC(LassoLars):
         return self
 
     def _estimate_noise_variance(self, X, y, positive):
+        # [FUNCTION DOC]
+        # HELPER: Estimates noise variance as the residual sum of squares of an unpenalised
+        # least-squares fit (LinearRegression, no intercept since data are centered, with the
+        # positive constraint if requested) divided by n_samples - n_features -
+        # fit_intercept.
+        # Inputs: X centered (n_samples, n_features); y centered (n_samples,); positive bool.
+        # Outputs: float variance estimate.
+        # Exceptions: ValueError if n_samples <= n_features + fit_intercept.
         """Compute an estimate of the variance with an OLS model.
 
         Parameters

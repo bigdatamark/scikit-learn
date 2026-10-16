@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Implements ClassicalMDS (Torgerson scaling / PCoA): embeds samples by
+# eigendecomposition of the double-centered squared dissimilarity matrix.
 """
 Classical multi-dimensional scaling (classical MDS).
 """
@@ -19,6 +22,12 @@ from sklearn.utils.validation import validate_data
 
 
 class ClassicalMDS(BaseEstimator):
+    # [CLASS DOC]
+    # Estimator wrapping classical MDS. Hyperparameters are stored unchanged in
+    # __init__ (validated via _parameter_constraints at fit time). All work happens in
+    # fit_transform; there is no transform for new samples.
+    # Fitted attributes: dissimilarity_matrix_, embedding_, eigenvalues_,
+    # n_features_in_ (and feature_names_in_ when applicable).
     """Classical multidimensional scaling (MDS).
 
     This is also known as principal coordinates analysis (PCoA) or
@@ -108,16 +117,26 @@ class ClassicalMDS(BaseEstimator):
         metric="euclidean",
         metric_params=None,
     ):
+        # [FUNCTION DOC]
+        # Stores n_components, metric and metric_params as attributes without validation.
+        # Side effects: sets the three attributes on self.
         self.n_components = n_components
         self.metric = metric
         self.metric_params = metric_params
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the parent tags, marking the input as pairwise when metric is
+        # "precomputed". Outputs: the Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = self.metric == "precomputed"
         return tags
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Calls fit_transform on X and discards the embedding.
+        # Inputs: X - data or square dissimilarity matrix; y - ignored.
+        # Outputs: self. Side effects: sets all fitted attributes (see fit_transform).
         """
         Compute the embedding positions.
 
@@ -141,6 +160,25 @@ class ClassicalMDS(BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Behavior: validate X; if metric is "precomputed" use X as dissimilarity matrix
+        # after checking it is symmetric, otherwise compute pairwise_distances with metric
+        # and metric_params. Square the dissimilarities, cast to float64, subtract column
+        # means then row means and multiply by -0.5 (double centering, matrix B). Compute
+        # the full symmetric eigendecomposition of B, keep the n_components largest
+        # eigenvalues (descending) and their eigenvectors, fix eigenvector signs via
+        # svd_flip, and set embedding_ to eigenvectors scaled by square roots of the
+        # eigenvalues.
+        # Inputs: X - (n_samples, n_features) or (n_samples, n_samples) if precomputed;
+        # y - ignored.
+        # Outputs: embedding_, ndarray (n_samples, n_components).
+        # Exceptions: ValueError from validation, or from check_symmetric when a
+        # precomputed matrix is not symmetric.
+        # Side effects: sets dissimilarity_matrix_, embedding_, eigenvalues_,
+        # n_features_in_.
+        # KNOWN ISSUE: negative eigenvalues (non-Euclidean dissimilarities) give NaN
+        # coordinates through the square root; n_components > n_samples silently yields
+        # fewer components than requested.
         """
         Compute and return the embedding positions.
 

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests for spectral embedding (sklearn.manifold.SpectralEmbedding, spectral_embedding
+#   and the private graph connectivity helpers). Module import builds a shared dataset S
+#   of 100 blob samples around 3 sparse 5-D centers (true_labels holds the cluster ids)
+#   and detects whether pyamg is installed (pyamg_available, skip_if_no_pyamg marker).
+#   Covers connected component extraction, solver fallbacks and agreement (arpack,
+#   lobpcg, amg), precomputed and callable affinities, clustering via a pipeline,
+#   determinism, the unnormalized Laplacian, dtype preservation and eigen_tol="auto"
+#   resolution.
 import itertools
 from unittest.mock import Mock
 
@@ -56,6 +65,13 @@ S, true_labels = make_blobs(
 
 
 def _assert_equal_with_sign_flipping(A, B, tol=0.0):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two embeddings are equal up to the sign of each column.
+    # Inputs: A, B - 2-D arrays of the same shape; tol - maximum allowed absolute
+    #   difference per entry (default 0.0).
+    # Outputs: none.
+    # Exceptions: AssertionError if for some column both the max squared difference of A
+    #   and B and the max squared difference of A and minus B exceed tol squared.
     """Check array A and B are equal with possible sign flipping on
     each column"""
     tol_squared = tol**2
@@ -68,6 +84,12 @@ def _assert_equal_with_sign_flipping(A, B, tol=0.0):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_sparse_graph_connected_component(coo_container):
+    # [FUNCTION DOC]
+    # Builds a random symmetric sparse affinity (COO container) over 300 nodes split
+    #   into 4 permuted groups, each connected by a spanning path plus 1000 random
+    #   intra-group edges. For each group, _graph_connected_component started from its
+    #   first and from its last node must return the same boolean mask whose count
+    #   equals the group size.
     rng = np.random.RandomState(42)
     n_samples = 300
     boundaries = [0, 42, 121, 200, n_samples]
@@ -110,6 +132,10 @@ def test_sparse_graph_connected_component(coo_container):
     not pyamg_available, reason="PyAMG is required for the tests in this function."
 )
 def test_fallback_amg():
+    # [FUNCTION DOC]
+    # Requires pyamg. Verifies spectral_embedding with eigen_solver="amg" emits a
+    #   RuntimeWarning and falls back to arpack for a dense affinity ("dense matrices")
+    #   and for a graph too small for the requested components ("small graphs").
     random_state = np.random.RandomState(36)
     data = random_state.randn(10, 30)
     sims = rbf_kernel(data)
@@ -139,6 +165,13 @@ def test_fallback_amg():
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_spectral_embedding_two_components(eigen_solver, dtype, seed=0):
+    # [FUNCTION DOC]
+    # Builds a dense affinity with two blocks of 100 nodes (checking that
+    #   _graph_connected_component finds each block separately), then links them with a
+    #   single edge, zeroes the diagonal and symmetrizes. A 1-component precomputed
+    #   SpectralEmbedding thresholded at zero must perfectly separate the two blocks
+    #   (NMI of 1), for each solver and float dtype. Inputs: seed - fixed default 0, not
+    #   parametrized.
     # Test spectral embedding with two components
     random_state = np.random.RandomState(seed)
     n_sample = 100
@@ -195,6 +228,10 @@ def test_spectral_embedding_two_components(eigen_solver, dtype, seed=0):
 def test_spectral_embedding_precomputed_affinity(
     sparse_container, eigen_solver, dtype, seed=36
 ):
+    # [FUNCTION DOC]
+    # Verifies that a precomputed RBF kernel gives the same affinity_matrix_ and (up to
+    #   column signs, tol 0.05) the same 2-D embedding as affinity="rbf" with the same
+    #   gamma, for dense and CSR input, each solver and dtype.
     # Test spectral embedding with precomputed kernel
     gamma = 1.0
     X = S if sparse_container is None else sparse_container(S)
@@ -219,6 +256,10 @@ def test_spectral_embedding_precomputed_affinity(
 
 
 def test_precomputed_nearest_neighbors_filtering():
+    # [FUNCTION DOC]
+    # Verifies that with affinity="precomputed_nearest_neighbors" and n_neighbors=10, a
+    #   precomputed distance graph containing 20 neighbors per sample is filtered down
+    #   so the embedding equals that obtained from a 10-neighbor graph.
     # Test precomputed graph filtering when containing too many neighbors
     n_neighbors = 10
     results = []
@@ -242,6 +283,11 @@ def test_precomputed_nearest_neighbors_filtering():
 
 @pytest.mark.parametrize("sparse_container", [None, *CSR_CONTAINERS])
 def test_spectral_embedding_callable_affinity(sparse_container, seed=36):
+    # [FUNCTION DOC]
+    # Verifies that a callable affinity returning the RBF kernel gives the same
+    #   affinity_matrix_ and embedding (up to column signs, tol 0.05) as affinity="rbf",
+    #   and that the rbf affinity matrix equals the directly computed kernel; dense and
+    #   CSR input.
     # Test spectral embedding with callable affinity
     gamma = 0.9
     kern = rbf_kernel(S, gamma=gamma)
@@ -268,6 +314,9 @@ def test_spectral_embedding_callable_affinity(sparse_container, seed=36):
 
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 def test_spectral_embedding_lobpcg_solver(dtype, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies lobpcg and arpack solvers produce the same 2-D RBF embedding of S up to
+    #   column signs (tol 1e-5), for float32 and float64 and the global random seed.
     # Tests that the results are the same when using arpack
     # and lobpcg solvers. Note that we use RBF kernel here
     # to make the graph connected, so that eigenvectors
@@ -297,6 +346,12 @@ def test_spectral_embedding_lobpcg_solver(dtype, global_random_seed):
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_spectral_embedding_amg_solver(dtype, coo_container, seed=36):
+    # [FUNCTION DOC]
+    # Requires pyamg. Verifies amg and arpack agree (up to signs, tol 1e-5) on the RBF
+    #   embedding of S and on a tiny 6-node precomputed COO graph where amg is not
+    #   actually used (regression #10715; affinity is switched by setting the attribute
+    #   directly). Then checks that a CSR graph with int64 indices is accepted for SciPy
+    #   >= 1.11.3 and rejected with ValueError about 32-bit indices for older SciPy.
     # Tests that the results are the same when using arpack
     # and amg solvers. Note that we use RBF kernel here
     # to make the graph connected, so that eigenvectors
@@ -359,6 +414,10 @@ def test_spectral_embedding_amg_solver(dtype, coo_container, seed=36):
 )
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 def test_spectral_embedding_amg_solver_failure(dtype, seed=36):
+    # [FUNCTION DOC]
+    # Requires pyamg. Non-regression for #13393: amg spectral embedding of a random
+    #   symmetric sparse 100x100 graph with zero diagonal and 10 components must be
+    #   stable (up to signs, tol 0.05) across 3 other random_state values.
     # Non-regression test for amg solver failure (issue #13393 on github)
     num_nodes = 100
     X = _sparse_random_array((num_nodes, num_nodes), density=0.1, random_state=seed)
@@ -378,6 +437,11 @@ def test_spectral_embedding_amg_solver_failure(dtype, seed=36):
 
 
 def test_pipeline_spectral_clustering(seed=36):
+    # [FUNCTION DOC]
+    # Verifies that KMeans on the SpectralEmbedding (n_clusters - 1 components, rbf and
+    #   nearest_neighbors affinities) of S recovers true_labels with NMI close to 1 (2
+    #   decimals). A single RandomState instance is shared by all estimators, so results
+    #   depend on call order.
     # Test using pipeline to do spectral clustering
     # Note that SpectralEmbedding drops the first eigenvector,
     # contrary to SpectralClustering.  So here for n_clusters
@@ -402,6 +466,10 @@ def test_pipeline_spectral_clustering(seed=36):
 
 
 def test_connectivity(seed=36):
+    # [FUNCTION DOC]
+    # Verifies _graph_is_connected returns False for a 5-node graph with an isolated
+    #   node and True for a path graph, for dense, CSR and CSC inputs.
+    # KNOWN ISSUE: the seed argument is unused.
     # Test that graph connectivity test works as expected
     graph = np.array(
         [
@@ -435,6 +503,9 @@ def test_connectivity(seed=36):
 
 
 def test_spectral_embedding_deterministic():
+    # [FUNCTION DOC]
+    # Verifies two calls of spectral_embedding on the same RBF affinity (without
+    #   random_state) give the same result.
     # Test that Spectral Embedding is deterministic
     random_state = np.random.RandomState(36)
     data = random_state.randn(10, 30)
@@ -445,6 +516,10 @@ def test_spectral_embedding_deterministic():
 
 
 def test_spectral_embedding_unnormalized():
+    # [FUNCTION DOC]
+    # Verifies spectral_embedding with norm_laplacian=False and drop_first=False equals
+    #   the first 8 eigenvectors of the unnormalized graph Laplacian from a dense eigh,
+    #   after applying the same deterministic sign flip.
     # Test that spectral_embedding is also processing unnormalized laplacian
     # correctly
     random_state = np.random.RandomState(36)
@@ -465,6 +540,10 @@ def test_spectral_embedding_unnormalized():
 
 
 def test_spectral_embedding_first_eigen_vector():
+    # [FUNCTION DOC]
+    # For a connected RBF graph and 10 random seeds, verifies the first
+    #   unnormalized-Laplacian embedding column is constant (zero std) and the second is
+    #   not (std above 1e-3).
     # Test that the first eigenvector of spectral_embedding
     # is constant and that the second is not (for a connected graph)
     random_state = np.random.RandomState(36)
@@ -495,6 +574,9 @@ def test_spectral_embedding_first_eigen_vector():
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_spectral_embedding_preserves_dtype(eigen_solver, dtype):
+    # [FUNCTION DOC]
+    # Verifies that fit_transform output, embedding_ and affinity_matrix_ keep the input
+    #   dtype (float32 or float64) for each eigen solver.
     """Check that `SpectralEmbedding is preserving the dtype of the fitted
     attribute and transformed data.
 
@@ -519,6 +601,9 @@ def test_spectral_embedding_preserves_dtype(eigen_solver, dtype):
     reason="PyAMG is installed and we should not test for an error.",
 )
 def test_error_pyamg_not_available():
+    # [FUNCTION DOC]
+    # Runs only when pyamg is missing: eigen_solver="amg" must raise ValueError stating
+    #   that pyamg is not available.
     se_precomp = SpectralEmbedding(
         n_components=2,
         affinity="rbf",
@@ -532,6 +617,12 @@ def test_error_pyamg_not_available():
 @pytest.mark.parametrize("solver", ["arpack", "amg", "lobpcg"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_spectral_eigen_tol_auto(monkeypatch, solver, csr_container):
+    # [FUNCTION DOC]
+    # Monkeypatches the underlying eigensolver (eigsh for arpack, lobpcg for lobpcg and
+    #   amg) with a Mock wrapper and checks that eigen_tol="auto" is passed down as
+    #   tol=0 for arpack and tol=None otherwise. Uses a similarity matrix derived from
+    #   distances on 2 tight blobs (CSR for amg); amg is skipped without pyamg. The
+    #   local S shadows the module-level S.
     """Test that `eigen_tol="auto"` is resolved correctly"""
     if solver == "amg" and not pyamg_available:
         pytest.skip("PyAMG is not available.")

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.manifold._mds: the smacof function and the MDS estimator (metric and
+#   non-metric), including reference values from Borg and Groenen, stress monotonicity
+#   and normalization, input validation, deprecation warnings, classical MDS
+#   initialization and output dimensionality.
 from unittest.mock import Mock
 
 import numpy as np
@@ -11,6 +16,10 @@ from sklearn.metrics import euclidean_distances
 
 
 def test_smacof():
+    # [FUNCTION DOC]
+    # Verifies one SMACOF iteration from a given initial configuration on the 4-point
+    #   example of Borg and Groenen (p. 154) reproduces the published configuration to 3
+    #   decimals.
     # test metric smacof using the data of "Modern Multidimensional Scaling",
     # Borg & Groenen, p 154
     sim = np.array([[0, 5, 3, 4], [5, 0, 2, 2], [3, 2, 0, 1], [4, 2, 1, 0]])
@@ -23,6 +32,12 @@ def test_smacof():
 
 
 def test_nonmetric_lower_normalized_stress():
+    # [FUNCTION DOC]
+    # Non-regression for #27028: on iris distances with the same random init, non-metric
+    #   smacof must reach lower normalized stress (stress-1) than metric smacof, even
+    #   after the metric solution's stress-1 is optimally rescaled to sqrt(s^2 / (1 +
+    #   s^2)).
+    # Side effects: seeds the global numpy random state with 42.
     # Testing that nonmetric MDS results in lower normalized stress compared
     # compared to metric MDS (non-regression test for issue 27028)
     X, _ = load_iris(return_X_y=True)
@@ -57,6 +72,9 @@ def test_nonmetric_lower_normalized_stress():
 
 
 def test_nonmetric_mds_optimization():
+    # [FUNCTION DOC]
+    # Non-regression for #27028: non-metric MDS on a 200-sample digits subset has
+    #   strictly lower stress_ after 3 iterations than after 2 (same random init).
     # Test that stress is decreasing during nonmetric MDS optimization
     # (non-regression test for issue 27028)
     X, _ = load_digits(return_X_y=True)
@@ -89,6 +107,9 @@ def test_nonmetric_mds_optimization():
 
 @pytest.mark.parametrize("metric_mds", [True, False])
 def test_mds_recovers_true_data(metric_mds):
+    # [FUNCTION DOC]
+    # For metric and non-metric MDS, a 4-point 2-D dataset embedded in 2 dimensions with
+    #   a tiny eps must reach (near) zero stress.
     X = np.array([[1, 1], [1, 4], [1, 5], [3, 3]])
     mds_est = mds.MDS(
         n_components=2,
@@ -104,6 +125,10 @@ def test_mds_recovers_true_data(metric_mds):
 
 
 def test_smacof_error():
+    # [FUNCTION DOC]
+    # Verifies smacof raises ValueError for a non-symmetric dissimilarity matrix, a
+    #   non-square matrix, and an init array whose number of rows does not match the
+    #   matrix.
     # Not symmetric similarity matrix:
     sim = np.array([[0, 5, 9, 4], [5, 0, 2, 2], [3, 2, 0, 1], [4, 2, 1, 0]])
 
@@ -128,6 +153,9 @@ def test_smacof_error():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_MDS():
+    # [FUNCTION DOC]
+    # Smoke test: non-metric MDS with precomputed dissimilarities, 3 parallel jobs and 3
+    #   inits fits without error. Marked thread_unsafe due to a loky bug.
     sim = np.array([[0, 5, 3, 4], [5, 0, 2, 2], [3, 2, 0, 1], [4, 2, 1, 0]])
     mds_clf = mds.MDS(
         metric_mds=False,
@@ -143,6 +171,10 @@ def test_MDS():
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 @pytest.mark.parametrize("k", [0.5, 1.5, 2])
 def test_normed_stress(k):
+    # [FUNCTION DOC]
+    # Verifies that non-metric smacof (with the deprecated metric argument,
+    #   FutureWarning filtered) is scale-invariant: scaling dissimilarities by k gives
+    #   the same stress and the same embedding (rtol 1e-5).
     """Test that non-metric MDS normalized stress is scale-invariant."""
     sim = np.array([[0, 5, 3, 4], [5, 0, 2, 2], [3, 2, 0, 1], [4, 2, 1, 0]])
 
@@ -157,6 +189,11 @@ def test_normed_stress(k):
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 @pytest.mark.parametrize("metric", [True, False])
 def test_normalized_stress_auto(metric, monkeypatch):
+    # [FUNCTION DOC]
+    # Wraps _smacof_single in a Mock via monkeypatch and checks that
+    #   normalized_stress="auto" resolves to the opposite of metric (normalized only for
+    #   non-metric) both in MDS and in smacof, by inspecting the keyword argument of the
+    #   last call.
     rng = np.random.RandomState(0)
     X = rng.randn(4, 3)
     dist = euclidean_distances(X)
@@ -173,6 +210,10 @@ def test_normalized_stress_auto(metric, monkeypatch):
 
 
 def test_isotonic_outofbounds():
+    # [FUNCTION DOC]
+    # Non-regression for #26999: a 3-point configuration with near-duplicate distances
+    #   must not trigger an out-of-bounds error in the isotonic regression of non-metric
+    #   smacof.
     # This particular configuration can trigger out of bounds error
     # in the isotonic regression (non-regression test for issue 26999)
     dis = np.array(
@@ -196,6 +237,11 @@ def test_isotonic_outofbounds():
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 @pytest.mark.parametrize("normalized_stress", [True, False])
 def test_returned_stress(normalized_stress):
+    # [FUNCTION DOC]
+    # Non-regression for #16846: stress_ must equal the stress recomputed from the final
+    #   embedding, i.e. half the sum of squared differences between embedding and input
+    #   distances, or for normalized_stress the square root of that divided by half the
+    #   sum of squared embedding distances.
     # Test that the final stress corresponds to the final embedding
     # (non-regression test for issue 16846)
     X = np.array([[1, 1], [1, 4], [1, 5], [3, 3]])
@@ -223,6 +269,9 @@ def test_returned_stress(normalized_stress):
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 @pytest.mark.parametrize("metric_mds", [True, False])
 def test_convergence_does_not_depend_on_scale(metric_mds):
+    # [FUNCTION DOC]
+    # Verifies the number of iterations n_iter_ is identical when fitting X scaled by
+    #   100 and X divided by 100, for metric and non-metric MDS.
     # Test that the number of iterations until convergence does not depend on
     # the scale of the input data
     X = np.array([[1, 1], [1, 4], [1, 5], [3, 3]])
@@ -244,6 +293,10 @@ def test_convergence_does_not_depend_on_scale(metric_mds):
 
 # TODO(1.10): delete this test
 def test_future_warning_init_and_metric():
+    # [FUNCTION DOC]
+    # Checks deprecation behavior of MDS: FutureWarning for the dissimilarity parameter,
+    #   for boolean metric (True or False, use metric_mds instead), and for relying on
+    #   the default init; ValueError when both metric and dissimilarity are given.
     X = np.array([[1, 1], [1, 4], [1, 5], [3, 3]])
     sim = np.array([[0, 5, 3, 4], [5, 0, 2, 2], [3, 2, 0, 1], [4, 2, 1, 0]])
 
@@ -271,6 +324,12 @@ def test_future_warning_init_and_metric():
 
 
 def test_classical_mds_init_to_mds():
+    # [FUNCTION DOC]
+    # Intends to verify that MDS with init="classical_mds" equals MDS started from an
+    #   explicit ClassicalMDS embedding passed to fit_transform.
+    # KNOWN ISSUE: mds2 is created but never used; Z2 is computed by refitting mds1
+    #   (whose init is "classical_mds") with an explicit init, so the init="random" path
+    #   is not tested.
     X, _ = load_iris(return_X_y=True)
 
     cmds = ClassicalMDS()
@@ -288,6 +347,9 @@ def test_classical_mds_init_to_mds():
 @pytest.mark.parametrize("init", ["random", "classical_mds"])
 @pytest.mark.parametrize("n_components", [1, 2, 5, 10])
 def test_correct_n_components(init, n_components):
+    # [FUNCTION DOC]
+    # Verifies fit_transform returns an embedding with n_components columns for both
+    #   init strategies and n_components in 1, 2, 5, 10 on 10-feature blobs.
     X, _ = make_blobs(n_features=10)
 
     model = mds.MDS(init=init, n_components=n_components, n_init=1)
