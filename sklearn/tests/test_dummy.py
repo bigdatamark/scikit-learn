@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for DummyClassifier and DummyRegressor: every prediction strategy, single
+# and multi-output targets, sparse targets, sample weights, error messages, input
+# independence and output shapes/dtypes.
+
 import warnings
 
 import numpy as np
@@ -17,6 +22,13 @@ from sklearn.utils.stats import _weighted_percentile
 
 
 def _check_predict_proba(clf, X, y):
+    # [FUNCTION DOC]
+    # HELPER: Asserts predict_proba/predict_log_proba consistency for a fitted
+    # classifier. Inputs: clf - fitted classifier; X - samples; y - 1D or 2D targets
+    # used to count classes per output. For each output, checks shape is
+    # (n_samples, n_unique_classes), rows sum to 1, and log of proba equals
+    # log_proba (divide-by-zero warnings suppressed). Single output results are wrapped
+    # in a list for uniform handling.
     proba = clf.predict_proba(X)
 
     # We know that we can have division by zero
@@ -46,6 +58,9 @@ def _check_predict_proba(clf, X, y):
 
 
 def _check_behavior_2d(clf):
+    # [FUNCTION DOC]
+    # HELPER: Clones clf and fits on a 4-sample dataset with 1D then 2D (two-column)
+    # integer targets, asserting the prediction shape matches the target shape.
     # 1d case
     X = np.array([[0], [0], [0], [0]])  # ignored
     y = np.array([1, 2, 1, 1])
@@ -63,6 +78,9 @@ def _check_behavior_2d(clf):
 
 
 def _check_behavior_2d_for_constant(clf):
+    # [FUNCTION DOC]
+    # HELPER: Like _check_behavior_2d but only for a 5-output 2D target (for the
+    # constant strategy whose constant must match the number of outputs).
     # 2d case only
     X = np.array([[0], [0], [0], [0]])  # ignored
     y = np.array([[1, 0, 5, 4, 3], [2, 0, 1, 2, 5], [1, 0, 4, 5, 2], [1, 3, 3, 2, 0]])
@@ -73,11 +91,17 @@ def _check_behavior_2d_for_constant(clf):
 
 
 def _check_equality_regressor(statistic, y_learn, y_pred_learn, y_test, y_pred_test):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that train and test predictions both equal the given statistic
+    # (1D or row vector) tiled over the respective number of samples.
     assert_array_almost_equal(np.tile(statistic, (y_learn.shape[0], 1)), y_pred_learn)
     assert_array_almost_equal(np.tile(statistic, (y_test.shape[0], 1)), y_pred_test)
 
 
 def test_feature_names_in_and_n_features_in_(global_random_seed, n_samples=10):
+    # [FUNCTION DOC]
+    # Fits both dummy estimators on a one-column pandas DataFrame and checks
+    # feature_names_in_ and n_features_in_ are set. Skipped without pandas.
     pd = pytest.importorskip("pandas")
 
     random_state = np.random.RandomState(seed=global_random_seed)
@@ -95,6 +119,10 @@ def test_feature_names_in_and_n_features_in_(global_random_seed, n_samples=10):
 
 
 def test_most_frequent_and_prior_strategy():
+    # [FUNCTION DOC]
+    # For "most_frequent" and "prior", checks predictions are the majority class, proba
+    # consistency, and that predict_proba equals class_prior_ ("prior") or its one-hot
+    # of the majority ("most_frequent").
     X = [[0], [0], [0], [0]]  # ignored
     y = [1, 2, 1, 1]
 
@@ -115,6 +143,9 @@ def test_most_frequent_and_prior_strategy():
 
 
 def test_most_frequent_and_prior_strategy_with_2d_column_y():
+    # [FUNCTION DOC]
+    # Non-regression: a single-column 2D y gives the same predictions as the
+    # equivalent 1D y.
     # non-regression test added in
     # https://github.com/scikit-learn/scikit-learn/pull/13545
     X = [[0], [0], [0], [0]]
@@ -131,6 +162,9 @@ def test_most_frequent_and_prior_strategy_with_2d_column_y():
 
 
 def test_most_frequent_and_prior_strategy_multioutput():
+    # [FUNCTION DOC]
+    # Checks per-output majority predictions on a 2-output target, proba consistency,
+    # and 1D/2D shape behavior.
     X = [[0], [0], [0], [0]]  # ignored
     y = np.array([[1, 0], [2, 0], [1, 0], [1, 3]])
 
@@ -148,6 +182,9 @@ def test_most_frequent_and_prior_strategy_multioutput():
 
 
 def test_stratified_strategy(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that "stratified" predictions on 500 samples follow the training class
+    # frequencies (3/5 and 2/5) to one decimal, plus proba consistency.
     X = [[0]] * 5  # ignored
     y = [1, 2, 1, 1, 2]
     clf = DummyClassifier(strategy="stratified", random_state=global_random_seed)
@@ -162,6 +199,9 @@ def test_stratified_strategy(global_random_seed):
 
 
 def test_stratified_strategy_multioutput(global_random_seed):
+    # [FUNCTION DOC]
+    # Same as test_stratified_strategy for each output of a 2-output target, plus
+    # shape behavior.
     X = [[0]] * 5  # ignored
     y = np.array([[2, 1], [2, 2], [1, 1], [1, 2], [1, 1]])
 
@@ -181,6 +221,9 @@ def test_stratified_strategy_multioutput(global_random_seed):
 
 
 def test_uniform_strategy(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks "uniform" predictions are approximately equiprobable across the two
+    # classes, plus proba consistency.
     X = [[0]] * 4  # ignored
     y = [1, 2, 1, 1]
     clf = DummyClassifier(strategy="uniform", random_state=global_random_seed)
@@ -195,6 +238,8 @@ def test_uniform_strategy(global_random_seed):
 
 
 def test_uniform_strategy_multioutput(global_random_seed):
+    # [FUNCTION DOC]
+    # Same as test_uniform_strategy for each output of a 2-output target.
     X = [[0]] * 4  # ignored
     y = np.array([[2, 1], [2, 2], [1, 2], [1, 1]])
     clf = DummyClassifier(strategy="uniform", random_state=global_random_seed)
@@ -213,6 +258,8 @@ def test_uniform_strategy_multioutput(global_random_seed):
 
 
 def test_string_labels():
+    # [FUNCTION DOC]
+    # Checks "most_frequent" works with string class labels.
     X = [[0]] * 5
     y = ["paris", "paris", "tokyo", "amsterdam", "berlin"]
     clf = DummyClassifier(strategy="most_frequent")
@@ -231,6 +278,9 @@ def test_string_labels():
     ],
 )
 def test_classifier_score_with_None(y, y_test):
+    # [FUNCTION DOC]
+    # Checks DummyClassifier accepts X=None in fit and score, giving accuracy 0.5 on
+    # the given 1D and 2D targets.
     clf = DummyClassifier(strategy="most_frequent")
     clf.fit(None, y)
     assert clf.score(None, y_test) == 0.5
@@ -240,6 +290,8 @@ def test_classifier_score_with_None(y, y_test):
     "strategy", ["stratified", "most_frequent", "prior", "uniform", "constant"]
 )
 def test_classifier_prediction_independent_of_X(strategy, global_random_seed):
+    # [FUNCTION DOC]
+    # For every strategy with the same seed, predictions do not depend on X values.
     y = [0, 2, 1, 1]
     X1 = [[0]] * 4
     clf1 = DummyClassifier(
@@ -259,6 +311,8 @@ def test_classifier_prediction_independent_of_X(strategy, global_random_seed):
 
 
 def test_mean_strategy_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks the default "mean" strategy predicts the mean of y for each sample.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X = [[0]] * 4  # ignored
@@ -270,6 +324,8 @@ def test_mean_strategy_regressor(global_random_seed):
 
 
 def test_mean_strategy_multioutput_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks per-output means on a 5-output target for train and test, plus shapes.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X_learn = random_state.randn(10, 10)
@@ -291,12 +347,16 @@ def test_mean_strategy_multioutput_regressor(global_random_seed):
 
 
 def test_regressor_exceptions():
+    # [FUNCTION DOC]
+    # Checks predict on an unfitted DummyRegressor raises NotFittedError.
     reg = DummyRegressor()
     with pytest.raises(NotFittedError):
         reg.predict([])
 
 
 def test_median_strategy_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks "median" predicts the median of y.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X = [[0]] * 5  # ignored
@@ -308,6 +368,8 @@ def test_median_strategy_regressor(global_random_seed):
 
 
 def test_median_strategy_multioutput_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks per-output medians on a 5-output target, plus shapes.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X_learn = random_state.randn(10, 10)
@@ -329,6 +391,9 @@ def test_median_strategy_multioutput_regressor(global_random_seed):
 
 
 def test_quantile_strategy_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks "quantile" with quantile 0.5, 0, 1 and 0.3 predicts the median, min, max
+    # and 30th percentile of y.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X = [[0]] * 5  # ignored
@@ -352,6 +417,8 @@ def test_quantile_strategy_regressor(global_random_seed):
 
 
 def test_quantile_strategy_multioutput_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks per-output 50th and 80th percentiles on a 5-output target, plus shapes.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X_learn = random_state.randn(10, 10)
@@ -385,6 +452,8 @@ def test_quantile_strategy_multioutput_regressor(global_random_seed):
 
 
 def test_quantile_invalid():
+    # [FUNCTION DOC]
+    # Checks "quantile" with quantile None raises ValueError at fit.
     X = [[0]] * 5  # ignored
     y = [0] * 5  # ignored
 
@@ -397,12 +466,17 @@ def test_quantile_invalid():
 
 
 def test_quantile_strategy_empty_train():
+    # [FUNCTION DOC]
+    # Checks fitting "quantile" on empty data raises IndexError.
     est = DummyRegressor(strategy="quantile", quantile=0.4)
     with pytest.raises(IndexError):
         est.fit([], [])
 
 
 def test_constant_strategy_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks "constant" with a list or scalar constant predicts it, and that the
+    # constant parameter is not converted to an ndarray (non-regression #22478).
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X = [[0]] * 5  # ignored
@@ -421,6 +495,9 @@ def test_constant_strategy_regressor(global_random_seed):
 
 
 def test_constant_strategy_multioutput_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks a per-output constant vector is predicted for train and test, plus shapes
+    # for a 5-output target.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X_learn = random_state.randn(10, 10)
@@ -443,6 +520,8 @@ def test_constant_strategy_multioutput_regressor(global_random_seed):
 
 
 def test_y_mean_attribute_regressor():
+    # [FUNCTION DOC]
+    # Checks constant_ equals mean(y) after fitting with "mean".
     X = [[0]] * 5
     y = [1, 2, 4, 6, 8]
     # when strategy = 'mean'
@@ -453,6 +532,8 @@ def test_y_mean_attribute_regressor():
 
 
 def test_constants_not_specified_regressor():
+    # [FUNCTION DOC]
+    # Checks "constant" without constant raises TypeError at fit.
     X = [[0]] * 5
     y = [1, 2, 4, 6, 8]
 
@@ -463,6 +544,9 @@ def test_constants_not_specified_regressor():
 
 
 def test_constant_size_multioutput_regressor(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks a constant of length 4 for a 5-output target raises ValueError about
+    # expected shape (5, 1).
     random_state = np.random.RandomState(seed=global_random_seed)
     X = random_state.randn(10, 10)
     y = random_state.randn(10, 5)
@@ -474,6 +558,9 @@ def test_constant_size_multioutput_regressor(global_random_seed):
 
 
 def test_constant_strategy():
+    # [FUNCTION DOC]
+    # Checks DummyClassifier "constant" with integer and string constants predicts the
+    # constant, plus proba consistency.
     X = [[0], [0], [0], [0]]  # ignored
     y = [2, 1, 2, 2]
 
@@ -491,6 +578,8 @@ def test_constant_strategy():
 
 
 def test_constant_strategy_multioutput():
+    # [FUNCTION DOC]
+    # Checks per-output constant [1, 0] on a 2-output target.
     X = [[0], [0], [0], [0]]  # ignored
     y = np.array([[2, 3], [1, 3], [2, 3], [2, 0]])
 
@@ -534,6 +623,9 @@ def test_constant_strategy_multioutput():
     ],
 )
 def test_constant_strategy_exceptions(y, params, err_msg):
+    # [FUNCTION DOC]
+    # Parametrized invalid constant configurations (missing, wrong length, not a known
+    # class) must raise ValueError with the given message at fit.
     X = [[0], [0], [0], [0]]
 
     clf = DummyClassifier(strategy="constant", **params)
@@ -542,6 +634,8 @@ def test_constant_strategy_exceptions(y, params, err_msg):
 
 
 def test_classification_sample_weight():
+    # [FUNCTION DOC]
+    # Checks class_prior_ is computed from sample weights.
     X = [[0], [0], [1]]
     y = [0, 1, 0]
     sample_weight = [0.1, 1.0, 0.1]
@@ -552,6 +646,9 @@ def test_classification_sample_weight():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_constant_strategy_sparse_target(csc_container):
+    # [FUNCTION DOC]
+    # Checks "constant" on a sparse CSC target returns sparse predictions with the
+    # expected values.
     X = [[0]] * 5  # ignored
     y = csc_container(np.array([[0, 1], [4, 0], [1, 1], [1, 4], [1, 1]]))
 
@@ -568,6 +665,9 @@ def test_constant_strategy_sparse_target(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_uniform_strategy_sparse_target_warning(global_random_seed, csc_container):
+    # [FUNCTION DOC]
+    # Checks "uniform" with sparse target warns that it would not save memory, and
+    # predictions per output are roughly uniform over the three classes.
     X = [[0]] * 5  # ignored
     y = csc_container(np.array([[2, 1], [2, 2], [1, 4], [4, 2], [1, 1]]))
 
@@ -587,6 +687,9 @@ def test_uniform_strategy_sparse_target_warning(global_random_seed, csc_containe
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_stratified_strategy_sparse_target(global_random_seed, csc_container):
+    # [FUNCTION DOC]
+    # Checks "stratified" with sparse target returns sparse predictions following
+    # class frequencies per output.
     X = [[0]] * 5  # ignored
     y = csc_container(np.array([[4, 1], [0, 0], [1, 1], [1, 4], [1, 1]]))
 
@@ -607,6 +710,9 @@ def test_stratified_strategy_sparse_target(global_random_seed, csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_most_frequent_and_prior_strategy_sparse_target(csc_container):
+    # [FUNCTION DOC]
+    # Checks "most_frequent" and "prior" with sparse target return sparse majority
+    # predictions.
     X = [[0]] * 5  # ignored
     y = csc_container(np.array([[1, 0], [1, 3], [4, 0], [0, 1], [1, 0]]))
 
@@ -622,6 +728,9 @@ def test_most_frequent_and_prior_strategy_sparse_target(csc_container):
 
 
 def test_dummy_regressor_sample_weight(global_random_seed, n_samples=10):
+    # [FUNCTION DOC]
+    # Checks constant_ equals the weighted mean, weighted median and weighted 95th
+    # percentile (via _weighted_percentile) for the respective strategies.
     random_state = np.random.RandomState(seed=global_random_seed)
 
     X = [[0]] * n_samples
@@ -639,6 +748,8 @@ def test_dummy_regressor_sample_weight(global_random_seed, n_samples=10):
 
 
 def test_dummy_regressor_on_3D_array():
+    # [FUNCTION DOC]
+    # Checks DummyRegressor fits/predicts on a 3D string array X (X is ignored).
     X = np.array([[["foo"]], [["bar"]], [["baz"]]])
     y = np.array([2, 2, 2])
     y_expected = np.array([2, 2, 2])
@@ -649,6 +760,9 @@ def test_dummy_regressor_on_3D_array():
 
 
 def test_dummy_classifier_on_3D_array():
+    # [FUNCTION DOC]
+    # Checks DummyClassifier "stratified" on 3D X with a single class predicts that
+    # class with probability 1.
     X = np.array([[["foo"]], [["bar"]], [["baz"]]])
     y = [2, 2, 2]
     y_expected = [2, 2, 2]
@@ -662,6 +776,8 @@ def test_dummy_classifier_on_3D_array():
 
 
 def test_dummy_regressor_return_std():
+    # [FUNCTION DOC]
+    # Checks predict with return_std returns a pair whose std part is all zeros.
     X = [[0]] * 3  # ignored
     y = np.array([2, 2, 2])
     y_std_expected = np.array([0, 0, 0])
@@ -682,6 +798,9 @@ def test_dummy_regressor_return_std():
     ],
 )
 def test_regressor_score_with_None(y, y_test):
+    # [FUNCTION DOC]
+    # Checks DummyRegressor accepts X=None in fit and score; R2 is 1.0 when test
+    # targets equal the training mean.
     reg = DummyRegressor()
     reg.fit(None, y)
     assert reg.score(None, y_test) == 1.0
@@ -689,6 +808,8 @@ def test_regressor_score_with_None(y, y_test):
 
 @pytest.mark.parametrize("strategy", ["mean", "median", "quantile", "constant"])
 def test_regressor_prediction_independent_of_X(strategy):
+    # [FUNCTION DOC]
+    # For each regressor strategy, predictions do not depend on X values.
     y = [0, 2, 1, 1]
     X1 = [[0]] * 4
     reg1 = DummyRegressor(strategy=strategy, constant=0, quantile=0.7)
@@ -707,6 +828,8 @@ def test_regressor_prediction_independent_of_X(strategy):
     "strategy", ["stratified", "most_frequent", "prior", "uniform", "constant"]
 )
 def test_dtype_of_classifier_probas(strategy):
+    # [FUNCTION DOC]
+    # Checks predict_proba returns float64 for every classifier strategy.
     y = [0, 2, 1, 1]
     X = np.zeros(4)
     model = DummyClassifier(strategy=strategy, random_state=0, constant=0)
