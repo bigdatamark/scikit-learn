@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Loaders for the 20 newsgroups text dataset (by-date split, ~18800 posts in 20
+# categories): fetch_20newsgroups returns raw texts, fetch_20newsgroups_vectorized
+# returns bag-of-words counts or L2-normalized features. Also exposes text cleaners for
+# headers, footers and quoted replies. The raw corpus is cached as a zlib-compressed
+# pickle (20news-bydate.pkz) in data_home.
+# Side effects at import: creates a module-level logger and compiles the quote-detection
+# regex.
 """Caching loader for the 20 newsgroups text classification dataset.
 
 
@@ -69,6 +77,17 @@ TEST_FOLDER = "20news-bydate-test"
 
 
 def _download_20newsgroups(target_dir, cache_path, n_retries, delay):
+    # [FUNCTION DOC]
+    # HELPER: Downloads the 20news-bydate tarball, builds and stores the zipped-pickle
+    # cache.
+    # Steps: create target_dir; download and extract the archive there; delete the
+    # archive (ignoring absence); load the train and test folders with load_files
+    # (latin1 decoding); pickle the dict {train, test}, zlib-compress it and write to
+    # cache_path; delete target_dir entirely.
+    # Inputs: target_dir - temporary extraction directory; cache_path - output file;
+    # n_retries; delay.
+    # Outputs: dict with "train" and "test" Bunches from load_files.
+    # Side effects: network download, file writes, directory removal, logging.
     """Download the 20 newsgroups data and stored it as a zipped pickle."""
     train_path = os.path.join(target_dir, TRAIN_FOLDER)
     test_path = os.path.join(target_dir, TEST_FOLDER)
@@ -101,6 +120,10 @@ def _download_20newsgroups(target_dir, cache_path, n_retries, delay):
 
 
 def strip_newsgroup_header(text):
+    # [FUNCTION DOC]
+    # Removes the header block of a newsgroup post: returns everything after the first
+    # blank line (two consecutive newlines), or an empty string if there is none.
+    # Inputs: text - str. Outputs: str. Side effects: none.
     """
     Given text in "news" format, strip the headers, by removing everything
     before the first blank line.
@@ -120,6 +143,12 @@ _QUOTE_RE = re.compile(
 
 
 def strip_newsgroup_quoting(text):
+    # [FUNCTION DOC]
+    # Removes lines that look like quotations: any line matching the module regex
+    # (contains "writes in", "writes:", "wrote:", "says:", "said:", or starts with "In
+    # article", "Quoted from", "|" or ">").
+    # Inputs: text - str. Outputs: str with remaining lines joined by newlines. Side
+    # effects: none.
     """
     Given text in "news" format, strip lines beginning with the quote
     characters > or |, plus lines that often introduce a quoted section
@@ -135,6 +164,12 @@ def strip_newsgroup_quoting(text):
 
 
 def strip_newsgroup_footer(text):
+    # [FUNCTION DOC]
+    # Removes a signature block: after stripping the text, scans lines from the end for
+    # the last line that is empty or consists only of dashes, and returns everything
+    # before it. If none is found (or it is the first line), the original text is
+    # returned unchanged.
+    # Inputs: text - str. Outputs: str. Side effects: none.
     """
     Given text in "news" format, attempt to remove a signature block.
 
@@ -187,6 +222,26 @@ def fetch_20newsgroups(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns raw newsgroup posts with optional filtering, cleaning and shuffling.
+    # Steps: try to read and decompress the cache pickle (on failure, print the error
+    # and fall back). If no cache, download via _download_20newsgroups or raise. Select
+    # the train or test Bunch, or for "all" concatenate train then test data, targets
+    # and filenames into the test Bunch. Attach DESCR. Apply header, footer and quote
+    # stripping as requested by remove. If categories is given, map each name to its
+    # index in target_names, sort by index, keep only matching samples and re-encode
+    # targets to 0..k-1 in that order. If shuffle, permute data, target and filenames
+    # with random_state.
+    # Inputs: data_home; subset - train, test or all; categories - list of names or
+    # None; shuffle - bool, default True; random_state - default 42; remove - tuple
+    # subset of headers, footers, quotes; download_if_missing; return_X_y; n_retries;
+    # delay.
+    # Outputs: (list of str, target int array) or the Bunch (data, filenames, target,
+    # target_names, DESCR, ...).
+    # Exceptions: OSError if not cached and downloads disabled; ValueError for an
+    # unknown category name (from list index lookup).
+    # Side effects: possible download/cache writes; prints to stdout on cache load
+    # failure.
     """Load the filenames and data from the 20 newsgroups dataset \
 (classification).
 
@@ -412,6 +467,23 @@ def fetch_20newsgroups_vectorized(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns token-count (or L2-normalized) sparse features for the 20 newsgroups data.
+    # Steps: build a cache file name including the removed parts; fetch train and test
+    # with shuffle seed 12; if the vectorized cache exists load (X_train, X_test,
+    # feature_names) else fit CountVectorizer (int16 counts) on train texts, transform
+    # test, and dump. If normalize, cast to float64 and L2-normalize rows in place. Pick
+    # train, test, or vertically stacked all; optionally convert to a sparse pandas
+    # DataFrame with target column "category_class".
+    # Inputs: subset; remove; data_home; download_if_missing; return_X_y; normalize -
+    # bool, default True; as_frame; n_retries; delay.
+    # Outputs: (data, target) or Bunch(data CSR (n, n_vocab), target, frame,
+    # target_names, feature_names, DESCR).
+    # Exceptions: ValueError if the cached pickle is incompatible with this version;
+    # errors from fetch_20newsgroups.
+    # Side effects: writes the vectorized cache file.
+    # KNOWN ISSUE: the cache file name concatenates "20newsgroup_vectorized" and
+    # "remove-..." without a separator (cosmetic only).
     """Load and vectorize the 20 newsgroups dataset (classification).
 
     Download it if necessary.

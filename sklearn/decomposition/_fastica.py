@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# FastICA independent component analysis: the public FastICA estimator and the fastica
+# functional wrapper, plus private helpers for the deflationary and parallel (symmetric)
+# fixed-point iterations, decorrelation of unmixing vectors, and the built-in neg-
+# entropy contrast functions (logcosh, exp, cube). Data is processed internally
+# transposed (n_features, n_samples).
+# Side effects at import: none.
 """
 Python implementation of the fast ICA algorithms.
 
@@ -34,6 +41,12 @@ __all__ = ["FastICA", "fastica"]
 
 
 def _gs_decorrelation(w, W, j):
+    # [FUNCTION DOC]
+    # HELPER: Gram-Schmidt step: subtracts from w its projection onto the span of the
+    #   first j rows of W (assumed orthonormal).
+    # Inputs: w (n,) vector, modified in place; W (p, n) matrix; j number of leading
+    #   rows to orthogonalize against.
+    # Outputs: the same w array. Side effects: mutates w.
     """
     Orthonormalize w wrt the first j rows of W.
 
@@ -59,6 +72,13 @@ def _gs_decorrelation(w, W, j):
 
 
 def _sym_decorrelation(W):
+    # [FUNCTION DOC]
+    # HELPER: Symmetric decorrelation, returning (W W^T)^(-1/2) W. Eigen-decomposes W
+    #   W^T, clips eigenvalues to the dtype's smallest positive number to avoid negative
+    #   roots/division by zero, and rebuilds the inverse square root from the
+    #   eigenvectors.
+    # Inputs: W (n_components, n_components) array. Outputs: new decorrelated array of
+    #   same shape. Side effects: none.
     """Symmetric decorrelation
     i.e. W <- (W * W.T) ^{-1/2} * W
     """
@@ -74,6 +94,22 @@ def _sym_decorrelation(W):
 
 
 def _ica_def(X, tol, g, fun_args, max_iter, w_init):
+    # [FUNCTION DOC]
+    # HELPER: Deflationary FastICA. For each component j in order: take row j of w_init
+    #   normalised to unit length, then iterate up to max_iter times: compute the
+    #   contrast g and its averaged derivative on the projection of X onto w, set the
+    #   new w to the mean of X weighted by g minus the mean derivative times w,
+    #   orthogonalize against the already extracted rows with _gs_decorrelation,
+    #   renormalise, and stop when the absolute dot product of old and new w is within
+    #   tol of 1. Store w as row j.
+    # Inputs: X (n_components, n_samples) whitened data; tol float; g contrast callable
+    #   returning (g(x), mean g'(x)); fun_args dict for g; max_iter int; w_init
+    #   (n_components, n_components).
+    # Outputs: tuple (W unmixing matrix (n_components, n_components), maximum iteration
+    #   count over components).
+    # Side effects: none on inputs (w_init rows are copied).
+    # KNOWN ISSUE: unlike _ica_par, no ConvergenceWarning is emitted when a component
+    #   hits max_iter.
     """Deflationary FastICA using fun approx to neg-entropy function
 
     Used internally by FastICA.
@@ -109,6 +145,16 @@ def _ica_def(X, tol, g, fun_args, max_iter, w_init):
 
 
 def _ica_par(X, tol, g, fun_args, max_iter, w_init):
+    # [FUNCTION DOC]
+    # HELPER: Parallel (symmetric) FastICA. Starting from the symmetrically decorrelated
+    #   w_init, repeat up to max_iter times: compute g and its averaged derivative on W
+    #   X, form the update (g(WX) X^T / n_samples) minus diag(mean g') W, symmetrically
+    #   decorrelate it, and stop when the largest deviation from 1 of the absolute row-
+    #   wise dot products between new and old W is below tol.
+    # Inputs: X (n_components, n_samples) whitened data; tol; g; fun_args; max_iter;
+    #   w_init (n_components, n_components).
+    # Outputs: tuple (W, number of iterations performed).
+    # Side effects: emits ConvergenceWarning if max_iter is reached without convergence.
     """Parallel FastICA.
 
     Used internally by FastICA --main loop
@@ -141,6 +187,17 @@ def _ica_par(X, tol, g, fun_args, max_iter, w_init):
 
 
 def _logcosh(x, fun_args=None):
+    # [FUNCTION DOC]
+    # HELPER: logcosh contrast. Multiplies x by alpha (fun_args 'alpha', default 1) and
+    #   computes tanh in place; derivative is alpha times (1 - tanh squared), averaged
+    #   over the last axis for 2D input (row-by-row loop to save memory), unaveraged for
+    #   1D input.
+    # Inputs: x 1D or 2D array (overwritten); fun_args dict.
+    # Outputs: tuple (tanh(alpha x) array, derivative: per-row means for 2D, full array
+    #   for 1D).
+    # Side effects: mutates x in place.
+    # KNOWN ISSUE: the default fun_args=None would fail on the get call; callers always
+    #   pass a dict.
     alpha = fun_args.get("alpha", 1.0)
 
     x *= alpha
@@ -158,6 +215,10 @@ def _logcosh(x, fun_args=None):
 
 
 def _exp(x, fun_args):
+    # [FUNCTION DOC]
+    # HELPER: exp contrast: g(x) = x times exp(-x^2/2) and g'(x) = (1 - x^2)
+    #   exp(-x^2/2), the latter averaged over the last axis. fun_args is unused.
+    # Outputs: tuple (g array same shape as x, mean derivative).
     exp = np.exp(-(x**2) / 2)
     gx = x * exp
     g_x = (1 - x**2) * exp
@@ -165,6 +226,9 @@ def _exp(x, fun_args):
 
 
 def _cube(x, fun_args):
+    # [FUNCTION DOC]
+    # HELPER: cube contrast: returns x cubed and the mean over the last axis of 3 x
+    #   squared. fun_args unused.
     return x**3, (3 * x**2).mean(axis=-1)
 
 
@@ -194,6 +258,19 @@ def fastica(
     compute_sources=True,
     return_n_iter=False,
 ):
+    # [FUNCTION DOC]
+    # Functional interface: builds a FastICA estimator from the arguments, validates its
+    # params, runs _fit_transform with compute_sources, and collects outputs.
+    # Inputs: X array-like (n_samples, n_features); remaining arguments mirror the
+    #   FastICA constructor; return_X_mean, compute_sources, return_n_iter booleans.
+    # Outputs: list [K whitening matrix (n_components, n_features) or None if not
+    #   whitening, W unmixing (n_components, n_components), S sources (n_samples,
+    #   n_components) or None], optionally followed by X_mean (or None) and n_iter.
+    # Exceptions: InvalidParameterError for bad arguments; ValueErrors from
+    #   _fit_transform.
+    # Side effects: warnings from fitting; consumes random_state.
+    # KNOWN ISSUE: returns a list rather than a tuple; with whiten='unit-variance' the
+    #   returned W is the rescaled unmixing matrix.
     """Perform Fast Independent Component Analysis.
 
     The implementation is based on [1]_.
@@ -373,6 +450,11 @@ def fastica(
 
 
 class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator performing FastICA. fit learns components_ (unmixing applied to centered
+    # data), mixing_ (its pseudo-inverse), mean_ and whitening_ (when whitening),
+    # n_iter_, and a private _unmixing matrix W; transform projects centered data onto
+    # components_. Preserves float32/float64.
     """FastICA: a fast algorithm for Independent Component Analysis.
 
     The implementation is based on [1]_.
@@ -538,6 +620,13 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         whiten_solver="svd",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
+        # Inputs: n_components (int or None), algorithm ('parallel' or 'deflation'),
+        #   whiten ('unit-variance', 'arbitrary-variance' or False), fun ('logcosh',
+        #   'exp', 'cube' or callable), fun_args (dict or None), max_iter (int, default
+        #   200), tol (float, default 1e-4), w_init (array (n_components, n_components)
+        #   or None), whiten_solver ('svd' or 'eigh'), random_state.
         super().__init__()
         self.n_components = n_components
         self.algorithm = algorithm
@@ -551,6 +640,29 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         self.random_state = random_state
 
     def _fit_transform(self, X, compute_sources=False):
+        # [FUNCTION DOC]
+        # HELPER: Core fitting routine. Steps: validate X (copied if whitening,
+        #   float32/64, at least 2 samples) and transpose; resolve fun_args and check
+        #   its alpha lies in [1, 2]; pick the contrast function (a callable fun is
+        #   wrapped to receive fun_args as keywords). Resolve n_components: ignored with
+        #   a warning when not whitening, defaulting to and capped (with warning) at
+        #   min(n_samples, n_features). If whitening: center features, compute eigen-
+        #   decomposition of X^T X ('eigh', clamping tiny eigenvalues with a warning and
+        #   taking square roots, sorted descending) or an SVD ('svd'); fix eigenvector
+        #   signs by the first row; build K as the first n_components rows of u divided
+        #   by singular values, transposed; whitened data X1 is K times centered data
+        #   times sqrt(n_samples). Otherwise X1 is the data as float. Draw w_init from a
+        #   standard normal if absent, else check its shape. Run _ica_par or _ica_def.
+        #   Compute sources S as W K X (or W X) when requested; for 'unit-variance',
+        #   compute S anyway, divide S by its per-component std and rescale W rows
+        #   accordingly.
+        # Inputs: X array-like (n_samples, n_features); compute_sources bool.
+        # Outputs: S (n_samples, n_components) or None (S is always returned for 'unit-
+        #   variance').
+        # Exceptions: ValueError if alpha is not in [1,2] or w_init has the wrong shape.
+        # Side effects: sets n_iter_, components_ (W K or W), mean_ and whitening_
+        #   (whitening only), mixing_, _unmixing; centers X in place on the copy;
+        #   warnings; consumes random_state.
         """Fit the model.
 
         Parameters
@@ -591,6 +703,10 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         elif callable(self.fun):
 
             def g(x, fun_args):
+                # [FUNCTION DOC]
+                # HELPER: Adapter calling the user-provided fun with fun_args expanded
+                #   as keyword arguments.
+                # Outputs: whatever fun returns, expected (g(x), mean derivative).
                 return self.fun(x, **fun_args)
 
         n_features, n_samples = XT.shape
@@ -704,6 +820,9 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model and returns the sources via _fit_transform with
+        # compute_sources=True. Output: ndarray (n_samples, n_components).
         """Fit the model and recover the sources from X.
 
         Parameters
@@ -725,6 +844,8 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model via _fit_transform without computing sources; returns self.
         """Fit the model to X.
 
         Parameters
@@ -745,6 +866,13 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X, copy=True):
+        # [FUNCTION DOC]
+        # Recovers sources: validates X (copied only when copy and whitening), subtracts
+        # mean_ if whitening, and multiplies by components_ transposed.
+        # Inputs: X (n_samples, n_features); copy bool. Outputs: ndarray (n_samples,
+        #   n_components).
+        # Side effects: when copy is False and whitening, the input array may be
+        #   centered in place.
         """Recover the sources from X (apply the unmixing matrix).
 
         Parameters
@@ -777,6 +905,14 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return np.dot(X, self.components_.T)
 
     def inverse_transform(self, X, copy=True):
+        # [FUNCTION DOC]
+        # Maps sources back to data space: multiplies X by mixing_ transposed and adds
+        # mean_ when whitening.
+        # Inputs: X (n_samples, n_components); copy bool. Outputs: ndarray (n_samples,
+        #   n_features).
+        # KNOWN ISSUE: the copy flag only affects the check_array copy; the matrix
+        #   product always allocates a new array, so the input is never actually
+        #   overwritten.
         """Transform the sources back to the mixed data (apply mixing matrix).
 
         Parameters
@@ -803,10 +939,16 @@ class FastICA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the row count of
+        #   components_.
         """Number of transformed output features."""
         return self.components_.shape[0]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the base tags to declare that float64 and float32 inputs keep their
+        # dtype.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         return tags

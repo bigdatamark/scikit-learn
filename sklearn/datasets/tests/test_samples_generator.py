@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for the synthetic data generators in sklearn.datasets (make_classification,
+# make_multilabel_classification, make_regression, make_blobs, the Friedman problems,
+# low-rank / sparse-coded / SPD matrices, manifolds, biclusters, moons and circles).
+# Checks output shapes, statistical/geometric properties, determinism under random_state
+# and input validation errors.
 import re
 from collections import defaultdict
 from functools import partial
@@ -38,6 +44,11 @@ from sklearn.utils.validation import assert_all_finite
 
 
 def test_make_classification():
+    # [FUNCTION DOC]
+    # Verifies with weights [0.1, 0.25] (third class implied) and 3 classes that the
+    # weights list is not mutated, shapes are right and class counts are exactly
+    # 10/25/65; then that 31 informative features with hypercube produce 2000 distinct
+    # rows (row uniqueness via a structured-dtype view).
     weights = [0.1, 0.25]
     X, y = make_classification(
         n_samples=100,
@@ -86,6 +97,18 @@ def test_make_classification():
 
 
 def test_make_classification_informative_features():
+    # [FUNCTION DOC]
+    # With a huge class_sep and no shift, scale, flips or shuffling, for several
+    # (n_informative, weights, n_clusters_per_class) settings and both hypercube values,
+    # verifies shapes; that clustering samples by the sign pattern of their features
+    # gives exactly n_classes times n_clusters_per_class clusters with
+    # n_clusters_per_class per class; class proportions match weights; and that cluster
+    # centroids lie on hypercube vertices (scaled by class_sep) only when hypercube is
+    # True. Finally verifies ValueError when 2 informative features cannot host the
+    # requested clusters.
+    # KNOWN ISSUE: the proportion check uses floor division of observed proportions by
+    # weights and compares to 1, which is a loose check rather than an equality of
+    # ratios.
     """Test the construction of informative features in make_classification
 
     Also tests `n_clusters_per_class`, `n_classes`, `hypercube` and
@@ -185,6 +208,11 @@ def test_make_classification_informative_features():
 
 
 def test_make_classification_return_x_y():
+    # [FUNCTION DOC]
+    # Verifies that return_X_y=False returns a Bunch with DESCR (equal to the function
+    # docstring), parameters (equal to the passed kwargs), feature_info, X and y, with X
+    # and y identical to the return_X_y=True output, and that feature_info contains the
+    # right number of informative, redundant and repeated entries.
     """
     Test that make_classification returns a Bunch when return_X_y is False.
 
@@ -224,6 +252,8 @@ def test_make_classification_return_x_y():
     )
 
     def count(str_):
+        # [FUNCTION DOC]
+        # HELPER: Counts occurrences of str_ in bunch.feature_info.
         return bunch.feature_info.count(str_)
 
     assert np.array_equal(X, bunch.X)
@@ -262,12 +292,18 @@ def test_make_classification_return_x_y():
     ],
 )
 def test_make_classification_weights_type(weights, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Parametrized over weight lists/arrays whose length is incompatible with the
+    # default 2 classes; verifies ValueError with the incompatibility message.
     with pytest.raises(err_type, match=err_msg):
         make_classification(weights=weights)
 
 
 @pytest.mark.parametrize("kwargs", [{}, {"n_classes": 3, "n_informative": 3}])
 def test_make_classification_weights_array_or_list_ok(kwargs):
+    # [FUNCTION DOC]
+    # Verifies weights given as a list or a numpy array produce identical X and y, with
+    # the default and a 3-class configuration (weights of length n_classes - 1).
     X1, y1 = make_classification(weights=[0.1, 0.9], random_state=0, **kwargs)
     X2, y2 = make_classification(weights=np.array([0.1, 0.9]), random_state=0, **kwargs)
     assert_almost_equal(X1, X2)
@@ -275,6 +311,10 @@ def test_make_classification_weights_array_or_list_ok(kwargs):
 
 
 def test_make_multilabel_classification_return_sequences():
+    # [FUNCTION DOC]
+    # Verifies with return_indicator=False that labels are sequences, with minimum
+    # length 0 when allow_unlabeled else 1, at most 3 labels, and max label index 2 when
+    # unlabeled samples are not allowed.
     for allow_unlabeled, min_length in zip((True, False), (0, 1)):
         X, Y = make_multilabel_classification(
             n_samples=100,
@@ -292,6 +332,14 @@ def test_make_multilabel_classification_return_sequences():
 
 
 def test_make_multilabel_classification_return_indicator():
+    # [FUNCTION DOC]
+    # Verifies the dense indicator output shape (25, 3) and positive column sums for
+    # both allow_unlabeled values; then with return_distributions=True verifies
+    # identical X, Y and the class prior (sums to 1, shape 3) and per-class word
+    # distributions (20 x 3, columns sum to 1).
+    # KNOWN ISSUE: the column-sum check against min_length does not test per-sample
+    # label counts, and the final call reuses allow_unlabeled leaked from the loop
+    # (False).
     for allow_unlabeled, min_length in zip((True, False), (0, 1)):
         X, Y = make_multilabel_classification(
             n_samples=25,
@@ -325,6 +373,9 @@ def test_make_multilabel_classification_return_indicator():
 @pytest.mark.parametrize("allow_unlabeled", [True, False])
 @pytest.mark.parametrize("sparse_feature", [True, False])
 def test_make_multilabel_classification_return_sparse(allow_unlabeled, sparse_feature):
+    # [FUNCTION DOC]
+    # Verifies return_indicator="sparse" gives a sparse Y and that X is sparse exactly
+    # when sparse=True, for both allow_unlabeled values.
     X, Y = make_multilabel_classification(
         n_samples=25,
         n_features=20,
@@ -341,6 +392,8 @@ def test_make_multilabel_classification_return_sparse(allow_unlabeled, sparse_fe
 
 
 def test_make_hastie_10_2():
+    # [FUNCTION DOC]
+    # Verifies shapes (100, 10) and two distinct labels.
     X, y = make_hastie_10_2(n_samples=100, random_state=0)
     assert X.shape == (100, 10), "X shape mismatch"
     assert y.shape == (100,), "y shape mismatch"
@@ -348,6 +401,10 @@ def test_make_hastie_10_2():
 
 
 def test_make_regression(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes, that exactly 3 coefficients are nonzero, and that the residual of
+    # y minus X times coef has standard deviation about 1 (the noise level); also that
+    # n_features=1 works with the default n_informative larger than n_features.
     X, y, c = make_regression(
         n_samples=200,
         n_features=10,
@@ -373,6 +430,9 @@ def test_make_regression(global_random_seed):
 
 
 def test_make_regression_multitarget(global_random_seed):
+    # [FUNCTION DOC]
+    # Same as test_make_regression for 3 targets: shapes, 3 nonzero coefficients per
+    # target and unit noise standard deviation.
     X, y, c = make_regression(
         n_samples=100,
         n_features=10,
@@ -393,6 +453,9 @@ def test_make_regression_multitarget(global_random_seed):
 
 
 def test_make_blobs(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes, three labels, and that each blob's spread around its given center
+    # approximates its given standard deviation.
     cluster_stds = np.array([0.05, 0.2, 0.4])
     cluster_centers = np.array([[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     X, y = make_blobs(
@@ -411,6 +474,8 @@ def test_make_blobs(global_random_seed):
 
 
 def test_make_blobs_n_samples_list():
+    # [FUNCTION DOC]
+    # Verifies a list n_samples yields that exact count per blob.
     n_samples = [50, 30, 20]
     X, y = make_blobs(n_samples=n_samples, n_features=2, random_state=0)
 
@@ -421,6 +486,8 @@ def test_make_blobs_n_samples_list():
 
 
 def test_make_blobs_n_samples_list_with_centers(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies per-blob counts and per-blob standard deviations with explicit centers.
     n_samples = [20, 20, 20]
     centers = np.array([[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     cluster_stds = np.array([0.05, 0.2, 0.4])
@@ -443,6 +510,9 @@ def test_make_blobs_n_samples_list_with_centers(global_random_seed):
     "n_samples", [[5, 3, 0], np.array([5, 3, 0]), tuple([5, 3, 0])]
 )
 def test_make_blobs_n_samples_centers_none(n_samples):
+    # [FUNCTION DOC]
+    # Parametrized over list/array/tuple n_samples including a zero; verifies counts per
+    # blob when centers is None (centers generated from len(n_samples)).
     centers = None
     X, y = make_blobs(n_samples=n_samples, centers=centers, random_state=0)
 
@@ -453,6 +523,8 @@ def test_make_blobs_n_samples_centers_none(n_samples):
 
 
 def test_make_blobs_return_centers():
+    # [FUNCTION DOC]
+    # Verifies return_centers=True returns centers of shape (n_blobs, n_features).
     n_samples = [10, 20]
     n_features = 3
     X, y, centers = make_blobs(
@@ -463,6 +535,9 @@ def test_make_blobs_return_centers():
 
 
 def test_make_blobs_error():
+    # [FUNCTION DOC]
+    # Verifies ValueError messages when n_samples length mismatches centers, cluster_std
+    # length mismatches centers, and centers is an int while n_samples is a list.
     n_samples = [20, 20, 20]
     centers = np.array([[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     cluster_stds = np.array([0.05, 0.2, 0.4])
@@ -486,6 +561,9 @@ def test_make_blobs_error():
 
 
 def test_make_friedman1(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes and that noise-free y equals the Friedman #1 formula on the first
+    # five features.
     X, y = make_friedman1(
         n_samples=5, n_features=10, noise=0.0, random_state=global_random_seed
     )
@@ -503,6 +581,8 @@ def test_make_friedman1(global_random_seed):
 
 
 def test_make_friedman2(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes and that noise-free y equals the Friedman #2 formula.
     X, y = make_friedman2(n_samples=5, noise=0.0, random_state=global_random_seed)
 
     assert X.shape == (5, 4), "X shape mismatch"
@@ -514,6 +594,8 @@ def test_make_friedman2(global_random_seed):
 
 
 def test_make_friedman3(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes and that noise-free y equals the Friedman #3 formula.
     X, y = make_friedman3(n_samples=5, noise=0.0, random_state=global_random_seed)
 
     assert X.shape == (5, 4), "X shape mismatch"
@@ -525,6 +607,11 @@ def test_make_friedman3(global_random_seed):
 
 
 def test_make_low_rank_matrix():
+    # [FUNCTION DOC]
+    # Verifies shape and that the singular values sum to roughly the effective rank 5.
+    # KNOWN ISSUE: the check is one-sided (sum minus 5 below 0.1) so a much smaller sum
+    # would also pass; the message speaks about rank although it tests the singular
+    # value sum.
     X = make_low_rank_matrix(
         n_samples=50,
         n_features=25,
@@ -542,6 +629,9 @@ def test_make_low_rank_matrix():
 
 
 def test_make_sparse_coded_signal(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes of Y, D and X, exactly 3 nonzeros per code row, Y equals X times D
+    # and the dictionary atoms (rows of D) have unit norm.
     Y, D, X = make_sparse_coded_signal(
         n_samples=5,
         n_components=8,
@@ -559,6 +649,8 @@ def test_make_sparse_coded_signal(global_random_seed):
 
 
 def test_make_sparse_uncorrelated():
+    # [FUNCTION DOC]
+    # Verifies output shapes only.
     X, y = make_sparse_uncorrelated(n_samples=5, n_features=10, random_state=0)
 
     assert X.shape == (5, 10), "X shape mismatch"
@@ -566,6 +658,8 @@ def test_make_sparse_uncorrelated():
 
 
 def test_make_spd_matrix(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies a square symmetric matrix with all eigenvalues positive.
     X = make_spd_matrix(n_dim=5, random_state=global_random_seed)
 
     assert X.shape == (5, 5), "X shape mismatch"
@@ -582,6 +676,10 @@ def test_make_spd_matrix(global_random_seed):
     "sparse_format", [None, "bsr", "coo", "csc", "csr", "dia", "dok", "lil"]
 )
 def test_make_sparse_spd_matrix(norm_diag, sparse_format, global_random_seed):
+    # [FUNCTION DOC]
+    # Parametrized over norm_diag and sparse_format (None or each scipy format).
+    # Verifies shape, dense vs sparse type and format, symmetry, positive eigenvalues
+    # (computed on the dense form) and unit diagonal when norm_diag.
     n_dim = 5
     X = make_sparse_spd_matrix(
         n_dim=n_dim,
@@ -613,6 +711,9 @@ def test_make_sparse_spd_matrix(norm_diag, sparse_format, global_random_seed):
 
 @pytest.mark.parametrize("hole", [False, True])
 def test_make_swiss_roll(global_random_seed, hole):
+    # [FUNCTION DOC]
+    # For hole False/True verifies shapes and that the first and third coordinates equal
+    # t times cos(t) and t times sin(t) with no noise.
     X, t = make_swiss_roll(
         n_samples=5, noise=0.0, random_state=global_random_seed, hole=hole
     )
@@ -624,6 +725,8 @@ def test_make_swiss_roll(global_random_seed, hole):
 
 
 def test_make_s_curve(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies shapes and the S-curve coordinate formulas in terms of t with no noise.
     X, t = make_s_curve(n_samples=5, noise=0.0, random_state=global_random_seed)
 
     assert X.shape == (5, 3), "X shape mismatch"
@@ -633,6 +736,9 @@ def test_make_s_curve(global_random_seed):
 
 
 def test_make_biclusters():
+    # [FUNCTION DOC]
+    # Verifies shapes of the data and the row/column indicator arrays, finiteness and
+    # reproducibility for a fixed random_state.
     X, rows, cols = make_biclusters(
         shape=(100, 100), n_clusters=4, shuffle=True, random_state=0
     )
@@ -653,6 +759,9 @@ def test_make_biclusters():
 
 
 def test_make_checkerboard():
+    # [FUNCTION DOC]
+    # Verifies shapes for n_clusters=(20, 5) (indicator arrays have 100 biclusters),
+    # then finiteness and reproducibility with n_clusters=2.
     X, rows, cols = make_checkerboard(
         shape=(100, 100), n_clusters=(20, 5), shuffle=True, random_state=0
     )
@@ -680,6 +789,9 @@ def test_make_checkerboard():
 
 
 def test_make_moons(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies each unshuffled point lies on the unit circle centered at (0, 0) for
+    # label 0 or (1, 0.5) for label 1.
     X, y = make_moons(3, shuffle=False, random_state=global_random_seed)
     for x, label in zip(X, y):
         center = [0.0, 0.0] if label == 0 else [1.0, 0.5]
@@ -690,6 +802,9 @@ def test_make_moons(global_random_seed):
 
 
 def test_make_moons_unbalanced():
+    # [FUNCTION DOC]
+    # Verifies tuple n_samples gives 7 and 5 samples per moon with correct shapes, and a
+    # one-element tuple raises ValueError.
     X, y = make_moons(n_samples=(7, 5))
     assert np.sum(y == 0) == 7 and np.sum(y == 1) == 5, (
         "Number of samples in a moon is wrong"
@@ -705,6 +820,11 @@ def test_make_moons_unbalanced():
 
 
 def test_make_circles():
+    # [FUNCTION DOC]
+    # For odd and even n_samples verifies shapes, that outer points (label 0) have
+    # squared radius 1 and inner points squared radius factor squared, and the per-
+    # circle counts (the outer circle gets the smaller half when odd).
+    # KNOWN ISSUE: the expected-distance line is duplicated (harmless dead statement).
     factor = 0.3
 
     for n_samples, n_outer, n_inner in [(7, 3, 4), (8, 4, 4)]:
@@ -733,6 +853,11 @@ def test_make_circles():
 
 
 def test_make_circles_unbalanced():
+    # [FUNCTION DOC]
+    # Verifies tuple n_samples (2, 8) gives 2 samples with label 0 and 8 with label 1,
+    # total shapes, and ValueError for a one-element tuple.
+    # KNOWN ISSUE: the assertion messages call label 0 the inner circle, but label 0 is
+    # the outer circle (see test_make_circles).
     X, y = make_circles(n_samples=(2, 8))
 
     assert np.sum(y == 0) == 2, "Number of samples in inner circle is wrong"

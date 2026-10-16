@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the Birch clustering estimator: CF-tree bookkeeping, partial_fit
+# equivalence, prediction, n_clusters handling, sparse input, branching factor and
+# threshold invariants, dtype preservation and feature names.
 """
 Tests for the birch clustering algorithm.
 """
@@ -15,6 +19,9 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 def test_n_samples_leaves_roots(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies the n_samples_ counts of the root subclusters and of all leaf subclusters
+    # each sum to the number of fitted samples (10 blobs points, global_dtype).
     # Sanity check for the number of samples in leaves and roots
     X, y = make_blobs(n_samples=10, random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -29,6 +36,11 @@ def test_n_samples_leaves_roots(global_random_seed, global_dtype):
 
 
 def test_partial_fit(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies two partial_fit calls on halves of the data (n_clusters=None) give the same
+    # subcluster_centers_ as a single fit, and that a subsequent partial_fit(None) after
+    # setting n_clusters=3 only runs the global clustering step and reproduces the
+    # subcluster_labels_ of the full fit.
     # Test that fit is equivalent to calling partial_fit multiple times
     X, y = make_blobs(n_samples=100, random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -47,6 +59,10 @@ def test_partial_fit(global_random_seed, global_dtype):
 
 
 def test_birch_predict(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies on shuffled 3-cluster data that labels_ equals predict on the training data,
+    # that subcluster_centers_ keeps the input dtype, and that labels match (v-measure 1)
+    # assigning each sample the global label of its nearest subcluster center.
     # Test the predict method predicts the nearest centroid.
     rng = np.random.RandomState(global_random_seed)
     X = generate_clustered_data(n_clusters=3, n_features=3, n_samples_per_cluster=10)
@@ -71,6 +87,11 @@ def test_birch_predict(global_random_seed, global_dtype):
 
 
 def test_n_clusters(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies n_clusters=10 gives more than 10 subclusters but exactly 10 labels; passing
+    # an AgglomerativeClustering(n_clusters=10) instance gives identical results; and a
+    # huge threshold (too few subclusters for the default 3 clusters) emits
+    # ConvergenceWarning.
     # Test that n_clusters param works properly
     X, y = make_blobs(n_samples=100, centers=10, random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -95,6 +116,9 @@ def test_n_clusters(global_random_seed, global_dtype):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_X(global_random_seed, global_dtype, csr_container):
+    # [FUNCTION DOC]
+    # Verifies a CSR input yields the same labels and subcluster centers as dense input
+    # and preserves dtype. Inputs: csr_container - parametrized CSR class.
     # Test that sparse and dense data give same results
     X, y = make_blobs(n_samples=100, centers=10, random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -113,6 +137,9 @@ def test_sparse_X(global_random_seed, global_dtype, csr_container):
 
 
 def test_partial_fit_second_call_error_checks():
+    # [FUNCTION DOC]
+    # Verifies a second partial_fit with a different number of features raises ValueError
+    # ("X has 1 features, but Birch is expecting 2 features").
     # second partial fit calls will error when n_features is not consistent
     # with the first call
     X, y = make_blobs(n_samples=100)
@@ -125,6 +152,10 @@ def test_partial_fit_second_call_error_checks():
 
 
 def check_branching_factor(node, branching_factor):
+    # [FUNCTION DOC]
+    # HELPER: Recursively asserts that a CF node and all its descendants hold at most
+    # branching_factor subclusters. Inputs: node - _CFNode; branching_factor - int.
+    # Raises AssertionError on violation.
     subclusters = node.subclusters_
     assert branching_factor >= len(subclusters)
     for cluster in subclusters:
@@ -133,6 +164,9 @@ def check_branching_factor(node, branching_factor):
 
 
 def test_branching_factor(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies with a tiny threshold (many subclusters) that every node respects
+    # branching_factor=9, both with n_clusters=None and n_clusters=3.
     # Test that nodes have at max branching_factor number of subclusters
     X, y = make_blobs(random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -148,6 +182,10 @@ def test_branching_factor(global_random_seed, global_dtype):
 
 
 def check_threshold(birch_instance, threshold):
+    # [FUNCTION DOC]
+    # HELPER: Walks the leaf linked list starting after dummy_leaf_ and asserts every leaf
+    # subcluster radius is at most threshold. Inputs: fitted Birch; threshold - float.
+    # Raises AssertionError on violation.
     """Use the leaf linked list for traversal"""
     current_leaf = birch_instance.dummy_leaf_.next_leaf_
     while current_leaf:
@@ -158,6 +196,11 @@ def check_threshold(birch_instance, threshold):
 
 
 def test_threshold(global_random_seed, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies every leaf subcluster radius is at most the threshold, for thresholds 0.5
+    # and 5.0.
+    # KNOWN ISSUE: the inline comment says "threshold lesser than radius", the inverse of
+    # what is actually checked (radius not exceeding threshold).
     # Test that the leaf subclusters have a threshold lesser than radius
     X, y = make_blobs(n_samples=80, centers=4, random_state=global_random_seed)
     X = X.astype(global_dtype, copy=False)
@@ -171,6 +214,8 @@ def test_threshold(global_random_seed, global_dtype):
 
 
 def test_birch_n_clusters_long_int():
+    # [FUNCTION DOC]
+    # Non-regression for #16484: fitting with n_clusters given as np.int64 does not raise.
     # Check that birch supports n_clusters with np.int64 dtype, for instance
     # coming from np.arange. #16484
     X, _ = make_blobs(random_state=0)
@@ -179,6 +224,8 @@ def test_birch_n_clusters_long_int():
 
 
 def test_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns "birch0", ... one per subcluster center.
     """Check `get_feature_names_out` for `Birch`."""
     X, _ = make_blobs(n_samples=80, n_features=4, random_state=0)
     brc = Birch(n_clusters=4)
@@ -190,6 +237,9 @@ def test_feature_names_out():
 
 
 def test_transform_match_across_dtypes(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies fit_transform on float64 and float32 versions of the data give the same
+    # distances up to atol 1e-6.
     X, _ = make_blobs(n_samples=80, n_features=4, random_state=global_random_seed)
     brc = Birch(n_clusters=4, threshold=1.1)
     Y_64 = brc.fit_transform(X)
@@ -199,6 +249,8 @@ def test_transform_match_across_dtypes(global_random_seed):
 
 
 def test_subcluster_dtype(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies subcluster_centers_ has the input dtype (global_dtype).
     X = make_blobs(n_samples=80, n_features=4, random_state=0)[0].astype(
         global_dtype, copy=False
     )
@@ -207,6 +259,9 @@ def test_subcluster_dtype(global_dtype):
 
 
 def test_both_subclusters_updated():
+    # [FUNCTION DOC]
+    # Non-regression for #23269: fitting float32 data with many duplicated points and a
+    # tiny threshold (forcing node splits) completes without error.
     """Check that both subclusters are updated when a node a split, even when there are
     duplicated data points. Non-regression test for #23269.
     """

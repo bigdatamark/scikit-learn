@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for fetch_lfw_people and fetch_lfw_pairs that never download: module-scoped
+# fixtures build a fake LFW data home (random JPEGs for the names in FAKE_NAMES plus
+# fake pairs metadata) and loaders are called with download_if_missing=False. Requires
+# PIL (tests using mock_data_home are skipped otherwise).
 """This test for the LFW require medium-size data downloading and processing
 
 If the data has not been already downloaded by running the examples,
@@ -31,6 +36,10 @@ FAKE_NAMES = [
 
 @pytest.fixture(scope="module")
 def mock_empty_data_home(tmp_path_factory):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture yielding an empty temporary directory used as a data
+    # home with no LFW data.
+    # Side effects: creates a temp dir via tmp_path_factory.
     data_dir = tmp_path_factory.mktemp("scikit_learn_empty_test")
 
     yield data_dir
@@ -38,6 +47,16 @@ def mock_empty_data_home(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def mock_data_home(tmp_path_factory):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture building a fake LFW data home. Skips if PIL is
+    # missing. For each fake name, creates lfw_home/lfw_funneled/<name>/ with 1-4 random
+    # 250x250 RGB JPEGs (seeded RandomState(42)) and records the counts; adds a stray
+    # .test.swp file to check the loader ignores non-images; writes pairsDevTrain.txt
+    # with a header "10", five same-person pairs (drawn from names with at least 2
+    # images using random.Random(42)) and five different-person pairs; writes
+    # placeholder pairsDevTest.txt and pairs.txt.
+    # Outputs: yields the data home path.
+    # Side effects: writes files under a temp directory.
     """Test fixture run once and common to all tests of this module"""
     Image = pytest.importorskip("PIL.Image")
 
@@ -96,11 +115,19 @@ def mock_data_home(tmp_path_factory):
 
 
 def test_load_empty_lfw_people(mock_empty_data_home):
+    # [FUNCTION DOC]
+    # Verifies fetch_lfw_people raises OSError on an empty data home without download.
     with pytest.raises(OSError):
         fetch_lfw_people(data_home=mock_empty_data_home, download_if_missing=False)
 
 
 def test_load_fake_lfw_people(mock_data_home):
+    # [FUNCTION DOC]
+    # Verifies on the fake data: with min_faces_per_person=3 the default crop/resize
+    # gives images (10, 62, 47), flattened data (10, 2914), the expected target ids and
+    # three class names; with resize=None, slice_=None, color=True all 17 images are
+    # returned at (250, 250, 3) with the expected targets, all seven names and the DESCR
+    # label; and return_X_y consistency via check_return_X_y.
     lfw_people = fetch_lfw_people(
         data_home=mock_data_home, min_faces_per_person=3, download_if_missing=False
     )
@@ -159,6 +186,8 @@ def test_load_fake_lfw_people(mock_data_home):
 
 
 def test_load_fake_lfw_people_too_restrictive(mock_data_home):
+    # [FUNCTION DOC]
+    # Verifies that min_faces_per_person=100 (no person qualifies) raises ValueError.
     with pytest.raises(ValueError):
         fetch_lfw_people(
             data_home=mock_data_home,
@@ -168,11 +197,18 @@ def test_load_fake_lfw_people_too_restrictive(mock_data_home):
 
 
 def test_load_empty_lfw_pairs(mock_empty_data_home):
+    # [FUNCTION DOC]
+    # Verifies fetch_lfw_pairs raises OSError on an empty data home without download.
     with pytest.raises(OSError):
         fetch_lfw_pairs(data_home=mock_empty_data_home, download_if_missing=False)
 
 
 def test_load_fake_lfw_pairs(mock_data_home):
+    # [FUNCTION DOC]
+    # Verifies the default train subset of the fake pairs: pairs shape (10, 2, 62, 47),
+    # targets five 1s then five 0s, target_names Different persons/Same person; and with
+    # no cropping, gray conversion or resize, shape (10, 2, 250, 250, 3), same targets
+    # and names, and the DESCR label.
     lfw_pairs_train = fetch_lfw_pairs(
         data_home=mock_data_home, download_if_missing=False
     )
@@ -207,6 +243,9 @@ def test_load_fake_lfw_pairs(mock_data_home):
 
 
 def test_fetch_lfw_people_internal_cropping(mock_data_home):
+    # [FUNCTION DOC]
+    # Non-regression test for issue 24942: with resize=None and a custom slice_,
+    # verifies each image has exactly the height and width defined by the slice bounds.
     """Check that we properly crop the images.
 
     Non-regression test for:

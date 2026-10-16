@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Mixin providing transform/inverse_transform for feature agglomeration: features are
+# pooled per cluster label (labels_ from a fitted FeatureAgglomeration) and expanded
+# back to the original feature space.
 """
 Feature agglomeration. Base classes and functions for performing feature
 agglomeration.
@@ -17,11 +21,27 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class AgglomerationTransform(TransformerMixin):
+    # [CLASS DOC]
+    # Mixin for estimators exposing labels_ (one cluster label per input feature) and
+    # pooling_func (reduction applied along an axis, e.g. numpy mean). Provides
+    # TransformerMixin's fit_transform on top.
     """
     A class for feature agglomeration via the transform interface.
     """
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Pools the features of X per cluster. Fast path when pooling_func is numpy mean and X
+        # is dense: for each sample, sum features per label with a weighted bincount and
+        # divide by the cluster sizes. Otherwise, for each unique label (sorted), apply
+        # pooling_func over the columns of that label along axis 1, then stack and transpose.
+        # Inputs: X - array-like or sparse (n_samples, n_features), validated with reset=False.
+        # Outputs: ndarray (n_samples, n_clusters), columns ordered by label value.
+        # Exceptions: NotFittedError if not fitted; validation errors on feature mismatch.
+        # KNOWN ISSUE: the docstring mentions 1-D input and a (n_clusters,) output, but
+        # validate_data requires 2-D input, so that shape is never produced. For sparse X
+        # with a mean pooling_func the result of the column reduction is a numpy matrix, so
+        # the stacked output may have an extra dimension.
         """
         Transform a new matrix using the built clustering.
 
@@ -56,6 +76,12 @@ class AgglomerationTransform(TransformerMixin):
         return nX
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Expands pooled values back: each original feature takes the value of its cluster,
+        # by indexing the last axis of X with the inverse mapping from np.unique(labels_).
+        # Inputs: X - array (..., n_clusters); not validated, must be a numpy array.
+        # Outputs: array (..., n_features).
+        # Exceptions: NotFittedError if not fitted; IndexError if X has too few clusters.
         """
         Inverse the transformation and return a vector of size `n_features`.
 

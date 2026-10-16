@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Implements LatentDirichletAllocation, a topic model fitted by batch or online (mini-
+# batch, Hoffman et al.) variational Bayes. Contains the per-document E-step helper
+# (_update_doc_distribution, run in parallel over document slices via joblib) and the
+# estimator with fit/partial_fit/transform plus variational-bound based score and
+# perplexity. Cython helpers from _online_lda_fast compute Dirichlet expectations and
+# mean absolute change.
+# Module constant EPS: float64 machine epsilon (unused in this file). Side effects at
+# import: none.
 """
 
 =============================================================
@@ -46,6 +55,25 @@ def _update_doc_distribution(
     cal_sstats,
     random_state,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Variational E-step for a block of documents. Initialises gamma
+    #   (doc_topic_distr) from Gamma(100, 0.01) draws when random_state is given, else
+    #   ones; computes exp(E[log theta]). For each document, takes its non-zero word ids
+    #   and counts, then iterates up to max_doc_update_iter times: normaliser phi_norm =
+    #   exp(E[log theta_d]) dotted with the topic-word columns of those words plus eps;
+    #   new gamma_d = exp(E[log theta_d]) times (counts / phi_norm) dotted with those
+    #   columns transposed; the Cython helper adds doc_topic_prior to gamma_d and
+    #   refreshes exp(E[log theta_d]) in place; stop when the mean absolute change is
+    #   below mean_change_tol. Stores gamma_d, and when cal_sstats accumulates the outer
+    #   product of exp(E[log theta_d]) and counts/phi_norm into the word columns of the
+    #   sufficient statistics.
+    # Inputs: X (n_samples, n_features) dense or CSR counts; exp_topic_word_distr
+    #   (n_topics, n_features); doc_topic_prior float; max_doc_update_iter int;
+    #   mean_change_tol float; cal_sstats bool; random_state RandomState or None.
+    # Outputs: tuple (doc_topic_distr (n_samples, n_topics) unnormalised gamma,
+    #   suff_stats (n_topics, n_features) not yet multiplied by exp_topic_word_distr, or
+    #   None).
+    # Side effects: consumes random_state when given.
     """E-step: update document-topic distribution.
 
     Parameters
@@ -160,6 +188,12 @@ def _update_doc_distribution(
 class LatentDirichletAllocation(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Topic model estimator. Hyperparameters set in __init__; fitting sets
+    # random_state_, components_ (variational topic-word parameters lambda),
+    # exp_dirichlet_component_, doc_topic_prior_, topic_word_prior_, n_batch_iter_,
+    # n_iter_, bound_ (final training perplexity, fit only). Input must be non-negative;
+    # float32/float64 preserved; sparse accepted.
     """Latent Dirichlet Allocation with online variational Bayes algorithm.
 
     The implementation is based on [1]_ and [2]_.
@@ -377,6 +411,14 @@ class LatentDirichletAllocation(
         verbose=0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters as attributes without validation.
+        # Inputs: n_components (topics, default 10), doc_topic_prior and
+        #   topic_word_prior (float or None = 1/n_components), learning_method ('batch'
+        #   or 'online'), learning_decay (kappa), learning_offset (tau0), max_iter,
+        #   batch_size, evaluate_every (perplexity check period, <=0 disables),
+        #   total_samples (corpus size for partial_fit), perp_tol, mean_change_tol,
+        #   max_doc_update_iter, n_jobs, verbose, random_state.
         self.n_components = n_components
         self.doc_topic_prior = doc_topic_prior
         self.topic_word_prior = topic_word_prior
@@ -395,6 +437,13 @@ class LatentDirichletAllocation(
         self.random_state = random_state
 
     def _init_latent_vars(self, n_features, dtype=np.float64):
+        # [FUNCTION DOC]
+        # HELPER: Initialises model state: random_state_, n_batch_iter_=1, n_iter_=0,
+        #   the resolved priors, components_ drawn from Gamma(shape 100, scale 0.01) of
+        #   shape (n_components, n_features) cast to dtype, and exp_dirichlet_component_
+        #   = exp(E[log beta]).
+        # Inputs: n_features int; dtype numpy dtype. Outputs: none.
+        # Side effects: sets the listed attributes; consumes randomness.
         """Initialize latent variables."""
 
         self.random_state_ = check_random_state(self.random_state)
@@ -424,6 +473,17 @@ class LatentDirichletAllocation(
         )
 
     def _e_step(self, X, cal_sstats, random_init, parallel=None):
+        # [FUNCTION DOC]
+        # HELPER: Runs _update_doc_distribution in parallel over n_jobs even row slices
+        #   of X, stacks the per-slice gamma matrices, and when cal_sstats sums the per-
+        #   slice statistics and multiplies them elementwise by exp_dirichlet_component_
+        #   to finish the M-step statistics.
+        # Inputs: X (n_samples, n_features); cal_sstats bool; random_init bool (use
+        #   random_state_ for gamma initialisation); parallel optional joblib Parallel
+        #   (created if None).
+        # Outputs: tuple (doc_topic_distr (n_samples, n_components), suff_stats
+        #   (n_components, n_features) or None).
+        # Side effects: consumes random_state_ when random_init.
         """E-step in EM update.
 
         Parameters
@@ -490,6 +550,21 @@ class LatentDirichletAllocation(
         return (doc_topic_distr, suff_stats)
 
     def _em_step(self, X, total_samples, batch_update, parallel=None):
+        # [FUNCTION DOC]
+        # HELPER: One variational EM step. Runs _e_step with sufficient statistics and
+        #   random init; then for batch updates sets components_ to topic_word_prior_
+        #   plus statistics; for online updates computes weight rho = (learning_offset +
+        #   n_batch_iter_)^(-learning_decay) and sets components_ to (1 - rho) times old
+        #   plus rho times (topic_word_prior_ + (total_samples / batch size) times
+        #   statistics). Refreshes exp_dirichlet_component_ and increments
+        #   n_batch_iter_.
+        # Inputs: X batch; total_samples (used only for online); batch_update bool;
+        #   parallel optional.
+        # Outputs: None.
+        # Side effects: mutates components_ (in place for online),
+        #   exp_dirichlet_component_, n_batch_iter_.
+        # KNOWN ISSUE: the docstring claims a doc_topic_distr return value but the
+        #   function returns None.
         """EM update for 1 iteration.
 
         update `component_` by batch VB or online VB.
@@ -544,6 +619,9 @@ class LatentDirichletAllocation(
         return
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: non-negative input only, sparse accepted, float32/float64
+        # preserved.
         tags = super().__sklearn_tags__()
         tags.input_tags.positive_only = True
         tags.input_tags.sparse = True
@@ -551,6 +629,15 @@ class LatentDirichletAllocation(
         return tags
 
     def _check_non_neg_array(self, X, reset_n_features, whom):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (CSR accepted; dtype float64/float32 when resetting,
+        #   otherwise the fitted components_ dtype) and checks it has no negative
+        #   values.
+        # Inputs: X; reset_n_features bool (reset n_features_in_); whom str used in the
+        #   error message.
+        # Outputs: validated X.
+        # Exceptions: ValueError on negative values or validation failure.
+        # Side effects: may set n_features_in_/feature_names_in_.
         """check X format
 
         check X format and make sure no negative value in X.
@@ -575,6 +662,15 @@ class LatentDirichletAllocation(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Online update on one chunk: validates X (resetting feature info only on the
+        # first call), initialises latent variables on the first call, checks the
+        # feature count, then runs an online _em_step for each consecutive batch of
+        # batch_size rows with total_samples as the corpus size.
+        # Inputs: X (n_samples, n_features); y ignored. Outputs: self.
+        # Exceptions: ValueError for negative values or a feature-count mismatch.
+        # Side effects: updates components_, exp_dirichlet_component_, n_batch_iter_;
+        #   consumes randomness.
         """Online VB with Mini-Batch update.
 
         Parameters
@@ -623,6 +719,24 @@ class LatentDirichletAllocation(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits from scratch. Validates X, initialises latent variables, then for
+        # max_iter passes: online mode runs an online EM step per batch with the corpus
+        # size n_samples; batch mode runs one batch EM step on all data. Every
+        # evaluate_every passes (if positive) computes perplexity on X from a
+        # deterministic E-step, prints it when verbose, and stops early if it changed by
+        # less than perp_tol from the previous evaluation; n_iter_ is incremented per
+        # completed pass. Finally computes bound_ as the training perplexity.
+        # Inputs: X (n_samples, n_features) non-negative counts; y ignored. Outputs:
+        #   self.
+        # Exceptions: ValueError for negative input.
+        # Side effects: sets all fitted attributes and bound_; prints progress when
+        #   verbose; consumes randomness.
+        # KNOWN ISSUE: the final E-step reuses the joblib Parallel object after its
+        #   context manager has exited; it still works but without the managed worker
+        #   pool.
+        # KNOWN ISSUE: when stopping early, n_iter_ is not incremented for the breaking
+        #   pass even though it was completed.
         """Learn model for the data X with variational Bayes method.
 
         When `learning_method` is 'online', use mini-batch update.
@@ -705,6 +819,10 @@ class LatentDirichletAllocation(
         return self
 
     def _unnormalized_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Runs a deterministic E-step (no statistics, no random init) and
+        #   returns the unnormalised doc-topic matrix (n_samples, n_components). No
+        #   validation.
         """Transform data X according to fitted model.
 
         Parameters
@@ -722,6 +840,12 @@ class LatentDirichletAllocation(
         return doc_topic_distr
 
     def transform(self, X, *, normalize=True):
+        # [FUNCTION DOC]
+        # Validates X against the fitted model, computes the unnormalised document-topic
+        # distribution and, when normalize is True, divides each row by its sum.
+        # Inputs: X (n_samples, n_features); normalize bool. Outputs: ndarray
+        #   (n_samples, n_components).
+        # Exceptions: NotFittedError; ValueError on negative input or feature mismatch.
         """Transform data X according to the fitted model.
 
         .. versionchanged:: 0.18
@@ -750,6 +874,8 @@ class LatentDirichletAllocation(
         return doc_topic_distr
 
     def fit_transform(self, X, y=None, *, normalize=True):
+        # [FUNCTION DOC]
+        # Calls fit(X, y) then transform(X, normalize=normalize) and returns the result.
         """
         Fit to data, then transform it.
 
@@ -775,6 +901,16 @@ class LatentDirichletAllocation(
         return self.fit(X, y).transform(X, normalize=normalize)
 
     def _approx_bound(self, X, doc_topic_distr, sub_sampling):
+        # [FUNCTION DOC]
+        # HELPER: Computes the evidence lower bound. Sums for each document the counts
+        #   times the log-sum-exp over topics of E[log theta_dk] + E[log beta_kw]; adds
+        #   the Dirichlet terms for theta (sum of (prior - gamma) times E[log theta]
+        #   plus log-gamma differences); scales by total_samples / n_samples if
+        #   sub_sampling; then adds the analogous Dirichlet terms for beta with
+        #   lambda=components_.
+        # Inputs: X (n_samples, n_features); doc_topic_distr (n_samples, n_components);
+        #   sub_sampling bool.
+        # Outputs: float bound.
         """Estimate the variational bound.
 
         Estimate the variational bound over "all documents" using only the
@@ -801,6 +937,13 @@ class LatentDirichletAllocation(
         """
 
         def _loglikelihood(prior, distr, dirichlet_distr, size):
+            # [FUNCTION DOC]
+            # HELPER: Dirichlet KL-like term: sum of (prior - distr) times the Dirichlet
+            #   expectation, plus the sum of log-gamma(distr) minus log-gamma(prior),
+            #   plus for each row log-gamma(prior times size) minus log-gamma(row sum of
+            #   distr).
+            # Inputs: prior scalar; distr 2D array; dirichlet_distr its expected logs;
+            #   size number of columns. Outputs: float.
             # calculate log-likelihood
             score = np.sum((prior - distr) * dirichlet_distr)
             score += np.sum(gammaln(distr) - gammaln(prior))
@@ -854,6 +997,11 @@ class LatentDirichletAllocation(
         return score
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # Returns the approximate log-likelihood (variational bound, no subsampling
+        # correction) of X computed from a deterministic E-step.
+        # Inputs: X; y ignored. Outputs: float.
+        # Exceptions: NotFittedError; ValueError on negative input or feature mismatch.
         """Calculate approximate log-likelihood as score.
 
         Parameters
@@ -879,6 +1027,14 @@ class LatentDirichletAllocation(
         return score
 
     def _perplexity_precomp_distr(self, X, doc_topic_distr=None, sub_sampling=False):
+        # [FUNCTION DOC]
+        # HELPER: Perplexity exp(-bound / word count) for X, where the bound comes from
+        #   _approx_bound using a supplied or freshly computed doc-topic matrix and the
+        #   word count is scaled by total_samples / n_samples when sub_sampling.
+        # Inputs: X; doc_topic_distr optional (n_samples, n_components); sub_sampling
+        #   bool. Outputs: float.
+        # Exceptions: ValueError if doc_topic_distr row count or topic count does not
+        #   match.
         """Calculate approximate perplexity for data X with ability to accept
         precomputed doc_topic_distr
 
@@ -923,6 +1079,13 @@ class LatentDirichletAllocation(
         return np.exp(-1.0 * perword_bound)
 
     def perplexity(self, X, sub_sampling=False):
+        # [FUNCTION DOC]
+        # Validates X and returns _perplexity_precomp_distr(X,
+        # sub_sampling=sub_sampling).
+        # Exceptions: NotFittedError; ValueError on negative input.
+        # KNOWN ISSUE: validates with reset_n_features=True, so calling perplexity
+        #   overwrites n_features_in_/feature_names_in_ and accepts a different feature
+        #   count, which then fails later with a less clear error.
         """Calculate approximate perplexity for data X.
 
         Perplexity is defined as exp(-1. * log-likelihood per word)
@@ -952,5 +1115,8 @@ class LatentDirichletAllocation(
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the number of topics
+        #   in components_.
         """Number of transformed output features."""
         return self.components_.shape[0]

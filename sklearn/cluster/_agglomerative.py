@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Hierarchical agglomerative clustering: tree builders (ward_tree, linkage_tree for
+# complete/average/single linkage, with or without a connectivity graph), the tree
+# cutting helper _hc_cut, and the AgglomerativeClustering and FeatureAgglomeration
+# estimators. Unstructured trees are delegated to scipy.cluster.hierarchy (or a
+# Cython MST for single linkage); structured trees are built here with a heap of
+# candidate merges restricted to connected nodes. Node ids follow the scipy
+# convention: leaves are 0..n_samples-1 and the merge at step k creates node
+# n_samples + k. _TREE_BUILDERS maps linkage names to builders.
 """Hierarchical Agglomerative Clustering
 
 These routines perform some hierarchical agglomerative clustering of some
@@ -45,6 +54,17 @@ from sklearn.utils.validation import check_memory, validate_data
 
 
 def _fix_connectivity(X, connectivity, affinity):
+    # [FUNCTION DOC]
+    # HELPER: Validates and prepares a connectivity graph for structured clustering:
+    # checks it is (n_samples, n_samples), symmetrizes it by adding its transpose,
+    # converts it to LIL, and if it has several connected components warns
+    # (UserWarning) and adds edges between components via _fix_connected_components
+    # using the given metric.
+    # Inputs: X - ndarray (n_samples, n_features); connectivity - dense or sparse
+    # (n_samples, n_samples); affinity - metric name or callable.
+    # Outputs: (connectivity as LIL sparse, aligned via _align_api_if_sparse; original
+    # number of connected components).
+    # Exceptions: ValueError on wrong shape.
     """
     Fixes the connectivity matrix.
 
@@ -128,6 +148,20 @@ def _single_linkage_tree(
     n_connected_components,
     return_distance,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Single-linkage tree on a sparse distance graph: casts to float64, replaces
+    # explicit zero distances by machine epsilon so the MST keeps them, computes the
+    # minimum spanning tree, restores those zeros, sorts edges by weight (stable), and
+    # converts the edge list to a scipy-style linkage via _single_linkage_label. Then
+    # fills parent for each merge node below n_nodes.
+    # Inputs: connectivity - sparse COO distance graph (data modified in place);
+    # n_samples, n_nodes - ints; n_clusters - int or None; n_connected_components - int;
+    # return_distance - bool.
+    # Outputs: (children, n_connected_components, n_leaves, parent[, distances]),
+    # children int (n_samples-1, 2), parent (n_nodes,).
+    # KNOWN ISSUE: unlike the other structured builders, children and distances always
+    # describe the full tree even when n_clusters truncates n_nodes; only parent is
+    # truncated. Genuine distances equal to epsilon are also turned into 0.
     """
     Perform single linkage clustering on sparse data via the minimum
     spanning tree from scipy.sparse.csgraph, then using union-find to label.
@@ -190,6 +224,23 @@ def _single_linkage_tree(
     prefer_skip_nested_validation=True,
 )
 def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
+    # [FUNCTION DOC]
+    # Builds a Ward tree. Without connectivity: warns if n_clusters is given (full tree is
+    # built anyway), calls scipy hierarchy.ward on a writeable X and returns its merges.
+    # With connectivity: fixes the graph, sets n_nodes = 2n-1 (or 2n-n_clusters to stop
+    # early), stores for every node the count (moments_1) and feature sum (moments_2),
+    # computes Ward inertia for each connected pair (upper triangle) and pushes them on a
+    # heap. For each new node k: pop until both endpoints are unused, record the merge,
+    # sum the moments, collect the current top-level ancestors of both children's
+    # neighbours with _get_parents, link them to k, compute their Ward distance to k and
+    # push them. Children are reversed per pair for consistency with scipy.
+    # Inputs: X - array-like (n_samples, n_features), 1-D reshaped to a column;
+    # connectivity - sparse/array or None; n_clusters - int or None; return_distance.
+    # Outputs: (children (n_merges, 2), n_connected_components, n_leaves, parents or None
+    # [, distances]). Structured distances are sqrt(2 * inertia) to match scipy.
+    # Exceptions: ValueError if n_clusters > n_samples (structured); shape error from
+    # _fix_connectivity.
+    # Side effects: warnings (partial build, multiple components).
     """Ward clustering based on a Feature matrix.
 
     Recursively merges the pair of clusters that minimally increases
@@ -432,6 +483,27 @@ def linkage_tree(
     affinity="euclidean",
     return_distance=False,
 ):
+    # [FUNCTION DOC]
+    # Builds a complete, average or single linkage tree. Validates linkage and rejects
+    # zero rows with cosine affinity. Without connectivity: converts precomputed or
+    # callable affinities to a condensed distance vector (upper triangle), maps l2 to
+    # euclidean and l1/manhattan to cityblock, then uses the Cython MST for single
+    # linkage with a metric known to DistanceMetric, else scipy hierarchy.linkage. With
+    # connectivity: fixes the graph, drops self-loops, sets edge weights to the pairwise
+    # distances of connected pairs (or reads them from precomputed X), delegates single
+    # linkage to _single_linkage_tree, otherwise keeps adjacency as one IntFloatDict per
+    # node and a heap of WeightedEdge; each merge pops the smallest valid edge, records
+    # it, tracks cluster sizes in used_node, and merges neighbour distances with the
+    # max (complete) or size-weighted mean (average) join function, pushing new edges.
+    # Inputs: X - array-like features or square distances; connectivity; n_clusters;
+    # linkage - "complete" (default), "average", "single"; affinity - metric string or
+    # callable (default "euclidean"); return_distance.
+    # Outputs: same tuple layout as ward_tree; parents None when unstructured.
+    # Exceptions: ValueError for unknown linkage, cosine with zero vectors, non-square
+    # precomputed matrix; AssertionError if n_clusters > n_samples (structured).
+    # KNOWN ISSUE: the n_clusters bound in the structured path is enforced with an assert
+    # (skipped under python -O) instead of a ValueError as in ward_tree. The function
+    # lacks validate_params unlike ward_tree.
     """Linkage agglomerative clustering based on a Feature matrix.
 
     The inertia matrix uses a Heapq-based representation.
@@ -702,16 +774,22 @@ def linkage_tree(
 
 # Matching names to tree-building strategies
 def _complete_linkage(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: linkage_tree with linkage forced to "complete"; all arguments forwarded.
     kwargs["linkage"] = "complete"
     return linkage_tree(*args, **kwargs)
 
 
 def _average_linkage(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: linkage_tree with linkage forced to "average"; all arguments forwarded.
     kwargs["linkage"] = "average"
     return linkage_tree(*args, **kwargs)
 
 
 def _single_linkage(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: linkage_tree with linkage forced to "single"; all arguments forwarded.
     kwargs["linkage"] = "single"
     return linkage_tree(*args, **kwargs)
 
@@ -728,6 +806,14 @@ _TREE_BUILDERS = dict(
 
 
 def _hc_cut(n_clusters, children, n_leaves):
+    # [FUNCTION DOC]
+    # HELPER: Cuts a full merge tree into n_clusters flat clusters: starting from the
+    # root, repeatedly replace the highest-id (latest-merged) node in a max-heap of
+    # current cluster roots by its two children, n_clusters-1 times; then label all
+    # leaves under the i-th remaining root with i.
+    # Inputs: n_clusters - int; children - int array (n_leaves-1, 2); n_leaves - int.
+    # Outputs: intp array (n_leaves,) of labels in 0..n_clusters-1 (heap order).
+    # Exceptions: ValueError if n_clusters > n_leaves.
     """Function cutting the ward tree for a given number of clusters.
 
     Parameters
@@ -778,6 +864,10 @@ def _hc_cut(n_clusters, children, n_leaves):
 
 
 class AgglomerativeClustering(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator for bottom-up clustering of samples using one of the tree builders,
+    # optionally restricted by a connectivity graph and cached through memory. Either
+    # n_clusters or distance_threshold selects where the tree is cut.
     """
     Agglomerative Clustering.
 
@@ -960,6 +1050,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         distance_threshold=None,
         compute_distances=False,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyper-parameters unchanged.
         self.n_clusters = n_clusters
         self.distance_threshold = distance_threshold
         self.memory = memory
@@ -971,6 +1063,10 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (at least 2 samples) and delegates to _fit.
+        # Inputs: X - (n_samples, n_features) or distances if metric="precomputed"; y ignored.
+        # Outputs: self.
         """Fit the hierarchical clustering from features, or distance matrix.
 
         Parameters
@@ -992,6 +1088,20 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         return self._fit(X)
 
     def _fit(self, X):
+        # [FUNCTION DOC]
+        # Fits on already-validated X. Checks that exactly one of n_clusters and
+        # distance_threshold is set, that compute_full_tree is truthy with a threshold, and
+        # that ward uses euclidean/l2. Evaluates a callable connectivity on X and validates
+        # it. compute_full_tree is forced True without connectivity; "auto" becomes True with
+        # a threshold, else n_clusters < max(100, 0.02*n_samples). Calls the cached builder
+        # (n_clusters only passed when not building the full tree; distances requested when
+        # thresholding or compute_distances). Labels come from _hc_cut on the full tree, or
+        # from the heads of the parent array (hc_get_heads) relabelled contiguously.
+        # Sets: children_, n_connected_components_, n_leaves_, distances_ (if requested),
+        # n_clusters_ (number of merges with distance >= threshold, plus 1, or n_clusters),
+        # labels_.
+        # Exceptions: ValueError for the inconsistent parameter combinations above.
+        # Side effects: may write to the joblib memory cache.
         """Fit without validation
 
         Parameters
@@ -1094,6 +1204,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         return self
 
     def fit_predict(self, X, y=None):
+        # [FUNCTION DOC]
+        # Delegates to ClusterMixin.fit_predict (fit, return labels_); overridden for docs.
         """Fit and return the result of each sample's clustering assignment.
 
         In addition to fitting, this method also return the result of the
@@ -1120,6 +1232,9 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
 class FeatureAgglomeration(
     ClassNamePrefixFeaturesOutMixin, AgglomerationTransform, AgglomerativeClustering
 ):
+    # [CLASS DOC]
+    # Clusters features instead of samples by running AgglomerativeClustering on the
+    # transposed data; transform pools features per cluster with pooling_func.
     """Agglomerate features.
 
     Recursively merges pair of clusters of features.
@@ -1294,6 +1409,9 @@ class FeatureAgglomeration(
         distance_threshold=None,
         compute_distances=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards common hyper-parameters to AgglomerativeClustering and stores pooling_func
+        # (default numpy mean).
         super().__init__(
             n_clusters=n_clusters,
             memory=memory,
@@ -1308,6 +1426,11 @@ class FeatureAgglomeration(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (at least 2 features), fits the parent clustering on X transposed (so
+        # labels_ has one entry per feature) and sets _n_features_out to n_clusters_ for
+        # get_feature_names_out.
+        # Outputs: self.
         """Fit the hierarchical clustering on the data.
 
         Parameters
@@ -1330,5 +1453,8 @@ class FeatureAgglomeration(
 
     @property
     def fit_predict(self):
+        # [FUNCTION DOC]
+        # Property that always raises AttributeError, hiding the inherited fit_predict since
+        # predicting per-sample labels makes no sense for feature clustering.
         """Fit and return the result of each sample's clustering assignment."""
         raise AttributeError

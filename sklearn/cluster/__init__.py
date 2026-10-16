@@ -1,3 +1,13 @@
+# [PACKAGE DOC]
+# Package sklearn.cluster: clustering estimators and function-style APIs. Re-exports
+# from private submodules: AffinityPropagation/affinity_propagation,
+# AgglomerativeClustering, FeatureAgglomeration, linkage_tree, ward_tree,
+# SpectralBiclustering, SpectralCoclustering, Birch, BisectingKMeans, DBSCAN/dbscan,
+# HDBSCAN, KMeans, MiniBatchKMeans, k_means, kmeans_plusplus, MeanShift, mean_shift,
+# estimate_bandwidth, get_bin_seeds, OPTICS, cluster_optics_dbscan, cluster_optics_xi,
+# compute_optics_graph, SpectralClustering, spectral_clustering (listed in __all__).
+# Import-time side effects: imports all these submodules, including their compiled
+# Cython extensions; no global state is modified.
 """Popular unsupervised clustering algorithms."""
 
 # Authors: The scikit-learn developers

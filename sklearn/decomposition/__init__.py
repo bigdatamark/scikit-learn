@@ -1,3 +1,13 @@
+# [PACKAGE DOC]
+# Package sklearn.decomposition: matrix decomposition / dimensionality reduction
+# estimators. Re-exports from private submodules the estimators DictionaryLearning,
+# MiniBatchDictionaryLearning, SparseCoder, FactorAnalysis, FastICA, IncrementalPCA,
+# KernelPCA, LatentDirichletAllocation, NMF, MiniBatchNMF, PCA, SparsePCA,
+# MiniBatchSparsePCA, TruncatedSVD, and the functions dict_learning,
+# dict_learning_online, sparse_encode, fastica, non_negative_factorization, plus
+# randomized_svd re-exported from sklearn.utils.extmath. __all__ lists these names. Side
+# effects at import: imports all those submodules (and their dependencies); no other
+# global state is changed.
 """Matrix decomposition algorithms.
 
 These include PCA, NMF, ICA, and more. Most of the algorithms of this module can be

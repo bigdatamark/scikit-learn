@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for the svmlight/libsvm reader and writer (load_svmlight_file,
+# load_svmlight_files, dump_svmlight_file). Uses small packaged data files in
+# sklearn.datasets.tests.data (classification, multilabel, two invalid files) and in-
+# memory BytesIO round trips. Covers parsing, file sources (path, fd, pathlib,
+# compressed), zero-based detection, query ids, offsets/lengths, comments, dtypes and
+# error conditions.
 import gzip
 import os
 import shutil
@@ -28,10 +35,17 @@ invalidfile2 = "svmlight_invalid_order.txt"
 
 
 def _svmlight_local_test_file_path(filename):
+    # [FUNCTION DOC]
+    # HELPER: Returns the importlib.resources Traversable for filename inside the test
+    # data package.
     return resources.files(TEST_DATA_MODULE) / filename
 
 
 def _load_svmlight_local_test_file(filename, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Opens the packaged test file in binary mode and returns the result of
+    # load_svmlight_file on it, forwarding kwargs (so the tuple shape depends on
+    # query_id).
     """
     Helper to load resource `filename` with `importlib.resources`
     """
@@ -41,6 +55,10 @@ def _load_svmlight_local_test_file(filename, **kwargs):
 
 
 def test_load_svmlight_file():
+    # [FUNCTION DOC]
+    # Verifies the classification file parses to a 6x21 CSR matrix (indptr length 7),
+    # with specific nonzero and zero entries, that the returned matrix is writable, and
+    # the expected labels.
     X, y = _load_svmlight_local_test_file(datafile)
 
     # test X's shape
@@ -76,6 +94,9 @@ def test_load_svmlight_file():
 
 
 def test_load_svmlight_file_fd():
+    # [FUNCTION DOC]
+    # Non-regression for GH20081: verifies loading from an OS file descriptor gives the
+    # same data and labels as loading by path. Side effects: opens and closes an fd.
     # test loading from file descriptor
 
     # GH20081: testing equality between path-based and
@@ -95,6 +116,10 @@ def test_load_svmlight_file_fd():
 
 
 def test_load_svmlight_pathlib():
+    # [FUNCTION DOC]
+    # Verifies that passing a path-like object gives the same result as its string form.
+    # KNOWN ISSUE: the inline comment says it tests file descriptor loading; it actually
+    # tests path-like inputs.
     # test loading from file descriptor
     data_path = _svmlight_local_test_file_path(datafile)
     X1, y1 = load_svmlight_file(str(data_path))
@@ -105,11 +130,18 @@ def test_load_svmlight_pathlib():
 
 
 def test_load_svmlight_file_multilabel():
+    # [FUNCTION DOC]
+    # Verifies multilabel=True returns labels as a list of tuples, including an empty
+    # tuple.
     X, y = _load_svmlight_local_test_file(multifile, multilabel=True)
     assert y == [(0, 1), (2,), (), (1, 2)]
 
 
 def test_load_svmlight_files():
+    # [FUNCTION DOC]
+    # Verifies load_svmlight_files on the same file twice/thrice returns identical
+    # matrices and labels and honors the requested dtype (float32, float64) for all
+    # outputs.
     data_path = _svmlight_local_test_file_path(datafile)
     X_train, y_train, X_test, y_test = load_svmlight_files(
         [str(data_path)] * 2, dtype=np.float32
@@ -126,6 +158,9 @@ def test_load_svmlight_files():
 
 
 def test_load_svmlight_file_n_features():
+    # [FUNCTION DOC]
+    # Verifies n_features=22 widens the matrix while keeping values, and that a smaller
+    # n_features than present in the file (20 vs 21) raises ValueError.
     X, y = _load_svmlight_local_test_file(datafile, n_features=22)
 
     # test X'shape
@@ -143,6 +178,10 @@ def test_load_svmlight_file_n_features():
 
 
 def test_load_compressed():
+    # [FUNCTION DOC]
+    # Writes gzip and bz2 copies of the classification file to temp files and verifies
+    # loading them matches the uncompressed load. Side effects: creates and removes temp
+    # files.
     X, y = _load_svmlight_local_test_file(datafile)
 
     with NamedTemporaryFile(prefix="sklearn-test", suffix=".gz") as tmp:
@@ -171,22 +210,32 @@ def test_load_compressed():
 
 
 def test_load_invalid_file():
+    # [FUNCTION DOC]
+    # Verifies a malformed packaged file raises ValueError.
     with pytest.raises(ValueError):
         _load_svmlight_local_test_file(invalidfile)
 
 
 def test_load_invalid_order_file():
+    # [FUNCTION DOC]
+    # Verifies a file with out-of-order feature indices raises ValueError.
     with pytest.raises(ValueError):
         _load_svmlight_local_test_file(invalidfile2)
 
 
 def test_load_zero_based():
+    # [FUNCTION DOC]
+    # Verifies that a feature index 0 with zero_based=False raises ValueError.
     f = BytesIO(b"-1 4:1.\n1 0:1\n")
     with pytest.raises(ValueError):
         load_svmlight_file(f, zero_based=False)
 
 
 def test_load_zero_based_auto():
+    # [FUNCTION DOC]
+    # Verifies zero_based="auto" treats a file without index 0 as one-based (3
+    # features), and that with several files the decision is shared so a file containing
+    # index 0 makes both zero-based (4 features each).
     data1 = b"-1 1:1 2:2 3:3\n"
     data2 = b"-1 0:0 1:1\n"
 
@@ -202,6 +251,9 @@ def test_load_zero_based_auto():
 
 
 def test_load_with_qid():
+    # [FUNCTION DOC]
+    # Verifies qid fields are skipped with query_id=False and returned as a third array
+    # with query_id=True, for both load_svmlight_files and load_svmlight_file.
     # load svmfile with qid attribute
     data = b"""
     3 qid:1 1:0.53 2:0.12
@@ -222,6 +274,9 @@ def test_load_with_qid():
     "testing the overflow of 32 bit sparse indexing requires a large amount of memory"
 )
 def test_load_large_qid():
+    # [FUNCTION DOC]
+    # Always skipped (needs huge memory). Would verify 64-bit query ids beyond 32-bit
+    # indexing on an 80-million-line in-memory file.
     """
     load large libsvm / svmlight file with qid attribute. Tests 64-bit query ID
     """
@@ -237,6 +292,8 @@ def test_load_large_qid():
 
 
 def test_load_invalid_file2():
+    # [FUNCTION DOC]
+    # Verifies load_svmlight_files raises ValueError when any of the files is invalid.
     with pytest.raises(ValueError):
         data_path = _svmlight_local_test_file_path(datafile)
         invalid_path = _svmlight_local_test_file_path(invalidfile)
@@ -244,6 +301,8 @@ def test_load_invalid_file2():
 
 
 def test_not_a_filename():
+    # [FUNCTION DOC]
+    # Verifies a float as file argument raises TypeError.
     # in python 3 integers are valid file opening arguments (taken as unix
     # file descriptors)
     with pytest.raises(TypeError):
@@ -251,12 +310,21 @@ def test_not_a_filename():
 
 
 def test_invalid_filename():
+    # [FUNCTION DOC]
+    # Verifies a nonexistent path raises OSError.
     with pytest.raises(OSError):
         load_svmlight_file("trou pic nic douille")
 
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dump(csr_container):
+    # [FUNCTION DOC]
+    # Parametrized over CSR containers. For sparse, dense and row-sliced (possibly
+    # unsorted indices) X, dense/sparse/sliced y, zero_based True/False and four dtypes,
+    # dumps with a comment, verifies the header lines contain the scikit-learn version
+    # and the zero/one-based note, reloads and verifies dtype, sorted indices and values
+    # (4 decimals for float32, 15 otherwise). Sparse y with one row is transposed to a
+    # column first.
     X_sparse, y_dense = _load_svmlight_local_test_file(datafile)
     X_dense = X_sparse.toarray()
     y_sparse = csr_container(np.atleast_2d(y_dense))
@@ -327,6 +395,9 @@ def test_dump(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dump_multilabel(csr_container):
+    # [FUNCTION DOC]
+    # Verifies multilabel dumping from dense and sparse indicator y produces the exact
+    # comma-separated label lines, including an empty feature list for an all-zero row.
     X = [[1, 0, 3, 0, 5], [0, 0, 0, 0, 0], [0, 5, 0, 1, 0]]
     y_dense = [[0, 1, 0], [1, 0, 1], [1, 1, 0]]
     y_sparse = csr_container(y_dense)
@@ -341,6 +412,10 @@ def test_dump_multilabel(csr_container):
 
 
 def test_dump_concise():
+    # [FUNCTION DOC]
+    # Verifies numbers are written in the shortest repr form (integers without decimals,
+    # exponents for large values, near-1 values that round to 1 written as 1) and that
+    # the dumped text reloads to the same values.
     one = 1
     two = 2.1
     three = 3.01
@@ -372,6 +447,10 @@ def test_dump_concise():
 
 
 def test_dump_comment():
+    # [FUNCTION DOC]
+    # Verifies ASCII and Unicode multi-line comments round-trip without affecting data,
+    # that a non-decodable bytes comment raises UnicodeDecodeError, and that a comment
+    # containing a NUL character raises ValueError.
     X, y = _load_svmlight_local_test_file(datafile)
     X = X.toarray()
 
@@ -405,6 +484,8 @@ def test_dump_comment():
 
 
 def test_dump_invalid():
+    # [FUNCTION DOC]
+    # Verifies ValueError when y is 2-D list-wrapped or has fewer samples than X.
     X, y = _load_svmlight_local_test_file(datafile)
 
     f = BytesIO()
@@ -418,6 +499,9 @@ def test_dump_invalid():
 
 
 def test_dump_query_id():
+    # [FUNCTION DOC]
+    # Verifies dumping with query_id (pairs of rows share an id) and reloading returns
+    # the same X, y and query ids.
     # test dumping a file with query_id
     X, y = _load_svmlight_local_test_file(datafile)
     X = X.toarray()
@@ -433,6 +517,9 @@ def test_dump_query_id():
 
 
 def test_load_with_long_qid():
+    # [FUNCTION DOC]
+    # Verifies 64-bit extreme query ids and large feature values are parsed exactly,
+    # survive a dump/load round trip, and are ignored with query_id=False.
     # load svmfile with longint qid attribute
     data = b"""
     1 qid:0 0:1 1:2 2:3
@@ -470,6 +557,9 @@ def test_load_with_long_qid():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_load_zeros(csr_container):
+    # [FUNCTION DOC]
+    # Verifies an all-zero sparse X dumps and reloads (with n_features=4) for every
+    # zero_based setting.
     f = BytesIO()
     true_X = csr_container(np.zeros(shape=(3, 4)))
     true_y = np.array([0, 1, 0])
@@ -487,6 +577,11 @@ def test_load_zeros(csr_container):
 @pytest.mark.parametrize("n_features", [2, 7, 41])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_load_with_offsets(sparsity, n_samples, n_features, csr_container):
+    # [FUNCTION DOC]
+    # Parametrized over sparsity, n_samples, n_features and CSR container. Dumps random
+    # data, then loads three byte ranges (split at a third and four fifths of the size)
+    # via offset/length and verifies their vertical concatenation equals the original,
+    # i.e. rows straddling boundaries are assigned to exactly one chunk.
     rng = np.random.RandomState(0)
     X = rng.uniform(low=0.0, high=1.0, size=(n_samples, n_features))
     if sparsity:
@@ -524,6 +619,10 @@ def test_load_with_offsets(sparsity, n_samples, n_features, csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_load_offset_exhaustive_splits(csr_container):
+    # [FUNCTION DOC]
+    # For a small matrix with query ids, splits the dumped bytes at every possible
+    # offset into two loads and verifies the concatenated X, y and query ids equal the
+    # originals.
     rng = np.random.RandomState(0)
     X = np.array(
         [
@@ -566,12 +665,17 @@ def test_load_offset_exhaustive_splits(csr_container):
 
 
 def test_load_with_offsets_error():
+    # [FUNCTION DOC]
+    # Verifies using offset/length without n_features raises ValueError.
     with pytest.raises(ValueError, match="n_features is required"):
         _load_svmlight_local_test_file(datafile, offset=3, length=3)
 
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_multilabel_y_explicit_zeros(tmp_path, csr_container):
+    # [FUNCTION DOC]
+    # Verifies explicit stored zeros in a sparse multilabel y are not written as labels
+    # when dumping to a file in tmp_path. Side effects: writes into tmp_path.
     """
     Ensure that if y contains explicit zeros (i.e. elements of y.data equal to
     0) then those explicit zeros are not encoded.
@@ -597,6 +701,9 @@ def test_multilabel_y_explicit_zeros(tmp_path, csr_container):
 
 
 def test_dump_read_only(tmp_path):
+    # [FUNCTION DOC]
+    # Non-regression for issue 28026: verifies dumping memmap-backed read-only X and y
+    # to a file does not raise. Side effects: writes into tmp_path.
     """Ensure that there is no ValueError when dumping a read-only `X`.
 
     Non-regression test for:

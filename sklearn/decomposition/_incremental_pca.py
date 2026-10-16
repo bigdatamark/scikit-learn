@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements IncrementalPCA, a PCA variant fitted batch by batch (Ross et al.
+# incremental SVD with mean correction), so memory use depends on the batch size rather
+# than the dataset size and sparse input can be handled by densifying one batch at a
+# time. Transform/inverse_transform/get_covariance/score logic is inherited from
+# _BasePCA.
+# Side effects at import: none.
 """Incremental Principal Components Analysis."""
 
 # Authors: The scikit-learn developers
@@ -17,6 +24,12 @@ from sklearn.utils.validation import validate_data
 
 
 class IncrementalPCA(_BasePCA):
+    # [CLASS DOC]
+    # Estimator exposing fit (whole dataset in batches), partial_fit (one batch) and
+    # transform (batched for sparse input). Fitted attributes: components_,
+    # singular_values_, explained_variance_, explained_variance_ratio_, mean_, var_,
+    # noise_variance_, n_components_, n_samples_seen_, batch_size_. Metadata routing is
+    # configured so partial_fit does not request check_input.
     """Incremental principal components analysis (IPCA).
 
     Linear dimensionality reduction using Singular Value Decomposition of
@@ -193,6 +206,10 @@ class IncrementalPCA(_BasePCA):
     }
 
     def __init__(self, n_components=None, *, whiten=False, copy=True, batch_size=None):
+        # [FUNCTION DOC]
+        # Stores n_components (int or None), whiten (bool), copy (bool) and batch_size
+        # (int or None, default resolves to 5 * n_features at fit) as attributes without
+        # validation.
         self.n_components = n_components
         self.whiten = whiten
         self.copy = copy
@@ -200,6 +217,16 @@ class IncrementalPCA(_BasePCA):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits from scratch: resets all fitted statistics, validates X (dense or
+        # csr/csc/lil sparse, float32/64, copied when copy), sets batch_size_, then
+        # iterates over consecutive batches from gen_batches (with a minimum batch size
+        # of n_components so a short trailing batch is merged), densifying sparse
+        # batches and calling partial_fit with check_input=False on each.
+        # Inputs: X (n_samples, n_features) array or sparse; y ignored. Outputs: self.
+        # Exceptions: ValueErrors from validation or from partial_fit (e.g. n_components
+        #   larger than n_features or than the first batch size).
+        # Side effects: sets all fitted attributes listed on the class.
         """Fit the model with X, using minibatches of size batch_size.
 
         Parameters
@@ -252,6 +279,32 @@ class IncrementalPCA(_BasePCA):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None, check_input=True):
+        # [FUNCTION DOC]
+        # Updates the model with one dense batch. Steps: on a first pass, validate input
+        # (rejecting sparse) and resolve n_components_ (default min(n_samples,
+        # n_features) on first batch, else previous count); compute updated running mean
+        # and variance with _incremental_mean_and_var; center the batch by the overall
+        # mean on the first step, otherwise by the batch mean and stack previous
+        # singular_values_ times components_ on top of the centered batch plus a mean-
+        # correction row sqrt(n_seen*n_batch/n_total) times (old mean - batch mean);
+        # take a thin SVD with sign-flipping by Vt; keep the top n_components_
+        # rows/values, explained variance S^2/(n_total-1), ratio S^2/(total variance
+        # times n_total), and noise_variance_ as the mean of the discarded explained
+        # variances (0 when n_components_ equals the batch size or n_features).
+        # Inputs: X (n_samples, n_features) array; y ignored; check_input bool, when
+        #   False X is assumed validated and is modified in place.
+        # Outputs: self.
+        # Exceptions: TypeError for sparse input when check_input; ValueError if
+        #   n_components exceeds n_features, exceeds the first batch size, or if the
+        #   component count changes between calls.
+        # Side effects: sets/updates components_, singular_values_, mean_, var_,
+        #   n_samples_seen_, explained_variance_, explained_variance_ratio_,
+        #   noise_variance_, n_components_, n_features_in_; centers X in place.
+        # KNOWN ISSUE: the component-count mismatch error says "Number of input features
+        #   has changed" although it actually compares numbers of components.
+        # KNOWN ISSUE: noise_variance_ compares n_components_ with the current batch
+        #   size, not the total samples seen, so on later batches its zero/non-zero
+        #   decision does not reflect the full dataset.
         """Incremental fit with X. All of X is processed as a single batch.
 
         Parameters
@@ -376,6 +429,16 @@ class IncrementalPCA(_BasePCA):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Projects X onto the components. For sparse X, densifies and transforms
+        # consecutive batches of size batch_size_ via the parent transform and stacks
+        # the results; dense X goes straight to _BasePCA.transform (centering,
+        # projection, optional whitening).
+        # Inputs: X (n_samples, n_features) array or sparse. Outputs: ndarray
+        #   (n_samples, n_components_).
+        # Exceptions: NotFittedError (from the parent) if unfitted.
+        # KNOWN ISSUE: the sparse branch reads batch_size_ before any fitted check, so
+        #   an unfitted estimator raises AttributeError instead of NotFittedError.
         """Apply dimensionality reduction to X.
 
         X is projected on the first principal components previously extracted
@@ -417,6 +480,9 @@ class IncrementalPCA(_BasePCA):
             return super().transform(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare float64/float32 dtype preservation and
+        # acceptance of sparse input.
         tags = super().__sklearn_tags__()
         # Beware that fit accepts sparse data but partial_fit doesn't
         tags.input_tags.sparse = True

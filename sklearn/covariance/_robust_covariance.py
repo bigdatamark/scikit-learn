@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Robust location/covariance estimation with the Minimum Covariance Determinant (MCD)
+# via the FastMCD algorithm of Rousseeuw and Van Driessen.
+# Public contents: c_step, select_candidates, fast_mcd functions and the MinCovDet
+# estimator; private helpers _c_step and _consistency_factor.
 """
 Robust location and covariance estimators.
 
@@ -42,6 +47,11 @@ def c_step(
     cov_computation_method=empirical_covariance,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Public wrapper around _c_step: converts X to an ndarray and random_state to a
+    # RandomState, then delegates with the same arguments.
+    # Outputs: (location, covariance, log-det, boolean support mask, Mahalanobis
+    # distances).
     """C_step procedure described in [Rouseeuw1984]_ aiming at computing MCD.
 
     Parameters
@@ -120,6 +130,30 @@ def _c_step(
     verbose=False,
     cov_computation_method=empirical_covariance,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs concentration steps (C-steps) of MCD.
+    # Behavior: choose an initial support of n_support samples, either a random
+    # permutation prefix or, given initial_estimates (location, covariance), the
+    # n_support samples with smallest Mahalanobis distance. Compute location (mean) and
+    # covariance of the support and its log-determinant. While the log-det strictly
+    # decreases, iterations remain and it is finite: recompute distances of all samples
+    # from the current estimate, take the n_support closest as new support, re-estimate,
+    # decrement remaining_iterations. Then compute final distances with the last
+    # precision and choose the result: current estimates if log-det is -inf, converged
+    # (allclose to previous) or iterations exhausted; previous estimates if the log-det
+    # increased.
+    # Inputs: X - (n_samples, n_features) ndarray; n_support - int support size;
+    # random_state - RandomState; remaining_iterations - int; initial_estimates -
+    # optional (location, covariance) pair; verbose - bool; cov_computation_method -
+    # callable mapping data to a covariance.
+    # Outputs: (location, covariance, log-det, boolean support mask of length n_samples,
+    # distances).
+    # Side effects: consumes randomness; prints if verbose; RuntimeWarning if the
+    # determinant increased.
+    # KNOWN ISSUE: the final distances use the precision of the previous estimate, not
+    # of the returned covariance; and if none of the result branches apply (e.g. det
+    # decreased but is not close to previous with iterations left, which the loop makes
+    # impossible) `results` would be unbound.
     n_samples, n_features = X.shape
     dist = np.inf
 
@@ -214,6 +248,12 @@ def _c_step(
 
 
 def _consistency_factor(n_features, alpha):
+    # [FUNCTION DOC]
+    # HELPER: Factor making a covariance from the alpha fraction of samples with
+    # smallest Mahalanobis distance consistent under a Gaussian model: alpha divided by
+    # the chi2 CDF (df = n_features + 2) at the alpha quantile of chi2 with df =
+    # n_features.
+    # Inputs: n_features - int; alpha - float in (0, 1]. Outputs: float factor.
     """Multiplicative factor to make covariance estimate consistent
     at the normal distribution, as described in [Pison2002]_.
 
@@ -260,6 +300,17 @@ def select_candidates(
     cov_computation_method=empirical_covariance,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Runs _c_step n_trials times and keeps the `select` results with the lowest log-
+    # determinant.
+    # Inputs: X - (n_samples, n_features); n_support - int; n_trials - int (random
+    # starts) or tuple (locations array of shape (k, p), covariances (k, p, p)) used as
+    # initial estimates; select - int number kept; n_iter - C-step iterations; verbose;
+    # cov_computation_method; random_state.
+    # Outputs: best_locations (select, p), best_covariances (select, p, p),
+    # best_supports (select, n_samples) boolean, best_ds (select, n_samples) distances.
+    # Exceptions: TypeError if n_trials is neither int nor tuple. Side effects:
+    # randomness.
     """Finds the best pure subset of observations to compute MCD from it.
 
     The purpose of this function is to find the best sets of n_support
@@ -402,6 +453,26 @@ def fast_mcd(
     cov_computation_method=empirical_covariance,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Computes the raw MCD estimate.
+    # Behavior: validate X (>= 2 samples). n_support defaults to ceil((n + p + 1) / 2)
+    # capped at n, else int(support_fraction * n). For one feature: if n_support < n,
+    # find the shortest window of n_support sorted values (ties: average of all minimal
+    # windows' midpoints), support = n_support points closest to that location,
+    # covariance = their variance; otherwise use all points. For p > 1 and n > 500:
+    # split a shuffled X into subsets of ~300, run select_candidates with 2 C-steps on
+    # each (10 best per subset, fewer on MemoryError), pool candidates on a random
+    # merged set of up to 1500 samples, then if n < 1500 take the best merged candidate
+    # (support/dist filled only on the selected indices) else refine on the full data.
+    # For p > 1 and n <= 500: 30 trials with 2 steps, keep 10, then refine on the full
+    # data to convergence.
+    # Inputs: X - array-like (n_samples, n_features); support_fraction - float or None;
+    # cov_computation_method - callable; random_state - seed/RandomState/None.
+    # Outputs: location (p,), covariance (p, p), support boolean (n,), dist (n,).
+    # Exceptions: validation errors from check_array. Side effects: consumes randomness.
+    # KNOWN ISSUE: the comparison 'n_samples < 1500' differs from 'n_samples > 1500'
+    # above, so n_samples == 1500 takes the full-data refinement path with n_best_merged
+    # 1.
     """Estimate the Minimum Covariance Determinant matrix.
 
     Read more in the :ref:`User Guide <robust_covariance>`.
@@ -619,6 +690,10 @@ def fast_mcd(
 
 
 class MinCovDet(EmpiricalCovariance):
+    # [CLASS DOC]
+    # Robust covariance estimator: raw FastMCD estimate, then consistency correction and
+    # reweighting. Adds support_fraction (in (0, 1] or None) and random_state
+    # constraints; the non-robust covariance routine is empirical_covariance.
     """Minimum Covariance Determinant (MCD): robust estimator of covariance.
 
     The Minimum Covariance Determinant covariance estimator is to be applied
@@ -762,6 +837,9 @@ class MinCovDet(EmpiricalCovariance):
         support_fraction=None,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores store_precision, assume_centered, support_fraction and random_state as
+        # attributes.
         self.store_precision = store_precision
         self.assume_centered = assume_centered
         self.support_fraction = support_fraction
@@ -769,6 +847,18 @@ class MinCovDet(EmpiricalCovariance):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (>= 2 samples), warns if X transposed times X is not full rank
+        # (singular values > 1e-8 counted), runs fast_mcd. If assume_centered, replaces
+        # the raw location by zeros and recomputes raw covariance and distances on the
+        # support without centering. Stores raw_location_, raw_covariance_,
+        # raw_support_, location_, support_, dist_, then calls correct_covariance and
+        # reweight_covariance.
+        # Inputs: X - (n_samples, n_features); y ignored. Outputs: self.
+        # Side effects: sets the attributes above plus covariance_, precision_ (if
+        # stored), n_features_in_; UserWarning on rank deficiency.
+        # KNOWN ISSUE: the corrected covariance returned by correct_covariance is
+        # discarded; only its rescaling of dist_ affects the reweighting step.
         """Fit a Minimum Covariance Determinant with the FastMCD algorithm.
 
         Parameters
@@ -822,6 +912,12 @@ class MinCovDet(EmpiricalCovariance):
         return self
 
     def correct_covariance(self, data):
+        # [FUNCTION DOC]
+        # Multiplies raw_covariance_ by the consistency factor for the support fraction
+        # (n_support / n_samples) and divides dist_ by the same factor.
+        # Inputs: data - unused (kept for API). Outputs: corrected covariance (p, p).
+        # Exceptions: ValueError if the support is a strict subset and raw_covariance_
+        # is all zeros. Side effects: mutates self.dist_ in place.
         """Apply a correction to raw Minimum Covariance Determinant estimates.
 
         Correction using the asymptotic correction factor derived by [Croux1999]_.
@@ -861,6 +957,16 @@ class MinCovDet(EmpiricalCovariance):
         return covariance_corrected
 
     def reweight_covariance(self, data):
+        # [FUNCTION DOC]
+        # Keeps samples whose dist_ is below the chi2 0.975 quantile (df = n_features),
+        # recomputes location (zeros if assume_centered) and covariance on them, scales
+        # covariance by the consistency factor for alpha 0.975, and recomputes distances
+        # of all samples.
+        # Inputs: data - (n_samples, n_features) training data.
+        # Outputs: (location_reweighted, unscaled covariance_reweighted,
+        # support_reweighted mask).
+        # Side effects: sets covariance_/precision_ via _set_covariance, location_,
+        # support_, dist_.
         """Re-weight raw Minimum Covariance Determinant estimates.
 
         Re-weight observations using Rousseeuw's method (equivalent to

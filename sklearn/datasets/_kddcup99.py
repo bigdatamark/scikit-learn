@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Loader for the KDD Cup 1999 network-intrusion dataset, used mainly for anomaly
+# detection benchmarks. Defines remote metadata for the full and 10 percent archives,
+# the public fetch_kddcup99 (with the classical SA/SF/http/smtp subsets), a private raw
+# loader/cacher and a mkdir -p helper. Cache dirs: <data_home>/kddcup99-py3 or
+# kddcup99_10-py3.
+# Side effects at import: creates a module-level logger only.
 """KDDCUP 99 dataset.
 
 A classic dataset for anomaly detection.
@@ -79,6 +86,29 @@ def fetch_kddcup99(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the KDD Cup 99 data, optionally reduced to a classical subset.
+    # Steps: load raw object arrays via _fetch_brute_kddcup99. Subset SA: keep all rows
+    # labelled b"normal." and append 3377 abnormal rows drawn uniformly WITH replacement
+    # (randint) using random_state. Subsets SF/http/smtp: keep rows where logged_in
+    # (column 11) equals 1, drop that column, and replace duration, src_bytes and
+    # dst_bytes by log(x + 0.1); then http/smtp keep rows whose service equals
+    # b"http"/b"smtp" and only the 3 log columns; SF keeps those 3 plus service (4
+    # columns). Optionally shuffle data and target jointly; load DESCR; optionally
+    # convert to pandas.
+    # Inputs: subset - one of SA, SF, http, smtp or None; data_home; shuffle - bool;
+    # random_state - used for SA sampling and shuffling; percent10 - bool, use 10
+    # percent archive; download_if_missing; return_X_y; as_frame; n_retries; delay.
+    # Outputs: (data, target) or Bunch(data, target, frame, target_names, feature_names,
+    # DESCR). data is an object ndarray (bytes for categorical columns, numbers
+    # otherwise); target holds byte-string labels.
+    # Exceptions: OSError via the raw loader when data is missing or cache corrupt;
+    # validation errors from validate_params.
+    # Side effects: may download and write cache files.
+    # KNOWN ISSUE: the docstring calls target the "regression target"; it is a
+    # categorical label array.
+    # KNOWN ISSUE: shape values in the docstring (494021) are only valid for
+    # percent10=True and subset=None.
     """Load the kddcup99 dataset (classification).
 
     Download it if necessary.
@@ -266,6 +296,27 @@ def fetch_kddcup99(
 def _fetch_brute_kddcup99(
     data_home=None, download_if_missing=True, percent10=True, n_retries=3, delay=1.0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Loads (or downloads and caches) the raw KDD Cup 99 arrays without
+    # subsetting.
+    # Steps: choose cache directory and archive by percent10; define the 42-column
+    # structured dtype (ints, floats, fixed-size byte strings). If the samples pickle
+    # exists, joblib-load samples and targets. Else if download_if_missing: create dir,
+    # download archive, read the gzip line by line, split each line on commas, build an
+    # object array, cast each column to its dtype, split off last column as y, delete
+    # the archive and dump X and y with joblib (compress=3). Else raise.
+    # Inputs: data_home - cache root or None; download_if_missing - bool; percent10 -
+    # bool; n_retries - int; delay - float.
+    # Outputs: Bunch with data (object ndarray n x 41), target (object ndarray of
+    # bytes), feature_names (41 names), target_names (single-element list ["labels"]).
+    # Exceptions: OSError if cache loading fails (chained) or data missing with
+    # downloads disabled.
+    # Side effects: network download, file writes, removal of the downloaded archive,
+    # logging.
+    # KNOWN ISSUE: the docstring lists a DESCR attribute in the returned Bunch, but none
+    # is set.
+    # KNOWN ISSUE: availability is judged only by the samples file; a missing targets
+    # file surfaces as the generic invalid-cache OSError.
     """Load the kddcup99 dataset, downloading it if necessary.
 
     Parameters
@@ -416,6 +467,12 @@ def _fetch_brute_kddcup99(
 
 
 def _mkdirp(d):
+    # [FUNCTION DOC]
+    # HELPER: Creates directory d and any parents, ignoring the error if it already
+    # exists.
+    # Inputs: d - path. Outputs: None.
+    # Exceptions: re-raises any OSError other than EEXIST.
+    # Side effects: creates directories on disk.
     """Ensure directory d exists (like mkdir -p on Unix)
     No guarantee that the directory is writable.
     """

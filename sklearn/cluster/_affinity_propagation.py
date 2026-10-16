@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Affinity Propagation clustering (Frey & Dueck 2007): exemplar-based clustering by
+# iterative exchange of responsibility and availability messages on a similarity
+# matrix. Provides the private solver, the affinity_propagation function wrapper and
+# the AffinityPropagation estimator.
 """Affinity Propagation clustering algorithm."""
 
 # Authors: The scikit-learn developers
@@ -18,10 +23,20 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 def _equal_similarities_and_preferences(S, preference):
+    # [FUNCTION DOC]
+    # HELPER: Tells whether the degenerate case holds where all preferences are equal and
+    # all off-diagonal similarities are equal.
+    # Inputs: S - square ndarray (n, n); preference - ndarray (scalar or (n,)).
+    # Outputs: bool (numpy bool). Short-circuits: similarities are not checked if the
+    # preferences differ.
     def all_equal_preferences():
+        # [FUNCTION DOC]
+        # HELPER: True if every entry of preference equals its first entry.
         return np.all(preference == preference.flat[0])
 
     def all_equal_similarities():
+        # [FUNCTION DOC]
+        # HELPER: True if all off-diagonal entries of S are equal (diagonal masked out).
         # Create mask to ignore diagonal of S
         mask = np.ones(S.shape, dtype=bool)
         np.fill_diagonal(mask, 0)
@@ -42,6 +57,34 @@ def _affinity_propagation(
     return_n_iter,
     random_state,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Core solver.
+    # Behavior: if n_samples is 1 or the degenerate equal case holds, warn (UserWarning)
+    # and return either every sample as its own exemplar (when the first preference
+    # exceeds the similarity S[0, n-1]) or a single exemplar 0 with all labels 0.
+    # Otherwise: write preference on the diagonal of S; add tiny random noise
+    # (eps*S + 100*tiny, times standard normal draws) to break ties; then for up to
+    # max_iter iterations: responsibilities R_new(i,k) = S(i,k) - max over k' != k of
+    # (A + S)(i,k') (computed with the row max and second max), damped R = d*R +
+    # (1-d)*R_new; availabilities from Rp = max(R, 0) with Rp's diagonal set to R's,
+    # A_new(i,k) = min(0, column sum of Rp minus Rp(i,k)) off-diagonal and column sum
+    # minus Rp(k,k) on the diagonal, damped likewise. Exemplars E are samples with
+    # A(k,k) + R(k,k) > 0; their history over the last convergence_iter iterations is
+    # kept circularly. Stop when, after at least convergence_iter iterations, every
+    # sample's exemplar status was constant over the window and at least one exemplar
+    # exists. Afterwards, if exemplars exist: assign each sample to the most similar
+    # exemplar, refine each cluster's exemplar as the member maximizing the summed
+    # similarity to the other members, reassign, and relabel to contiguous ids sorted by
+    # exemplar index. If none: warn ConvergenceWarning, labels all -1, centers [].
+    # Inputs: S - float ndarray (n, n), modified in place; preference - ndarray scalar or
+    # (n,); convergence_iter, max_iter - ints; damping - float in [0.5, 1); verbose -
+    # bool, prints convergence status; return_n_iter - bool; random_state - RandomState.
+    # Outputs: (cluster_centers_indices, labels[, n_iter]); n_iter is the number of
+    # iterations run (0 for the degenerate case).
+    # Side effects: mutates S (diagonal and noise); emits warnings; consumes randomness.
+    # KNOWN ISSUE: the condition it == max_iter inside the loop is unreachable since it
+    # ranges up to max_iter - 1. When no exemplar exists, cluster_centers_indices is a
+    # plain empty list rather than an ndarray.
     """Main affinity propagation algorithm."""
     n_samples = S.shape[0]
     if n_samples == 1 or _equal_similarities_and_preferences(S, preference):
@@ -198,6 +241,13 @@ def affinity_propagation(
     return_n_iter=False,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # Function interface: builds AffinityPropagation with affinity="precomputed" and the
+    # given parameters, fits it on S and returns its fitted attributes.
+    # Inputs: see docstring; S must be a square similarity matrix.
+    # Outputs: (cluster_centers_indices_, labels_) or with n_iter_ if return_n_iter.
+    # Exceptions: parameter validation errors; ValueError if S is not square.
+    # Side effects: with copy=False the caller's S is modified in place.
     """Perform Affinity Propagation Clustering of data.
 
     Read more in the :ref:`User Guide <affinity_propagation>`.
@@ -310,6 +360,10 @@ def affinity_propagation(
 
 
 class AffinityPropagation(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator wrapping _affinity_propagation. With affinity="euclidean" the similarity
+    # is the negative squared euclidean distance and cluster_centers_ are the exemplar
+    # rows of X; with "precomputed" X is the similarity matrix and predict is unavailable.
     """Perform Affinity Propagation Clustering of data.
 
     Read more in the :ref:`User Guide <affinity_propagation>`.
@@ -474,6 +528,8 @@ class AffinityPropagation(ClusterMixin, BaseEstimator):
         verbose=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyper-parameters unchanged (validated later in fit).
         self.damping = damping
         self.max_iter = max_iter
         self.convergence_iter = convergence_iter
@@ -484,6 +540,10 @@ class AffinityPropagation(ClusterMixin, BaseEstimator):
         self.random_state = random_state
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks input as pairwise when affinity is "precomputed" and sparse-capable
+        # otherwise.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = self.affinity == "precomputed"
         tags.input_tags.sparse = self.affinity != "precomputed"
@@ -491,6 +551,19 @@ class AffinityPropagation(ClusterMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Builds affinity_matrix_ (validated copy of X when precomputed, honoring copy;
+        # otherwise negative squared euclidean distances of X), checks it is square, uses the
+        # median of the affinity matrix as preference when preference is None, and runs
+        # _affinity_propagation with return_n_iter=True.
+        # Inputs: X - features or (n, n) similarities; y - ignored.
+        # Outputs: self.
+        # Sets: affinity_matrix_, cluster_centers_indices_, labels_, n_iter_, and
+        # cluster_centers_ (copy of X rows) when not precomputed; n_features_in_ etc.
+        # Exceptions: ValueError if the similarity matrix is not square.
+        # Side effects: affinity_matrix_ is modified in place by the solver (diagonal holds
+        # the preferences plus noise), so it is not the raw similarity matrix; with
+        # precomputed and copy=False, the user's array is modified.
         """Fit the clustering from features, or affinity matrix.
 
         Parameters
@@ -551,6 +624,13 @@ class AffinityPropagation(ClusterMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Assigns each sample of X to the nearest cluster center (euclidean) with
+        # pairwise_distances_argmin; if there are no centers, warns ConvergenceWarning and
+        # returns -1 for all samples.
+        # Inputs: X - array-like or sparse (n_samples, n_features).
+        # Outputs: int ndarray (n_samples,).
+        # Exceptions: NotFittedError; ValueError when fitted with affinity="precomputed".
         """Predict the closest cluster each sample in X belongs to.
 
         Parameters
@@ -586,6 +666,10 @@ class AffinityPropagation(ClusterMixin, BaseEstimator):
             return np.array([-1] * X.shape[0])
 
     def fit_predict(self, X, y=None):
+        # [FUNCTION DOC]
+        # Delegates to ClusterMixin.fit_predict (fit then return labels_); kept to override
+        # the docstring.
+        # Outputs: labels_ ndarray (n_samples,).
         """Fit clustering from features/affinity matrix; return cluster labels.
 
         Parameters

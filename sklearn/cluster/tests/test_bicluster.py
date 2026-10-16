@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for spectral biclustering estimators (SpectralCoclustering,
+# SpectralBiclustering), BiclusterMixin helpers (get_submatrix, get_shape,
+# get_indices) and the private normalization helpers in sklearn.cluster._bicluster.
 """Testing for Spectral Biclustering methods"""
 
 import numpy as np
@@ -23,11 +27,19 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 class MockBiclustering(BiclusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal bicluster estimator with fixed indices, used to test
+    # BiclusterMixin.get_submatrix without fitting anything.
     # Mock object for testing get_submatrix.
     def __init__(self):
+        # [FUNCTION DOC]
+        # HELPER: No-op constructor (no parameters, no attributes set).
         pass
 
     def get_indices(self, i):
+        # [FUNCTION DOC]
+        # HELPER: Ignores the bicluster index i and always returns row indices [0, 1, 4] and
+        # column indices [2, 3] as integer arrays.
         # Overridden to reproduce old get_submatrix test.
         return (
             np.where([True, True, False, False, True])[0],
@@ -37,6 +49,10 @@ class MockBiclustering(BiclusterMixin, BaseEstimator):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_get_submatrix(csr_container):
+    # [FUNCTION DOC]
+    # Verifies get_submatrix on a 5x4 arange matrix given as ndarray, CSR matrix and nested
+    # list returns rows [0, 1, 4] x columns [2, 3], and that writing into the returned
+    # submatrix does not modify the original input (it is a copy).
     data = np.arange(20).reshape(5, 4)
     model = MockBiclustering()
 
@@ -52,6 +68,13 @@ def test_get_submatrix(csr_container):
 
 
 def _test_shape_indices(model):
+    # [FUNCTION DOC]
+    # HELPER: For each bicluster index in range(model.n_clusters), asserts get_shape
+    # returns (number of row indices, number of column indices) consistent with
+    # get_indices. Input: a fitted bicluster model. Raises AssertionError on mismatch.
+    # KNOWN ISSUE: for SpectralBiclustering n_clusters may be a tuple and the number of
+    # biclusters is the product of its entries; here an int 3 is used, so only the first 3
+    # of the 9 biclusters are checked.
     # Test get_shape and get_indices on fitted model.
     for i in range(model.n_clusters):
         m, n = model.get_shape(i)
@@ -62,6 +85,11 @@ def _test_shape_indices(model):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_spectral_coclustering(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies SpectralCoclustering recovers 3 planted biclusters perfectly (consensus score
+    # 1) on a thresholded nonnegative make_biclusters matrix, dense and CSR, over a grid of
+    # svd_method, n_svd_vecs and mini_batch settings; rows_/columns_ assign each row and
+    # column to exactly one bicluster, and shape/indices helpers agree.
     # Test Dhillon's Spectral CoClustering on a simple problem.
     param_grid = {
         "svd_method": ["randomized", "arpack"],
@@ -92,6 +120,11 @@ def test_spectral_coclustering(global_random_seed, csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_spectral_biclustering(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies SpectralBiclustering on a 3x3 checkerboard (9 biclusters) for each single
+    # non-default parameter value: rows_ and columns_ have shape (9, 30), each row/column
+    # belongs to 3 biclusters, consensus score is 1; for CSR input with method="log" a
+    # ValueError is expected instead.
     # Test Kluger methods on a checkerboard dataset.
     S, rows, cols = make_checkerboard(
         (30, 30), 3, noise=0.5, random_state=global_random_seed
@@ -133,6 +166,10 @@ def test_spectral_biclustering(global_random_seed, csr_container):
 
 
 def _do_scale_test(scaled):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that the row sums of a 100x100 (dense or sparse) matrix are all
+    # roughly equal to their mean and likewise for column sums (1 decimal tolerance).
+    # Raises AssertionError otherwise.
     """Check that rows sum to one constant, and columns to another."""
     row_sum = scaled.sum(axis=1)
     col_sum = scaled.sum(axis=0)
@@ -144,6 +181,9 @@ def _do_scale_test(scaled):
 
 
 def _do_bistochastic_test(scaled):
+    # [FUNCTION DOC]
+    # HELPER: Runs _do_scale_test and additionally asserts that mean row sum and mean
+    # column sum agree to 1 decimal.
     """Check that rows and columns sum to the same constant."""
     _do_scale_test(scaled)
     assert_almost_equal(scaled.sum(axis=0).mean(), scaled.sum(axis=1).mean(), decimal=1)
@@ -151,6 +191,9 @@ def _do_bistochastic_test(scaled):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_scale_normalize(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies _scale_normalize on a random 100x100 matrix (dense and CSR) yields constant
+    # row sums and constant column sums, and preserves sparsity.
     generator = np.random.RandomState(global_random_seed)
     X = generator.rand(100, 100)
     for mat in (X, csr_container(X)):
@@ -162,6 +205,9 @@ def test_scale_normalize(global_random_seed, csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_bistochastic_normalize(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies _bistochastic_normalize yields rows and columns summing to the same constant
+    # for dense and CSR input, and preserves sparsity.
     generator = np.random.RandomState(global_random_seed)
     X = generator.rand(100, 100)
     for mat in (X, csr_container(X)):
@@ -172,6 +218,8 @@ def test_bistochastic_normalize(global_random_seed, csr_container):
 
 
 def test_log_normalize(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that the log-normalized random matrix plus 1 is bistochastic.
     # adding any constant to a log-scaled matrix should make it
     # bistochastic
     generator = np.random.RandomState(global_random_seed)
@@ -181,6 +229,9 @@ def test_log_normalize(global_random_seed):
 
 
 def test_fit_best_piecewise(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies _fit_best_piecewise with n_best=2 selects the two vectors that are best
+    # approximated by piecewise-constant vectors (the first two rows of the input).
     model = SpectralBiclustering(random_state=global_random_seed)
     vectors = np.array([[0, 0, 0, 1, 1, 1], [2, 2, 2, 3, 3, 3], [0, 1, 2, 3, 4, 5]])
     best = model._fit_best_piecewise(vectors, n_best=2, n_clusters=2)
@@ -189,6 +240,9 @@ def test_fit_best_piecewise(global_random_seed):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_project_and_cluster(global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies _project_and_cluster separates the two distinct row patterns of a small
+    # matrix (dense and CSR) into 2 clusters with perfect v-measure.
     model = SpectralBiclustering(random_state=global_random_seed)
     data = np.array([[1, 1, 1], [1, 1, 1], [3, 6, 3], [3, 6, 3]])
     vectors = np.array([[1, 0], [0, 1], [0, 0]])
@@ -198,6 +252,9 @@ def test_project_and_cluster(global_random_seed, csr_container):
 
 
 def test_perfect_checkerboard(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SpectralBiclustering (arpack) perfectly recovers noise-free 3x3
+    # checkerboards of shapes 30x30, 40x30 and 30x40 (consensus score 1).
     # XXX Previously failed on build bot (not reproducible)
     model = SpectralBiclustering(
         3, svd_method="arpack", random_state=global_random_seed
@@ -248,6 +305,10 @@ def test_perfect_checkerboard(global_random_seed):
     ],
 )
 def test_spectralbiclustering_parameter_validation(params, type_err, err_msg):
+    # [FUNCTION DOC]
+    # Verifies fit on a 5x5 matrix raises the expected error for invalid n_clusters (too
+    # large, wrong tuple length, tuple entry too large) and n_best > n_components.
+    # Inputs: params - constructor kwargs; type_err - exception class; err_msg - regex.
     """Check parameters validation in `SpectralBiClustering`"""
     data = np.arange(25).reshape((5, 5))
     model = SpectralBiclustering(**params)
@@ -257,6 +318,9 @@ def test_spectralbiclustering_parameter_validation(params, type_err, err_msg):
 
 @pytest.mark.parametrize("est", (SpectralBiclustering(), SpectralCoclustering()))
 def test_n_features_in_(est):
+    # [FUNCTION DOC]
+    # Verifies n_features_in_ is absent before fit and equals 3 after fitting a 3x3 matrix,
+    # for a clone of each bicluster estimator. Inputs: est - estimator instance.
     X, _, _ = make_biclusters((3, 3), 3, random_state=0)
 
     est = clone(est)

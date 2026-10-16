@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Shrinkage covariance estimators: shrink the empirical covariance toward a scaled
+# identity (mu times I, mu = mean of the diagonal) with a fixed coefficient
+# (shrunk_covariance, ShrunkCovariance), the Ledoit-Wolf optimal coefficient
+# (ledoit_wolf_shrinkage, ledoit_wolf, LedoitWolf) or the Oracle Approximating Shrinkage
+# coefficient (oas, OAS). Private helpers _ledoit_wolf and _oas do the computation.
 """
 Covariance estimators using shrinkage.
 
@@ -23,6 +29,15 @@ from sklearn.utils.validation import validate_data
 
 
 def _ledoit_wolf(X, *, assume_centered, block_size):
+    # [FUNCTION DOC]
+    # HELPER: Returns the Ledoit-Wolf shrunk covariance and its coefficient. For a
+    # single feature, returns the (centered unless assume_centered) mean square as a 1x1
+    # matrix and shrinkage 0. Otherwise computes the shrinkage with
+    # ledoit_wolf_shrinkage, the empirical covariance, mu = trace / n_features, and
+    # returns (1 - shrinkage) times covariance plus shrinkage times mu on the diagonal.
+    # Inputs: X - (n_samples, n_features) ndarray; assume_centered - bool; block_size -
+    # int.
+    # Outputs: (shrunk covariance (p, p), shrinkage float). Side effects: none.
     """Estimate the shrunk Ledoit-Wolf covariance matrix."""
     # for only one feature, the result is the same whatever the shrinkage
     if len(X.shape) == 2 and X.shape[1] == 1:
@@ -44,6 +59,14 @@ def _ledoit_wolf(X, *, assume_centered, block_size):
 
 
 def _oas(X, *, assume_centered=False):
+    # [FUNCTION DOC]
+    # HELPER: Returns the OAS shrunk covariance and coefficient. One feature: same
+    # shortcut as _ledoit_wolf. Otherwise with S the empirical covariance, alpha the
+    # mean of squared entries of S and mu = trace(S) / p, shrinkage = min((alpha + mu^2)
+    # / ((n + 1) * (alpha - mu^2 / p)), 1), or 1 if the denominator is zero; result is
+    # (1 - shrinkage) S plus shrinkage mu on the diagonal.
+    # Inputs: X - (n_samples, n_features); assume_centered - bool.
+    # Outputs: (shrunk covariance (p, p), shrinkage float).
     """Estimate covariance with the Oracle Approximating Shrinkage algorithm.
 
     The formulation is based on [1]_.
@@ -107,6 +130,13 @@ def _oas(X, *, assume_centered=False):
     prefer_skip_nested_validation=True,
 )
 def shrunk_covariance(emp_cov, shrinkage=0.1):
+    # [FUNCTION DOC]
+    # Shrinks one or a stack of covariance matrices: (1 - shrinkage) times emp_cov plus
+    # shrinkage times (trace / n_features) times identity, computed per matrix over the
+    # last two axes.
+    # Inputs: emp_cov - array-like (..., p, p) (nd allowed); shrinkage - float in [0,
+    # 1].
+    # Outputs: new ndarray of the same shape. Exceptions: parameter validation errors.
     """Calculate covariance matrices shrunk on the diagonal.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -157,6 +187,8 @@ def shrunk_covariance(emp_cov, shrinkage=0.1):
 
 
 class ShrunkCovariance(EmpiricalCovariance):
+    # [CLASS DOC]
+    # Estimator with a fixed shrinkage coefficient in [0, 1].
     """Covariance estimator with shrinkage.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -246,6 +278,8 @@ class ShrunkCovariance(EmpiricalCovariance):
     }
 
     def __init__(self, *, store_precision=True, assume_centered=False, shrinkage=0.1):
+        # [FUNCTION DOC]
+        # Stores store_precision, assume_centered (via parent) and shrinkage.
         super().__init__(
             store_precision=store_precision, assume_centered=assume_centered
         )
@@ -253,6 +287,12 @@ class ShrunkCovariance(EmpiricalCovariance):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X, sets location_ (zeros or column means), computes the empirical
+        # covariance and shrinks it with shrunk_covariance.
+        # Inputs: X - (n_samples, n_features); y ignored. Outputs: self.
+        # Side effects: sets location_, covariance_, precision_ (if store_precision),
+        # n_features_in_.
         """Fit the shrunk covariance model to X.
 
         Parameters
@@ -295,6 +335,21 @@ class ShrunkCovariance(EmpiricalCovariance):
     prefer_skip_nested_validation=True,
 )
 def ledoit_wolf_shrinkage(X, assume_centered=False, block_size=1000):
+    # [FUNCTION DOC]
+    # Computes the Ledoit-Wolf shrinkage coefficient in blocks of block_size features to
+    # bound memory.
+    # Behavior: return 0 for one feature; warn if only one sample; center X unless
+    # assume_centered. With X2 the squared data, accumulate over feature blocks beta_ =
+    # sum of entries of X2 transposed times X2 and delta_ = sum of squared entries of X
+    # transposed times X (divided by n^2). Then mu = mean diagonal of the empirical
+    # covariance, beta = (beta_ / n - delta_) / (p n), delta = (delta_ - 2 mu trace + p
+    # mu^2) / p, beta clipped to at most delta, shrinkage = beta / delta (0 when beta is
+    # 0).
+    # Inputs: X - array-like (n_samples, n_features); assume_centered - bool; block_size
+    # - int >= 1. Outputs: float shrinkage in [0, 1].
+    # Side effects: UserWarning when n_samples == 1.
+    # KNOWN ISSUE: the reshape branch for 1-D input is dead, check_array already rejects
+    # 1-D arrays.
     """Estimate the shrunk Ledoit-Wolf covariance matrix.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -405,6 +460,10 @@ def ledoit_wolf_shrinkage(X, assume_centered=False, block_size=1000):
     prefer_skip_nested_validation=False,
 )
 def ledoit_wolf(X, *, assume_centered=False, block_size=1000):
+    # [FUNCTION DOC]
+    # Fits LedoitWolf (store_precision=False) on X and returns (covariance_,
+    # shrinkage_). Inputs: X - array-like (n_samples, n_features); assume_centered;
+    # block_size.
     """Estimate the shrunk Ledoit-Wolf covariance matrix.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -465,6 +524,8 @@ def ledoit_wolf(X, *, assume_centered=False, block_size=1000):
 
 
 class LedoitWolf(EmpiricalCovariance):
+    # [CLASS DOC]
+    # Estimator using the Ledoit-Wolf shrinkage; adds block_size (int >= 1) constraint.
     """LedoitWolf Estimator.
 
     Ledoit-Wolf is a particular form of shrinkage, where the shrinkage
@@ -575,6 +636,8 @@ class LedoitWolf(EmpiricalCovariance):
     }
 
     def __init__(self, *, store_precision=True, assume_centered=False, block_size=1000):
+        # [FUNCTION DOC]
+        # Stores store_precision, assume_centered (via parent) and block_size.
         super().__init__(
             store_precision=store_precision, assume_centered=assume_centered
         )
@@ -582,6 +645,11 @@ class LedoitWolf(EmpiricalCovariance):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X, sets location_ (zeros or column means), runs _ledoit_wolf on the
+        # centered data with assume_centered=True.
+        # Outputs: self. Side effects: sets location_, shrinkage_, covariance_,
+        # precision_ (if store_precision), n_features_in_.
         """Fit the Ledoit-Wolf shrunk covariance model to X.
 
         Parameters
@@ -619,6 +687,9 @@ class LedoitWolf(EmpiricalCovariance):
     prefer_skip_nested_validation=False,
 )
 def oas(X, *, assume_centered=False):
+    # [FUNCTION DOC]
+    # Fits OAS on X and returns (covariance_, shrinkage_).
+    # Inputs: X - array-like (n_samples, n_features); assume_centered - bool.
     """Estimate covariance with the Oracle Approximating Shrinkage.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -686,6 +757,9 @@ def oas(X, *, assume_centered=False):
 
 
 class OAS(EmpiricalCovariance):
+    # [CLASS DOC]
+    # Estimator using Oracle Approximating Shrinkage; same parameters as
+    # EmpiricalCovariance.
     """Oracle Approximating Shrinkage Estimator.
 
     Read more in the :ref:`User Guide <shrunk_covariance>`.
@@ -792,6 +866,10 @@ class OAS(EmpiricalCovariance):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X, sets location_ (zeros or column means), runs _oas on the centered
+        # data. Outputs: self. Side effects: sets location_, shrinkage_, covariance_,
+        # precision_ (if store_precision), n_features_in_.
         """Fit the Oracle Approximating Shrinkage covariance model to X.
 
         Parameters

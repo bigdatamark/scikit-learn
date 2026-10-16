@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements the FactorAnalysis estimator: a linear Gaussian latent variable model X = W
+# z + mean + noise with per-feature (diagonal) noise variances, fitted by an SVD-based
+# iterative maximum-likelihood procedure (Barber, Algorithm 21.1), plus an optional
+# varimax/quartimax rotation of the loadings.
+# Public contents: FactorAnalysis. Private helper: _ortho_rotation.
+# Side effects at import: none.
 """Factor Analysis.
 
 A latent linear variable model.
@@ -37,6 +44,13 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator storing hyperparameters in __init__ and learning mean_, components_
+    # (n_components x n_features loadings), noise_variance_ (per-feature psi), loglike_
+    # and n_iter_ in fit. Provides latent posterior means (transform), the implied
+    # covariance/precision of the data, and Gaussian log-likelihoods. Output feature
+    # names are prefixed by the lower-cased class name
+    # (ClassNamePrefixFeaturesOutMixin).
     """Factor Analysis (FA).
 
     A simple linear generative model with Gaussian latent variables.
@@ -188,6 +202,16 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         rotation=None,
         random_state=0,
     ):
+        # [FUNCTION DOC]
+        # Stores each constructor argument unchanged as an attribute of the same name;
+        # no validation (done by _parameter_constraints at fit time).
+        # Inputs: n_components (int or None, None means n_features), tol (float, log-
+        #   likelihood increase threshold, default 1e-2), copy (bool), max_iter (int,
+        #   default 1000), noise_variance_init (array of length n_features or None),
+        #   svd_method ('randomized' or 'lapack'), iterated_power (int, randomized SVD
+        #   power iterations), rotation (None, 'varimax' or 'quartimax'), random_state
+        #   (seed/RandomState, default 0).
+        # Outputs: none. Side effects: sets attributes on self.
         self.n_components = n_components
         self.copy = copy
         self.tol = tol
@@ -201,6 +225,34 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model. Steps: validate X as float64 (copied when copy is True);
+        # center X by its column mean (stored as mean_). Initialise psi as ones or
+        # noise_variance_init. Then for up to max_iter iterations: scale X by
+        # 1/(sqrt(psi)+1e-12) and 1/sqrt(n_samples); take the top n_components singular
+        # values s and right vectors Vt of this matrix along with the unexplained
+        # squared norm; square s; set loadings W to sqrt(max(s-1, 0)) times each row of
+        # Vt, then rescale columns by sqrt(psi); compute log-likelihood as -n_samples/2
+        # times (n_features*log(2 pi) + n_components + sum log s + unexplained variance
+        # + sum log psi); stop when the increase over the previous value is below tol;
+        # otherwise update psi to max(per-feature variance minus column sum of W
+        # squared, 1e-12).
+        # Inputs: X array-like (n_samples, n_features); y ignored.
+        # Outputs: self.
+        # Exceptions: ValueError if noise_variance_init length differs from n_features;
+        #   validation errors from validate_data.
+        # Side effects: sets mean_, components_ (rotated with _rotate when rotation is
+        #   set), noise_variance_, loglike_ (list of per-iteration log-likelihoods),
+        #   n_iter_, n_features_in_ (and feature_names_in_); mutates X in place when
+        #   copy is False; emits ConvergenceWarning when max_iter is exhausted; consumes
+        #   random_state for the randomized SVD.
+        # KNOWN ISSUE: the ValueError message reads "dimension does not with number of
+        #   features" (missing word "match").
+        # KNOWN ISSUE: when the loop breaks on convergence, components_ comes from the
+        #   latest iteration but noise_variance_ is the psi used to compute it (not
+        #   updated), which is consistent; however when max_iter is exhausted psi has
+        #   been updated once more after W was computed, so noise_variance_ and
+        #   components_ come from different iterations.
         """Fit the FactorAnalysis model to X using SVD based approach.
 
         Parameters
@@ -253,6 +305,12 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         if self.svd_method == "lapack":
 
             def my_svd(X):
+                # [FUNCTION DOC]
+                # HELPER: Exact SVD backend (svd_method 'lapack'). Computes a thin SVD
+                #   of the given matrix with scipy.
+                # Inputs: X - scaled 2D data matrix. Closes over n_components.
+                # Outputs: tuple of (top n_components singular values, matching rows of
+                #   Vt, sum of squares of the remaining singular values).
                 _, s, Vt = linalg.svd(X, full_matrices=False, check_finite=False)
                 return (
                     s[:n_components],
@@ -264,6 +322,15 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
             random_state = check_random_state(self.random_state)
 
             def my_svd(X):
+                # [FUNCTION DOC]
+                # HELPER: Randomized SVD backend (svd_method 'randomized') using
+                #   _randomized_svd with n_components, the shared random_state and
+                #   iterated_power iterations.
+                # Inputs: X - scaled 2D data matrix.
+                # Outputs: tuple of (singular values, Vt rows, squared Frobenius norm of
+                #   X minus the sum of squared singular values, i.e. the unexplained
+                #   variance).
+                # Side effects: advances the shared random_state.
                 _, s, Vt = _randomized_svd(
                     X,
                     n_components,
@@ -309,6 +376,14 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns the posterior mean of the latent variables: center X by mean_, form
+        # Wpsi = components_ divided column-wise by noise_variance_, compute cov_z as
+        # the inverse of (identity + Wpsi times components_ transposed), and return
+        # centered X times Wpsi transposed times cov_z.
+        # Inputs: X array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples, n_components).
+        # Exceptions: NotFittedError if unfitted; validation errors on feature mismatch.
         """Apply dimensionality reduction to X using the model.
 
         Compute the expected mean of the latent variables.
@@ -339,6 +414,10 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return X_transformed
 
     def get_covariance(self):
+        # [FUNCTION DOC]
+        # Returns components_ transposed times components_ with noise_variance_ added to
+        # the diagonal, an ndarray (n_features, n_features).
+        # Exceptions: NotFittedError if unfitted.
         """Compute data covariance with the FactorAnalysis model.
 
         ``cov = components_.T * components_ + diag(noise_variance)``
@@ -355,6 +434,17 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return cov
 
     def get_precision(self):
+        # [FUNCTION DOC]
+        # Returns the inverse of get_covariance(), shape (n_features, n_features). If
+        # n_components is 0 returns the diagonal of 1/noise_variance_; if n_components
+        # equals n_features inverts the covariance directly; otherwise uses the Woodbury
+        # identity: invert the small matrix (identity + W psi^-1 W^T), then compute
+        # psi^-1 minus psi^-1 W^T (that inverse) W psi^-1.
+        # Exceptions: NotFittedError if unfitted; LinAlgError if a matrix is singular.
+        # KNOWN ISSUE: the corner cases test the hyperparameter n_components, not the
+        #   fitted number of components; with n_components None (meaning n_features) the
+        #   direct-inversion shortcut is skipped and the Woodbury path is used, which is
+        #   still correct but slower.
         """Compute data precision matrix with the FactorAnalysis model.
 
         Returns
@@ -383,6 +473,13 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return precision
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Computes the Gaussian log-density of each sample under N(mean_,
+        # get_covariance()): minus half the Mahalanobis form with the precision matrix,
+        # minus half of (n_features*log(2 pi) minus log-determinant of the precision).
+        # Inputs: X array (n_samples, n_features).
+        # Outputs: ndarray (n_samples,).
+        # Exceptions: NotFittedError; validation errors.
         """Compute the log-likelihood of each sample.
 
         Parameters
@@ -405,6 +502,8 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return log_like
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # Returns the mean of score_samples(X) as a float. y is ignored.
         """Compute the average log-likelihood of the samples.
 
         Parameters
@@ -423,6 +522,14 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return np.mean(self.score_samples(X))
 
     def _rotate(self, components, n_components=None, tol=1e-6):
+        # [FUNCTION DOC]
+        # HELPER: Applies the configured rotation (self.rotation) to the loadings via
+        #   _ortho_rotation on the transposed components, returning the first
+        #   self.n_components rows of the rotated (n_components, n_features) result.
+        # Inputs: components (n_components, n_features); n_components unused; tol
+        #   convergence tolerance.
+        # KNOWN ISSUE: the n_components argument is ignored; slicing uses
+        #   self.n_components instead.
         "Rotate the factor analysis solution."
         # note that tol is not exposed
         return _ortho_rotation(components.T, method=self.rotation, tol=tol)[
@@ -431,11 +538,27 @@ class FactorAnalysis(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property giving the number of output features, i.e. the number of rows
+        #   of components_ (used for get_feature_names_out).
         """Number of transformed output features."""
         return self.components_.shape[0]
 
 
 def _ortho_rotation(components, method="varimax", tol=1e-6, max_iter=100):
+    # [FUNCTION DOC]
+    # HELPER: Iteratively finds an orthogonal rotation maximising the varimax or
+    #   quartimax criterion. Start from the identity rotation; each iteration rotates
+    #   the loadings, builds the gradient target (for varimax, the cube of rotated
+    #   loadings minus rotated loadings scaled by their column mean square; for
+    #   quartimax, just the cube), takes the SVD of components transposed times that
+    #   target, and sets the rotation to U times V. Stops when the sum of singular
+    #   values improves by less than relative tol, or after max_iter iterations.
+    # Inputs: components (n_features, n_components) loading matrix; method 'varimax' or
+    #   'quartimax'; tol float; max_iter int.
+    # Outputs: rotated loadings transposed, shape (n_components, n_features).
+    # KNOWN ISSUE: any other method string leaves tmp unset on the first iteration and
+    #   raises UnboundLocalError (guarded in practice by parameter validation).
     """Return rotated components."""
     nrow, ncol = components.shape
     rotation_matrix = np.eye(ncol)

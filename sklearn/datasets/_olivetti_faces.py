@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Loader for the modified Olivetti (AT&T) faces dataset: 400 grayscale 64x64 images of
+# 40 subjects, fetched as a MATLAB file and cached as a joblib pickle (olivetti.pkz) in
+# data_home. Exposes fetch_olivetti_faces. No import-time side effects.
 """Modified Olivetti faces dataset.
 
 The original database was available from (now defunct)
@@ -62,6 +66,23 @@ def fetch_olivetti_faces(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the Olivetti faces, downloading and caching them on first use.
+    # Steps: if the cache pickle is absent, download the .mat file (or raise when
+    # downloads are disabled), read the "faces" matrix, transpose it, dump it to the
+    # pickle and delete the .mat. Otherwise load the pickle. Convert to float32, min-max
+    # scale to [0, 1], reshape to (400, 64, 64) and transpose each image (row/column
+    # order of MATLAB). Targets are i // 10 for sample i (10 contiguous images per
+    # subject). Optionally permute samples with random_state. Flatten images to rows of
+    # 4096 features.
+    # Inputs: data_home; shuffle - bool; random_state - default 0, used only when
+    # shuffle; download_if_missing; return_X_y; n_retries; delay.
+    # Outputs: (data, target) or Bunch(data (400, 4096), images (400, 64, 64), target
+    # (400,), DESCR).
+    # Exceptions: OSError if data is missing and download_if_missing is False; network
+    # errors.
+    # Side effects: prints a download message to stdout (not logging); writes the cache
+    # pickle and removes the .mat file.
     """Load the Olivetti faces data-set from AT&T (classification).
 
     Download it if necessary.

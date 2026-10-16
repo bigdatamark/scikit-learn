@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Python front-end for reading and writing the svmlight / libsvm sparse text format.
+# Parsing and writing are delegated to the Cython module _svmlight_format_fast; this
+# module handles opening files (plain, .gz, .bz2, file descriptors, file-likes), index-
+# base detection, feature-count reconciliation across files, CSR construction and
+# argument validation. Public: load_svmlight_file, load_svmlight_files,
+# dump_svmlight_file. No import-time side effects.
 """This module implements a loader and dumper for the svmlight format
 
 This format is a text-based format, with one sample per line. It does
@@ -64,6 +71,16 @@ def load_svmlight_file(
     offset=0,
     length=-1,
 ):
+    # [FUNCTION DOC]
+    # Loads a single svmlight file by delegating to load_svmlight_files with a one-
+    # element list.
+    # Inputs: f - path, path-like, non-negative file descriptor or binary file-like;
+    # n_features - int >= 1 or None (inferred); dtype - data dtype; multilabel - bool;
+    # zero_based - bool or "auto"; query_id - bool; offset - byte offset to start
+    # reading; length - max bytes to read (negative means all).
+    # Outputs: tuple (X sparse CSR, y) or (X, y, query_id) when query_id is True; y is a
+    # float64 array or a list of tuples when multilabel.
+    # Exceptions: as load_svmlight_files.
     """Load datasets in the svmlight / libsvm format into sparse CSR matrix.
 
     This format is a text-based format, with one sample per line. It does
@@ -193,6 +210,14 @@ def load_svmlight_file(
 
 
 def _gen_open(f):
+    # [FUNCTION DOC]
+    # HELPER: Opens a path or file descriptor for binary reading, choosing the
+    # decompressor from the extension.
+    # Inputs: f - int file descriptor (opened without closing the fd), os.PathLike or
+    # str path.
+    # Outputs: binary file object (gzip for .gz, BZ2File for .bz2, plain otherwise).
+    # Exceptions: TypeError for any other input type; OSError from opening.
+    # Side effects: opens a file handle the caller must close.
     if isinstance(f, int):  # file descriptor
         return open(f, "rb", closefd=False)
     elif isinstance(f, os.PathLike):
@@ -214,6 +239,19 @@ def _gen_open(f):
 
 
 def _open_and_load(f, dtype, multilabel, zero_based, query_id, offset=0, length=-1):
+    # [FUNCTION DOC]
+    # HELPER: Parses one svmlight source into raw CSR components.
+    # Steps: if f has read, parse it directly; otherwise open it with _gen_open (closed
+    # afterwards) and parse via the Cython _load_svmlight_file. Convert the returned
+    # array.array buffers to numpy arrays: labels to float64 (unless multilabel, then
+    # left as list), data to the dtype reported by the parser then cast to dtype,
+    # indices and indptr to int64, query ids to int64.
+    # Inputs: f - source; dtype; multilabel - bool; zero_based - bool; query_id - bool;
+    # offset, length - byte window.
+    # Outputs: tuple (data, indices, indptr, labels, query).
+    # Exceptions: ValueError from the parser on malformed input; TypeError from
+    # _gen_open.
+    # Side effects: reads from (and possibly opens/closes) the file.
     if hasattr(f, "read"):
         actual_dtype, data, ind, indptr, labels, query = _load_svmlight_file(
             f, dtype, multilabel, zero_based, query_id, offset, length
@@ -266,6 +304,27 @@ def load_svmlight_files(
     offset=0,
     length=-1,
 ):
+    # [FUNCTION DOC]
+    # Loads several svmlight files and returns aligned CSR matrices with a common number
+    # of columns.
+    # Steps: when offset or length restrict the read, force zero_based to True if it was
+    # "auto" and require n_features. Parse every file with _open_and_load. Shift all
+    # indices down by one when zero_based is False, or when "auto" and every file is
+    # non-empty with minimum index > 0 (one-based heuristic). Compute the needed number
+    # of features as max index + 1 over all files; use it when n_features is None, else
+    # check n_features is not smaller. For each file build a CSR array of shape (n_rows,
+    # n_features), sort its indices and append X, y and optionally query ids to a flat
+    # result list.
+    # Inputs: files - iterable of sources (as load_svmlight_file's f); other parameters
+    # as in load_svmlight_file.
+    # Outputs: list [X1, y1, X2, y2, ...] (with q_i after each y_i when query_id is
+    # True).
+    # Exceptions: ValueError when n_features is missing with offset/length, or smaller
+    # than the features found; parser errors.
+    # Side effects: mutates the parsed index arrays in place when shifting.
+    # KNOWN ISSUE: the validator accepts str, path-like, file-like or int for files, but
+    # the code iterates over files, so a single path string would be iterated character
+    # by character.
     """Load dataset from multiple files in SVMlight format.
 
     This function is equivalent to mapping load_svmlight_file over a list of
@@ -420,6 +479,17 @@ def load_svmlight_files(
 
 
 def _dump_svmlight(X, y, f, multilabel, one_based, comment, query_id):
+    # [FUNCTION DOC]
+    # HELPER: Writes the optional header comment and delegates the body to the Cython
+    # writer.
+    # Steps: if comment is non-empty, write a generator line with the sklearn version, a
+    # line stating zero/one-based indices, a blank "#" line, then each comment line
+    # prefixed with "# ". Reshape a dense 1-D y to a column when not multilabel. Call
+    # _dump_svmlight_file with sparsity flags.
+    # Inputs: X - dense or CSR; y - dense or CSR; f - binary writable file; multilabel -
+    # bool; one_based - bool; comment - bytes or None; query_id - int array (possibly
+    # empty).
+    # Outputs: None. Side effects: writes to f.
     if comment:
         f.write(
             (
@@ -470,6 +540,23 @@ def dump_svmlight_file(
     query_id=None,
     multilabel=False,
 ):
+    # [FUNCTION DOC]
+    # Writes X, y (and optional query ids) to a file in svmlight format.
+    # Steps: validate comment (bytes must be ASCII; str encoded as UTF-8; NUL byte
+    # rejected). Validate y with check_array allowing CSR and 1-D; require single-column
+    # sparse or 1-D dense unless multilabel. Validate X; check row counts match. Sort
+    # CSR indices, copying when the validated object is the user's own array so user
+    # input is not modified. Replace query_id None by an empty int32 array, else check
+    # its length. Write via _dump_svmlight, opening f in binary mode if a path.
+    # Inputs: X - array-like or sparse (n_samples, n_features); y - array-like or sparse
+    # (n_samples,) or (n_samples, n_labels) for multilabel; f - path string or writable
+    # binary file; zero_based - bool, default True; comment - str, bytes or None;
+    # query_id - array-like (n_samples,) or None; multilabel - bool.
+    # Outputs: None.
+    # Exceptions: UnicodeDecodeError for non-ASCII bytes comment; ValueError for NUL
+    # bytes, wrong y shape, mismatched row counts or query_id length.
+    # Side effects: writes/creates the file; may sort indices in place on arrays created
+    # by check_array (not on user arrays).
     """Dump the dataset in svmlight / libsvm file format.
 
     This format is a text-based format, with one sample per line. It does

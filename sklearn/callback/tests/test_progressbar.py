@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the ProgressBar callback (rich-based): rendered output of nested progress
+# bars under different parallel backends and propagation depths, the missing-rich
+# error, cloning, cleanup of global registries, spawn safety outside __main__, and
+# the numeric progress computed by RichProgressMonitor. Most tests skip without rich.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -31,6 +36,12 @@ from sklearn.utils.parallel import Parallel, delayed
 )
 @pytest.mark.parametrize("max_propagation_depth", [1, 2, None])
 def test_progressbar(n_jobs, prefer, InnerEstimator, max_propagation_depth, capsys):
+    # [FUNCTION DOC]
+    # Fits a MetaEstimator (3 outer x 2 inner) with a ProgressBar and checks captured
+    # stdout: the root and each outer bar are shown, inner estimator bars appear only when
+    # max_propagation_depth is None or > 1, and every displayed percentage is 100%.
+    # Inputs: n_jobs, prefer, InnerEstimator, max_propagation_depth - parametrized;
+    # capsys - fixture.
     """Check the output of the progress bars and their completion."""
     pytest.importorskip("rich")
 
@@ -65,6 +76,9 @@ def test_progressbar(n_jobs, prefer, InnerEstimator, max_propagation_depth, caps
 
 
 def test_progressbar_requires_rich_error():
+    # [FUNCTION DOC]
+    # Verifies ProgressBar raises ImportError mentioning rich when rich is absent; skips
+    # when rich is installed (detected via check_rich_support not raising).
     """Check that we raise an informative error when rich is not installed."""
     try:
         check_rich_support("test_progressbar_requires_rich_error")
@@ -76,6 +90,9 @@ def test_progressbar_requires_rich_error():
 
 
 def test_clone_after_fit():
+    # [FUNCTION DOC]
+    # Verifies that cloning a fitted estimator keeps the very same ProgressBar instance
+    # in _skl_callbacks (shared by reference).
     """Cloning an estimator with a ProgressBar preserves the callback reference.
 
     clone copies _skl_callbacks by reference so that a single callback instance can
@@ -92,6 +109,11 @@ def test_clone_after_fit():
 @pytest.mark.thread_unsafe
 @pytest.mark.parametrize("backend", ["threading", "loky"])
 def test_progressbar_no_callback_support(backend):
+    # [FUNCTION DOC]
+    # Fits clones of a ProgressBar-carrying estimator in parallel from a function without
+    # callback support, then checks that the instance's listener handles and the
+    # module-level _run_queues/_run_monitors registries are all empty (cleaned up).
+    # Inputs: backend - "threading" or "loky". Marked thread_unsafe (global state).
     """Sanity check for ProgressBar within function not supporting callbacks.
 
     It's hard to check the output from sub-processes so this test only checks that it
@@ -100,9 +122,14 @@ def test_progressbar_no_callback_support(backend):
     pytest.importorskip("rich")
 
     def clone_and_fit(estimator):
+        # [FUNCTION DOC]
+        # HELPER: Clones the estimator and fits the clone without data.
         clone(estimator).fit()
 
     def func(estimator, n_fits):
+        # [FUNCTION DOC]
+        # HELPER: Runs clone_and_fit n_fits times with joblib Parallel (2 jobs, the closed-over
+        # backend).
         Parallel(n_jobs=2, backend=backend)(
             delayed(clone_and_fit)(estimator) for _ in range(n_fits)
         )
@@ -122,6 +149,11 @@ def test_progressbar_no_callback_support(backend):
 
 @pytest.mark.parametrize("prefer", ["threads", "processes"])
 def test_progressbar_outside_main_module(prefer):
+    # [FUNCTION DOC]
+    # Runs a script in a subprocess fitting a parallel MetaEstimator with a ProgressBar
+    # and asserts it produces no output matching the multiprocessing "start a new
+    # process" bootstrap error.
+    # Inputs: prefer - "threads" or "processes".
     """Check that ProgressBar does not trigger spawn errors outside `__main__`."""
     pytest.importorskip("rich")
     code = f"""
@@ -143,6 +175,10 @@ def test_progressbar_outside_main_module(prefer):
 
 
 def test_progress_during_fit():
+    # [FUNCTION DOC]
+    # Patches RichProgressMonitor._on_task_end to record root progress after each task
+    # end and checks it increases linearly 1/max_iter, 2/max_iter, ..., 1, followed by a
+    # final 1.0 for the root task end.
     """Check that the completion of a bottom-level progressbar increments linearly."""
     pytest.importorskip("rich")
     from sklearn.callback._progressbar import RichProgressMonitor
@@ -151,6 +187,11 @@ def test_progress_during_fit():
     orig_on_task_end = RichProgressMonitor._on_task_end
 
     def recording_on_task_end(self, task_info):
+        # [FUNCTION DOC]
+        # HELPER: Calls the original _on_task_end then appends the root rich task progress to
+        # records.
+        # Inputs: self - monitor; task_info - dict describing the finished task.
+        # Side effects: appends to the closed-over records list.
         orig_on_task_end(self, task_info)
         records.append(self.root_rich_task.progress)
 
@@ -173,6 +214,12 @@ def test_progress_during_fit():
     ],
 )
 def test_progress_during_fit_composition(meta_estimator):
+    # [FUNCTION DOC]
+    # For homogeneous and heterogeneous meta-estimators with 4 outer subtasks (only one of
+    # which may have a nested estimator), verifies after each task end that every bar's
+    # progress equals the mean of its children's progress (leaves 1.0), and that the
+    # top-level progress at the end of each outer subtask is 0.25, 0.5, 0.75, 1.0.
+    # Inputs: meta_estimator - parametrized instance.
     """Check the recursive computation of the progress of nested estimators."""
     pytest.importorskip("rich")
     from sklearn.callback._progressbar import RichProgressMonitor
@@ -181,6 +228,10 @@ def test_progress_during_fit_composition(meta_estimator):
     orig_on_task_end = RichProgressMonitor._on_task_end
 
     def check_progress(task):
+        # [FUNCTION DOC]
+        # HELPER: Recursively asserts that a task's progress is 1.0 for a leaf, else the sum
+        # of its children's progress divided by task.total.
+        # Inputs: task - rich progress task node. Exceptions: AssertionError on mismatch.
         # Check recursively that the completion of each progress bar is the average
         # completion of its children.
         if not task.children:
@@ -192,6 +243,11 @@ def test_progress_during_fit_composition(meta_estimator):
         assert_allclose(task.progress, expected)
 
     def recording_on_task_end(self, task_info):
+        # [FUNCTION DOC]
+        # HELPER: Calls the original _on_task_end, records (path, root progress), and checks
+        # the full progress tree consistency.
+        # Inputs: self - monitor; task_info - dict with a "path" entry.
+        # Side effects: appends to records.
         path = task_info["path"]
         orig_on_task_end(self, task_info)
         records.append([path, self.root_rich_task.progress])
@@ -209,6 +265,10 @@ def test_progress_during_fit_composition(meta_estimator):
 
 
 def test_estimator_without_subtasks(capsys):
+    # [FUNCTION DOC]
+    # Verifies a progress bar is rendered and reaches 100% for an estimator with no
+    # subtasks.
+    # Inputs: capsys - fixture.
     """Check that a progress bar is displayed for an estimator without subtasks."""
     pytest.importorskip("rich")
 

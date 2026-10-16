@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.datasets.fetch_rcv1, using the fetch_rcv1_fxt fixture which skips
+# unless data is cached or downloads are enabled.
 """Test the rcv1 loader, if the data is available,
 or if specifically requested via environment variable
 (e.g. for CI jobs)."""
@@ -12,6 +15,13 @@ from sklearn.utils._testing import assert_almost_equal, assert_array_equal
 
 
 def test_fetch_rcv1(fetch_rcv1_fxt, global_random_seed):
+    # [FUNCTION DOC]
+    # Fetches the full unshuffled dataset and verifies sparse data/target, exact nonzero
+    # counts, shapes (804414 x 47236 data, 103 categories), DESCR label, the order of
+    # the first category names and nonzero counts for a few categories. Then fetches the
+    # shuffled train subset and verifies return_X_y consistency, that the first 23149
+    # sample ids of the full set equal the train subset ids, and that feature and target
+    # rows for several sample ids match between the two fetches.
     data1 = fetch_rcv1_fxt(shuffle=False)
     X1, Y1 = data1.data, data1.target
     cat_list, s1 = data1.target_names.tolist(), data1.sample_id

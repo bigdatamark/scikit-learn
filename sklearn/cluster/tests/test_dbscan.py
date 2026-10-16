@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for DBSCAN and the dbscan function: precomputed/feature/callable metrics,
+# sparse inputs and precomputed neighbor graphs, input immutability, metric params,
+# neighbor algorithms, boundary semantics of eps and min_samples, sample weights and
+# EfficiencyWarning behavior. Module-level X: 3 blobs of 20 2D points from
+# generate_clustered_data; n_clusters = 3 is the expected cluster count.
 """
 Tests for DBSCAN clustering algorithm
 """
@@ -26,6 +32,9 @@ X = generate_clustered_data(n_clusters=n_clusters)
 
 
 def test_dbscan_similarity():
+    # [FUNCTION DOC]
+    # Verifies that on a max-normalized precomputed distance matrix (eps 0.15,
+    # min_samples 10) both the function and the estimator find 3 clusters ignoring noise.
     # Tests the DBSCAN algorithm with a similarity array.
     # Parameters chosen specifically for this task.
     eps = 0.15
@@ -50,6 +59,9 @@ def test_dbscan_similarity():
 
 
 def test_dbscan_feature():
+    # [FUNCTION DOC]
+    # Verifies that with raw features and euclidean metric (eps 0.8, min_samples 10) both
+    # the function and the estimator find 3 clusters ignoring noise.
     # Tests the DBSCAN algorithm with a feature vector array.
     # Parameters chosen specifically for this task.
     # Different eps to other test, because distance is not normalised.
@@ -73,6 +85,8 @@ def test_dbscan_feature():
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_dbscan_sparse(lil_container):
+    # [FUNCTION DOC]
+    # Verifies LIL sparse input gives the same core samples and labels as dense input.
     core_sparse, labels_sparse = dbscan(lil_container(X), eps=0.8, min_samples=10)
     core_dense, labels_dense = dbscan(X, eps=0.8, min_samples=10)
     assert_array_equal(core_dense, core_sparse)
@@ -81,6 +95,10 @@ def test_dbscan_sparse(lil_container):
 
 @pytest.mark.parametrize("include_self", [False, True])
 def test_dbscan_sparse_precomputed(include_self):
+    # [FUNCTION DOC]
+    # Verifies a sparse radius-neighbors distance graph (radius 0.9 > eps 0.8, truly
+    # sparse) gives the same result as the dense precomputed distance matrix, whether or
+    # not each sample is included as its own neighbor. Inputs: include_self - bool.
     D = pairwise_distances(X)
     nn = NearestNeighbors(radius=0.9).fit(X)
     X_ = X if include_self else None
@@ -96,6 +114,9 @@ def test_dbscan_sparse_precomputed(include_self):
 
 
 def test_dbscan_sparse_precomputed_different_eps():
+    # [FUNCTION DOC]
+    # Verifies a precomputed sparse graph built with a radius larger than DBSCAN's eps is
+    # filtered to eps: results equal those from a graph built with radius exactly eps.
     # test that precomputed neighbors graph is filtered if computed with
     # a radius larger than DBSCAN's eps.
     lower_eps = 0.2
@@ -115,6 +136,9 @@ def test_dbscan_sparse_precomputed_different_eps():
 @pytest.mark.parametrize("metric", ["precomputed", "minkowski"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS + [None])
 def test_dbscan_input_not_modified(metric, csr_container):
+    # [FUNCTION DOC]
+    # Verifies dbscan does not mutate a random 10x10 input, dense or CSR, with the
+    # precomputed or minkowski metric.
     # test that the input is not modified by dbscan
     X = np.random.RandomState(0).rand(10, 10)
     X = csr_container(X) if csr_container is not None else X
@@ -129,6 +153,9 @@ def test_dbscan_input_not_modified(metric, csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dbscan_input_not_modified_precomputed_sparse_nodiag(csr_container):
+    # [FUNCTION DOC]
+    # Non-regression for #27508: a CSR precomputed matrix without stored diagonal entries
+    # keeps the same nnz and values after dbscan (no explicit zeros are inserted).
     """Check that we don't modify in-place the pre-computed sparse matrix.
 
     Non-regression test for:
@@ -151,6 +178,10 @@ def test_dbscan_input_not_modified_precomputed_sparse_nodiag(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dbscan_no_core_samples(csr_container):
+    # [FUNCTION DOC]
+    # Verifies that when no sample has min_samples neighbors, components_ is empty with
+    # n_features columns, all labels are -1 and core_sample_indices_ is empty (dense and
+    # CSR).
     rng = np.random.RandomState(0)
     X = rng.rand(40, 10)
     X[X < 0.8] = 0
@@ -163,6 +194,9 @@ def test_dbscan_no_core_samples(csr_container):
 
 
 def test_dbscan_callable():
+    # [FUNCTION DOC]
+    # Verifies a callable metric (scipy euclidean) with ball_tree finds 3 clusters via both
+    # the function and the estimator.
     # Tests the DBSCAN algorithm with a callable metric.
     # Parameters chosen specifically for this task.
     # Different eps to other test, because distance is not normalised.
@@ -188,6 +222,10 @@ def test_dbscan_callable():
 
 
 def test_dbscan_metric_params():
+    # [FUNCTION DOC]
+    # Verifies minkowski with metric_params={"p": 1} and p=None emits no warning and equals
+    # passing p=1 directly and the manhattan metric; when p is given both ways, a
+    # SyntaxWarning says the __init__ p is ignored and metric_params wins.
     # Tests that DBSCAN works with the metrics_params argument.
     eps = 0.8
     min_samples = 10
@@ -249,6 +287,9 @@ def test_dbscan_metric_params():
 
 
 def test_dbscan_balltree():
+    # [FUNCTION DOC]
+    # Verifies 3 clusters are found with a precomputed distance matrix and with ball_tree
+    # and kd_tree neighbors for p=2, p=1 and leaf_size=20.
     # Tests the DBSCAN algorithm with balltree for neighbor calculation.
     eps = 0.8
     min_samples = 10
@@ -288,18 +329,25 @@ def test_dbscan_balltree():
 
 
 def test_input_validation():
+    # [FUNCTION DOC]
+    # Verifies fit accepts a list of lists without raising.
     # DBSCAN.fit should accept a list of lists.
     X = [[1.0, 2.0], [3.0, 4.0]]
     DBSCAN().fit(X)  # must not raise exception
 
 
 def test_pickle():
+    # [FUNCTION DOC]
+    # Verifies an unfitted DBSCAN round-trips through pickle with the same class.
     obj = DBSCAN()
     s = pickle.dumps(obj)
     assert type(pickle.loads(s)) is obj.__class__
 
 
 def test_boundaries():
+    # [FUNCTION DOC]
+    # Verifies min_samples counts the point itself and that eps is inclusive (distance
+    # exactly eps counts as a neighbor, 0.99 does not).
     # ensure min_samples is inclusive of core point
     core, _ = dbscan([[0], [1]], eps=2, min_samples=2)
     assert 0 in core
@@ -311,6 +359,11 @@ def test_boundaries():
 
 
 def test_weighted_dbscan(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies sample_weight: wrong length raises ValueError; weights contribute to the
+    # core-point count (including zero, fractional and negative weights); integer weights
+    # are equivalent to repeating samples; and weighted results agree across precomputed
+    # metric, fit and fit_predict.
     # ensure sample_weight is validated
     with pytest.raises(ValueError):
         dbscan([[0], [1]], sample_weight=[2])
@@ -380,6 +433,10 @@ def test_weighted_dbscan(global_random_seed):
 
 @pytest.mark.parametrize("algorithm", ["brute", "kd_tree", "ball_tree"])
 def test_dbscan_core_samples_toy(algorithm):
+    # [FUNCTION DOC]
+    # Verifies exact core samples and labels on 7 1D points with eps=1 for min_samples 1
+    # to 4 (all core, dense trio core, only the middle core, all noise), for each neighbor
+    # algorithm.
     X = [[0], [2], [3], [4], [6], [8], [10]]
     n_samples = len(X)
 
@@ -409,6 +466,9 @@ def test_dbscan_core_samples_toy(algorithm):
 
 
 def test_dbscan_precomputed_metric_with_degenerate_input_arrays():
+    # [FUNCTION DOC]
+    # Non-regression for #4641: identity and all-zero precomputed matrices each yield a
+    # single label value.
     # see https://github.com/scikit-learn/scikit-learn/issues/4641 for
     # more details
     X = np.eye(10)
@@ -422,6 +482,9 @@ def test_dbscan_precomputed_metric_with_degenerate_input_arrays():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dbscan_precomputed_metric_with_initial_rows_zero(csr_container):
+    # [FUNCTION DOC]
+    # Verifies a CSR precomputed matrix whose first two rows are all zero (no stored
+    # neighbors) labels those samples noise and finds two clusters among the rest.
     # sample matrix with initial two row all zero
     ar = np.array(
         [
@@ -440,6 +503,9 @@ def test_dbscan_precomputed_metric_with_initial_rows_zero(csr_container):
 
 
 def _reverse_row_order(graph):
+    # [FUNCTION DOC]
+    # HELPER: Returns a copy of a CSR graph with each row's stored data and column indices
+    # reversed, so rows are no longer sorted by value. Input graph is not modified.
     # Make sure it's NOT sorted by ROW values
     graph = graph.copy()
     for i in range(graph.shape[0]):
@@ -450,6 +516,9 @@ def _reverse_row_order(graph):
 
 
 def test_dbscan_no_warning_unsorted_precomputed():
+    # [FUNCTION DOC]
+    # Non-regression for gh-31030: dbscan on an unsorted precomputed kneighbors graph emits
+    # no EfficiencyWarning (turned into an error).
     # gh-31030: dbscan() should not warn on unsorted precomputed input.
     X = np.random.RandomState(0).randn(200, 10)
     graph = _reverse_row_order(kneighbors_graph(X, n_neighbors=15, mode="distance"))
@@ -459,6 +528,9 @@ def test_dbscan_no_warning_unsorted_precomputed():
 
 
 def test_dbscan_no_warning_presorted_precomputed():
+    # [FUNCTION DOC]
+    # Non-regression for gh-31030: dbscan on a graph the caller already sorted emits no
+    # EfficiencyWarning.
     # gh-31030: warning must not fire even when caller pre-sorts themselves
     X = np.random.RandomState(0).randn(200, 10)
     graph = _reverse_row_order(kneighbors_graph(X, n_neighbors=15, mode="distance"))

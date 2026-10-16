@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Graphical lasso: sparse inverse covariance (precision) estimation by l1-penalized
+# Gaussian maximum likelihood, solved with the GLasso block coordinate algorithm (one
+# Lasso per feature, via coordinate descent or LARS).
+# Public contents: function graphical_lasso, graphical_lasso_path, estimators
+# GraphicalLasso and GraphicalLassoCV (CV grid search with iterative grid refinement);
+# private helpers _objective, _dual_gap, _graphical_lasso, alpha_max.
 """GraphicalLasso: sparse inverse covariance estimation with an l1-penalized
 estimator.
 """
@@ -41,6 +48,13 @@ from sklearn.utils.validation import (
 # Helper functions to compute the objective and dual objective functions
 # of the l1-penalized estimator
 def _objective(mle, precision_, alpha):
+    # [FUNCTION DOC]
+    # HELPER: Computes the graphical-lasso primal objective: minus two times the
+    # Gaussian log-likelihood of mle under precision_, plus p*log(2*pi), plus alpha
+    # times the l1 norm of the off-diagonal entries of precision_.
+    # Inputs: mle - (p, p) empirical covariance; precision_ - (p, p) precision; alpha -
+    # float.
+    # Outputs: float cost. Side effects: none.
     """Evaluation of the graphical-lasso objective function
 
     the objective function is made of a shifted scaled version of the
@@ -54,6 +68,11 @@ def _objective(mle, precision_, alpha):
 
 
 def _dual_gap(emp_cov, precision_, alpha):
+    # [FUNCTION DOC]
+    # HELPER: Computes the duality gap used as convergence criterion: trace of emp_cov
+    # times precision_ (elementwise product sum), minus p, plus alpha times the l1 norm
+    # of off-diagonal precision_ entries.
+    # Inputs: emp_cov, precision_ - (p, p) arrays; alpha - float. Outputs: float gap.
     """Expression of the dual gap convergence criterion
 
     The specific definition is given in Duchi "Projected Subgradient Methods
@@ -78,6 +97,32 @@ def _graphical_lasso(
     verbose=False,
     eps=np.finfo(np.float64).eps,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Core GLasso solver.
+    # Behavior: if alpha is 0, return emp_cov and its exact inverse directly. Otherwise
+    # start from cov_init (or emp_cov), shrink off-diagonals by 0.95 keeping emp_cov's
+    # diagonal, and set precision to its pseudo-inverse. For each outer iteration, loop
+    # over every feature idx: build the submatrix of the covariance without row/column
+    # idx (updated incrementally, one row/column per step), solve a Lasso of the idx-th
+    # emp_cov row against it (mode 'cd': gram-based coordinate descent warm-started from
+    # the scaled precision column, at least 20 inner iterations, tolerance enet_tol;
+    # mode 'lars': lars_path_gram with alpha_min alpha/(p-1)), then update the precision
+    # diagonal and off-diagonal column/row from the coefficients and set covariance
+    # row/column idx to the submatrix times coefficients. After each sweep compute dual
+    # gap and objective, record them, optionally print, and stop when the absolute gap
+    # is below tol.
+    # Inputs: emp_cov - (p, p) array; alpha - float >= 0; cov_init - optional (p, p)
+    # start; mode - 'cd' or 'lars'; tol, enet_tol - floats; max_iter - int; verbose -
+    # bool; eps - small regularizer added to the precision diagonal in cd warm start /
+    # passed to lars.
+    # Outputs: (covariance, precision, costs list of (cost, gap), number of iterations).
+    # Exceptions: FloatingPointError if the precision becomes non-finite or the cost is
+    # non-finite after the first iteration (message extended with an ill-conditioning
+    # note); numpy floating errors raised under the chosen errstate.
+    # Side effects: emits ConvergenceWarning when max_iter is exhausted; prints if
+    # verbose.
+    # KNOWN ISSUE: the alpha == 0 early return gives costs as a single (cost, gap) tuple
+    # and n_iter 0, unlike the list returned otherwise.
     _, n_features = emp_cov.shape
     if alpha == 0:
         # Early return without regularization
@@ -207,6 +252,10 @@ def _graphical_lasso(
 
 
 def alpha_max(emp_cov):
+    # [FUNCTION DOC]
+    # Returns the largest absolute off-diagonal entry of emp_cov: the smallest alpha for
+    # which the graphical lasso solution has an all-zero off-diagonal precision.
+    # Inputs: emp_cov - (p, p) array (copied, not modified). Outputs: float.
     """Find the maximum alpha for which there are some non-zeros off-diagonal.
 
     Parameters
@@ -246,6 +295,13 @@ def graphical_lasso(
     eps=np.finfo(np.float64).eps,
     return_n_iter=False,
 ):
+    # [FUNCTION DOC]
+    # Functional wrapper: fits a GraphicalLasso with covariance='precomputed' and
+    # assume_centered=True on emp_cov, then returns a tuple (covariance_, precision_)
+    # optionally followed by costs_ (if return_costs) and n_iter_ (if return_n_iter).
+    # Inputs are passed through to the estimator (see docstring for meanings/defaults).
+    # Exceptions: parameter validation errors; solver FloatingPointError.
+    # Side effects: as GraphicalLasso.fit (warnings, verbose printing).
     """L1-penalized covariance estimator.
 
     Read more in the :ref:`User Guide <sparse_inverse_covariance>`.
@@ -364,6 +420,11 @@ def graphical_lasso(
 
 
 class BaseGraphicalLasso(EmpiricalCovariance):
+    # [CLASS DOC]
+    # HELPER: Common base for GraphicalLasso and GraphicalLassoCV. Extends
+    # EmpiricalCovariance's parameter constraints with solver settings (tol, enet_tol,
+    # max_iter, mode, verbose, eps) and removes store_precision (precision is always
+    # stored).
     _parameter_constraints: dict = {
         **EmpiricalCovariance._parameter_constraints,
         "tol": [Interval(Real, 0, None, closed="right")],
@@ -385,6 +446,9 @@ class BaseGraphicalLasso(EmpiricalCovariance):
         eps=np.finfo(np.float64).eps,
         assume_centered=False,
     ):
+        # [FUNCTION DOC]
+        # Stores solver hyperparameters as attributes without validation;
+        # assume_centered is forwarded to EmpiricalCovariance.
         super().__init__(assume_centered=assume_centered)
         self.tol = tol
         self.enet_tol = enet_tol
@@ -395,6 +459,9 @@ class BaseGraphicalLasso(EmpiricalCovariance):
 
 
 class GraphicalLasso(BaseGraphicalLasso):
+    # [CLASS DOC]
+    # Estimator for a fixed alpha. Adds constraints for alpha (>= 0) and covariance
+    # (None or 'precomputed', meaning X is already a covariance matrix).
     """Sparse inverse covariance estimation with an l1-penalized estimator.
 
     For a usage example see
@@ -532,6 +599,9 @@ class GraphicalLasso(BaseGraphicalLasso):
         eps=np.finfo(np.float64).eps,
         assume_centered=False,
     ):
+        # [FUNCTION DOC]
+        # Stores alpha, covariance and the base solver settings as attributes (sklearn
+        # convention: no validation here).
         super().__init__(
             tol=tol,
             enet_tol=enet_tol,
@@ -546,6 +616,16 @@ class GraphicalLasso(BaseGraphicalLasso):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (at least 2 samples and 2 features). If covariance is
+        # 'precomputed', uses a copy of X as the empirical covariance and sets location_
+        # to zeros; otherwise computes the empirical covariance (respecting
+        # assume_centered) and location_ as zeros or the column means. Runs
+        # _graphical_lasso with the estimator settings.
+        # Inputs: X - (n_samples, n_features) data or (p, p) covariance; y ignored.
+        # Outputs: self. Side effects: sets location_, covariance_, precision_, costs_,
+        # n_iter_, n_features_in_ (and feature_names_in_). Exceptions: validation
+        # errors, solver errors.
         """Fit the GraphicalLasso model to X.
 
         Parameters
@@ -601,6 +681,20 @@ def graphical_lasso_path(
     verbose=False,
     eps=np.finfo(np.float64).eps,
 ):
+    # [FUNCTION DOC]
+    # Computes graphical-lasso solutions along a sequence of alphas with warm starts:
+    # the empirical covariance of X is computed once, and each alpha's solve starts from
+    # the previous covariance (or cov_init). If a solve raises FloatingPointError, NaN
+    # is stored for that alpha's covariance/precision and score -inf. When X_test is
+    # given, each precision is scored by the log-likelihood of X_test's empirical
+    # covariance (non-finite scores mapped to -inf).
+    # Inputs: X - (n_samples, n_features); alphas - iterable of floats; cov_init -
+    # optional start; X_test - optional held-out data; solver settings as in
+    # _graphical_lasso; verbose
+    # - int, inner solver gets verbose-1.
+    # Outputs: (covariances list, precisions list) or with scores list when X_test is
+    # given.
+    # Side effects: writes '.' to stderr per alpha when verbose == 1, prints when > 1.
     """l1-penalized covariance estimator along a path of decreasing alphas
 
     Read more in the :ref:`User Guide <sparse_inverse_covariance>`.
@@ -718,6 +812,10 @@ def graphical_lasso_path(
 
 
 class GraphicalLassoCV(BaseGraphicalLasso):
+    # [CLASS DOC]
+    # Estimator choosing alpha by cross-validated log-likelihood on an alpha grid that
+    # is iteratively refined. Adds constraints for alphas (int count or array),
+    # n_refinements (>= 1), cv and n_jobs.
     """Sparse inverse covariance w/ cross-validated choice of the l1 penalty.
 
     See glossary entry for :term:`cross-validation estimator`.
@@ -928,6 +1026,9 @@ class GraphicalLassoCV(BaseGraphicalLasso):
         eps=np.finfo(np.float64).eps,
         assume_centered=False,
     ):
+        # [FUNCTION DOC]
+        # Stores alphas, n_refinements, cv, n_jobs and the base solver settings as
+        # attributes.
         super().__init__(
             tol=tol,
             enet_tol=enet_tol,
@@ -944,6 +1045,30 @@ class GraphicalLassoCV(BaseGraphicalLasso):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Behavior: validate X (>= 2 features), set location_, compute the empirical
+        # covariance. If alphas is an array, check each value is in (0, inf] and do a
+        # single pass; else build a log-spaced decreasing grid of `alphas` points from
+        # alpha_max/100 to alpha_max and do n_refinements passes. Each pass runs
+        # graphical_lasso_path on every CV split in parallel (max_iter reduced to 10
+        # percent, ConvergenceWarnings suppressed), merges (alpha, per-fold scores,
+        # covs) into the path sorted by decreasing alpha, and picks the best mean score
+        # (ties resolved to the smaller alpha; huge scores treated as NaN). The grid is
+        # then narrowed around the best index (special cases at the top, at the last
+        # finite score, and at the bottom where the lower bound becomes 1 percent of the
+        # best alpha) and regenerated with n_alphas interior points when alphas was an
+        # int. Finally appends alpha 0 scored with cross_val_score of
+        # EmpiricalCovariance, builds cv_results_, sets alpha_ and refits on the full
+        # empirical covariance.
+        # Inputs: X - (n_samples, n_features); y - ignored except for CV splitting;
+        # params - metadata routed to the splitter (requires routing enabled, else
+        # error).
+        # Outputs: self. Side effects: sets location_, cv_results_ (alphas,
+        # splitK_test_score, mean/std_test_score), alpha_, covariance_, precision_,
+        # costs_, n_iter_; prints progress when verbose. Exceptions: invalid alpha
+        # values, unsupported params without routing.
+        # KNOWN ISSUE: params are forwarded unchanged to cross_val_score for the alpha=0
+        # column instead of the routed splitter params.
         """Fit the GraphicalLasso covariance model to X.
 
         Parameters
@@ -1130,6 +1255,9 @@ class GraphicalLassoCV(BaseGraphicalLasso):
         return self
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter that routes fit metadata to the cv splitter's split
+        # method. Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing

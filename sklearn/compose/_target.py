@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements TransformedTargetRegressor, a meta-estimator that fits a regressor on a
+# transformed target and maps predictions back with the inverse transform.
+# Public contents: TransformedTargetRegressor (the only name in __all__).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -26,6 +30,15 @@ __all__ = ["TransformedTargetRegressor"]
 
 
 class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-regressor wrapping a regressor (default LinearRegression) and a target
+    # transformer (either a transformer object, or a func/inverse_func pair turned into a
+    # FunctionTransformer, or identity when neither is given).
+    # Constructor params are stored unchanged (sklearn convention); validation happens in
+    # fit through _parameter_constraints and _fit_transformer.
+    # Fitted attributes: transformer_, regressor_, _training_dim (target ndim seen in
+    # fit), feature_names_in_ (copied from regressor_ if present); n_features_in_ is a
+    # property delegating to regressor_.
     """Meta-estimator to regress on a transformed target.
 
     Useful for applying a non-linear transformation to the target `y` in
@@ -154,6 +167,9 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         inverse_func=None,
         check_inverse=True,
     ):
+        # [FUNCTION DOC]
+        # Stores regressor, transformer, func, inverse_func and check_inverse as attributes
+        # without validation. Defaults: None, None, None, None, True.
         self.regressor = regressor
         self.transformer = transformer
         self.func = func
@@ -161,6 +177,20 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         self.check_inverse = check_inverse
 
     def _fit_transformer(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Builds and fits transformer_ on the 2D target y_2d.
+        # Behavior: if transformer is set together with func or inverse_func -> error. If
+        # transformer is set, transformer_ is a clone of it. Otherwise func and inverse_func
+        # must both be set or both None; transformer_ becomes a FunctionTransformer with
+        # validate=True and check_inverse forwarded, with set_output forced to "default" so
+        # the target stays a numpy array regardless of global config. Then fits transformer_
+        # on y. If check_inverse, takes every k-th row (k = max(1, n_samples // 10)),
+        # transforms then inverse-transforms it and warns if not allclose to the original.
+        # Inputs: y - 2D numeric array (n_samples, n_targets).
+        # Exceptions: ValueError for transformer combined with func/inverse_func, or when
+        # only one of func/inverse_func is given.
+        # Side effects: sets self.transformer_; emits UserWarning on inverse mismatch.
+        # sample_weight is never passed to the transformer.
         """Check transformer and fit transformer.
 
         Create the default transformer, fit it and make additional inverse
@@ -224,6 +254,20 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Validates y (numeric, finite, dense, any ndim), records _training_dim, reshapes a
+        # 1D y to a column, fits the transformer (_fit_transformer), transforms y and
+        # squeezes it back to 1D if training target was 1D and result has one column, clones
+        # the regressor via _get_regressor and fits it on X and transformed y. fit_params are
+        # routed through process_routing when metadata routing is enabled, else all go to the
+        # regressor's fit.
+        # Inputs: X - array-like/sparse (n_samples, n_features), passed unvalidated to the
+        # regressor; y - array-like (n_samples,) or (n_samples, n_targets); **fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError if y is None; check_array errors for invalid y; errors from
+        # _fit_transformer and the regressor.
+        # Side effects: sets _training_dim, transformer_, regressor_, possibly
+        # feature_names_in_.
         """Fit the model according to the given training data.
 
         Parameters
@@ -300,6 +344,13 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X, **predict_params):
+        # [FUNCTION DOC]
+        # Checks fitted, routes predict_params (routing or manual), predicts with regressor_,
+        # reshapes 1D predictions to a column, applies transformer_.inverse_transform, and
+        # squeezes to 1D when the training target was 1D and the result has one column.
+        # Inputs: X - samples (n_samples, n_features); **predict_params.
+        # Outputs: ndarray (n_samples,) or (n_samples, n_targets) in original target space.
+        # Exceptions: NotFittedError if not fitted.
         """Predict using the base regressor, applying inverse.
 
         The regressor is used to predict and the `inverse_func` or
@@ -347,6 +398,9 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         return pred_trans
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns parent tags with poor_score=True and input sparse support and multi_output
+        # target support copied from the (possibly unfitted default) regressor's tags.
         regressor = self._get_regressor()
         tags = super().__sklearn_tags__()
         tags.regressor_tags.poor_score = True
@@ -356,6 +410,10 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
 
     @property
     def n_features_in_(self):
+        # [FUNCTION DOC]
+        # Property returning regressor_.n_features_in_.
+        # Exceptions: AttributeError (chained from NotFittedError) when unfitted, so hasattr
+        # returns False.
         """Number of features seen during :term:`fit`."""
         # For consistency with other estimators we raise an AttributeError so
         # that hasattr() returns False the estimator isn't fitted.
@@ -371,6 +429,9 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         return self.regressor_.n_features_in_
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter owned by self with the regressor (from _get_regressor,
+        # unfitted) as child, mapping fit->fit and predict->predict.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -393,6 +454,11 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         return router
 
     def _get_regressor(self, get_clone=False):
+        # [FUNCTION DOC]
+        # HELPER: Returns the regressor to use. If regressor is None, returns a new
+        # LinearRegression (with sample_weight fit request set when routing is enabled);
+        # otherwise returns a clone when get_clone is True (default False), else the original
+        # object.
         if self.regressor is None:
             if _routing_enabled():
                 return LinearRegression().set_fit_request(sample_weight=True)
@@ -402,6 +468,10 @@ class TransformedTargetRegressor(RegressorMixin, BaseEstimator):
         return clone(self.regressor) if get_clone else self.regressor
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds the HTML repr block: a dash-wrapped serial _VisualBlock with the
+        # fitted regressor_ if present, else the configured/default regressor, labeled by its
+        # class name with its str as details.
         regressor = (
             self.regressor_ if hasattr(self, "regressor_") else self._get_regressor()
         )

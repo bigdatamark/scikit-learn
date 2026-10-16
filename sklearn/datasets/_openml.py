@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Client for downloading datasets from OpenML.org (fetch_openml). Talks to the OpenML
+# JSON API (dataset search by name, description, features, qualities), downloads ARFF
+# data, verifies its MD5, parses it with liac-arff or pandas (via _arff_parser), and
+# mirrors every response as gzip files under <data_home>/openml/openml.org/<url
+# path>.gz. Includes retry decorators for network errors and for corrupted cache files,
+# and the OpenMLError exception for HTTP 412 responses.
+# Side effects at import: none beyond defining URL templates and type aliases.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -44,10 +52,19 @@ OpenmlFeaturesType = List[Dict[str, str]]
 
 
 def _get_local_path(openml_path: str, data_home: str) -> str:
+    # [FUNCTION DOC]
+    # HELPER: Maps an OpenML URL path to its gzip cache file path:
+    # data_home/openml.org/<openml_path>.gz.
+    # Inputs: openml_path - relative path str; data_home - cache root str. Outputs: str
+    # path. Side effects: none.
     return os.path.join(data_home, "openml.org", openml_path + ".gz")
 
 
 def _openml_path_from_url(url: str) -> str:
+    # [FUNCTION DOC]
+    # HELPER: Returns the path component of url without its leading slashes, used as
+    # cache-relative path.
+    # Inputs: url - str. Outputs: str. Side effects: none.
     """Return the OpenML cache-relative path encoded in a download/API ``url``.
 
     This is the path component of the URL, used both to download the resource
@@ -65,6 +82,13 @@ def _retry_with_clean_cache(
     data_home: Optional[str],
     no_retry_exception: Optional[type[Exception]] = None,
 ) -> Callable:
+    # [FUNCTION DOC]
+    # HELPER: Decorator factory that retries a function once after deleting its possibly
+    # corrupted cache file.
+    # Inputs: openml_path - cache-relative path of the resource; data_home - cache root
+    # or None; no_retry_exception - exception type that must not trigger a retry.
+    # Outputs: a decorator.
+    # Side effects: see wrapper.
     """If the first call to the decorated function fails, the local cached file
     (if any) is removed and the function is called again. The retry happens
     whether or not ``data_home`` is set: when caching is disabled there is no
@@ -74,8 +98,19 @@ def _retry_with_clean_cache(
     """
 
     def decorator(f):
+        # [FUNCTION DOC]
+        # HELPER: Wraps f with the clean-cache retry logic. Inputs: f - callable.
+        # Outputs: wrapped callable.
         @wraps(f)
         def wrapper(*args, **kw):
+            # [FUNCTION DOC]
+            # HELPER: Calls f; URLError and no_retry_exception instances propagate
+            # immediately. Any other exception emits a RuntimeWarning, deletes the
+            # cached gzip file when data_home is set, and calls f a second time (whose
+            # exceptions propagate).
+            # Inputs: forwarded positional and keyword arguments. Outputs: the result of
+            # f.
+            # Side effects: warnings, cache file deletion.
             try:
                 return f(*args, **kw)
             except URLError:
@@ -107,6 +142,11 @@ def _retry_with_clean_cache(
 def _retry_on_network_error(
     n_retries: int = 3, delay: float = 1.0, url: str = ""
 ) -> Callable:
+    # [FUNCTION DOC]
+    # HELPER: Decorator factory retrying a call on network errors.
+    # Inputs: n_retries - int, max extra attempts; delay - float seconds between
+    # attempts; url - str used only in the warning message.
+    # Outputs: a decorator.
     """If the function call results in a network error, call the function again
     up to ``n_retries`` times with a ``delay`` between each call. If the error
     has a 412 status code, don't call the function again as this is a specific
@@ -116,8 +156,18 @@ def _retry_on_network_error(
     """
 
     def decorator(f):
+        # [FUNCTION DOC]
+        # HELPER: Wraps f with the network retry logic. Inputs: f - callable. Outputs:
+        # wrapped callable.
         @wraps(f)
         def wrapper(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Calls f in a loop. On URLError or TimeoutError: re-raise
+            # immediately for HTTP 412 or when retries are exhausted; otherwise warn,
+            # close the HTTPError response if any, decrement the counter and sleep delay
+            # seconds before retrying.
+            # Inputs: forwarded arguments. Outputs: the result of f.
+            # Exceptions: the last network error. Side effects: warnings, sleeping.
             retry_counter = n_retries
             while True:
                 try:
@@ -146,6 +196,20 @@ def _retry_on_network_error(
 def _open_openml_url(
     url: str, data_home: Optional[str], n_retries: int = 3, delay: float = 1.0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Opens an OpenML resource as a readable binary stream, caching it when
+    # data_home is given.
+    # Steps: build a Request asking for gzip encoding. Without data_home: urlopen with
+    # network retries and return the response, wrapped in a GzipFile if the server gzip-
+    # encoded it. With data_home: if the cache file is missing, create its directory,
+    # download into a temporary subdirectory (writing raw bytes when already gzip-
+    # encoded, otherwise gzip-compressing them), then move it into place; on any error
+    # remove a partial cache file and re-raise. Finally return a GzipFile opened on the
+    # cache file.
+    # Inputs: url - str; data_home - str or None; n_retries - int; delay - float.
+    # Outputs: binary file-like stream of decompressed content.
+    # Exceptions: network errors after retries; OSError from file operations.
+    # Side effects: network access, cache directory and file creation.
     """
     Returns a resource from OpenML.org. Caches it to data_home if required.
 
@@ -174,6 +238,9 @@ def _open_openml_url(
     """
 
     def is_gzip_encoded(_fsrc):
+        # [FUNCTION DOC]
+        # HELPER: Returns True when the HTTP response declares Content-Encoding gzip.
+        # Inputs: _fsrc - urlopen response. Outputs: bool.
         return _fsrc.info().get("Content-Encoding", "") == "gzip"
 
     req = Request(url)
@@ -220,6 +287,9 @@ def _open_openml_url(
 
 
 class OpenMLError(ValueError):
+    # [CLASS DOC]
+    # Exception raised when OpenML answers with HTTP 412 (its generic error, e.g.
+    # dataset not found). Subclasses ValueError; adds no behavior.
     """HTTP 412 is a specific OpenML error code, indicating a generic error"""
 
     pass
@@ -232,6 +302,18 @@ def _get_json_content_from_openml_api(
     n_retries: int = 3,
     delay: float = 1.0,
 ) -> Dict:
+    # [FUNCTION DOC]
+    # HELPER: Fetches and decodes a JSON document from an OpenML API URL, with cache
+    # cleaning retry.
+    # Steps: define an inner loader wrapped by _retry_with_clean_cache that opens the
+    # URL (cached) and parses UTF-8 JSON; call it; convert an HTTP 412 into
+    # OpenMLError(error_message) and re-raise other HTTP errors.
+    # Inputs: url - str; error_message - str or None; data_home - str or None;
+    # n_retries; delay.
+    # Outputs: decoded JSON (dict).
+    # Exceptions: OpenMLError for 412; other HTTPError/URLError; JSON decode errors on a
+    # second failure.
+    # Side effects: network access, caching, warnings.
     """
     Loads json data from the openml api.
 
@@ -264,6 +346,9 @@ def _get_json_content_from_openml_api(
 
     @_retry_with_clean_cache(_openml_path_from_url(url), data_home=data_home)
     def _load_json():
+        # [FUNCTION DOC]
+        # HELPER: Opens url via _open_openml_url, reads it fully and parses it as UTF-8
+        # JSON; closes the stream. Outputs: decoded JSON object.
         with closing(
             _open_openml_url(url, data_home, n_retries=n_retries, delay=delay)
         ) as response:
@@ -288,6 +373,19 @@ def _get_data_info_by_name(
     n_retries: int = 3,
     delay: float = 1.0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Looks up dataset metadata by name and version using the OpenML listing
+    # API.
+    # Steps: for version "active", query active datasets with that name (limit 2); if
+    # more than one is returned, warn listing the versions; return the first. For an
+    # explicit version, query name+version; on OpenMLError retry with status deactivated
+    # (raising OpenMLError with a not-found message if that also fails); return the
+    # first entry.
+    # Inputs: name - lower-cased dataset name; version - int or "active"; data_home;
+    # n_retries; delay.
+    # Outputs: dict describing the dataset (including "did", "version", "status").
+    # Exceptions: OpenMLError when nothing matches.
+    # Side effects: network/cache access; UserWarning on multiple active versions.
     """
     Utilizes the openml dataset listing api to find a dataset by
     name/version
@@ -384,6 +482,11 @@ def _get_data_description_by_id(
     n_retries: int = 3,
     delay: float = 1.0,
 ) -> Dict[str, Any]:
+    # [FUNCTION DOC]
+    # HELPER: Fetches the data_set_description JSON for data_id.
+    # Inputs: data_id - int; data_home; n_retries; delay. Outputs: dict (status, format,
+    # url, md5_checksum, description, ...).
+    # Exceptions: OpenMLError if the dataset is not found.
     # OpenML API function: https://www.openml.org/api_docs#!/data/get_data_id
     url = _DATA_INFO.format(data_id)
     error_message = "Dataset with data_id {} not found.".format(data_id)
@@ -403,6 +506,12 @@ def _get_data_features(
     n_retries: int = 3,
     delay: float = 1.0,
 ) -> OpenmlFeaturesType:
+    # [FUNCTION DOC]
+    # HELPER: Fetches the list of feature descriptors (name, data_type, is_target,
+    # is_ignore, is_row_identifier, number_of_missing_values, ...) for data_id.
+    # Inputs: data_id; data_home; n_retries; delay. Outputs: list of dicts with string
+    # values.
+    # Exceptions: OpenMLError if not found.
     # OpenML function:
     # https://www.openml.org/api_docs#!/data/get_data_features_id
     url = _DATA_FEATURES.format(data_id)
@@ -423,6 +532,12 @@ def _get_data_qualities(
     n_retries: int = 3,
     delay: float = 1.0,
 ) -> OpenmlQualitiesType:
+    # [FUNCTION DOC]
+    # HELPER: Fetches the data quality list for data_id, returning an empty list if the
+    # response has no qualities.
+    # Inputs: data_id; data_home; n_retries; delay. Outputs: list of dicts with name and
+    # value.
+    # Exceptions: OpenMLError if not found.
     # OpenML API function:
     # https://www.openml.org/api_docs#!/data/get_data_qualities_id
     url = _DATA_QUALITIES.format(data_id)
@@ -440,6 +555,10 @@ def _get_data_qualities(
 
 
 def _get_num_samples(data_qualities: OpenmlQualitiesType) -> int:
+    # [FUNCTION DOC]
+    # HELPER: Extracts NumberOfInstances from the qualities list as an int (parsed via
+    # float), or -1 if absent.
+    # Inputs: data_qualities - list of dicts. Outputs: int. Side effects: none.
     """Get the number of samples from data qualities.
 
     Parameters
@@ -474,6 +593,22 @@ def _load_arff_response(
     delay: float = 1.0,
     read_csv_kwargs: Optional[Dict] = None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Downloads/opens the ARFF file, checks its MD5 and parses it.
+    # Steps: open the URL, hash its full decompressed content in 4096-byte chunks and
+    # compare with md5_checksum. Then reopen and parse with load_arff_from_gzip_file.
+    # With the pandas parser, a pandas ParserError triggers one more attempt with
+    # quotechar set to a single quote.
+    # Inputs: url; data_home; parser - liac-arff or pandas; output_type - numpy, sparse
+    # or pandas; openml_columns_info - dict name to feature info;
+    # feature_names_to_select, target_names_to_select - lists of names; shape -
+    # (n_samples, n_columns) or None; md5_checksum - str; n_retries; delay;
+    # read_csv_kwargs - dict or None.
+    # Outputs: tuple (X, y, frame, categories).
+    # Exceptions: ValueError on checksum mismatch; parser errors otherwise.
+    # Side effects: network/cache access.
+    # KNOWN ISSUE: on the quotechar retry, read_csv_kwargs is updated in place, so a
+    # dict passed by the caller of fetch_openml is mutated.
     """Load the ARFF data associated with the OpenML URL.
 
     In addition of loading the data, this function will also check the
@@ -563,6 +698,10 @@ def _load_arff_response(
         )
 
     def _open_url_and_load_gzip_file(url, data_home, n_retries, delay, arff_params):
+        # [FUNCTION DOC]
+        # HELPER: Opens url (cached) and parses it with load_arff_from_gzip_file using
+        # arff_params; closes the stream.
+        # Outputs: tuple (X, y, frame, categories).
         gzip_file = _open_openml_url(url, data_home, n_retries=n_retries, delay=delay)
         with closing(gzip_file):
             return load_arff_from_gzip_file(gzip_file, **arff_params)
@@ -616,6 +755,20 @@ def _download_data_to_bunch(
     parser: str,
     read_csv_kwargs: Optional[Dict] = None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Validates the target columns, loads the ARFF data with cache-cleaning
+    # retry and packs it into a Bunch.
+    # Steps: index column info by name; choose output_type sparse, pandas or numpy;
+    # verify target types are homogeneous; raise if any target column has missing
+    # values. Call _load_arff_response wrapped with _retry_with_clean_cache (pandas
+    # ParserError is not retried).
+    # Inputs: url; sparse - bool; data_home; as_frame - bool; openml_columns_info - list
+    # of feature dicts; data_columns, target_columns - lists of names; shape;
+    # md5_checksum; n_retries; delay; parser; read_csv_kwargs.
+    # Outputs: Bunch(data, target, frame, categories, feature_names, target_names).
+    # Exceptions: ValueError for missing values in targets or heterogeneous targets;
+    # KeyError for unknown targets; loading errors.
+    # Side effects: network/cache access, warnings.
     """Download ARFF data, load it to a specific container and create to Bunch.
 
     This function has a mechanism to retry/cache/clean the data.
@@ -740,6 +893,14 @@ def _download_data_to_bunch(
 
 
 def _verify_target_data_type(features_dict, target_columns):
+    # [FUNCTION DOC]
+    # HELPER: Checks that target columns exist and are all numeric or all non-numeric.
+    # Inputs: features_dict - name to feature info; target_columns - list of names.
+    # Outputs: None.
+    # Exceptions: ValueError if target_columns is not a list or types are mixed;
+    # KeyError for an unknown column.
+    # Side effects: UserWarning when a target column is flagged is_ignore or
+    # is_row_identifier.
     # verifies the data type of the y array in case there are multiple targets
     # (throws an error if these targets do not comply with sklearn support)
     if not isinstance(target_columns, list):
@@ -767,6 +928,12 @@ def _verify_target_data_type(features_dict, target_columns):
 
 
 def _valid_data_column_names(features_list, target_columns):
+    # [FUNCTION DOC]
+    # HELPER: Returns the names of features usable as data: not a target column and not
+    # flagged is_ignore or is_row_identifier (flags compared to the string "true"),
+    # preserving order.
+    # Inputs: features_list - list of feature dicts; target_columns - list of names.
+    # Outputs: list of str.
     # logic for determining on which columns can be learned. Note that from the
     # OpenML guide follows that columns that have the `is_row_identifier` or
     # `is_ignore` flag, these can not be learned on. Also target columns are
@@ -816,6 +983,34 @@ def fetch_openml(
     parser: str = "auto",
     read_csv_kwargs: Optional[Dict] = None,
 ):
+    # [FUNCTION DOC]
+    # Fetches an OpenML dataset by name (and version) or data_id.
+    # Steps: disable caching when cache is False, else use <data_home>/openml. Resolve
+    # data_id: from a lower-cased name via _get_data_info_by_name, or use data_id
+    # directly (error if both or neither are given, or if data_id is combined with a
+    # non-default version). Fetch the description and warn when inactive or flagged with
+    # error/warning. Detect sparse ARFF; resolve as_frame "auto" to not sparse; resolve
+    # parser "auto" to liac-arff for sparse and pandas otherwise; require pandas when
+    # the pandas parser is used; reject sparse with as_frame or pandas parser. Fetch
+    # features; reject string features for array output (ignoring ignored/row-id
+    # columns). Determine target columns (default from is_target flags, a single name,
+    # None for none, or a list) and data columns. For dense data compute shape from
+    # qualities. Download and parse via _download_data_to_bunch. Return (X, y) or the
+    # Bunch extended with DESCR (description plus a note), details (remaining
+    # description dict) and url.
+    # Inputs: name - str or None; version - int >= 1 or "active"; data_id - int or None;
+    # data_home; target_column - "default-target", str, list or None; cache - bool;
+    # return_X_y - bool; as_frame - bool or "auto"; n_retries; delay; parser - auto,
+    # pandas, liac-arff; read_csv_kwargs - dict or None.
+    # Outputs: (data, target) or Bunch(data, target, frame, categories, feature_names,
+    # target_names, DESCR, details, url).
+    # Exceptions: ValueError for invalid argument combinations, sparse
+    # incompatibilities, string features, checksum mismatch; ImportError when pandas is
+    # required but missing; OpenMLError when the dataset is not found.
+    # Side effects: network access, cache writes, multiple UserWarnings.
+    # KNOWN ISSUE: the description, features and qualities requests are made without
+    # passing n_retries and delay, so the user's retry settings apply only to the name
+    # lookup and data download.
     """Fetch dataset from openml by name or dataset id.
 
     Datasets are uniquely identified by either an integer ID or by a

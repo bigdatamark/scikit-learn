@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Loader for the UCI Forest Covertype dataset (581012 samples, 54 features, 7 classes).
+# Defines the remote archive metadata (figshare URL + SHA256), the 54 feature names (10
+# continuous, 4 wilderness-area and 40 soil-type indicators), the target column name,
+# and the public fetch_covtype function. Data is cached as joblib pickles under
+# <data_home>/covertype.
+# Side effects at import: creates a module-level logger; no I/O.
 """Forest covertype dataset.
 
 A classic dataset for classification benchmarks, featuring categorical and
@@ -87,6 +94,31 @@ def fetch_covtype(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the covertype data, downloading and caching it on first use.
+    # Steps: resolve data_home; look for the cached samples and targets pickles. If
+    # missing and download_if_missing, create the cache dir, download the gzip archive
+    # into a temporary subdirectory (same filesystem), parse it as comma-separated
+    # floats, split last column as int32 target, dump X and y with joblib (compress=9)
+    # and atomically rename into place. If missing and downloads disabled, raise.
+    # Otherwise (or if not just downloaded) load the pickles. Optionally shuffle rows of
+    # X and y with the same permutation from random_state. Load the DESCR text; if
+    # as_frame convert to pandas via _convert_data_dataframe.
+    # Inputs: data_home - cache root or None; download_if_missing - bool; random_state -
+    # seed/RandomState/None used only when shuffle; shuffle - bool; return_X_y - bool;
+    # as_frame - bool; n_retries - int >= 1; delay - float > 0 seconds between retries.
+    # Outputs: (X, y) tuple if return_X_y, else Bunch with data, target, frame (None
+    # unless as_frame), target_names, feature_names, DESCR.
+    # Exceptions: OSError when data is absent and download_if_missing is False;
+    # network/checksum errors from _fetch_remote; parameter validation errors from
+    # validate_params.
+    # Side effects: filesystem writes in the cache directory, network download, info log
+    # message.
+    # KNOWN ISSUE: the docstring table says features are int, but X is parsed with
+    # genfromtxt and stored as float64.
+    # KNOWN ISSUE: the "try X, y / except NameError" idiom detects whether the download
+    # branch ran; it is fragile and relies on local-name existence rather than an
+    # explicit flag.
     """Load the covertype dataset (classification).
 
     Download it if necessary.

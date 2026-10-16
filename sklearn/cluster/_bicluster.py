@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Spectral biclustering estimators: SpectralCoclustering (Dhillon 2001) and
+# SpectralBiclustering (Kluger 2003). Both normalize the data matrix, take singular
+# vectors (randomized SVD or ARPACK), and run k-means on them to obtain row and
+# column labels; rows_ and columns_ boolean indicator matrices describe biclusters.
 """Spectral biclustering algorithms."""
 
 # Authors: The scikit-learn developers
@@ -22,6 +27,15 @@ __all__ = ["SpectralBiclustering", "SpectralCoclustering"]
 
 
 def _scale_normalize(X):
+    # [FUNCTION DOC]
+    # HELPER: Independent row/column scaling: makes X non-negative (shifting by its
+    # minimum if needed), computes D_r = 1/sqrt(row sums) and D_c = 1/sqrt(column sums)
+    # with NaN (from zero sums) replaced by 0, and returns D_r X D_c.
+    # Inputs: X - dense ndarray or sparse (n_rows, n_cols).
+    # Outputs: (normalized matrix of the same kind, row_diag (n_rows,), col_diag
+    # (n_cols,)).
+    # KNOWN ISSUE: a zero row sum gives 1/0 = inf, not NaN, so the NaN replacement does
+    # not catch it and the result contains inf/NaN for empty rows or columns.
     """Normalize ``X`` by scaling rows and columns independently.
 
     Returns the normalized matrix and the row and column scaling
@@ -43,6 +57,16 @@ def _scale_normalize(X):
 
 
 def _bistochastic_normalize(X, max_iter=1000, tol=1e-5):
+    # [FUNCTION DOC]
+    # HELPER: Iterates _scale_normalize until the matrix stops changing (Frobenius norm
+    # of the change below tol) or max_iter iterations, approximating a matrix whose rows
+    # and columns each sum to a constant.
+    # Inputs: X - dense or sparse; max_iter (default 1000); tol (default 1e-5).
+    # Outputs: normalized matrix.
+    # KNOWN ISSUE: in the sparse branch the distance compares X_scaled with the original
+    # X instead of with X_new; on the first iteration it is 0, so the loop always stops
+    # after a single scaling step for sparse input. The "dist is not None" check is
+    # always true.
     """Normalize rows and columns of ``X`` simultaneously so that all
     rows sum to one constant and all columns sum to a different
     constant.
@@ -64,6 +88,11 @@ def _bistochastic_normalize(X, max_iter=1000, tol=1e-5):
 
 
 def _log_normalize(X):
+    # [FUNCTION DOC]
+    # HELPER: Kluger log-interaction normalization: makes X non-negative with minimum 1,
+    # takes the log, then subtracts row means and column means and adds the overall mean.
+    # Inputs: X - dense ndarray. Outputs: ndarray of the same shape.
+    # Exceptions: ValueError for sparse input.
     """Normalize ``X`` according to Kluger's log-interactions scheme."""
     X = make_nonnegative(X, min_value=1)
     if issparse(X):
@@ -80,6 +109,10 @@ def _log_normalize(X):
 
 
 class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for the spectral bicluster estimators: shared hyper-parameters,
+    # validation, SVD and k-means helpers. Subclasses implement _check_parameters and
+    # _fit.
     """Base class for spectral biclustering."""
 
     _parameter_constraints: dict = {
@@ -102,6 +135,8 @@ class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
         n_init=10,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the shared hyper-parameters (abstract; called by subclasses).
         self.n_clusters = n_clusters
         self.svd_method = svd_method
         self.n_svd_vecs = n_svd_vecs
@@ -112,10 +147,16 @@ class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def _check_parameters(self, n_samples):
+        # [FUNCTION DOC]
+        # Abstract: validates data-dependent parameters given n_samples.
         """Validate parameters depending on the input data."""
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (dense or CSR, float64), runs _check_parameters on the row count, then
+        # _fit.
+        # Inputs: X (n_samples, n_features); y ignored. Outputs: self.
         """Create a biclustering for X.
 
         Parameters
@@ -137,6 +178,20 @@ class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
         return self
 
     def _svd(self, array, n_components, n_discard):
+        # [FUNCTION DOC]
+        # HELPER: Returns the first n_components left/right singular vectors of array,
+        # dropping the first n_discard. Randomized: _randomized_svd with n_svd_vecs as
+        # n_oversamples. ARPACK: svds with ncv=n_svd_vecs; if NaNs appear (negative
+        # eigenvalues), recomputes the vectors with eigsh on the Gram matrix using a
+        # uniform(-1, 1) start vector.
+        # Inputs: array - dense or sparse; n_components, n_discard - ints.
+        # Outputs: (u (n_rows, n_components - n_discard), v (n_cols, n_components -
+        # n_discard)).
+        # Exceptions: ValueError if the vectors are still non-finite.
+        # Side effects: uses random_state.
+        # KNOWN ISSUE: the eigsh fallback uses its default k=6 rather than n_components, so
+        # the number and ordering (ascending eigenvalues vs svds output) of vectors can differ
+        # from the svds result.
         """Returns first `n_components` left and right singular
         vectors u and v, discarding the first `n_discard`.
         """
@@ -174,6 +229,11 @@ class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
         return u, vt.T
 
     def _k_means(self, data, n_clusters):
+        # [FUNCTION DOC]
+        # HELPER: Fits KMeans (or MiniBatchKMeans if mini_batch) with init, n_init and
+        # random_state on data.
+        # Inputs: data - (n, d) array; n_clusters - int.
+        # Outputs: (cluster_centers_, labels_).
         if self.mini_batch:
             model = MiniBatchKMeans(
                 n_clusters,
@@ -194,12 +254,17 @@ class BaseSpectral(BiclusterMixin, BaseEstimator, metaclass=ABCMeta):
         return centroid, labels
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class SpectralCoclustering(BaseSpectral):
+    # [CLASS DOC]
+    # Co-clustering: rows and columns are clustered jointly into n_clusters biclusters
+    # from the singular vectors of the scale-normalized matrix.
     """Spectral Co-Clustering algorithm (Dhillon, 2001) [1]_.
 
     Clusters rows and columns of an array `X` to solve the relaxed
@@ -328,11 +393,16 @@ class SpectralCoclustering(BaseSpectral):
         n_init=10,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyper-parameters to BaseSpectral.
         super().__init__(
             n_clusters, svd_method, n_svd_vecs, mini_batch, init, n_init, random_state
         )
 
     def _check_parameters(self, n_samples):
+        # [FUNCTION DOC]
+        # Raises ValueError if n_clusters exceeds n_samples.
+        # KNOWN ISSUE: n_clusters is not checked against the number of columns.
         if self.n_clusters > n_samples:
             raise ValueError(
                 f"n_clusters should be <= n_samples={n_samples}. Got"
@@ -340,6 +410,12 @@ class SpectralCoclustering(BaseSpectral):
             )
 
     def _fit(self, X):
+        # [FUNCTION DOC]
+        # Scale-normalizes X, takes 1 + ceil(log2(n_clusters)) singular vectors discarding
+        # the first, rescales them by row_diag/col_diag, stacks row and column embeddings,
+        # and k-means them jointly.
+        # Sets: row_labels_, column_labels_, rows_ and columns_ (n_clusters x n_rows/n_cols
+        # boolean indicators).
         normalized_data, row_diag, col_diag = _scale_normalize(X)
         n_sv = 1 + int(np.ceil(np.log2(self.n_clusters)))
         u, v = self._svd(normalized_data, n_sv, n_discard=1)
@@ -358,6 +434,9 @@ class SpectralCoclustering(BaseSpectral):
 
 
 class SpectralBiclustering(BaseSpectral):
+    # [CLASS DOC]
+    # Checkerboard biclustering: rows and columns get separate cluster counts; the best
+    # piecewise-constant singular vectors are used to project and cluster the data.
     """Spectral biclustering (Kluger, 2003) [1]_.
 
     Partitions rows and columns under the assumption that the data has
@@ -508,6 +587,8 @@ class SpectralBiclustering(BaseSpectral):
         n_init=10,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards shared hyper-parameters and stores method, n_components, n_best.
         super().__init__(
             n_clusters, svd_method, n_svd_vecs, mini_batch, init, n_init, random_state
         )
@@ -516,6 +597,12 @@ class SpectralBiclustering(BaseSpectral):
         self.n_best = n_best
 
     def _check_parameters(self, n_samples):
+        # [FUNCTION DOC]
+        # Validates n_clusters (an int <= n_samples, or a pair of ints in [1, n_samples])
+        # and that n_best <= n_components.
+        # Exceptions: ValueError otherwise (TypeError from the pair checks is converted).
+        # KNOWN ISSUE: n_column_clusters is bounded by n_samples rather than by the number of
+        # features.
         if isinstance(self.n_clusters, Integral):
             if self.n_clusters > n_samples:
                 raise ValueError(
@@ -555,6 +642,14 @@ class SpectralBiclustering(BaseSpectral):
             )
 
     def _fit(self, X):
+        # [FUNCTION DOC]
+        # Normalizes X with the chosen method (bistochastic, scale or log), computes
+        # n_components singular vectors (one extra, discarded, except for log), selects for
+        # rows and columns the n_best vectors best approximated by piecewise-constant
+        # vectors, and clusters rows by projecting X on the best right vectors and columns by
+        # projecting X transposed on the best left vectors.
+        # Sets: row_labels_, column_labels_, rows_ and columns_ indicators of shape
+        # (n_row_clusters * n_col_clusters, n), enumerating every (row, column) cluster pair.
         n_sv = self.n_components
         if self.method == "bistochastic":
             normalized_data = _bistochastic_normalize(X)
@@ -598,6 +693,12 @@ class SpectralBiclustering(BaseSpectral):
         )
 
     def _fit_best_piecewise(self, vectors, n_best, n_clusters):
+        # [FUNCTION DOC]
+        # HELPER: For each vector (row of vectors), runs 1-D k-means with n_clusters and
+        # replaces each entry by its centroid; returns the n_best vectors with the smallest
+        # euclidean distance to their piecewise approximation.
+        # Inputs: vectors - (n_vectors, length); n_best, n_clusters - ints.
+        # Outputs: array (n_best, length).
         """Find the ``n_best`` vectors that are best approximated by piecewise
         constant vectors.
 
@@ -607,6 +708,8 @@ class SpectralBiclustering(BaseSpectral):
         """
 
         def make_piecewise(v):
+            # [FUNCTION DOC]
+            # HELPER: k-means one vector as a column and return the centroid of each entry.
             centroid, labels = self._k_means(v.reshape(-1, 1), n_clusters)
             return centroid[labels].ravel()
 
@@ -616,6 +719,10 @@ class SpectralBiclustering(BaseSpectral):
         return result
 
     def _project_and_cluster(self, data, vectors, n_clusters):
+        # [FUNCTION DOC]
+        # HELPER: Projects data onto vectors (dot product) and returns k-means labels.
+        # Inputs: data - (n, m) dense/sparse; vectors - (m, k); n_clusters.
+        # Outputs: labels (n,).
         """Project ``data`` to ``vectors`` and cluster the result."""
         projected = safe_sparse_dot(data, vectors)
         _, labels = self._k_means(projected, n_clusters)

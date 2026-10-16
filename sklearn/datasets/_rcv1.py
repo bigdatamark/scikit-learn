@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Loader for the RCV1-v2 Reuters multilabel text dataset (804414 documents, 47236 TF-IDF
+# features, 103 topics). Defines remote metadata for the five svmlight vector files and
+# the topic qrels file, the public fetch_rcv1, and permutation helpers used to align
+# targets with samples. Cache: <data_home>/RCV1/*.pkl.
+# Side effects at import: creates a module-level logger only.
 """RCV1 dataset.
 
 The dataset page is available at
@@ -103,6 +109,31 @@ def fetch_rcv1(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the RCV1 data matrix, multilabel targets and sample ids, downloading on
+    # first use.
+    # Steps: create the cache dir when downloads are allowed. If X or sample_id pickles
+    # are missing (and downloads allowed): download the 5 gzipped svmlight files, parse
+    # them together with a fixed feature count, stack train file first then the 4 test
+    # parts into one CSR matrix, stack the matching query ids as uint32 sample ids, dump
+    # both and delete the archives; else load pickles. If target pickles are missing:
+    # download the qrels file and parse "category doc_id flag" lines, assigning category
+    # indices in order of first appearance and a new row each time doc_id changes,
+    # filling a dense uint8 indicator matrix; reorder rows to the X order via
+    # _find_permutation, sort categories lexicographically, convert to sparse CSR and
+    # dump; else load. Slice the first 23149 rows for train or the rest for test.
+    # Optionally shuffle X, y, sample_id jointly.
+    # Inputs: data_home; subset - all, train or test; download_if_missing; random_state;
+    # shuffle; return_X_y; n_retries; delay.
+    # Outputs: (X, y) or Bunch(data sparse (n, 47236) float64, target sparse (n, 103)
+    # uint8, sample_id uint32 (n,), target_names object array of 103 names, DESCR).
+    # Exceptions: FileNotFoundError from joblib.load when the cache is missing and
+    # download_if_missing is False; network errors.
+    # Side effects: downloads, cache writes, archive deletion, info logging.
+    # KNOWN ISSUE: the final else raising ValueError for an unknown subset is
+    # unreachable because validate_params restricts subset.
+    # KNOWN ISSUE: with download_if_missing=False and no cache, the documented OSError
+    # is not raised explicitly; a raw FileNotFoundError surfaces from joblib.load.
     """Load the RCV1 multilabel dataset (classification).
 
     Download it if necessary.
@@ -325,6 +356,11 @@ def fetch_rcv1(
 
 
 def _inverse_permutation(p):
+    # [FUNCTION DOC]
+    # HELPER: Computes the inverse of a permutation array.
+    # Inputs: p - 1-D integer array that is a permutation of 0..n-1.
+    # Outputs: int32 array s of length n where s at position p[i] equals i.
+    # Side effects: none.
     """Inverse permutation p."""
     n = p.size
     s = np.zeros(n, dtype=np.int32)
@@ -334,6 +370,13 @@ def _inverse_permutation(p):
 
 
 def _find_permutation(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Finds the index array that reorders a into the order of b (both containing
+    # the same values).
+    # Steps: argsort a, argsort b, invert b's argsort, and index a's argsort with it.
+    # Inputs: a, b - 1-D arrays with the same set of distinct values.
+    # Outputs: integer index array perm such that a reindexed by perm equals b.
+    # Side effects: none.
     """Find the permutation from a to b."""
     t = np.argsort(a)
     u = np.argsort(b)

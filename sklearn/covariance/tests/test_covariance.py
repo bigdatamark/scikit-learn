@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the empirical and shrinkage covariance estimators (EmpiricalCovariance,
+# ShrunkCovariance, LedoitWolf, OAS and their functional forms) on the diabetes dataset
+# loaded at import time (module globals X, X_1d, n_samples, n_features).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -30,6 +34,12 @@ n_samples, n_features = X.shape
 
 
 def test_covariance():
+    # [FUNCTION DOC]
+    # Verifies EmpiricalCovariance: fitted covariance matches empirical_covariance,
+    # error_norm is zero for every norm/scaling/squared option and raises
+    # NotImplementedError for an unknown norm, Mahalanobis distances are positive;
+    # single-feature data works; a single sample warns and yields a zero matrix; integer
+    # input gives the expected 2x2 result; assume_centered gives a zero location_.
     # Tests Covariance module on a simple dataset.
     # test covariance fit from data
     cov = EmpiricalCovariance()
@@ -78,6 +88,9 @@ def test_covariance():
 
 @pytest.mark.parametrize("n_matrices", [1, 3])
 def test_shrunk_covariance_func(n_matrices):
+    # [FUNCTION DOC]
+    # Verifies shrunk_covariance with shrinkage 0.5 maps an all-ones 2x2 matrix to [[1,
+    # .5], [.5, 1]], both for a single matrix and a stack of n_matrices copies.
     """Check `shrunk_covariance` function."""
 
     n_features = 2
@@ -93,6 +106,10 @@ def test_shrunk_covariance_func(n_matrices):
 
 
 def test_shrunk_covariance():
+    # [FUNCTION DOC]
+    # Verifies ShrunkCovariance.covariance_ equals shrunk_covariance of the empirical
+    # covariance (shrinkage 0.5, default, 0), that a single feature is unaffected by
+    # shrinkage, and that store_precision=False leaves precision_ None.
     """Check consistency between `ShrunkCovariance` and `shrunk_covariance`."""
 
     # Tests ShrunkCovariance module on a simple dataset.
@@ -128,6 +145,12 @@ def test_shrunk_covariance():
 
 
 def test_ledoit_wolf():
+    # [FUNCTION DOC]
+    # Verifies LedoitWolf consistency on centered and raw data: shrinkage_ matches
+    # ledoit_wolf_shrinkage (also with block_size 6), ledoit_wolf and _ledoit_wolf;
+    # covariance equals ShrunkCovariance with the same coefficient; single feature gives
+    # the plain (uncentered when assume_centered) variance; scores agree without stored
+    # precision; one sample warns and yields zeros.
     # Tests LedoitWolf module on a simple dataset.
     # test shrinkage coeff on a simple data set
     X_centered = X - X.mean(axis=0)
@@ -221,6 +244,12 @@ def test_ledoit_wolf():
 
 
 def _naive_ledoit_wolf_shrinkage(X):
+    # [FUNCTION DOC]
+    # HELPER: Reference non-blocked Ledoit-Wolf shrinkage straight from the paper's
+    # formulas (section 3.2): delta = squared Frobenius distance of the empirical
+    # covariance to mu I divided by p; beta from the variance of the outer products;
+    # shrinkage = min(beta, delta) / delta.
+    # Inputs: X - (n_samples, n_features). Outputs: float.
     # A simple implementation of the formulas from Ledoit & Wolf
 
     # The computation below achieves the following computations of the
@@ -246,6 +275,9 @@ def _naive_ledoit_wolf_shrinkage(X):
 
 
 def test_ledoit_wolf_small():
+    # [FUNCTION DOC]
+    # Verifies LedoitWolf.shrinkage_ on the first 4 diabetes features equals the naive
+    # reference implementation.
     # Compare our blocked implementation to the naive implementation
     X_small = X[:, :4]
     lw = LedoitWolf()
@@ -256,6 +288,10 @@ def test_ledoit_wolf_small():
 
 
 def test_ledoit_wolf_large(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with more features (20) than block_size (10) LedoitWolf runs, gives
+    # a near-identity covariance for random normal data, and equals the result computed
+    # with a single block (block_size 25).
     # test that ledoit_wolf doesn't error on data that is wider than block_size
     rng = np.random.RandomState(global_random_seed)
     # use a number of features that is larger than the block-size
@@ -274,6 +310,9 @@ def test_ledoit_wolf_large(global_random_seed):
     "ledoit_wolf_fitting_function", [LedoitWolf().fit, ledoit_wolf_shrinkage]
 )
 def test_ledoit_wolf_empty_array(ledoit_wolf_fitting_function):
+    # [FUNCTION DOC]
+    # Verifies LedoitWolf.fit and ledoit_wolf_shrinkage raise ValueError ('Found array
+    # with 0 sample') on a (0, 2) array.
     """Check that we validate X and raise proper error with 0-sample array."""
     X_empty = np.zeros((0, 2))
     with pytest.raises(ValueError, match="Found array with 0 sample"):
@@ -281,6 +320,11 @@ def test_ledoit_wolf_empty_array(ledoit_wolf_fitting_function):
 
 
 def test_oas():
+    # [FUNCTION DOC]
+    # Verifies OAS analogously to test_ledoit_wolf: agreement with oas and with
+    # ShrunkCovariance at the same coefficient, single-feature behavior, scores without
+    # stored precision, one-sample warning with zero covariance, and that _oas on one
+    # feature matches the estimator.
     # Tests OAS module on a simple dataset.
     # test shrinkage coeff on a simple data set
     X_centered = X - X.mean(axis=0)
@@ -364,6 +408,9 @@ def test_oas():
 
 
 def test_EmpiricalCovariance_validates_mahalanobis():
+    # [FUNCTION DOC]
+    # Verifies mahalanobis raises ValueError about the expected feature count when given
+    # fewer columns than at fit time.
     """Checks that EmpiricalCovariance validates data with mahalanobis."""
     cov = EmpiricalCovariance().fit(X)
 

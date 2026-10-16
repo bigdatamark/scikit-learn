@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for MinCovDet and fast_mcd: accuracy against inlier-only estimates on synthetic
+# contaminated data of several sizes (covering the small, subset-based and 1-D code
+# paths), input validation, singular/degenerate data, the increasing-determinant warning
+# and absence of variance bias on Gaussian data. Module globals load iris data (unused
+# by most tests).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -16,6 +22,10 @@ n_samples, n_features = X.shape
 
 
 def test_mcd(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies MCD accuracy via launch_mcd_on_dataset for small clean and contaminated
+    # sets, medium (1000) and large (1700) sets that use the subset algorithm, a 1-D
+    # set, and n_samples == n_features.
     # Tests the FastMCD algorithm implementation
     # Small data set
     # test without outliers (random independent normal data)
@@ -39,6 +49,8 @@ def test_mcd(global_random_seed):
 
 
 def test_fast_mcd_on_invalid_input():
+    # [FUNCTION DOC]
+    # Verifies fast_mcd raises ValueError for 1-D input.
     X = np.arange(100)
     msg = "Expected 2D array, got 1D array instead"
     with pytest.raises(ValueError, match=msg):
@@ -46,6 +58,8 @@ def test_fast_mcd_on_invalid_input():
 
 
 def test_mcd_class_on_invalid_input():
+    # [FUNCTION DOC]
+    # Verifies MinCovDet.fit raises ValueError for 1-D input.
     X = np.arange(100)
     mcd = MinCovDet()
     msg = "Expected 2D array, got 1D array instead"
@@ -56,6 +70,13 @@ def test_mcd_class_on_invalid_input():
 def launch_mcd_on_dataset(
     n_samples, n_features, n_outliers, tol_loc, tol_cov, tol_support, seed
 ):
+    # [FUNCTION DOC]
+    # HELPER: Generates n_samples x n_features standard normal data, shifts n_outliers
+    # random rows by +/-5 per feature, fits MinCovDet(random_state=seed) and asserts:
+    # mean squared location error vs the inlier mean < tol_loc, mean squared covariance
+    # error vs the inlier empirical covariance < tol_cov, support size >= tol_support,
+    # and mahalanobis(data) equals dist_.
+    # Inputs: sizes and tolerances (ints/floats), seed - int. Outputs: none.
     rand_gen = np.random.RandomState(seed)
     data = rand_gen.randn(n_samples, n_features)
     # add some outliers
@@ -81,6 +102,9 @@ def launch_mcd_on_dataset(
 
 
 def test_mcd_issue1127():
+    # [FUNCTION DOC]
+    # Non-regression: MinCovDet fits a (3, 1) array where the support size equals
+    # n_samples without error.
     # Check that the code does not break with X.shape = (3, 1)
     # (i.e. n_support = n_samples)
     rnd = np.random.RandomState(0)
@@ -90,6 +114,9 @@ def test_mcd_issue1127():
 
 
 def test_mcd_issue3367(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression: MinCovDet fits planar 3-D grid data whose covariance is singular
+    # (third column zero) without error.
     # Check that MCD completes when the covariance matrix is singular
     # i.e. one of the rows and columns are all zeros
     rand_gen = np.random.RandomState(global_random_seed)
@@ -122,6 +149,9 @@ def test_mcd_issue3367(global_random_seed):
 
 
 def test_mcd_support_covariance_is_zero():
+    # [FUNCTION DOC]
+    # Verifies MinCovDet raises the informative ValueError when the support samples are
+    # all identical (zero covariance).
     # Check that MCD returns a ValueError with informative message when the
     # covariance of the support data is equal to 0.
     X_1 = np.array([0.5, 0.1, 0.1, 0.1, 0.957, 0.1, 0.1, 0.1, 0.4285, 0.1])
@@ -138,6 +168,9 @@ def test_mcd_support_covariance_is_zero():
 
 
 def test_mcd_increasing_det_warning(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies a RuntimeWarning 'Determinant has increased' is emitted on a small ill-
+    # conditioned iris subset with support_fraction 0.5.
     # Check that a warning is raised if we observe increasing determinants
     # during the c_step. In theory the sequence of determinants should be
     # decreasing. Increasing determinants are likely due to ill-conditioned
@@ -173,6 +206,9 @@ def test_mcd_increasing_det_warning(global_random_seed):
 
 @pytest.mark.parametrize("n_samples,n_features", [(2000, 10)])
 def test_mincovdet_bias_on_normal(n_samples, n_features, global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression for issue 23162: with support_fraction 1 on centered Gaussian data,
+    # the summed MCD variances are at least 0.985 times the empirical ones.
     """Check that MinCovDet does not underestimate the empirical
     variance on Gaussian data.
 

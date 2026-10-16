@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.datasets.fetch_olivetti_faces, using the fetch_olivetti_faces_fxt
+# fixture which skips unless data is cached or downloads are enabled.
 """Test Olivetti faces fetcher, if the data is available,
 or if specifically requested via environment variable
 (e.g. for CI jobs)."""
@@ -10,6 +13,11 @@ from sklearn.utils._testing import assert_array_equal
 
 
 def test_olivetti_faces(fetch_olivetti_faces_fxt):
+    # [FUNCTION DOC]
+    # Verifies that a shuffled fetch returns a Bunch with data, images, target and DESCR
+    # keys, shapes (400, 4096), (400, 64, 64) and (400,), targets covering exactly
+    # 0..39, the expected DESCR label, and consistent return_X_y output via
+    # check_return_X_y.
     data = fetch_olivetti_faces_fxt(shuffle=True, random_state=0)
 
     assert isinstance(data, Bunch)

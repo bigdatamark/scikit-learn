@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.datasets.fetch_covtype. All tests receive the loader through the
+# fetch_covtype_fxt fixture (from the datasets conftest), which skips unless the data is
+# cached locally or downloads are explicitly enabled. Checks shapes, shuffling, DESCR,
+# the return_X_y and as_frame options, and the pandas-missing error message.
 """Test the covtype loader, if the data is available,
 or if specifically requested via environment variable
 (e.g. for CI jobs)."""
@@ -10,6 +15,12 @@ from sklearn.datasets.tests.test_common import check_return_X_y
 
 
 def test_fetch(fetch_covtype_fxt, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that two shuffled fetches with different seeds (global_random_seed and
+    # +1) have the expected shape (581012, 54), matching shapes and equal total sums
+    # (same rows, different order), 1-D targets of the right length, a DESCR starting
+    # with the covtype RST label, and that return_X_y returns the same data (via
+    # check_return_X_y).
     data1 = fetch_covtype_fxt(shuffle=True, random_state=global_random_seed)
     data2 = fetch_covtype_fxt(shuffle=True, random_state=global_random_seed + 1)
 
@@ -33,6 +44,10 @@ def test_fetch(fetch_covtype_fxt, global_random_seed):
 
 
 def test_fetch_asframe(fetch_covtype_fxt):
+    # [FUNCTION DOC]
+    # Verifies that as_frame=True (requires pandas, skipped otherwise) yields a frame of
+    # shape (581012, 55), data (581012, 54), target (581012,), and that the one-hot
+    # column groups are named Wilderness_Area_0..3 and Soil_Type_0..39.
     pytest.importorskip("pandas")
 
     bunch = fetch_covtype_fxt(as_frame=True)
@@ -50,6 +65,10 @@ def test_fetch_asframe(fetch_covtype_fxt):
 
 
 def test_pandas_dependency_message(fetch_covtype_fxt, hide_available_pandas):
+    # [FUNCTION DOC]
+    # Verifies that with pandas hidden (hide_available_pandas fixture) as_frame=True
+    # raises ImportError mentioning that fetch_covtype with as_frame=True requires
+    # pandas.
     expected_msg = "fetch_covtype with as_frame=True requires pandas"
     with pytest.raises(ImportError, match=expected_msg):
         fetch_covtype_fxt(as_frame=True)

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Shared base class for PCA-like estimators (PCA, IncrementalPCA, ...). Provides the
+# probabilistic-PCA covariance/precision, projection, inverse projection and output
+# feature naming, written against the array API namespace of the fitted attributes.
 """Principal Component Analysis Base Classes"""
 
 # Authors: The scikit-learn developers
@@ -25,6 +29,11 @@ from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 class _BasePCA(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator, metaclass=ABCMeta
 ):
+    # [CLASS DOC]
+    # HELPER: Abstract base mixing feature-name prefixing, transformer and estimator
+    # behavior. Subclasses must implement fit and set components_ (n_components,
+    # n_features), explained_variance_ (n_components,), noise_variance_ (scalar), mean_
+    # (n_features,), n_components_ and the whiten flag; all methods below read these.
     """Base class for PCA methods.
 
     Warning: This class should not be used directly.
@@ -32,6 +41,18 @@ class _BasePCA(
     """
 
     def get_covariance(self):
+        # [FUNCTION DOC]
+        # Builds the probabilistic PCA covariance: if whiten, first rescales each
+        # component row by the square root of its explained variance; computes per-
+        # component variance minus noise_variance_, set to zero where the variance does
+        # not exceed the noise; returns the sum over components of that difference times
+        # the outer product of the component with itself, then adds noise_variance_ to
+        # the diagonal.
+        # Inputs: none (uses fitted attributes).
+        # Outputs: (n_features, n_features) array in the namespace/device of
+        # components_.
+        # Exceptions: attribute errors if not fitted.
+        # Side effects: none.
         """Compute data covariance with the generative model.
 
         ``cov = components_.T * S**2 * components_ + sigma2 * eye(n_features)``
@@ -60,6 +81,22 @@ class _BasePCA(
         return cov
 
     def get_precision(self):
+        # [FUNCTION DOC]
+        # Inverse of get_covariance. If n_components_ is 0 returns identity divided by
+        # the noise variance; if the noise variance is 0 directly inverts get_covariance
+        # (array API inv or scipy inv). Otherwise applies the matrix inversion
+        # (Woodbury) lemma: with (possibly whiten-rescaled) components W and clipped
+        # variance differences d, forms W times W transposed divided by noise, adds 1/d
+        # to its diagonal, inverts this small (n_components square) matrix, sandwiches
+        # it between W transposed and W, divides by minus noise squared, and adds
+        # 1/noise to the diagonal.
+        # Outputs: (n_features, n_features) precision array.
+        # Exceptions: LinAlgError from the inversion if singular.
+        # Side effects: none.
+        # KNOWN ISSUE: when some explained variance does not exceed the noise variance,
+        # d is clipped to 0 and 1/d becomes infinite on the diagonal (division warning,
+        # inf/NaN risk); the zero-dtype in this where call also omits the dtype used in
+        # get_covariance.
         """Compute data precision matrix with the generative model.
 
         Equals the inverse of the covariance but computed with
@@ -106,6 +143,9 @@ class _BasePCA(
 
     @abstractmethod
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Abstract placeholder; subclasses fit the model on X (n_samples, n_features), y
+        # ignored, set the fitted attributes listed on the class, and return self.
         """Placeholder for fit. Subclasses should implement this method!
 
         Fit the model with X.
@@ -123,6 +163,16 @@ class _BasePCA(
         """
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Public projection. Checks X shares the namespace of components_, that the
+        # estimator is fitted, validates X (float64/float32, dense or CSR/CSC sparse,
+        # n_features must match, reset=False) and delegates to _transform with
+        # x_is_centered False.
+        # Inputs: X (n_samples, n_features).
+        # Outputs: (n_samples, n_components) array.
+        # Exceptions: NotFittedError; ValueError on feature-count mismatch or bad input;
+        # namespace mismatch error from check_same_namespace.
+        # Side effects: none.
         """Apply dimensionality reduction to X.
 
         X is projected on the first principal components previously extracted
@@ -155,6 +205,16 @@ class _BasePCA(
         return self._transform(X, xp=xp, x_is_centered=False)
 
     def _transform(self, X, xp, x_is_centered=False):
+        # [FUNCTION DOC]
+        # HELPER: Projects X onto components_ (X times components transposed). Unless
+        # x_is_centered, subtracts the projection of mean_ afterwards (keeps sparse X
+        # sparse and avoids copying dense X). If whiten, divides each output column by
+        # the square root of its explained variance, with the scale clipped below at the
+        # dtype machine epsilon to avoid non-finite values.
+        # Inputs: X validated dense or sparse array; xp the array namespace;
+        # x_is_centered bool, default False.
+        # Outputs: (n_samples, n_components) dense array.
+        # Side effects: none on X or self.
         X_transformed = X @ self.components_.T
         if not x_is_centered:
             # Apply the centering after the projection.
@@ -175,6 +235,16 @@ class _BasePCA(
         return X_transformed
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Maps reduced data back: checks namespace and fitted state, validates X as
+        # float64 or float32, then returns X times components_ plus mean_; if whiten,
+        # the components are first scaled by the square root of explained_variance_ so
+        # whitening is undone.
+        # Inputs: X (n_samples, n_components).
+        # Outputs: (n_samples, n_features) array.
+        # Exceptions: NotFittedError, validation errors.
+        # KNOWN ISSUE: unlike _transform, no epsilon clipping of the variance is
+        # applied, so the inverse is not exact for components whose scale was clipped.
         """Transform data back to its original space.
 
         In other words, return an input `X_original` whose transform would be X.
@@ -215,5 +285,8 @@ class _BasePCA(
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property giving the number of output features (rows of components_),
+        # used to generate get_feature_names_out names.
         """Number of transformed output features."""
         return self.components_.shape[0]

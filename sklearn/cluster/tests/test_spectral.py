@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for spectral clustering: SpectralClustering, spectral_clustering and the
+# label assignment helpers cluster_qr and discretize.
+# amg_loaded records whether the optional pyamg dependency is importable.
+# Module-level X (60 blobs around 3 shifted centers) is defined for reuse.
+# KNOWN ISSUE: every test redefines or ignores X, so the module-level blobs are unused.
 """Testing for Spectral Clustering methods"""
 
 import pickle
@@ -43,6 +49,11 @@ X, _ = make_blobs(
 def test_spectral_clustering(
     eigen_solver, assign_labels, csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Parametrized over eigen_solver, assign_labels and CSR containers: on a 7x7
+    # precomputed block-structured affinity (dense and sparse) checks 2-cluster labels
+    # match the two blocks exactly (ARI 1, after flipping labels so the first is 1), and
+    # that pickling preserves params and labels_.
     S = np.array(
         [
             [1.0, 1.0, 1.0, 0.2, 0.0, 0.0, 0.0],
@@ -78,6 +89,9 @@ def test_spectral_clustering(
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 @pytest.mark.parametrize("assign_labels", ("kmeans", "discretize", "cluster_qr"))
 def test_spectral_clustering_sparse(assign_labels, coo_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that a sparse COO precomputed RBF affinity (small entries thresholded to
+    # 0) on two tight blobs is perfectly clustered for each assign_labels strategy.
     X, y = make_blobs(
         n_samples=20,
         random_state=global_random_seed,
@@ -103,6 +117,10 @@ def test_spectral_clustering_sparse(assign_labels, coo_container, global_random_
 
 
 def test_precomputed_nearest_neighbors_filtering(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies affinity="precomputed_nearest_neighbors" keeps only n_neighbors=10
+    # neighbors: a distance graph built with 10 and with 20 neighbors gives identical
+    # labels.
     # Test precomputed graph filtering when containing too many neighbors
     X, y = make_blobs(
         n_samples=300,
@@ -132,6 +150,11 @@ def test_precomputed_nearest_neighbors_filtering(global_random_seed):
 
 
 def test_affinities(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies several affinities: nearest_neighbors (warns "not fully connected" and
+    # still perfect ARI), default rbf with gamma=2 (perfect ARI), every kernel from
+    # kernel_metrics except additive_chi2, a constant lambda, and a callable histogram
+    # kernel (asserted to receive no extra kwargs) all produce one label per sample.
     # Note: in the following, random_state has been selected to have
     # a dataset that yields a stable eigen decomposition both when built
     # on OSX and Linux
@@ -164,6 +187,9 @@ def test_affinities(global_random_seed):
     assert (X.shape[0],) == labels.shape
 
     def histogram(x, y, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Callable kernel returning the sum of elementwise minima of two sample
+        # vectors; asserts no kernel_params kwargs are passed.
         # Histogram kernel implemented as a callable.
         assert kwargs == {}  # no kernel_params that we didn't ask for
         return np.minimum(x, y).sum()
@@ -174,6 +200,9 @@ def test_affinities(global_random_seed):
 
 
 def test_cluster_qr(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies cluster_qr on random (10, 5) data returns one label per sample, uses all
+    # 5 component labels, and gives the same labels for float64 and float32 input.
     # cluster_qr by itself should not be used for clustering generic data
     # other than the rows of the eigenvectors within spectral clustering,
     # but cluster_qr must still preserve the labels for different dtypes
@@ -192,6 +221,9 @@ def test_cluster_qr(global_random_seed):
 
 
 def test_cluster_qr_permutation_invariance(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies cluster_qr labels are equivariant to permuting samples: permuting the
+    # output equals the output on permuted input.
     # cluster_qr must be invariant to sample permutation.
     random_state = np.random.RandomState(seed=global_random_seed)
     n_samples, n_components = 100, 5
@@ -206,6 +238,10 @@ def test_cluster_qr_permutation_invariance(global_random_seed):
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 @pytest.mark.parametrize("n_samples", [50, 100, 150, 500])
 def test_discretize(n_samples, coo_container, global_random_seed):
+    # [FUNCTION DOC]
+    # For n_class from 2 to 9 builds a one-hot indicator (n_class + 1 columns) of random
+    # labels plus Gaussian noise (scale 0.1) and checks discretize recovers the labels
+    # with ARI above 0.8; parametrized over n_samples and COO containers.
     # Test the discretize using a noise assignment matrix
     random_state = np.random.RandomState(seed=global_random_seed)
     for n_class in range(2, 10):
@@ -225,6 +261,10 @@ def test_discretize(n_samples, coo_container, global_random_seed):
 
 
 def test_spectral_clustering_with_arpack_amg_solvers(global_random_seed):
+    # [FUNCTION DOC]
+    # On a two-circle image graph (img_to_graph with exponential weights) checks arpack
+    # yields 2 clusters and, if pyamg is installed, amg gives identical partition;
+    # otherwise eigen_solver="amg" must raise ValueError.
     # Test that spectral_clustering is the same for arpack and amg solver
     # Based on toy example from plot_segmentation_toy.py
 
@@ -261,6 +301,9 @@ def test_spectral_clustering_with_arpack_amg_solvers(global_random_seed):
 
 
 def test_n_components(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies n_components defaults to n_clusters (explicit n_components=2 gives same
+    # labels) and that changing n_clusters with n_components=2 changes the labels.
     # Test that after adding n_components, result is different and
     # n_components = n_clusters by default
     X, y = make_blobs(
@@ -294,6 +337,11 @@ def test_n_components(global_random_seed):
 
 @pytest.mark.parametrize("assign_labels", ("kmeans", "discretize", "cluster_qr"))
 def test_verbose(assign_labels, capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose=1 prints the label assignment message, and for kmeans also the
+    # KMeans initialization/iteration messages, captured via capsys.
+    # KNOWN ISSUE: assign_labels is never passed to SpectralClustering, so every
+    # parametrization uses the default "kmeans"; the parametrization adds no coverage.
     # Check verbose mode of KMeans for better coverage.
     X, y = make_blobs(
         n_samples=20, random_state=0, centers=[[1, 1], [-1, -1]], cluster_std=0.01
@@ -311,6 +359,9 @@ def test_verbose(assign_labels, capsys):
 
 
 def test_spectral_clustering_np_matrix_raises():
+    # [FUNCTION DOC]
+    # Verifies spectral_clustering raises TypeError with an informative message when
+    # given an np.matrix (issue 10993).
     """Check that spectral_clustering raises an informative error when passed
     an np.matrix. See #10993"""
     X = np.matrix([[0.0, 2.0], [2.0, 0.0]])
@@ -321,12 +372,18 @@ def test_spectral_clustering_np_matrix_raises():
 
 
 def test_spectral_clustering_not_infinite_loop(capsys, monkeypatch):
+    # [FUNCTION DOC]
+    # Non-regression (issue 21380): monkeypatches numpy.linalg.svd to always raise
+    # LinAlgError and checks discretize raises LinAlgError "SVD did not converge"
+    # instead of looping forever. The capsys fixture is requested but unused.
     """Check that discretize raises LinAlgError when svd never converges.
 
     Non-regression test for #21380
     """
 
     def new_svd(*args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Replacement for numpy.linalg.svd that always raises LinAlgError.
         raise LinAlgError()
 
     monkeypatch.setattr(np.linalg, "svd", new_svd)

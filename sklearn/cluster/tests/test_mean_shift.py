@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for mean shift clustering: the MeanShift estimator, the mean_shift function,
+# estimate_bandwidth and get_bin_seeds.
+# Module-level fixture data: X is 300 two-dimensional samples drawn by make_blobs around
+# 3 centers shifted by +10 (cluster_std 0.4, random_state 11), shared by most tests.
+# Many tests use the global_dtype fixture to run under float32 and float64.
 """
 Testing for mean shift clustering methods
 
@@ -26,6 +32,9 @@ X, _ = make_blobs(
 
 
 def test_convergence_of_1d_constant_data():
+    # [FUNCTION DOC]
+    # Non-regression (issue 28926): fitting MeanShift on 10 identical 1D values must
+    # converge, verified by n_iter_ being strictly less than max_iter.
     # Test convergence using 1D constant data
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/28926
@@ -35,12 +44,22 @@ def test_convergence_of_1d_constant_data():
 
 
 def test_estimate_bandwidth():
+    # [FUNCTION DOC]
+    # Verifies estimate_bandwidth on the shared blobs with n_samples=200 returns a value in
+    # the range [0.9, 1.5].
     # Test estimate_bandwidth
     bandwidth = estimate_bandwidth(X, n_samples=200)
     assert 0.9 <= bandwidth <= 1.5
 
 
 def test_estimate_bandwidth_1sample(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies estimate_bandwidth with n_samples=1 and quantile=0.3 (forcing n_neighbors=1)
+    # returns approximately 0 (each point is its own nearest neighbor).
+    # Inputs: global_dtype fixture used to cast X.
+    # KNOWN ISSUE: the dtype assertion compares against X.dtype (always float64) rather
+    # than global_dtype, so for float32 it only passes if the result is float64; the check
+    # does not verify dtype preservation as the cast suggests.
     # Test estimate_bandwidth when n_samples=1 and quantile<1, so that
     # n_neighbors is set to 1.
     bandwidth = estimate_bandwidth(
@@ -58,6 +77,11 @@ def test_estimate_bandwidth_1sample(global_dtype):
 def test_mean_shift(
     global_dtype, bandwidth, cluster_all, expected, first_cluster_label
 ):
+    # [FUNCTION DOC]
+    # Parametrized over bandwidth/cluster_all: fits MeanShift and also calls mean_shift,
+    # and checks the number of unique labels equals expected (3 when all points are
+    # clustered, 4 including the orphan label -1 otherwise), that the smallest label equals
+    # first_cluster_label, and that cluster centers keep global_dtype.
     # Test MeanShift algorithm
     X_with_global_dtype = X.astype(global_dtype, copy=False)
     ms = MeanShift(bandwidth=bandwidth, cluster_all=cluster_all)
@@ -82,6 +106,10 @@ def test_mean_shift(
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_parallel(global_dtype, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that MeanShift with n_jobs=2 gives the same cluster centers (allclose), same
+    # centers dtype and identical labels as the sequential fit, on 50 blobs generated with
+    # global_random_seed. Marked thread_unsafe due to a loky bug.
     centers = np.array([[1, 1], [-1, -1], [1, -1]]) + 10
     X, _ = make_blobs(
         n_samples=50,
@@ -106,6 +134,9 @@ def test_parallel(global_dtype, global_random_seed):
 
 
 def test_meanshift_predict(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies fit_predict labels equal predict labels on the same data after fitting
+    # with bandwidth 1.2.
     # Test MeanShift.predict
     ms = MeanShift(bandwidth=1.2)
     X_with_global_dtype = X.astype(global_dtype, copy=False)
@@ -115,6 +146,9 @@ def test_meanshift_predict(global_dtype):
 
 
 def test_meanshift_all_orphans():
+    # [FUNCTION DOC]
+    # Verifies that seeds far from all data with a tiny bandwidth (0.1) make fit raise
+    # ValueError with message "No point was within bandwidth=0.1".
     # init away from the data, crash with a sensible warning
     ms = MeanShift(bandwidth=0.1, seeds=[[-9, -9], [-10, -10]])
     msg = "No point was within bandwidth=0.1"
@@ -125,6 +159,8 @@ def test_meanshift_all_orphans():
 
 
 def test_unfitted():
+    # [FUNCTION DOC]
+    # Verifies that an unfitted MeanShift has no cluster_centers_ or labels_ attribute.
     # Non-regression: before fit, there should be not fitted attributes.
     ms = MeanShift()
     assert not hasattr(ms, "cluster_centers_")
@@ -132,6 +168,9 @@ def test_unfitted():
 
 
 def test_cluster_intensity_tie(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies deterministic tie-breaking when two clusters have equal intensity (3 points
+    # each): labels follow data order, so permuting the two groups swaps label ids.
     X = np.array([[1, 1], [2, 1], [1, 0], [4, 7], [3, 5], [3, 6]], dtype=global_dtype)
     c1 = MeanShift(bandwidth=2).fit(X)
 
@@ -142,6 +181,11 @@ def test_cluster_intensity_tie(global_dtype):
 
 
 def test_bin_seeds(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies get_bin_seeds: with bin size 1 and min_bin_freq 1 gives 3 expected bin
+    # centers, with min_bin_freq 2 gives 2; with bin size 0.01 (every point its own bin)
+    # it falls back to returning the data (warning suppressed); on tight blobs around
+    # (0,0) and (1,1) with bin size 1 it returns exactly those two seeds.
     # Test the bin seeding technique which can be used in the mean shift
     # algorithm
     # Data is just 6 points in the plane
@@ -185,6 +229,9 @@ def test_bin_seeds(global_dtype):
 
 @pytest.mark.parametrize("max_iter", [1, 100])
 def test_max_iter(max_iter):
+    # [FUNCTION DOC]
+    # Parametrized over max_iter (1, 100): checks mean_shift and MeanShift give the same
+    # number of centers with allclose values, and that n_iter_ never exceeds max_iter.
     clusters1, _ = mean_shift(X, max_iter=max_iter)
     ms = MeanShift(max_iter=max_iter).fit(X)
     clusters2 = ms.cluster_centers_
@@ -197,6 +244,11 @@ def test_max_iter(max_iter):
 
 
 def test_mean_shift_zero_bandwidth(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies behavior when estimate_bandwidth returns 0 on a 1D dataset of repeated
+    # values: get_bin_seeds with bin_size 0 returns the input object itself, and
+    # MeanShift with and without bin seeding both recover the 3 expected groups (perfect
+    # v_measure) with identical cluster centers.
     # Check that mean shift works when the estimated bandwidth is 0.
     X = np.array([1, 1, 1, 2, 2, 2, 3, 3], dtype=global_dtype).reshape(-1, 1)
 

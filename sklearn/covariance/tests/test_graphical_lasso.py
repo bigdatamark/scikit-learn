@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for graphical_lasso, GraphicalLasso and GraphicalLassoCV: solver agreement (cd
+# vs lars), monotone costs, alpha=0 shortcut, iteration counting, reference solutions
+# from R glasso and skggm, rank-deficient data, CV alphas handling and the structure of
+# cv_results_ with and without metadata routing.
 """Test the graphical_lasso module."""
 
 import sys
@@ -26,6 +31,12 @@ from sklearn.utils._testing import (
 
 
 def test_graphical_lassos(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on sparse-precision Gaussian data, for alphas 0, 0.1, 0.25, that costs
+    # decrease monotonically (for alpha > 0) and cd and lars give close
+    # covariances/precisions; smoke tests GraphicalLasso.fit/score and its agreement
+    # with the function; and that assume_centered True/False give the same precision on
+    # centered data.
     """Test the graphical lasso solvers."""
     # Sample data from a sparse multivariate normal
     dim = 10
@@ -76,6 +87,9 @@ def test_graphical_lassos(global_random_seed):
 
 
 def test_graphical_lasso_when_alpha_equals_0(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that alpha=0 returns the exact inverse of the empirical covariance,
+    # through the estimator with precomputed covariance and through the function.
     """Test graphical_lasso's early return condition when alpha=0."""
     X = np.random.RandomState(global_random_seed).randn(100, 10)
     emp_cov = empirical_covariance(X, assume_centered=True)
@@ -90,6 +104,9 @@ def test_graphical_lasso_when_alpha_equals_0(global_random_seed):
 @pytest.mark.parametrize("mode", ["cd", "lars"])
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_graphical_lasso_n_iter(mode):
+    # [FUNCTION DOC]
+    # Verifies return_n_iter reports exactly max_iter (2) when the solver does not
+    # converge, for both modes (ConvergenceWarning ignored).
     X, _ = datasets.make_classification(n_samples=5_000, n_features=20, random_state=0)
     emp_cov = empirical_covariance(X)
 
@@ -100,6 +117,9 @@ def test_graphical_lasso_n_iter(mode):
 
 
 def test_graphical_lasso_iris():
+    # [FUNCTION DOC]
+    # Verifies both modes reproduce the R glasso solution (covariance and precision) on
+    # iris with alpha 1.0.
     # Hard-coded solution from R glasso package for alpha=1.0
     # (need to set penalize.diagonal to FALSE)
     cov_R = np.array(
@@ -127,6 +147,9 @@ def test_graphical_lasso_iris():
 
 
 def test_graph_lasso_2D():
+    # [FUNCTION DOC]
+    # Verifies both modes reproduce the skggm QUIC solution on the last two iris
+    # features with alpha 0.1.
     # Hard-coded solution from Python skggm package
     # obtained by calling `quic(emp_cov, lam=.1, tol=1e-8)`
     cov_skggm = np.array([[3.09550269, 1.186972], [1.186972, 0.57713289]])
@@ -142,6 +165,9 @@ def test_graph_lasso_2D():
 
 @pytest.mark.parametrize("method", ["cd", "lars"])
 def test_graphical_lasso_iris_singular(method):
+    # [FUNCTION DOC]
+    # Verifies on a rank-deficient 3-sample iris subset that each mode matches the R
+    # glasso solution with alpha 0.01 within tolerance.
     # Small subset of rows to test the rank-deficient case
     # Need to choose samples such that none of the variances are zero
     indices = np.arange(10, 13)
@@ -183,6 +209,9 @@ def test_graphical_lasso_iris_singular(method):
 
 
 def test_graphical_lasso_cv(global_random_seed):
+    # [FUNCTION DOC]
+    # Smoke tests GraphicalLassoCV with very high verbose on tiny data, redirecting
+    # stdout to a StringIO and restoring it afterwards.
     # Sample data from a sparse multivariate normal
     dim = 5
     n_samples = 6
@@ -202,6 +231,9 @@ def test_graphical_lasso_cv(global_random_seed):
 
 @pytest.mark.parametrize("alphas_container_type", ["list", "tuple", "array"])
 def test_graphical_lasso_cv_alphas_iterable(alphas_container_type):
+    # [FUNCTION DOC]
+    # Non-regression (issue 22489): GraphicalLassoCV accepts alphas given as list, tuple
+    # or array.
     """Check that we can pass an array-like to `alphas`.
 
     Non-regression test for:
@@ -230,6 +262,9 @@ def test_graphical_lasso_cv_alphas_iterable(alphas_container_type):
     ],
 )
 def test_graphical_lasso_cv_alphas_invalid_array(alphas, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies non-positive alphas raise ValueError ('must be > 0') and a non-numeric
+    # alpha raises TypeError.
     """Check that if an array-like containing a value
     outside of (0, inf] is passed to `alphas`, a ValueError is raised.
     Check if a string is passed, a TypeError is raised.
@@ -250,6 +285,9 @@ def test_graphical_lasso_cv_alphas_invalid_array(alphas, err_type, err_msg):
 
 
 def test_graphical_lasso_cv_scores(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies cv_results_ structure after fitting with 4 folds, 5 alphas and 3
+    # refinements via _assert_graphical_lasso_cv_scores.
     splits = 4
     n_alphas = 5
     n_refinements = 3
@@ -277,6 +315,10 @@ def test_graphical_lasso_cv_scores(global_random_seed):
 
 @config_context(enable_metadata_routing=True)
 def test_graphical_lasso_cv_scores_with_routing(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies, with metadata routing enabled, that groups passed to fit reach a
+    # GroupKFold splitter (requested via set_split_request) and cv_results_ has the
+    # expected structure.
     """Check that `GraphicalLassoCV` internally dispatches metadata to
     the splitter.
     """
@@ -312,6 +354,11 @@ def test_graphical_lasso_cv_scores_with_routing(global_random_seed):
 
 
 def _assert_graphical_lasso_cv_scores(cov, n_splits, n_refinements, n_alphas):
+    # [FUNCTION DOC]
+    # HELPER: Asserts cv_results_ has 'alphas' and one split score key per split, each
+    # of length n_refinements * n_alphas + 1 (the extra one is alpha 0), and that
+    # mean/std_test_score equal the mean/std over the split scores.
+    # Inputs: cov - fitted GraphicalLassoCV; n_splits, n_refinements, n_alphas - ints.
     cv_results = cov.cv_results_
     # alpha and one for each split
 

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Pickling tests for the built-in callbacks (ProgressBar, ScoringMonitor) attached to
+# estimators: round-trips before and after fit, refitting after unpickling in the
+# same and in a fresh interpreter, and a guard ensuring the pickler never traverses
+# containers mutated by listener threads. CALLBACK_FACTORIES parametrizes the tests.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -25,11 +30,17 @@ from sklearn.datasets import make_regression
 
 
 def _pb():
+    # [FUNCTION DOC]
+    # HELPER: Factory returning a new ProgressBar; skips the test if rich is missing.
+    # Outputs: ProgressBar instance.
     pytest.importorskip("rich")
     return ProgressBar()
 
 
 def _sm():
+    # [FUNCTION DOC]
+    # HELPER: Factory returning a new ScoringMonitor using the "r2" scorer.
+    # Outputs: ScoringMonitor instance.
     return ScoringMonitor(scoring="r2")
 
 
@@ -41,6 +52,10 @@ CALLBACK_FACTORIES = [
 
 @pytest.mark.parametrize("factory", CALLBACK_FACTORIES)
 def test_estimator_with_callback_pickle_roundtrip_pre_fit(factory):
+    # [FUNCTION DOC]
+    # Verifies an unfitted estimator with one callback survives pickle dumps/loads with
+    # its type and single callback preserved.
+    # Inputs: factory - parametrized callback factory.
     """An estimator with the callback registered but not yet fitted is picklable."""
     estimator = MaxIterEstimator().set_callbacks(factory())
     restored = pickle.loads(pickle.dumps(estimator))
@@ -50,6 +65,9 @@ def test_estimator_with_callback_pickle_roundtrip_pre_fit(factory):
 
 @pytest.mark.parametrize("factory", CALLBACK_FACTORIES)
 def test_estimator_with_callback_pickle_roundtrip_post_fit(factory):
+    # [FUNCTION DOC]
+    # Same as the pre-fit round-trip but after fitting with max_iter=3.
+    # Inputs: factory - parametrized callback factory.
     """An estimator with the callback registered and fitted is picklable."""
     callback = factory()
     estimator = MaxIterEstimator(max_iter=3).set_callbacks(callback)
@@ -60,6 +78,12 @@ def test_estimator_with_callback_pickle_roundtrip_post_fit(factory):
 
 
 def test_callbacks_refit_after_pickle_in_same_process(capsys):
+    # [FUNCTION DOC]
+    # Verifies that an estimator with ProgressBar and ScoringMonitor, fitted, pickled and
+    # unpickled in-process, can be refitted: the progress bar prints again (checked on
+    # captured stdout) and the restored monitor holds 2 log entries whose first equals
+    # the original one.
+    # Inputs: capsys - pytest fixture capturing output.
     """An estimator with callbacks survives an in-process pickle round-trip.
 
     It also supports re-fitting after being unpickled and the callbacks accumulate new
@@ -93,6 +117,15 @@ def test_callbacks_refit_after_pickle_in_same_process(capsys):
 
 
 def test_callbacks_refit_after_load_in_fresh_process(tmp_path, capsys):
+    # [FUNCTION DOC]
+    # Verifies that an estimator pickled to tmp_path can be loaded and refitted in a new
+    # Python subprocess; the subprocess script asserts the monitor logs, and the parent
+    # checks the subprocess stdout for the progress bar output.
+    # Inputs: tmp_path, capsys - pytest fixtures.
+    # Side effects: writes est.pkl in tmp_path; spawns a subprocess (timeout 120 s).
+    # KNOWN ISSUE: the subprocess return code and stderr are not checked, so a failing
+    # assertion inside the script only surfaces if it happens before the progress bar
+    # output is printed; the log assertions after refit can fail silently.
     """An estimator with callbacks survives unpickling in a fresh interpreter.
 
     It also supports re-fitting after being unpickled and the callbacks accumulate new
@@ -145,6 +178,10 @@ def test_callbacks_refit_after_load_in_fresh_process(tmp_path, capsys):
 
 
 class _TraversalRecorder(pickle.Pickler):
+    # [CLASS DOC]
+    # HELPER: Pickler writing to an in-memory buffer that records the id of every object
+    # it visits via persistent_id.
+    # Attributes: walked_through - set of object ids encountered.
     """A pickler that records the id of every object it walks through.
 
     `persistent_id` is called for every object the pickler encounters, so an object is
@@ -154,15 +191,27 @@ class _TraversalRecorder(pickle.Pickler):
     """
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Initializes the pickler on a fresh BytesIO with the highest protocol and an empty
+        # walked_through set.
         super().__init__(io.BytesIO(), protocol=pickle.HIGHEST_PROTOCOL)
         self.walked_through = set()
 
     def persistent_id(self, obj):
+        # [FUNCTION DOC]
+        # Records id(obj) in walked_through and returns None so obj is pickled normally.
+        # Inputs: obj - object being pickled. Outputs: None.
         self.walked_through.add(id(obj))
         return None  # pickle `obj` as usual
 
 
 def _checked(hook):
+    # [FUNCTION DOC]
+    # HELPER: Wraps a callback hook method so that, before delegating, it verifies the
+    # callback can be pickled without walking through containers that listener threads
+    # mutate.
+    # Inputs: hook - unbound hook function.
+    # Outputs: wrapper with the same signature metadata (functools.wraps).
     """Wrap a callback hook so that it first checks the callback it is called on.
 
     The check is that the pickler does not walk through the objects that listener
@@ -176,6 +225,12 @@ def _checked(hook):
     # preserve the signature of the hook because callbacks are validated against it
     @functools.wraps(hook)
     def checked_hook(self, *args, **kwargs):
+        # [FUNCTION DOC]
+        # Snapshots the registered message consumers, collects the objects they are bound to
+        # (skipping unbound consumers), pickles self with _TraversalRecorder, asserts none of
+        # those containers were visited, then calls the original hook.
+        # Inputs: self - callback; args/kwargs forwarded. Outputs: the hook's return value.
+        # Exceptions: AssertionError if an offending container was traversed.
         # snapshot because another thread may register a listener concurrently
         consumers = list(_message_consumers.values())
         # the containers are held, not just their ids, which could be reused once freed
@@ -199,6 +254,11 @@ def _checked(hook):
 
 @pytest.mark.parametrize("factory", CALLBACK_FACTORIES)
 def test_listener_state_is_not_walked_by_the_pickler(factory, monkeypatch):
+    # [FUNCTION DOC]
+    # Monkeypatches the callback class's on_fit_task_begin/on_fit_task_end with _checked
+    # wrappers and fits an estimator, so the pickling check runs while listeners are up.
+    # Inputs: factory - parametrized; monkeypatch - fixture.
+    # Side effects: patches the callback class for the duration of the test.
     """Check that pickling a callback never traverses state its listener mutates.
 
     An estimator carrying a callback can be pickled by a background thread, e.g. loky's

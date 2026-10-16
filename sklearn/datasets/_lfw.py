@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Loaders for the Labeled Faces in the Wild (LFW) face dataset: fetch_lfw_people
+# (identification task) and fetch_lfw_pairs (verification task). Defines remote metadata
+# for the original and funneled image archives and the three pairs index files, plus
+# private helpers for download/extraction, JPEG decoding (requires Pillow), and the
+# joblib-memoized loaders. Data lives in <data_home>/lfw_home.
+# Side effects at import: creates a module-level logger only.
 """Labeled Faces in the Wild (LFW) dataset
 
 This dataset is a collection of JPEG pictures of famous people collected
@@ -82,6 +89,19 @@ TARGETS = (
 def _check_fetch_lfw(
     data_home=None, funneled=True, download_if_missing=True, n_retries=3, delay=1.0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Ensures the LFW index files and the extracted image folder exist locally.
+    # Steps: create <data_home>/lfw_home if needed; for each of the three pairs index
+    # files, download it if absent. Select the funneled or original archive; if its
+    # extracted folder is absent, download the tarball if needed, extract it into
+    # lfw_home and delete the tarball.
+    # Inputs: data_home - cache root or None; funneled - bool; download_if_missing -
+    # bool; n_retries - int; delay - float.
+    # Outputs: tuple (lfw_home path, data_folder_path of extracted images).
+    # Exceptions: OSError naming the missing file when something is absent and downloads
+    # are disabled; network/checksum errors from _fetch_remote.
+    # Side effects: directory creation, downloads, tar extraction, archive deletion,
+    # logging.
     """Helper function to download any missing LFW data"""
 
     data_home = get_data_home(data_home=data_home)
@@ -131,6 +151,24 @@ def _check_fetch_lfw(
 
 
 def _load_imgs(file_paths, slice_, color, resize):
+    # [FUNCTION DOC]
+    # HELPER: Decodes a list of JPEG files into a float32 array of cropped, resized
+    # faces.
+    # Steps: import Pillow. Fill missing entries of slice_ (or use full 250x250 when
+    # None). Compute output height and width from slice lengths divided by step, scaled
+    # by resize (truncated to int). Allocate zeros of shape (n, h, w) or (n, h, w, 3).
+    # For each file: crop to the slice box, resize to (w, h) if resize given, convert to
+    # float32, divide by 255, average channels to gray when not color, store in the
+    # output.
+    # Inputs: file_paths - list of paths; slice_ - tuple of two slices (height, width)
+    # or None; color - bool; resize - float ratio or None.
+    # Outputs: float32 ndarray of shape (n_files, h, w) or (n_files, h, w, 3), values in
+    # [0, 1].
+    # Exceptions: ImportError if Pillow is missing; RuntimeError if a decoded image is
+    # 0-dimensional (libjpeg failure).
+    # Side effects: debug logging every 1000 images.
+    # KNOWN ISSUE: slice steps are used when computing h and w but ignored by the crop,
+    # so a slice with step != 1 and resize None produces a shape mismatch.
     """Internally used to load images"""
     try:
         from PIL import Image
@@ -208,6 +246,20 @@ def _load_imgs(file_paths, slice_, color, resize):
 def _fetch_lfw_people(
     data_folder_path, slice_=None, color=False, resize=None, min_faces_per_person=0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds the face identification arrays from the extracted folder (memoized
+    # by joblib in the caller).
+    # Steps: iterate over sorted person subfolders, keep persons with at least
+    # min_faces_per_person images, collect their sorted file paths and names
+    # (underscores replaced by spaces). Encode names as integer labels using the sorted
+    # unique names. Load images with _load_imgs, then permute faces and target with a
+    # fixed RandomState(42) shuffle.
+    # Inputs: data_folder_path - extracted LFW image directory; slice_, color, resize -
+    # as in _load_imgs; min_faces_per_person - int threshold.
+    # Outputs: (faces float32 array, target int array, target_names sorted unique name
+    # array).
+    # Exceptions: ValueError if no image survives the threshold.
+    # Side effects: reads files; deterministic shuffling (no global RNG use).
     """Perform the actual data loading for the lfw people dataset
 
     This operation is meant to be cached by a joblib wrapper.
@@ -276,6 +328,21 @@ def fetch_lfw_people(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the LFW people dataset, downloading data if needed.
+    # Steps: call _check_fetch_lfw; wrap _fetch_lfw_people with joblib Memory cached in
+    # lfw_home (compress=6) and call it; flatten each image into a row; load DESCR.
+    # Inputs: data_home; funneled - bool; resize - positive float or None;
+    # min_faces_per_person - int >= 0; color - bool; slice_ - tuple of two slices;
+    # download_if_missing; return_X_y; n_retries; delay.
+    # Outputs: (X, target) if return_X_y, else Bunch(data, images, target, target_names,
+    # DESCR).
+    # Exceptions: those of _check_fetch_lfw and _fetch_lfw_people; validation errors.
+    # Side effects: downloads and joblib cache files under lfw_home.
+    # KNOWN ISSUE: the docstring table says features are between 0 and 255, but pixel
+    # values are scaled to [0, 1].
+    # KNOWN ISSUE: the validator accepts min_faces_per_person=None, which would fail in
+    # the integer comparison inside _fetch_lfw_people.
     """Load the Labeled Faces in the Wild (LFW) people dataset \
 (classification).
 
@@ -432,6 +499,23 @@ def fetch_lfw_people(
 def _fetch_lfw_pairs(
     index_file_path, data_folder_path, slice_=None, color=False, resize=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds the face verification arrays from a pairs index file (memoized by
+    # joblib in the caller).
+    # Steps: read the index file, split lines on tabs and keep lines with more than 2
+    # fields. A 3-field line (name, i, j) is a same-person pair (target 1); a 4-field
+    # line (name1, i, name2, j) is a different-person pair (target 0); indices are
+    # 1-based into the sorted file list of each person folder. Collect both file paths
+    # per pair, load with _load_imgs and reshape to (n_pairs, 2, ...).
+    # Inputs: index_file_path - path to the pairs txt; data_folder_path - image
+    # directory; slice_, color, resize - as in _load_imgs.
+    # Outputs: (pairs float32 array, target int array, target_names array ["Different
+    # persons", "Same person"]).
+    # Exceptions: ValueError for lines with more than 4 fields; IndexError/OSError on
+    # missing files.
+    # Side effects: reads files.
+    # KNOWN ISSUE: the TypeError fallback decoding the name from bytes is dead code
+    # since names come from decoded strings.
     """Perform the actual data loading for the LFW pairs dataset
 
     This operation is meant to be cached by a joblib wrapper.
@@ -507,6 +591,22 @@ def fetch_lfw_pairs(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the LFW pairs dataset for the requested subset, downloading data if
+    # needed.
+    # Steps: call _check_fetch_lfw; memoize _fetch_lfw_pairs via joblib Memory in
+    # lfw_home; map subset to its index file; load pairs; flatten each pair into one row
+    # for data; load DESCR.
+    # Inputs: subset - train, test or 10_folds; data_home; funneled; resize; color;
+    # slice_; download_if_missing; n_retries; delay.
+    # Outputs: Bunch(data (n_pairs, 2*h*w...), pairs, target, target_names, DESCR). No
+    # return_X_y option.
+    # Exceptions: ValueError for an unknown subset; errors from helpers.
+    # Side effects: downloads and joblib cache files.
+    # KNOWN ISSUE: the explicit subset check is unreachable because validate_params
+    # already restricts subset.
+    # KNOWN ISSUE: the docstring table (13233 samples, values 0-255) does not describe
+    # the pairs output, which has 2200/1000/6000 pairs and values in [0, 1].
     """Load the Labeled Faces in the Wild (LFW) pairs dataset (classification).
 
     Download it if necessary.

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for the ScoringMonitor callback: logged scores per task for simple and
+# meta-estimators (string, multi-metric and callable scoring; list and pandas output;
+# with and without lineage rows), get_logs selection/types/errors, sample weights,
+# ancestor retrieval through task id paths, use from functions without callback
+# support, and listener cleanup on garbage collection.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -21,6 +27,17 @@ from sklearn.utils.parallel import Parallel, delayed
 def _make_expected_output_MaxIterEstimator(
     max_iter, scoring, as_pandas, X, y, root_task_id=0
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds the log a ScoringMonitor should produce for one MaxIterEstimator fit:
+    # one row for the root "fit" task (estimator fitted with max_iter) followed by one row
+    # per iteration i (estimator refitted with max_iter=i+1), each holding task metadata
+    # and the scores computed on X, y.
+    # Inputs: max_iter - int; scoring - str, callable scorer or tuple of names; as_pandas -
+    # bool; X, y - evaluation data; root_task_id - id of the root task (default 0).
+    # Outputs: list of dicts, or a pandas DataFrame if as_pandas.
+    # Side effects: skips the test if as_pandas and pandas is missing.
+    # KNOWN ISSUE: the reference estimators are fitted without X, y; this matches only
+    # because MaxIterEstimator's fitted state does not depend on the data.
     """Generate the expected output of a ScoringMonitor on a MaxIterEstimator."""
     scorer = check_scoring(None, scoring)
     if isinstance(scoring, str):
@@ -75,6 +92,13 @@ def _make_expected_output_MaxIterEstimator(
 def _make_expected_output_MetaEstimator(
     n_outer, n_inner, max_iter, scoring, as_pandas, include_lineage, X, y
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds the expected MetaEstimator log: for each outer i and inner j, the
+    # MaxIterEstimator log with root id j, with task paths prefixed by (0, i); if
+    # include_lineage, adds the meta root "fit" row and one "outer" row per i. Rows are
+    # sorted by parent path length then parent path (stable sort).
+    # Inputs: n_outer, n_inner, max_iter - ints; scoring, as_pandas, include_lineage, X, y.
+    # Outputs: list of dicts or DataFrame.
     """Generate the expected output of a ScoringMonitor on a MetaEstimator.
 
     The sub-estimators are expected to be MaxIterEstimator.
@@ -128,6 +152,9 @@ def _make_expected_output_MetaEstimator(
 
 
 def _custom_score_func(y_true, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Dummy metric always returning 0, wrapped as custom_score.
+    # Inputs: y_true, y_pred - ignored. Outputs: 0.
     """Custom score to test the ScoringMonitor with a callable."""
     return 0
 
@@ -136,6 +163,9 @@ custom_score = make_scorer(_custom_score_func)
 
 
 def test_score_after_fit():
+    # [FUNCTION DOC]
+    # Verifies each logged per-iteration r2 equals the score of an estimator fitted from
+    # scratch with max_iter = i+1.
     """Check that the logged scores are the same as if the fit ended at each step."""
     X, y = make_regression(n_samples=100, n_features=2, random_state=0)
 
@@ -161,6 +191,10 @@ def test_score_after_fit():
 )
 @pytest.mark.parametrize("as_pandas", [True, False])
 def test_logged_values(scoring, as_pandas):
+    # [FUNCTION DOC]
+    # Verifies the full log (list or DataFrame) of a MaxIterEstimator fit equals
+    # _make_expected_output_MaxIterEstimator.
+    # Inputs: scoring, as_pandas - parametrized.
     """Test that the correct values are logged with a simple estimator."""
     if as_pandas:
         pytest.importorskip("pandas")
@@ -192,6 +226,10 @@ def test_logged_values(scoring, as_pandas):
 @pytest.mark.parametrize("as_pandas", [True, False])
 @pytest.mark.parametrize("include_lineage", [True, False])
 def test_logged_values_meta_estimator(prefer, scoring, as_pandas, include_lineage):
+    # [FUNCTION DOC]
+    # Verifies the log of a callback on the sub-estimator of a parallel MetaEstimator
+    # equals _make_expected_output_MetaEstimator, with and without lineage rows.
+    # Inputs: prefer, scoring, as_pandas, include_lineage - parametrized.
     """Test that the correct values are logged with a meta-estimator."""
     if as_pandas:
         pytest.importorskip("pandas")
@@ -221,6 +259,9 @@ def test_logged_values_meta_estimator(prefer, scoring, as_pandas, include_lineag
 
 @pytest.mark.parametrize("select", ["all", "most_recent"])
 def test_get_logs_output_type_no_fit(select):
+    # [FUNCTION DOC]
+    # Verifies get_logs raises ValueError before any fit for both select modes.
+    # Inputs: select - parametrized.
     """Check that get_logs raises an error before fit."""
     callback = ScoringMonitor(scoring="neg_mean_squared_error")
 
@@ -230,6 +271,10 @@ def test_get_logs_output_type_no_fit(select):
 
 @pytest.mark.parametrize("as_pandas", [True, False])
 def test_get_logs_output_type(as_pandas):
+    # [FUNCTION DOC]
+    # After two fits, verifies select="all" returns a list of 2 ScoringMonitorLog,
+    # select="most_recent" a single one, and data/data_as_pandas have the right types.
+    # Inputs: as_pandas - parametrized.
     """Test the type of the get_logs output."""
     if as_pandas:
         pd = pytest.importorskip("pandas")
@@ -258,6 +303,10 @@ def test_get_logs_output_type(as_pandas):
 
 @pytest.mark.parametrize("select", ["all", "most_recent"])
 def test_estimator_without_reconstruction_attributes(select):
+    # [FUNCTION DOC]
+    # Verifies that for an estimator that never provides reconstruction_attributes no log
+    # is recorded, so get_logs raises ValueError.
+    # Inputs: select - parametrized.
     """Smoke test on an estimator which does not provide reconstruction_attributes."""
     callback = ScoringMonitor(scoring="r2")
     WhileEstimator().set_callbacks(callback).fit()
@@ -267,6 +316,9 @@ def test_estimator_without_reconstruction_attributes(select):
 
 
 def test_scoringmonitor_sample_weights():
+    # [FUNCTION DOC]
+    # Verifies that fitting with non-uniform integer sample weights yields a different log
+    # than fitting without weights.
     """Check that the ScoringMonitor works with sample weights."""
     rng = np.random.RandomState(0)
     X, y = make_regression(n_samples=100, n_features=2, random_state=rng)
@@ -288,6 +340,12 @@ def test_scoringmonitor_sample_weights():
 
 
 def _get_ancestors_info_path(log, parent_task_id_path):
+    # [FUNCTION DOC]
+    # HELPER: Walks up the task tree in a list-of-dicts log from parent_task_id_path to
+    # the root, collecting estimator_name, task_name and task_id of each ancestor.
+    # Inputs: log - list of row dicts; parent_task_id_path - tuple.
+    # Outputs: list of dicts ordered root first.
+    # Exceptions: KeyError if a path is missing from the log.
     log = {row["task_id_path"]: row for row in log}
     ancestors_info_path = []
     while parent_task_id_path:
@@ -305,6 +363,10 @@ def _get_ancestors_info_path(log, parent_task_id_path):
 
 
 def _get_ancestors_info_path_pandas(log, parent_task_id_path):
+    # [FUNCTION DOC]
+    # HELPER: Same as _get_ancestors_info_path for a DataFrame log, indexing rows by
+    # task_id_path.
+    # Inputs: log - DataFrame; parent_task_id_path - tuple. Outputs: list of dicts.
     log = log.set_index("task_id_path", drop=False)
     ancestors_info_path = []
     while parent_task_id_path:
@@ -323,6 +385,11 @@ def _get_ancestors_info_path_pandas(log, parent_task_id_path):
 
 @pytest.mark.parametrize("as_pandas", [True, False])
 def test_get_logs_include_lineage_ancestor_retrieval(as_pandas):
+    # [FUNCTION DOC]
+    # Verifies that with include_lineage, the max_iter sibling rows under path (0, 1, 1)
+    # are found and their ancestors (meta fit, outer #1, inner fit #1) can be recovered
+    # from the log.
+    # Inputs: as_pandas - parametrized.
     """Check that ancestor task info can be retrieved from a given task."""
     if as_pandas:
         pytest.importorskip("pandas")
@@ -372,6 +439,10 @@ def test_get_logs_include_lineage_ancestor_retrieval(as_pandas):
 
 @pytest.mark.parametrize("backend", ["threading", "loky"])
 def test_scoring_monitor_no_callback_support(backend):
+    # [FUNCTION DOC]
+    # Verifies that parallel clone-and-fit from a function without callback support
+    # produces n_fits separate logs, each equal to the single-fit expected log.
+    # Inputs: backend - parametrized.
     """Test ScoringMonitor within a parallelized function not supporting callbacks.
 
     The expected result is multiple separate logs, similar to the result of multiple
@@ -379,9 +450,13 @@ def test_scoring_monitor_no_callback_support(backend):
     """
 
     def clone_and_fit(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Clones the estimator and fits it on X, y.
         clone(estimator).fit(X, y)
 
     def func(estimator, X, y, n_fits):
+        # [FUNCTION DOC]
+        # HELPER: Runs clone_and_fit n_fits times via joblib Parallel (2 jobs).
         Parallel(n_jobs=2, backend=backend)(
             delayed(clone_and_fit)(estimator, X, y) for _ in range(n_fits)
         )
@@ -407,6 +482,9 @@ def test_scoring_monitor_no_callback_support(backend):
 
 
 def test_scoring_monitor_listener_closed_on_gc():
+    # [FUNCTION DOC]
+    # Verifies that a ScoringMonitor's listener address is registered in _listeners and
+    # _message_consumers on creation and removed once the callback is deleted.
     """Check that listener is closed when callback is garbage collected."""
     from sklearn.callback._transport import _listeners, _message_consumers
 

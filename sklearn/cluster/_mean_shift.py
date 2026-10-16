@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Mean shift clustering with a flat kernel: public estimate_bandwidth (bandwidth
+# heuristic), mean_shift (functional wrapper), get_bin_seeds (grid-binned seeding),
+# the MeanShift estimator, and the private per-seed hill-climbing routine run in
+# parallel with joblib.
 """Mean shift clustering algorithm.
 
 Mean shift clustering aims to discover *blobs* in a smooth density of
@@ -39,6 +44,22 @@ from sklearn.utils.validation import check_is_fitted, validate_data
     prefer_skip_nested_validation=True,
 )
 def estimate_bandwidth(X, *, quantile=0.3, n_samples=None, random_state=0, n_jobs=None):
+    # [FUNCTION DOC]
+    # Estimates the bandwidth as the average, over the (optionally subsampled) points, of
+    # the distance from each point to its k-th nearest neighbor, where k is
+    # quantile * n_points truncated to an int and at least 1 (the point itself counts as
+    # its own first neighbor). Steps: validate X with check_array; if n_samples is given,
+    # take the first n_samples indices of a random permutation; fit NearestNeighbors with
+    # k neighbors; query in batches of 500 and sum the per-row maximum neighbor distance;
+    # divide by the number of points used.
+    # Inputs: X - array-like (n_samples, n_features); quantile - float in [0, 1];
+    # n_samples - int or None; random_state - seed/RandomState (default 0, deterministic);
+    # n_jobs - parallelism for the neighbor search.
+    # Outputs: float bandwidth (numpy float).
+    # Exceptions: parameter validation errors via validate_params; check_array errors.
+    # Side effects: none besides consuming the given RandomState.
+    # KNOWN ISSUE: may return 0 when all points coincide, which MeanShift's bandwidth
+    # constraint (strictly positive) would reject if passed back explicitly.
     """Estimate the bandwidth to use with the mean-shift algorithm.
 
     This function takes time at least quadratic in `n_samples`. For large
@@ -106,6 +127,18 @@ def estimate_bandwidth(X, *, quantile=0.3, n_samples=None, random_state=0, n_job
 
 # separate function for each seed's iterative loop
 def _mean_shift_single_seed(my_mean, X, nbrs, max_iter):
+    # [FUNCTION DOC]
+    # HELPER: Hill-climbs one seed. The bandwidth is read from the fitted radius
+    # neighbors model. Repeatedly: find training points within bandwidth of the current
+    # mean; stop if none; otherwise replace the mean by their average; stop when the mean
+    # moved by at most 1e-3 * bandwidth or the iteration counter equals max_iter,
+    # otherwise increment the counter.
+    # Inputs: my_mean - 1D seed array (n_features,); X - training data; nbrs - fitted
+    # NearestNeighbors with radius set; max_iter - int.
+    # Outputs: tuple of (final mean as a tuple usable as a dict key, number of points
+    # within the last window - 0 if the seed had no neighbors, iterations completed).
+    # KNOWN ISSUE: the counter is checked after updating the mean, so up to max_iter + 1
+    # mean updates are performed.
     # For each seed, climb gradient until convergence or max_iter
     bandwidth = nbrs.get_params()["radius"]
     stop_thresh = 1e-3 * bandwidth  # when mean has converged
@@ -143,6 +176,14 @@ def mean_shift(
     max_iter=300,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Functional interface: builds a MeanShift with the given parameters, fits it on X and
+    # returns its fitted centers and labels. Parameters are as in MeanShift.
+    # Outputs: (cluster_centers_ of shape (n_clusters, n_features), labels_ of shape
+    # (n_samples,)).
+    # Exceptions: those raised by MeanShift.fit.
+    # KNOWN ISSUE: the docstring says bandwidth may be in [0, +inf), but MeanShift
+    # validates it as strictly positive.
     """Perform mean shift clustering of data using a flat kernel.
 
     Read more in the :ref:`User Guide <mean_shift>`.
@@ -245,6 +286,18 @@ def mean_shift(
 
 
 def get_bin_seeds(X, bin_size, min_bin_freq=1):
+    # [FUNCTION DOC]
+    # Grid-binning seed generation: if bin_size is 0, return X unchanged. Otherwise for
+    # each point divide by bin_size, round to the nearest integer per coordinate and count
+    # points per grid cell; keep cells with at least min_bin_freq points (as float32);
+    # if the number of kept cells equals the number of points, warn and return X;
+    # otherwise return the cell coordinates multiplied back by bin_size.
+    # Inputs: X - array (n_samples, n_features); bin_size - float; min_bin_freq - int.
+    # Outputs: array (n_seeds, n_features), float32 unless X is returned.
+    # Side effects: emits a UserWarning when binning yields no reduction.
+    # KNOWN ISSUE: the "binning failed" check compares counts only; it also fires when
+    # min_bin_freq filtering happens to leave exactly n_samples cells. Seeds are float32
+    # regardless of the input dtype.
     """Find seeds for mean_shift.
 
     Finds seeds by first binning data onto a grid whose lines are
@@ -298,6 +351,11 @@ def get_bin_seeds(X, bin_size, min_bin_freq=1):
 
 
 class MeanShift(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator wrapping the mean shift algorithm. Hyper-parameters are stored unchanged in
+    # __init__ and validated by _parameter_constraints at fit time (bandwidth > 0 or None,
+    # min_bin_freq >= 1, max_iter >= 0). Fitted attributes: cluster_centers_, labels_,
+    # n_iter_, n_features_in_ and feature_names_in_.
     """Mean shift clustering using a flat kernel.
 
     Mean shift clustering aims to discover "blobs" in a smooth density of
@@ -458,6 +516,8 @@ class MeanShift(ClusterMixin, BaseEstimator):
         n_jobs=None,
         max_iter=300,
     ):
+        # [FUNCTION DOC]
+        # Stores the keyword-only hyper-parameters as attributes without validation.
         self.bandwidth = bandwidth
         self.seeds = seeds
         self.bin_seeding = bin_seeding
@@ -468,6 +528,24 @@ class MeanShift(ClusterMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Algorithm: validate X; estimate bandwidth if None; choose seeds (self.seeds, else
+        # bin seeds when bin_seeding, else all samples); fit a radius-bandwidth
+        # NearestNeighbors on X; hill-climb every seed in parallel; keep each converged mean
+        # whose last window was non-empty, keyed by mean with its window size as intensity
+        # (equal means merge); set n_iter_ to the maximum iteration count over seeds; sort
+        # centers by decreasing (intensity, coordinates); greedily suppress, for each still
+        # unique center in that order, all other centers within bandwidth; assign every
+        # sample to its nearest remaining center, and if cluster_all is False give -1 to
+        # samples farther than bandwidth from it.
+        # Inputs: X - array-like (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Exceptions: ValueError if no seed has any point within bandwidth; parameter and data
+        # validation errors.
+        # Side effects: sets cluster_centers_, labels_, n_iter_, n_features_in_ (and
+        # feature_names_in_).
+        # KNOWN ISSUE: the "No point was within bandwidth" message contains a long run of
+        # embedded spaces from a line continuation inside the string literal.
         """Perform clustering.
 
         Parameters
@@ -561,6 +639,12 @@ class MeanShift(ClusterMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Assigns each sample the index of its closest center (euclidean,
+        # pairwise_distances_argmin with finiteness checks disabled).
+        # Inputs: X - array-like (n_samples, n_features). Outputs: int array (n_samples,).
+        # Exceptions: NotFittedError if not fitted; ValueError on feature-count mismatch.
+        # Note: unlike fit with cluster_all=False, never returns -1.
         """Predict the closest cluster each sample in X belongs to.
 
         Parameters

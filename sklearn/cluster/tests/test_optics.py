@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for the OPTICS clustering estimator and its private helpers _extend_region and
+# _extract_xi_labels (xi steep-region extraction, DBSCAN-style extraction, metrics,
+# sparse/precomputed input, reference values from ELKI).
+# Module-level X: 60 2D points, 10 from each of 6 Gaussian clusters with different
+# spreads (RandomState(0)), reused by several tests and parametrizations.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -39,6 +45,11 @@ X = np.vstack((C1, C2, C3, C4, C5, C6))
     ],
 )
 def test_extend_downward(r_plot, end):
+    # [FUNCTION DOC]
+    # Builds steep-downward (ratio >= 1/0.9) and upward (ratio < 1) masks from a
+    # reachability plot and checks _extend_region starting at 0 with min_samples 2
+    # returns the expected end index of the steep down region.
+    # KNOWN ISSUE: the third and fourth parametrized cases are identical duplicates.
     r_plot = np.array(r_plot)
     ratio = r_plot[:-1] / r_plot[1:]
     steep_downward = ratio >= 1 / 0.9
@@ -58,6 +69,9 @@ def test_extend_downward(r_plot, end):
     ],
 )
 def test_extend_upward(r_plot, end):
+    # [FUNCTION DOC]
+    # Same as test_extend_downward for steep-upward regions (ratio <= 0.9) interrupted by
+    # downward points (ratio > 1).
     r_plot = np.array(r_plot)
     ratio = r_plot[:-1] / r_plot[1:]
     steep_upward = ratio <= 0.9
@@ -77,12 +91,21 @@ def test_extend_upward(r_plot, end):
     ],
 )
 def test_the_extract_xi_labels(ordering, clusters, expected):
+    # [FUNCTION DOC]
+    # Checks _extract_xi_labels maps (start, end) cluster intervals in ordering space to
+    # per-sample labels, with uncovered points -1 and enclosing clusters not overriding
+    # the innermost (earlier) labels; includes a permuted ordering.
     labels = _extract_xi_labels(ordering, clusters)
 
     assert_array_equal(labels, expected)
 
 
 def test_extract_xi(global_dtype):
+    # [FUNCTION DOC]
+    # Checks xi extraction recovers hard-coded labels on small shuffled datasets: 5
+    # clusters plus a noise point (with int and with fractional min_samples /
+    # min_cluster_size), 5 clusters plus two noise points (relies on predecessor
+    # correction), and three well-separated 4-point clusters with max_eps inf.
     # small and easy test (no clusters around other clusters)
     # but with a clear noise data.
     # global_random_seed is not used here since the expected labels
@@ -142,6 +165,10 @@ def test_extract_xi(global_dtype):
 
 
 def test_cluster_hierarchy(global_dtype, global_random_seed):
+    # [FUNCTION DOC]
+    # Two concentric Gaussian clouds (std 2 and 50, 100 points each): checks
+    # cluster_hierarchy_ has 2 intervals, the first spanning 100 to 115 points (the dense
+    # cloud, possibly with a few wide-cloud points) and the last spanning all 200.
     rng = np.random.RandomState(global_random_seed)
     n_points_per_cluster = 100
     C1 = [0, 0] + 2 * rng.randn(n_points_per_cluster, 2).astype(
@@ -168,6 +195,11 @@ def test_cluster_hierarchy(global_dtype, global_random_seed):
     [(None, "minkowski")] + [(container, "euclidean") for container in CSR_CONTAINERS],
 )
 def test_correct_number_of_clusters(metric, csr_container):
+    # [FUNCTION DOC]
+    # On generate_clustered_data with 3 clusters (dense minkowski or sparse euclidean)
+    # checks OPTICS finds 3 non-noise clusters and that labels_, reachability_,
+    # core_distances_ and ordering_ have length n_samples, the right dtype kind, and that
+    # ordering_ is a permutation.
     # in 'auto' mode
 
     n_clusters = 3
@@ -196,6 +228,9 @@ def test_correct_number_of_clusters(metric, csr_container):
 
 
 def test_minimum_number_of_sample_check():
+    # [FUNCTION DOC]
+    # Checks fit raises ValueError "min_samples must be no greater than" when
+    # min_samples (10) exceeds the number of samples (1).
     # test that we check a minimum number of samples
     msg = "min_samples must be no greater than"
 
@@ -209,6 +244,9 @@ def test_minimum_number_of_sample_check():
 
 
 def test_bad_extract():
+    # [FUNCTION DOC]
+    # Checks dbscan extraction raises ValueError when eps (0.3) is larger than max_eps
+    # (0.15).
     # Test an extraction of eps too close to original eps
     msg = "Specify an epsilon smaller than 0.15. Got 0.3."
     centers = [[1, 1], [-1, -1], [1, -1]]
@@ -223,6 +261,9 @@ def test_bad_extract():
 
 
 def test_bad_reachability():
+    # [FUNCTION DOC]
+    # Checks a UserWarning "All reachability values are inf" when max_eps is so small
+    # that no point is reachable.
     msg = "All reachability values are inf. Set a larger max_eps."
     centers = [[1, 1], [-1, -1], [1, -1]]
     X, labels_true = make_blobs(
@@ -235,6 +276,9 @@ def test_bad_reachability():
 
 
 def test_nowarn_if_metric_bool_data_bool():
+    # [FUNCTION DOC]
+    # Non-regression (issue 18996): boolean metric with boolean data must not emit
+    # DataConversionWarning (turned into an error).
     # make sure no warning is raised if metric and data are both boolean
     # non-regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/18996
@@ -249,6 +293,9 @@ def test_nowarn_if_metric_bool_data_bool():
 
 
 def test_warn_if_metric_bool_data_no_bool():
+    # [FUNCTION DOC]
+    # Non-regression (issue 18996): boolean metric with int32 data emits exactly one
+    # DataConversionWarning (a joblib DeprecationWarning is filtered out).
     # make sure a *single* conversion warning is raised if metric is boolean
     # but data isn't
     # non-regression test for
@@ -270,6 +317,9 @@ def test_warn_if_metric_bool_data_no_bool():
 
 
 def test_nowarn_if_metric_no_bool():
+    # [FUNCTION DOC]
+    # Checks a non-boolean metric emits no DataConversionWarning for boolean or numeric
+    # data.
     # make sure no conversion warning is raised if
     # metric isn't boolean, no matter what the data type is
     pairwise_metric = "minkowski"
@@ -286,6 +336,9 @@ def test_nowarn_if_metric_no_bool():
 
 
 def test_close_extract():
+    # [FUNCTION DOC]
+    # Checks dbscan extraction with eps 0.3 and max_eps 1.0 on 3 blobs yields 3
+    # clusters (max label 2).
     # Test extract where extraction eps is close to scaled max_eps
 
     centers = [[1, 1], [-1, -1], [1, -1]]
@@ -307,6 +360,13 @@ def test_close_extract():
     + [(container, "euclidean") for container in CSR_CONTAINERS],
 )
 def test_dbscan_optics_parity(eps, min_samples, metric, global_dtype, csr_container):
+    # [FUNCTION DOC]
+    # Compares OPTICS dbscan extraction to DBSCAN with same eps and min_samples on 150
+    # blobs (dense or sparse, global_dtype): the label mismatch computed from the
+    # contingency matrix best matching must be at most 5%.
+    # KNOWN ISSUE: the mismatch subtracts 1 from disagree without explanation, slightly
+    # loosening the bound; DBSCAN uses its default metric rather than the parametrized
+    # metric; the inline comment mentions a fixed 0.3 eps though eps is parametrized.
     # Test that OPTICS clustering labels are <= 5% difference of DBSCAN
 
     centers = [[1, 1], [-1, -1], [1, -1]]
@@ -338,6 +398,10 @@ def test_dbscan_optics_parity(eps, min_samples, metric, global_dtype, csr_contai
 
 
 def test_min_samples_edge_case(global_dtype):
+    # [FUNCTION DOC]
+    # Three 3-point clusters: with max_eps 7 all three are found, with max_eps 3 the
+    # widest becomes noise, and with min_samples 4 every point is noise with a warning
+    # about inf reachability values.
     C1 = [[0, 0], [0, 0.1], [0, -0.1]]
     C2 = [[10, 10], [10, 9], [10, 11]]
     C3 = [[100, 100], [100, 96], [100, 106]]
@@ -360,6 +424,11 @@ def test_min_samples_edge_case(global_dtype):
 # try arbitrary minimum sizes
 @pytest.mark.parametrize("min_cluster_size", range(2, X.shape[0] // 10, 23))
 def test_min_cluster_size(min_cluster_size, global_dtype):
+    # [FUNCTION DOC]
+    # Checks every non-noise cluster has at least min_cluster_size points on half of X,
+    # and that the same size given as a fraction of n_samples gives identical labels.
+    # KNOWN ISSUE: the parameter range is range(2, 6, 23), so only min_cluster_size=2 is
+    # ever tested despite the "arbitrary sizes" intent.
     redX = X[::2].astype(global_dtype, copy=False)  # reduce for speed
     clust = OPTICS(min_samples=9, min_cluster_size=min_cluster_size).fit(redX)
     cluster_sizes = np.bincount(clust.labels_[clust.labels_ != -1])
@@ -376,6 +445,10 @@ def test_min_cluster_size(min_cluster_size, global_dtype):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_min_cluster_size_invalid2(csr_container):
+    # [FUNCTION DOC]
+    # Checks ValueError "must be no greater than the" when min_cluster_size exceeds
+    # n_samples, for dense input and for sparse input with euclidean metric.
+    # The dense check is repeated for each csr_container parametrization.
     clust = OPTICS(min_cluster_size=len(X) + 1)
     with pytest.raises(ValueError, match="must be no greater than the "):
         clust.fit(X)
@@ -386,6 +459,9 @@ def test_min_cluster_size_invalid2(csr_container):
 
 
 def test_processing_order():
+    # [FUNCTION DOC]
+    # Checks on 4 1D points that the next point is chosen among all unprocessed points
+    # (not only neighbors): exact reachability_, core_distances_ and ordering_.
     # Ensure that we consider all unprocessed points,
     # not only direct neighbors. when picking the next point.
     Y = [[0], [10], [-10], [25]]
@@ -397,6 +473,11 @@ def test_processing_order():
 
 
 def test_compare_to_ELKI():
+    # [FUNCTION DOC]
+    # Compares ordering_, predecessor_ (in ordering) and reachability_ (in ordering) with
+    # values from ELKI 0.7.5 for min_samples 5 on X, both with default max_eps and with
+    # max_eps 0.5; also checks reachability >= core distance of the predecessor and that
+    # core distances <= 0.5 agree between the two fits.
     # Expected values, computed with (future) ELKI 0.7.5 using:
     # java -jar elki.jar cli -dbc.in csv -dbc.filter FixedDBIDsFilter
     #   -algorithm clustering.optics.OPTICSHeap -optics.minpts 5
@@ -799,6 +880,9 @@ def test_compare_to_ELKI():
 
 
 def test_extract_dbscan(global_dtype, global_random_seed):
+    # [FUNCTION DOC]
+    # Four well-separated tight blobs: dbscan extraction with eps 0.5 must find exactly
+    # labels 0..3 among non-noise points.
     # testing an easy dbscan case. Not including clusters with different
     # densities.
     rng = np.random.RandomState(global_random_seed)
@@ -817,6 +901,9 @@ def test_extract_dbscan(global_dtype, global_random_seed):
 
 @pytest.mark.parametrize("csr_container", [None] + CSR_CONTAINERS)
 def test_precomputed_dists(global_dtype, csr_container):
+    # [FUNCTION DOC]
+    # Checks metric="precomputed" on dense or sparse euclidean distance matrix gives the
+    # same reachability_ and labels_ as metric="euclidean" on the raw data (brute).
     redX = X[::2].astype(global_dtype, copy=False)
     dists = pairwise_distances(redX, metric="euclidean")
     dists = csr_container(dists) if csr_container is not None else dists
@@ -831,6 +918,9 @@ def test_precomputed_dists(global_dtype, csr_container):
 def test_optics_input_not_modified_precomputed_sparse_nodiag(
     csr_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Non-regression (issue 27508): a sparse precomputed matrix with implicit zero
+    # diagonal must not be modified in place (same nnz and values after fit).
     """Check that we don't modify in-place the pre-computed sparse matrix.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/27508
@@ -852,6 +942,9 @@ def test_optics_input_not_modified_precomputed_sparse_nodiag(
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_optics_precomputed_sparse_no_warning(csr_container):
+    # [FUNCTION DOC]
+    # Non-regression (issue 34647): fitting on a row-sorted sparse kneighbors distance
+    # graph must not emit EfficiencyWarning (turned into an error).
     """Test that `EfficiencyWarning` isn't emitted on precomputed sparse input.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/34647
@@ -867,6 +960,9 @@ def test_optics_precomputed_sparse_no_warning(csr_container):
 
 
 def test_optics_predecessor_correction_ordering():
+    # [FUNCTION DOC]
+    # Non-regression (issue 26324): reordering 1D samples must permute labels
+    # consistently, verifying predecessor correction uses the right indices.
     """Check that cluster correction using predecessor is working as expected.
 
     In the following example, the predecessor correction was not working properly

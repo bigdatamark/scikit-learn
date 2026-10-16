@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Offline tests for sklearn.datasets.fetch_openml and its private helpers. Network
+# access is replaced by monkeypatching sklearn.datasets._openml.urlopen with a mock that
+# serves gzipped JSON/ARFF fixtures from
+# sklearn.datasets.tests.data.openml.id_<data_id>. Module-level fetch_openml is the real
+# function partially applied with data_home=None so the disk cache is not used unless a
+# test opts in. test_offline is a global switch that enables the mock. Covers as_frame /
+# parser combinations, type inference, missing values, target selection, warnings and
+# errors, cache/retry/checksum logic and several non-regressions.
 """Test the openml loader."""
 
 import gzip
@@ -36,28 +45,47 @@ _MONKEY_PATCH_LOCAL_OPENML_PATH = "data/v1/download/{}"
 
 
 class _MockHTTPResponse:
+    # [CLASS DOC]
+    # HELPER: Minimal stand-in for an HTTP response object wrapping a binary file-like
+    # data stream. is_gzip controls the reported Content-Encoding header.
     def __init__(self, data, is_gzip):
+        # [FUNCTION DOC]
+        # HELPER: Stores data (binary file-like, e.g. BytesIO) and is_gzip (bool).
         self.data = data
         self.is_gzip = is_gzip
 
     def read(self, amt=-1):
+        # [FUNCTION DOC]
+        # HELPER: Reads up to amt bytes (all when -1) from the wrapped stream.
         return self.data.read(amt)
 
     def close(self):
+        # [FUNCTION DOC]
+        # HELPER: Closes the wrapped stream.
         self.data.close()
 
     def info(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns a header dict containing Content-Encoding gzip when is_gzip,
+        # else an empty dict.
         if self.is_gzip:
             return {"Content-Encoding": "gzip"}
         return {}
 
     def __iter__(self):
+        # [FUNCTION DOC]
+        # HELPER: Iterates over the wrapped stream (line by line).
         return iter(self.data)
 
     def __enter__(self):
+        # [FUNCTION DOC]
+        # HELPER: Context manager entry; returns self.
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # [FUNCTION DOC]
+        # HELPER: Context manager exit; does not close the stream and never suppresses
+        # exceptions.
         return False
 
 
@@ -69,6 +97,16 @@ fetch_openml = partial(fetch_openml_orig, data_home=None)
 
 
 def _monkey_patch_webbased_functions(context, data_id, gzip_response):
+    # [FUNCTION DOC]
+    # HELPER: Installs a fake urlopen on sklearn.datasets._openml through the given
+    # monkeypatch context, serving files for dataset data_id. The fake dispatches on the
+    # URL prefix (data list, features, download, description) to nested handlers that
+    # map the URL to a shortened local file name and return a _MockHTTPResponse.
+    # Inputs: context - pytest monkeypatch; data_id - int selecting the fixture
+    # subpackage; gzip_response - bool, if True and the request asks for gzip, raw
+    # gzipped bytes are returned with a gzip header, else decompressed bytes.
+    # Side effects: patches urlopen only when the module global test_offline is True;
+    # must not be combined with a real cache directory.
     # monkey patches the urlopen function. Important note: Do NOT use this
     # in combination with a regular cache directory, as the files that are
     # stored as cache should not be mixed up with real openml datasets
@@ -83,6 +121,11 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
     data_module = OPENML_TEST_DATA_MODULE + "." + f"id_{data_id}"
 
     def _file_name(url, suffix):
+        # [FUNCTION DOC]
+        # HELPER: Turns a URL into the fixture file name: drops the 23-character
+        # scheme/host prefix, replaces every non-word character with a dash, appends
+        # suffix and ".gz", then applies a fixed list of abbreviations (e.g. json-data-
+        # list to jdl, download to dl) to keep paths short on Windows.
         output = (
             re.sub(r"\W", "-", url[len("https://api.openml.org/") :])
             + suffix
@@ -105,6 +148,13 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
         )
 
     def _mock_urlopen_shared(url, has_gzip_header, expected_prefix, suffix):
+        # [FUNCTION DOC]
+        # HELPER: Asserts url starts with expected_prefix, opens the matching fixture
+        # file and returns a _MockHTTPResponse holding either the raw gzipped bytes
+        # (when the request had a gzip header and gzip_response is enabled) or the
+        # decompressed bytes.
+        # Exceptions: AssertionError on prefix mismatch; FileNotFoundError if no fixture
+        # exists.
         assert url.startswith(expected_prefix), (
             f"{expected_prefix!r} does not match {url!r}"
         )
@@ -122,6 +172,8 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
                 return _MockHTTPResponse(fp, False)
 
     def _mock_urlopen_data_description(url, has_gzip_header):
+        # [FUNCTION DOC]
+        # HELPER: Serves the dataset description JSON via _mock_urlopen_shared.
         return _mock_urlopen_shared(
             url=url,
             has_gzip_header=has_gzip_header,
@@ -130,6 +182,8 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
         )
 
     def _mock_urlopen_data_features(url, has_gzip_header):
+        # [FUNCTION DOC]
+        # HELPER: Serves the features JSON via _mock_urlopen_shared.
         return _mock_urlopen_shared(
             url=url,
             has_gzip_header=has_gzip_header,
@@ -138,6 +192,9 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
         )
 
     def _mock_urlopen_download_data(url, has_gzip_header):
+        # [FUNCTION DOC]
+        # HELPER: Serves the ARFF data file; strips the trailing file name component of
+        # the URL because fixture names do not contain it.
         # For simplicity the mock filenames don't contain the filename, i.e.
         # the last part of the data description url after the last /.
         # For example for id_1, data description download url is:
@@ -156,6 +213,12 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
         )
 
     def _mock_urlopen_data_list(url, has_gzip_header):
+        # [FUNCTION DOC]
+        # HELPER: Serves the data list JSON. Decompresses and parses the fixture first;
+        # if it contains an "error" key, raises HTTPError 412 to simulate OpenML's "no
+        # results" reply. Otherwise returns raw gzipped bytes when the request had a
+        # gzip header (ignoring gzip_response), else decompressed bytes.
+        # Exceptions: AssertionError on prefix mismatch, HTTPError as above.
         assert url.startswith(url_prefix_data_list), (
             f"{url_prefix_data_list!r} does not match {url!r}"
         )
@@ -183,6 +246,12 @@ def _monkey_patch_webbased_functions(context, data_id, gzip_response):
                 return _MockHTTPResponse(fp, False)
 
     def _mock_urlopen(request, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Replacement for urlopen taking a Request. Reads the full URL and
+        # whether the Accept-encoding header is gzip, then dispatches by prefix (list
+        # checked before features before download before description, since prefixes
+        # overlap).
+        # Exceptions: ValueError for any other URL.
         url = request.get_full_url()
         has_gzip_header = request.get_header("Accept-encoding") == "gzip"
         if url.startswith(url_prefix_data_list):
@@ -241,6 +310,11 @@ def test_fetch_openml_as_frame_true(
     parser,
     gzip_response,
 ):
+    # [FUNCTION DOC]
+    # Parametrized over datasets (by id or name/version), parser and gzip_response.
+    # Verifies the returned Bunch has the expected id, DataFrame frame and data with
+    # expected shapes, a Series target (DataFrame when several targets) and categories
+    # None.
     """Check the behaviour of `fetch_openml` with `as_frame=True`.
 
     Fetch by ID and/or name (depending if the file was previously cached).
@@ -306,6 +380,10 @@ def test_fetch_openml_as_frame_false(
     n_targets,
     parser,
 ):
+    # [FUNCTION DOC]
+    # Same datasets (minus titanic, which has string columns) with as_frame=False;
+    # verifies frame is None, data and target are ndarrays with expected shapes and
+    # categories is a dict.
     """Check the behaviour of `fetch_openml` with `as_frame=False`.
 
     Fetch both by ID and/or name + version.
@@ -338,6 +416,11 @@ def test_fetch_openml_as_frame_false(
 
 @pytest.mark.parametrize("data_id", [61, 1119, 40945])
 def test_fetch_openml_consistency_parser(monkeypatch, data_id):
+    # [FUNCTION DOC]
+    # For iris, adult-census and titanic, verifies the liac-arff and pandas parsers give
+    # equal data frames after casting liac numeric columns to the pandas dtypes, that
+    # frame restricted to feature_names equals data, and that full frames match after
+    # also renaming liac categorical categories to the pandas ones.
     """Check the consistency of the LIAC-ARFF and pandas parsers."""
     pd = pytest.importorskip("pandas")
 
@@ -361,6 +444,9 @@ def test_fetch_openml_consistency_parser(monkeypatch, data_id):
     data_liac, data_pandas = bunch_liac.data, bunch_pandas.data
 
     def convert_numerical_dtypes(series):
+        # [FUNCTION DOC]
+        # HELPER: Casts a liac-parsed column to the dtype of the same-named pandas-
+        # parsed data column when that one is numeric; returns other columns unchanged.
         pandas_series = data_pandas[series.name]
         if pd.api.types.is_numeric_dtype(pandas_series):
             return series.astype(pandas_series.dtype)
@@ -381,6 +467,10 @@ def test_fetch_openml_consistency_parser(monkeypatch, data_id):
     # Therefore, extra dtype conversions are required for those columns:
 
     def convert_numerical_and_categorical_dtypes(series):
+        # [FUNCTION DOC]
+        # HELPER: Like convert_numerical_dtypes but against the pandas frame, and for
+        # categorical columns renames the liac categories to the pandas categories
+        # (positional mapping).
         pandas_series = frame_pandas[series.name]
         if pd.api.types.is_numeric_dtype(pandas_series):
             return series.astype(pandas_series.dtype)
@@ -402,6 +492,9 @@ def test_fetch_openml_consistency_parser(monkeypatch, data_id):
 
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 def test_fetch_openml_equivalence_array_dataframe(monkeypatch, parser):
+    # [FUNCTION DOC]
+    # Verifies iris data and target are the same with as_frame True and False for each
+    # parser.
     """Check the equivalence of the dataset when using `as_frame=False` and
     `as_frame=True`.
     """
@@ -429,6 +522,10 @@ def test_fetch_openml_equivalence_array_dataframe(monkeypatch, parser):
 
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 def test_fetch_openml_iris_pandas(monkeypatch, parser):
+    # [FUNCTION DOC]
+    # Verifies iris with as_frame=True: float64 feature columns with the expected names,
+    # feature_names and target_names, a categorical target with the three class names
+    # and a unique index, and a frame with features plus target dtypes.
     """Check fetching on a numerical only dataset with string labels."""
     pd = pytest.importorskip("pandas")
     CategoricalDtype = pd.api.types.CategoricalDtype
@@ -478,6 +575,9 @@ def test_fetch_openml_iris_pandas(monkeypatch, parser):
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 @pytest.mark.parametrize("target_column", ["petalwidth", ["petalwidth", "petallength"]])
 def test_fetch_openml_forcing_targets(monkeypatch, parser, target_column):
+    # [FUNCTION DOC]
+    # Verifies a custom target_column (one or two columns) leaves the frame identical to
+    # the default, puts the requested names in target and removes them from data.
     """Check that we can force the target to not be the default target."""
     pd = pytest.importorskip("pandas")
 
@@ -511,6 +611,9 @@ def test_fetch_openml_forcing_targets(monkeypatch, parser, target_column):
 @pytest.mark.parametrize("data_id", [61, 2, 561, 40589, 1119])
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 def test_fetch_openml_equivalence_frame_return_X_y(monkeypatch, data_id, parser):
+    # [FUNCTION DOC]
+    # Verifies return_X_y=True with as_frame=True returns the same data and target
+    # (Series or DataFrame) as the Bunch.
     """Check the behaviour of `return_X_y=True` when `as_frame=True`."""
     pd = pytest.importorskip("pandas")
 
@@ -540,6 +643,8 @@ def test_fetch_openml_equivalence_frame_return_X_y(monkeypatch, data_id, parser)
 @pytest.mark.parametrize("data_id", [61, 561, 40589, 1119])
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 def test_fetch_openml_equivalence_array_return_X_y(monkeypatch, data_id, parser):
+    # [FUNCTION DOC]
+    # Same as above for as_frame=False with numpy arrays.
     """Check the behaviour of `return_X_y=True` when `as_frame=False`."""
     pytest.importorskip("pandas")
 
@@ -564,6 +669,9 @@ def test_fetch_openml_equivalence_array_return_X_y(monkeypatch, data_id, parser)
 
 
 def test_fetch_openml_difference_parsers(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies on adult-census with as_frame=False that liac-arff ordinally encodes
+    # categories into a float array while the pandas parser yields an object array.
     """Check the difference between liac-arff and pandas parser."""
     pytest.importorskip("pandas")
 
@@ -596,6 +704,9 @@ def test_fetch_openml_difference_parsers(monkeypatch):
 
 @pytest.fixture(scope="module")
 def datasets_column_names():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture mapping each fixture data_id to its full ordered
+    # list of frame column names (features then targets).
     """Returns the columns names for each dataset."""
     return {
         61: ["sepallength", "sepalwidth", "petallength", "petalwidth", "class"],
@@ -839,6 +950,9 @@ def datasets_column_names():
 
 @pytest.fixture(scope="module")
 def datasets_missing_values():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture mapping each data_id to a dict of column name to
+    # expected number of missing values (absent columns have none).
     return {
         61: {},
         2: {
@@ -924,6 +1038,10 @@ def test_fetch_openml_types_inference(
     datasets_column_names,
     datasets_missing_values,
 ):
+    # [FUNCTION DOC]
+    # Parametrized over dataset, parser, expected counts and gzip_response. Verifies the
+    # number of categorical, float and integer columns in the frame (parsers differ in
+    # int vs float inference), the column names and the per-column missing value counts.
     """Check that `fetch_openml` infer the right number of categories, integers, and
     floats."""
     pd = pytest.importorskip("pandas")
@@ -975,6 +1093,9 @@ def test_fetch_openml_types_inference(
     ],
 )
 def test_fetch_openml_validation_parameter(monkeypatch, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies invalid parser or as_frame values raise ValueError with the expected
+    # message.
     data_id = 1119
     _monkey_patch_webbased_functions(monkeypatch, data_id, True)
     with pytest.raises(ValueError, match=err_msg):
@@ -991,6 +1112,9 @@ def test_fetch_openml_validation_parameter(monkeypatch, params, err_msg):
     ],
 )
 def test_fetch_openml_requires_pandas_error(monkeypatch, params):
+    # [FUNCTION DOC]
+    # Only runs when pandas is NOT installed (otherwise SkipTest); verifies parameter
+    # combinations needing pandas raise ImportError mentioning the alternative.
     """Check that we raise the proper errors when we require pandas."""
     data_id = 1119
     try:
@@ -1023,6 +1147,9 @@ def test_fetch_openml_requires_pandas_error(monkeypatch, params):
     ],
 )
 def test_fetch_openml_sparse_arff_error(monkeypatch, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies that a sparse ARFF dataset (id 292) raises ValueError when the pandas
+    # parser or as_frame=True is requested.
     """Check that we raise the expected error for sparse ARFF datasets and
     a wrong set of incompatible parameters.
     """
@@ -1047,6 +1174,9 @@ def test_fetch_openml_sparse_arff_error(monkeypatch, params, err_msg):
     ],
 )
 def test_fetch_openml_auto_mode(monkeypatch, data_id, data_type):
+    # [FUNCTION DOC]
+    # Verifies as_frame="auto" returns a DataFrame for dense iris and a CSR matrix for
+    # sparse Australian.
     """Check the auto mode of `fetch_openml`."""
     pd = pytest.importorskip("pandas")
 
@@ -1057,6 +1187,9 @@ def test_fetch_openml_auto_mode(monkeypatch, data_id, data_type):
 
 
 def test_convert_arff_data_dataframe_warning_low_memory_pandas(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies that with a tiny working_memory config the liac-arff frame conversion
+    # warns it could not adhere to working_memory.
     """Check that we raise a warning regarding the working memory when using
     LIAC-ARFF parser."""
     pytest.importorskip("pandas")
@@ -1077,6 +1210,9 @@ def test_convert_arff_data_dataframe_warning_low_memory_pandas(monkeypatch):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_fetch_openml_iris_warn_multiple_version(monkeypatch, gzip_response):
+    # [FUNCTION DOC]
+    # Verifies fetching by name without version warns about multiple active versions,
+    # listing versions 1 and 3 with their URLs, and returns version 1.
     """Check that a warning is raised when multiple versions exist and no version is
     requested."""
     data_id = 61
@@ -1104,6 +1240,8 @@ def test_fetch_openml_iris_warn_multiple_version(monkeypatch, gzip_response):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_fetch_openml_no_target(monkeypatch, gzip_response):
+    # [FUNCTION DOC]
+    # Verifies target_column=None returns all 5 columns as data and target None.
     """Check that we can get a dataset without target."""
     data_id = 61
     target_column = None
@@ -1125,6 +1263,9 @@ def test_fetch_openml_no_target(monkeypatch, gzip_response):
 @pytest.mark.parametrize("gzip_response", [True, False])
 @pytest.mark.parametrize("parser", ["liac-arff", "pandas"])
 def test_missing_values_pandas(monkeypatch, gzip_response, parser):
+    # [FUNCTION DOC]
+    # Verifies on penguins that missing values in a categorical column are NaN and
+    # categories are exactly FEMALE, MALE and underscore, for both parsers.
     """check that missing values in categories are compatible with pandas
     categorical"""
     pytest.importorskip("pandas")
@@ -1153,6 +1294,9 @@ def test_missing_values_pandas(monkeypatch, gzip_response, parser):
     ],
 )
 def test_fetch_openml_inactive(monkeypatch, gzip_response, dataset_params):
+    # [FUNCTION DOC]
+    # Verifies fetching inactive glass2 by id or by name with version warns it is
+    # inactive and still returns data of shape (163, 9) with id 40675.
     """Check that we raise a warning when the dataset is inactive."""
     data_id = 40675
     _monkey_patch_webbased_functions(monkeypatch, data_id, gzip_response)
@@ -1215,6 +1359,12 @@ def test_fetch_openml_inactive(monkeypatch, gzip_response, dataset_params):
 def test_fetch_openml_error(
     monkeypatch, gzip_response, data_id, params, err_type, err_msg, parser
 ):
+    # [FUNCTION DOC]
+    # Parametrized over cases and parser; verifies the expected exception and message
+    # for: no active dataset by name, a heterogeneous multi-target list
+    # (numeric plus categorical), string attributes with as_frame=False, a target column
+    # with missing values (frame and array), and unknown target columns (KeyError).
+    # Skips if pandas is needed but missing.
     _monkey_patch_webbased_functions(monkeypatch, data_id, gzip_response)
     if params.get("as_frame", True) or parser == "pandas":
         pytest.importorskip("pandas")
@@ -1248,12 +1398,18 @@ def test_fetch_openml_error(
     ],
 )
 def test_fetch_openml_raises_illegal_argument(params, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError for illegal combinations of data_id, name and version, and for
+    # no identifier at all, without any network mock (validation happens first).
     with pytest.raises(err_type, match=err_msg):
         fetch_openml(**params)
 
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_warn_ignore_attribute(monkeypatch, gzip_response):
+    # [FUNCTION DOC]
+    # Verifies that choosing a row-identifier column or an ignored column as (one of
+    # the) target column(s) emits the corresponding UserWarning.
     data_id = 40966
     expected_row_id_msg = "target_column='{}' has flag is_row_identifier."
     expected_ignore_msg = "target_column='{}' has flag is_ignore."
@@ -1304,6 +1460,9 @@ def test_warn_ignore_attribute(monkeypatch, gzip_response):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_dataset_with_openml_error(monkeypatch, gzip_response):
+    # [FUNCTION DOC]
+    # Verifies a dataset whose description has an error field warns that it might be
+    # unusable.
     data_id = 1
     _monkey_patch_webbased_functions(monkeypatch, data_id, gzip_response)
     msg = "OpenML registered a problem with the dataset. It might be unusable. Error:"
@@ -1313,6 +1472,8 @@ def test_dataset_with_openml_error(monkeypatch, gzip_response):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_dataset_with_openml_warning(monkeypatch, gzip_response):
+    # [FUNCTION DOC]
+    # Verifies a dataset whose description has a warning field warns accordingly.
     data_id = 3
     _monkey_patch_webbased_functions(monkeypatch, data_id, gzip_response)
     msg = "OpenML raised a warning on the dataset. It might be unusable. Warning:"
@@ -1321,6 +1482,9 @@ def test_dataset_with_openml_warning(monkeypatch, gzip_response):
 
 
 def test_fetch_openml_overwrite_default_params_read_csv(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies read_csv_kwargs overrides the default skipinitialspace: with False all
+    # class categories keep a leading space, with the default none do.
     """Check that we can overwrite the default parameters of `read_csv`."""
     pytest.importorskip("pandas")
     data_id = 1590
@@ -1354,6 +1518,9 @@ def test_fetch_openml_overwrite_default_params_read_csv(monkeypatch):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_open_openml_url_cache(monkeypatch, gzip_response, tmpdir):
+    # [FUNCTION DOC]
+    # Verifies _open_openml_url writes the downloaded file into the cache directory and
+    # a second call returns the same content. Side effects: writes in tmpdir.
     data_id = 61
 
     _monkey_patch_webbased_functions(monkeypatch, data_id, gzip_response)
@@ -1372,6 +1539,9 @@ def test_open_openml_url_cache(monkeypatch, gzip_response, tmpdir):
 
 @pytest.mark.parametrize("write_to_disk", [True, False])
 def test_open_openml_url_unlinks_local_path(monkeypatch, tmpdir, write_to_disk):
+    # [FUNCTION DOC]
+    # Verifies that when urlopen fails (optionally after creating the target file) the
+    # ValueError propagates and no partial cache file remains.
     data_id = 61
     openml_path = _MONKEY_PATCH_LOCAL_OPENML_PATH.format(data_id) + "/filename.arff"
     url = f"https://www.openml.org/{openml_path}"
@@ -1379,6 +1549,9 @@ def test_open_openml_url_unlinks_local_path(monkeypatch, tmpdir, write_to_disk):
     location = _get_local_path(openml_path, cache_directory)
 
     def _mock_urlopen(request, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Optionally creates an empty file at the cache location, then raises
+        # ValueError.
         if write_to_disk:
             with open(location, "w") as f:
                 f.write("")
@@ -1393,6 +1566,10 @@ def test_open_openml_url_unlinks_local_path(monkeypatch, tmpdir, write_to_disk):
 
 
 def test_retry_with_clean_cache(tmpdir):
+    # [FUNCTION DOC]
+    # Verifies _retry_with_clean_cache: when the decorated loader fails while a cache
+    # file exists, it warns about an invalid cache, deletes the file and retries
+    # successfully.
     data_id = 61
     openml_path = _MONKEY_PATCH_LOCAL_OPENML_PATH.format(data_id)
     cache_directory = str(tmpdir.mkdir("scikit_learn_data"))
@@ -1404,6 +1581,8 @@ def test_retry_with_clean_cache(tmpdir):
 
     @_retry_with_clean_cache(openml_path, cache_directory)
     def _load_data():
+        # [FUNCTION DOC]
+        # HELPER: Raises while the cache file exists, otherwise returns 1.
         # The first call will raise an error since location exists
         if os.path.exists(location):
             raise Exception("File exist!")
@@ -1416,12 +1595,16 @@ def test_retry_with_clean_cache(tmpdir):
 
 
 def test_retry_with_clean_cache_http_error(tmpdir):
+    # [FUNCTION DOC]
+    # Verifies HTTPError raised by the decorated loader is propagated without retry.
     data_id = 61
     openml_path = _MONKEY_PATCH_LOCAL_OPENML_PATH.format(data_id)
     cache_directory = str(tmpdir.mkdir("scikit_learn_data"))
 
     @_retry_with_clean_cache(openml_path, cache_directory)
     def _load_data():
+        # [FUNCTION DOC]
+        # HELPER: Always raises a simulated HTTPError 412.
         raise HTTPError(
             url=None, code=412, msg="Simulated mock error", hdrs=None, fp=BytesIO()
         )
@@ -1433,7 +1616,12 @@ def test_retry_with_clean_cache_http_error(tmpdir):
 
 @pytest.mark.parametrize("gzip_response", [True, False])
 def test_fetch_openml_cache(monkeypatch, gzip_response, tmpdir):
+    # [FUNCTION DOC]
+    # Verifies that after a first cached fetch, a second fetch with urlopen replaced by
+    # an always-failing mock returns identical X and y from the cache.
     def _mock_urlopen_raise(request, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Always raises ValueError naming the requested URL.
         raise ValueError(
             "This mechanism intends to test correct cache"
             "handling. As such, urlopen should never be "
@@ -1480,6 +1668,13 @@ def test_fetch_openml_cache(monkeypatch, gzip_response, tmpdir):
 def test_fetch_openml_verify_checksum(
     monkeypatch, as_frame, tmpdir, parser, cache, recoverable
 ):
+    # [FUNCTION DOC]
+    # Parametrized over cache, recoverable and (as_frame, parser). Builds a corrupted
+    # gzip copy of the anneal ARFF (last byte changed), wraps the mock so the first
+    # download (or every download when not recoverable) serves it. Verifies a
+    # RuntimeWarning about redownloading and a successful fetch when recoverable, else
+    # ValueError about the md5 mismatch (with the cache path when caching), and that the
+    # download was attempted at least twice.
     """Check that the md5 checksum is enforced and a corrupted download retried.
 
     The mock serves corrupted bytes on the first download. When ``recoverable``,
@@ -1517,6 +1712,10 @@ def test_fetch_openml_verify_checksum(
     download_calls = []
 
     def swap_file_mock(request, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Records download requests for the anneal data URL and returns the
+        # corrupted gzip bytes on the first call or always when not recoverable;
+        # delegates everything else to the previously installed mock.
         url = request.get_full_url()
         if url.endswith("data/v1/download/1666876/anneal.arff"):
             download_calls.append(url)
@@ -1573,7 +1772,14 @@ def test_fetch_openml_verify_checksum(
 
 
 def test_open_openml_url_retry_on_network_error(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies _open_openml_url retries on HTTPError, warning before each retry, and
+    # finally re-raises the HTTPError.
+    # KNOWN ISSUE: the warning-count assertion and the close call sit inside the
+    # pytest.raises block after the raising call, so they never execute.
     def _mock_urlopen_network_error(request, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Always raises a simulated HTTPError 404.
         raise HTTPError(
             url=None, code=404, msg="Simulated network error", hdrs=None, fp=BytesIO()
         )
@@ -1605,6 +1811,9 @@ def test_open_openml_url_retry_on_network_error(monkeypatch):
 @pytest.mark.parametrize("gzip_response", [True, False])
 @pytest.mark.parametrize("parser", ("liac-arff", "pandas"))
 def test_fetch_openml_with_ignored_feature(monkeypatch, gzip_response, parser):
+    # [FUNCTION DOC]
+    # Non-regression for issue 14340: verifies the zoo dataset loads with the ignored
+    # animal feature removed (data shape (101, 16)).
     """Check that we can load the "zoo" dataset.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/14340
@@ -1625,6 +1834,10 @@ def test_fetch_openml_with_ignored_feature(monkeypatch, gzip_response, parser):
 
 
 def test_fetch_openml_strip_quotes(monkeypatch):
+    # [FUNCTION DOC]
+    # Non-regression for issue 23381: verifies single quotes used as string delimiters
+    # are stripped and both parsers agree, whether the quoted column is the target or
+    # not.
     """Check that we strip the single quotes when used as a string delimiter.
 
     Non-regression test for:
@@ -1654,6 +1867,9 @@ def test_fetch_openml_strip_quotes(monkeypatch):
 
 
 def test_fetch_openml_leading_whitespace(monkeypatch):
+    # [FUNCTION DOC]
+    # Non-regression for issue 25311: verifies the pandas parser strips leading
+    # whitespace like liac-arff in the class column.
     """Check that we can strip leading whitespace in pandas parser.
 
     Non-regression test for:
@@ -1672,6 +1888,9 @@ def test_fetch_openml_leading_whitespace(monkeypatch):
 
 
 def test_fetch_openml_quotechar_escapechar(monkeypatch):
+    # [FUNCTION DOC]
+    # Non-regression for issue 25478: verifies both parsers give the same frame on a
+    # dataset with escape characters and mixed quote characters.
     """Check that we can handle escapechar and single/double quotechar.
 
     Non-regression test for:

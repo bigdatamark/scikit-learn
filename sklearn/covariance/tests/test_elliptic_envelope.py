@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for EllipticEnvelope: not-fitted errors, consistency of scores, decisions and
+# predictions, and score_samples independence from contamination.
 """
 Testing for Elliptic Envelope algorithm (sklearn.covariance.elliptic_envelope).
 """
@@ -15,6 +18,12 @@ from sklearn.utils._testing import (
 
 
 def test_elliptic_envelope(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on 100x10 Gaussian data with contamination 0.1: predict and
+    # decision_function raise NotFittedError before fit; after fit, score_samples equals
+    # minus mahalanobis, mahalanobis equals dist_, score against all-ones labels equals
+    # the inlier fraction, and the number of -1 predictions equals the number of
+    # negative decisions.
     rnd = np.random.RandomState(global_random_seed)
     X = rnd.randn(100, 10)
     clf = EllipticEnvelope(contamination=0.1)
@@ -36,6 +45,9 @@ def test_elliptic_envelope(global_random_seed):
 
 
 def test_score_samples():
+    # [FUNCTION DOC]
+    # Verifies score_samples equals decision_function plus offset_ for two contamination
+    # settings and that score_samples does not depend on contamination.
     X_train = [[1, 1], [1, 2], [2, 1]]
     clf1 = EllipticEnvelope(contamination=0.2).fit(X_train)
     clf2 = EllipticEnvelope().fit(X_train)

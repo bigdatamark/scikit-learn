@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Spectral clustering: label-assignment strategies applied to a spectral embedding
+# (cluster_qr and discretize), the functional spectral_clustering wrapper for
+# precomputed affinities, and the SpectralClustering estimator, which builds an
+# affinity matrix, embeds it with _spectral_embedding and assigns labels with k-means,
+# discretization or QR pivoting.
 """Algorithms for spectral clustering"""
 
 # Authors: The scikit-learn developers
@@ -21,6 +27,14 @@ from sklearn.utils.validation import validate_data
 
 
 def cluster_qr(vectors):
+    # [FUNCTION DOC]
+    # Labels samples from a spectral embedding via column-pivoted QR (Damle et al.):
+    # with k = number of columns, run pivoted QR on the transposed embedding and take the
+    # first k pivot rows; compute the SVD of those rows (transposed) and form the
+    # orthogonal factor product U times conjugate of V; project the embedding onto it,
+    # take absolute values and label each sample by its largest-magnitude column.
+    # Inputs: vectors - array (n_samples, n_clusters). Outputs: int array (n_samples,).
+    # Exceptions: scipy LinAlgError on SVD/QR failure. Side effects: none, deterministic.
     """Find the discrete partition closest to the eigenvector embedding.
 
         This implementation was proposed in [1]_.
@@ -55,6 +69,27 @@ def cluster_qr(vectors):
 def discretize(
     vectors, *, copy=True, max_svd_restarts=30, n_iter_max=20, random_state=None
 ):
+    # [FUNCTION DOC]
+    # Yu-Shi multiclass discretization. Steps: convert to float (copy per copy); scale each
+    # column to norm sqrt(n_samples) and flip its sign so that the first entry is
+    # negative; normalize each row to unit length. Then up to max_svd_restarts times:
+    # build an initial rotation whose first column is a random row and whose next columns
+    # are rows minimizing the accumulated absolute projection on previous columns
+    # (nearly orthogonal picks); iterate: discretize by taking the argmax column per
+    # sample, form the sparse one-hot indicator matrix, compute the SVD of indicator
+    # transposed times embedding; the ncut objective is 2 * (n_samples - sum of singular
+    # values); stop when it changes by less than machine eps or after n_iter_max
+    # iterations, otherwise set rotation = V times U transposed. On SVD failure, print a
+    # message and restart with a new random rotation.
+    # Inputs: vectors - array (n_samples, n_clusters); copy - bool, default True;
+    # max_svd_restarts - int, default 30; n_iter_max - int, default 20;
+    # random_state - seed/RandomState/None.
+    # Outputs: int labels array (n_samples,).
+    # Exceptions: LinAlgError("SVD did not converge") if all restarts fail.
+    # Side effects: modifies vectors in place when copy=False and the input is already a
+    # float array; prints to stdout on SVD failure; consumes random_state.
+    # KNOWN ISSUE: a row of all zeros after column scaling gives division by zero (nan)
+    # in the row normalization; no guard exists.
     """Search for a partition matrix which is closest to the eigenvector embedding.
 
     This implementation was proposed in [1]_.
@@ -203,6 +238,13 @@ def spectral_clustering(
     assign_labels="kmeans",
     verbose=False,
 ):
+    # [FUNCTION DOC]
+    # Functional interface for precomputed affinities: builds SpectralClustering with
+    # affinity="precomputed" and the given n_clusters, n_components, eigen_solver,
+    # random_state, n_init, eigen_tol, assign_labels and verbose, fits it on affinity and
+    # returns labels_. Inputs: affinity - array-like or sparse (n_samples, n_samples)
+    # symmetric non-negative matrix. Outputs: int labels (n_samples,).
+    # Exceptions: those raised by SpectralClustering.fit and parameter validation.
     """Apply clustering to a projection of the normalized Laplacian.
 
     In practice Spectral Clustering is very useful when the structure of
@@ -378,6 +420,10 @@ def spectral_clustering(
 
 
 class SpectralClustering(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator for spectral clustering. Hyper-parameters are stored as given and checked
+    # against _parameter_constraints at fit time. Fitted attributes: affinity_matrix_,
+    # labels_, n_features_in_, feature_names_in_.
     """Apply clustering to a projection of the normalized Laplacian.
 
     In practice Spectral Clustering is very useful when the structure of
@@ -653,6 +699,9 @@ class SpectralClustering(ClusterMixin, BaseEstimator):
         n_jobs=None,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyper-parameters as attributes without validation (n_clusters is
+        # positional, the rest keyword-only).
         self.n_clusters = n_clusters
         self.eigen_solver = eigen_solver
         self.n_components = n_components
@@ -671,6 +720,26 @@ class SpectralClustering(ClusterMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Steps: validate X as float64, accepting CSR/CSC/COO and requiring at least 2
+        # samples; warn if X is square while affinity is not a precomputed option. Build the
+        # affinity: "nearest_neighbors" - symmetrized (averaged with its transpose)
+        # connectivity kNN graph including self; "precomputed_nearest_neighbors" - the same
+        # from a precomputed distance matrix (without self); "precomputed" - X itself; any
+        # other string or callable - pairwise_kernels with kernel_params plus gamma, degree
+        # and coef0 (only for string kernels, filtered to those the kernel accepts). Then
+        # compute a spectral embedding with n_components (default n_clusters) keeping the
+        # first eigenvector, and assign labels with k_means (n_init restarts), cluster_qr or
+        # discretize.
+        # Inputs: X - array-like or sparse (n_samples, n_features) or (n_samples, n_samples);
+        # y - ignored. Outputs: self.
+        # Exceptions: validation errors for parameters/data; errors from the eigen solver or
+        # discretize.
+        # Side effects: sets affinity_matrix_, labels_, n_features_in_; may emit a UserWarning;
+        # prints when verbose; consumes random_state.
+        # KNOWN ISSUE: when kernel_params is a user dict, gamma, degree and coef0 are written
+        # into that same dict, mutating the user's hyper-parameter object.
+        # KNOWN ISSUE: the warning text lacks a space ("``fit``now constructs").
         """Perform spectral clustering from features, or affinity matrix.
 
         Parameters
@@ -773,6 +842,9 @@ class SpectralClustering(ClusterMixin, BaseEstimator):
         return self
 
     def fit_predict(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on X and returns labels_ by delegating to ClusterMixin.fit_predict; exists only
+        # to document the parameters. Outputs: int array (n_samples,).
         """Perform spectral clustering on `X` and return cluster labels.
 
         Parameters
@@ -797,6 +869,9 @@ class SpectralClustering(ClusterMixin, BaseEstimator):
         return super().fit_predict(X, y)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the base tags: declares sparse input support, and marks the estimator as
+        # pairwise when affinity is "precomputed" or "precomputed_nearest_neighbors".
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.pairwise = self.affinity in [

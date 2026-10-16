@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Partial Least Squares family (following Wegelin's 2000 review, section 4.1): the _PLS
+# base implementing the iterative NIPALS/SVD algorithm with regression or canonical
+# deflation, its public variants PLSRegression, PLSCanonical and CCA (mode B), the
+# separate single-SVD estimator PLSSVD, and private numerical helpers.
 """
 The :mod:`sklearn.pls` module implements Partial Least Squares (PLS).
 """
@@ -30,6 +35,13 @@ __all__ = ["PLSSVD", "PLSCanonical", "PLSRegression"]
 
 
 def _pinv2_old(a):
+    # [FUNCTION DOC]
+    # HELPER: Pseudo-inverse reproducing old scipy pinv2 behavior: thin SVD of a, rank =
+    # number of singular values above max(s) times a dtype factor (1e3 for float32, 1e6
+    # for float64) times machine eps, then V times diag(1/s) times U conjugate-
+    # transposed on that rank.
+    # Inputs: a - 2-D float array (m, n). Outputs: (n, m) pseudo-inverse.
+    # Exceptions: KeyError for dtypes other than float/double (factor lookup).
     # Used previous scipy pinv2 that was updated in:
     # https://github.com/scipy/scipy/pull/10067
     # We can not set `cond` or `rcond` for pinv2 in scipy >= 1.3 to keep the
@@ -50,6 +62,22 @@ def _pinv2_old(a):
 def _get_first_singular_vectors_power_method(
     X, y, mode="A", max_iter=500, tol=1e-06, norm_y_weights=False
 ):
+    # [FUNCTION DOC]
+    # HELPER: NIPALS power iteration for the first pair of X and y weight vectors.
+    # Behavior: start y_score at the first column of y with any entry above eps (raise
+    # StopIteration 'y residual is constant' if none). In mode 'B' precompute pseudo-
+    # inverses of X and y. Each iteration: x_weights = X transposed times y_score
+    # divided by its squared norm (mode A) or X_pinv times y_score (mode B), normalize;
+    # x_score = X times x_weights; y_weights analogous from y and x_score; optionally
+    # normalize y_weights; y_score = y times y_weights divided by its squared norm. Stop
+    # when the squared change in x_weights is below tol or y has a single column.
+    # Inputs: X - (n, p); y - (n, q); mode 'A'/'B'; max_iter - int; tol - float;
+    # norm_y_weights - bool.
+    # Outputs: (x_weights (p,), y_weights (q,), n_iter int).
+    # Exceptions: StopIteration when y is constant. Side effects: ConvergenceWarning
+    # when n_iter equals max_iter.
+    # KNOWN ISSUE: the warning is also emitted when convergence happens exactly on the
+    # last allowed iteration.
     """Return the first left and right singular vectors of X'y.
 
     Provides an alternative to the svd(X'y) and uses the power method instead.
@@ -107,6 +135,10 @@ def _get_first_singular_vectors_power_method(
 
 
 def _get_first_singular_vectors_svd(X, y):
+    # [FUNCTION DOC]
+    # HELPER: Returns the first left and right singular vectors of the cross-covariance
+    # X transposed times y via a full SVD.
+    # Inputs: X - (n, p); y - (n, q). Outputs: (u (p,), v (q,)).
     """Return the first left and right singular vectors of X'y.
 
     Here the whole SVD is computed.
@@ -117,6 +149,11 @@ def _get_first_singular_vectors_svd(X, y):
 
 
 def _center_scale_xy(X, y, scale=True):
+    # [FUNCTION DOC]
+    # HELPER: Centers X and y in place by their column means and, if scale, divides by
+    # column standard deviations (ddof 1, zeros replaced by 1); otherwise stds are ones.
+    # Inputs: X - (n, p) float array; y - (n, q) float array; scale - bool.
+    # Outputs: (X, y, x_mean, y_mean, x_std, y_std). Side effects: mutates X and y.
     """Center X, y and scale if the scale parameter==True
 
     Returns
@@ -143,6 +180,10 @@ def _center_scale_xy(X, y, scale=True):
 
 
 def _svd_flip_1d(u, v):
+    # [FUNCTION DOC]
+    # HELPER: In place, multiplies u and v by the sign of the entry of u with largest
+    # absolute value, making that entry positive.
+    # Inputs: u, v - 1-D arrays. Outputs: None. Side effects: mutates u and v.
     """Same as svd_flip but works on 1d arrays, and is inplace"""
     # svd_flip would force us to convert to 2d array and would also return 2d
     # arrays. We don't want that.
@@ -160,6 +201,10 @@ class _PLS(
     BaseEstimator,
     metaclass=ABCMeta,
 ):
+    # [CLASS DOC]
+    # HELPER: Abstract base of PLSRegression, PLSCanonical and CCA; transformer and
+    # multi-output regressor. Declares constraints for n_components, scale,
+    # deflation_mode, mode, algorithm, max_iter, tol and copy.
     """Partial Least Squares (PLS)
 
     This class implements the generic PLS algorithm.
@@ -193,6 +238,9 @@ class _PLS(
         tol=1e-06,
         copy=True,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters as attributes (abstract: subclasses fix some of
+        # them).
         self.n_components = n_components
         self.deflation_mode = deflation_mode
         self.mode = mode
@@ -204,6 +252,27 @@ class _PLS(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Behavior: validate X and y (float64, copies if copy, >= 2 samples), reshape
+        # 1-D y to a column and remember that predictions should be 1-D. Check
+        # n_components does not exceed min(n, p) (regression deflation) or min(n, p, q)
+        # (canonical). Center/scale X and y. For each component k: get weights (nipals:
+        # zero near-constant y columns, then power method; stop early with a warning if
+        # the y residual is constant; svd: first singular vectors), sign-flip, compute
+        # x_scores = Xk times x_weights and y_scores = yk times y_weights (divided by
+        # the squared y_weights norm unless canonical), x_loadings by regressing Xk on
+        # x_scores and deflate Xk; deflate yk on y_scores (canonical) or x_scores
+        # (regression); store the column k of every matrix. Finally compute x_rotations_
+        # = x_weights_ times pinv(x_loadings_ transposed times x_weights_), likewise
+        # y_rotations_, coef_ = x_rotations_ times y_loadings_ transposed rescaled to
+        # original units (shape (q, p)), intercept_ = y mean.
+        # Inputs: X - (n, p); y - (n,) or (n, q). Outputs: self.
+        # Exceptions: ValueError for too large n_components or invalid input.
+        # Side effects: sets x/y_weights_, x/y_loadings_, x/y_rotations_, coef_,
+        # intercept_, n_iter_ (list, nipals only), private _x_scores, _y_scores,
+        # _x/_y_mean, _x/_y_std, _predict_1d, _norm_y_weights, _n_features_out; may
+        # modify X/y in place when copy is False; warnings on non-convergence or
+        # constant residual.
         """Fit model to data.
 
         Parameters
@@ -366,6 +435,13 @@ class _PLS(
         return self
 
     def transform(self, X, y=None, copy=True):
+        # [FUNCTION DOC]
+        # Centers/scales X with training statistics and projects with x_rotations_; if y
+        # given (1-D reshaped), does the same with y_rotations_.
+        # Inputs: X - (n, p); y - optional (n,) or (n, q); copy - if False X and y may
+        # be modified in place. Outputs: x_scores (n, n_components) or a tuple
+        # (x_scores, y_scores).
+        # Exceptions: NotFittedError, feature mismatch errors.
         """Apply the dimension reduction.
 
         Parameters
@@ -405,6 +481,11 @@ class _PLS(
         return x_scores
 
     def inverse_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Maps latent scores back: X times x_loadings_ transposed, then multiply by x
+        # std and add x mean; likewise for y with y_loadings_ when given.
+        # Inputs: X - (n, n_components); y - optional (n, n_components) 2-D.
+        # Outputs: X_reconstructed (n, p) or a tuple with y_reconstructed (n, q).
         """Transform data back to its original space.
 
         Parameters
@@ -449,6 +530,11 @@ class _PLS(
         return X_reconstructed
 
     def predict(self, X, copy=True):
+        # [FUNCTION DOC]
+        # Centers X (no scaling, coef_ already includes it) and returns X times coef_
+        # transposed plus intercept_, raveled to 1-D if fit received 1-D y.
+        # Inputs: X - (n, p); copy - if False X is centered in place. Outputs: (n,) or
+        # (n, q).
         """Predict targets of given samples.
 
         Parameters
@@ -478,6 +564,11 @@ class _PLS(
         return y_pred.ravel() if self._predict_1d else y_pred
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on (X, y) and returns transform(X, y).
+        # Outputs: x_scores or (x_scores, y_scores).
+        # KNOWN ISSUE: y defaults to None but fit requires y, so calling without y fails
+        # in validation.
         """Learn and apply the dimension reduction on the train data.
 
         Parameters
@@ -498,6 +589,9 @@ class _PLS(
         return self.fit(X, y).transform(X, y)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: marks regressor score as poor (poor_score) and target as
+        # not required.
         tags = super().__sklearn_tags__()
         tags.regressor_tags.poor_score = True
         tags.target_tags.required = False
@@ -505,6 +599,9 @@ class _PLS(
 
 
 class PLSRegression(_PLS):
+    # [CLASS DOC]
+    # PLS2/PLS1 regression: regression deflation, mode A, NIPALS; those three parameters
+    # are removed from the constraints.
     """PLS regression.
 
     PLSRegression is also known as PLS2 or PLS1, depending on the number of
@@ -621,6 +718,9 @@ class PLSRegression(_PLS):
     def __init__(
         self, n_components=2, *, scale=True, max_iter=500, tol=1e-06, copy=True
     ):
+        # [FUNCTION DOC]
+        # Forwards n_components, scale, max_iter, tol, copy to _PLS with deflation_mode
+        # 'regression', mode 'A', algorithm 'nipals'.
         super().__init__(
             n_components=n_components,
             scale=scale,
@@ -633,6 +733,9 @@ class PLSRegression(_PLS):
         )
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Runs _PLS.fit, then exposes x_scores_ and y_scores_ as public attributes.
+        # Outputs: self.
         """Fit model to data.
 
         Parameters
@@ -658,6 +761,9 @@ class PLSRegression(_PLS):
 
 
 class PLSCanonical(_PLS):
+    # [CLASS DOC]
+    # Symmetric PLS with canonical deflation and mode A; algorithm remains configurable
+    # ('nipals' or 'svd').
     """Partial Least Squares transformer and regressor.
 
     For a comparison between other cross decomposition algorithms, see
@@ -778,6 +884,8 @@ class PLSCanonical(_PLS):
         tol=1e-06,
         copy=True,
     ):
+        # [FUNCTION DOC]
+        # Forwards parameters to _PLS with deflation_mode 'canonical' and mode 'A'.
         super().__init__(
             n_components=n_components,
             scale=scale,
@@ -791,6 +899,9 @@ class PLSCanonical(_PLS):
 
 
 class CCA(_PLS):
+    # [CLASS DOC]
+    # Canonical Correlation Analysis: canonical deflation with mode B (uses pseudo-
+    # inverses, unstable when features or targets exceed samples), NIPALS only.
     """Canonical Correlation Analysis, also known as "Mode B" PLS.
 
     For a comparison between other cross decomposition algorithms, see
@@ -888,6 +999,9 @@ class CCA(_PLS):
     def __init__(
         self, n_components=2, *, scale=True, max_iter=500, tol=1e-06, copy=True
     ):
+        # [FUNCTION DOC]
+        # Forwards parameters to _PLS with deflation_mode 'canonical', mode 'B',
+        # algorithm 'nipals'.
         super().__init__(
             n_components=n_components,
             scale=scale,
@@ -901,6 +1015,9 @@ class CCA(_PLS):
 
 
 class PLSSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer computing all components at once from one SVD of the cross-covariance
+    # matrix (no deflation). Constraints: n_components >= 1, scale, copy.
     """Partial Least Square SVD.
 
     This transformer simply performs an SVD on the cross-covariance matrix
@@ -975,12 +1092,22 @@ class PLSSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, n_components=2, *, scale=True, copy=True):
+        # [FUNCTION DOC]
+        # Stores n_components, scale and copy.
         self.n_components = n_components
         self.scale = scale
         self.copy = copy
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Validates X and y like _PLS.fit (1-D y reshaped), checks n_components <=
+        # min(n, p, q), centers/scales both, computes the SVD of X transposed times y,
+        # keeps the first n_components singular vector pairs with deterministic signs
+        # (svd_flip).
+        # Outputs: self. Exceptions: ValueError for too large n_components.
+        # Side effects: sets x_weights_ (p, k), y_weights_ (q, k), _x/_y_mean,
+        # _x/_y_std, _n_features_out; may modify inputs in place when copy is False.
         """Fit model to data.
 
         Parameters
@@ -1045,6 +1172,10 @@ class PLSSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Standardizes X with training stats and multiplies by x_weights_; if y is given
+        # (1-D reshaped), also returns standardized y times y_weights_.
+        # Outputs: x_scores (n, k) or (x_scores, y_scores).
         """
         Apply the dimensionality reduction.
 
@@ -1077,6 +1208,9 @@ class PLSSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         return x_scores
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on (X, y) and returns transform(X, y).
+        # KNOWN ISSUE: y defaults to None but fit requires y.
         """Learn and apply the dimensionality reduction.
 
         Parameters

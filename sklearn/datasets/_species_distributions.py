@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Loader for the Phillips et al. (2006) species distribution dataset (two South American
+# species, occurrence points plus 14 environmental coverage grids of 1592 x 1212 cells).
+# Defines remote metadata for samples.zip and coverages.zip, the cache file name
+# species_coverage.pkz, parsing helpers, construct_grids and
+# fetch_species_distributions.
+# Side effects at import: creates a module-level logger only.
 """
 =============================
 Species distribution dataset
@@ -65,6 +72,19 @@ logger = logging.getLogger(__name__)
 
 
 def _load_coverage(F, header_length=6, dtype=np.int16):
+    # [FUNCTION DOC]
+    # HELPER: Parses one ESRI ASCII-grid coverage file.
+    # Steps: read header_length header lines as "key value" pairs into a dict (keys are
+    # bytes, values floats); load the remaining numeric grid with the given dtype; if
+    # the NODATA_value differs from -9999 it attempts to normalize it to -9999.
+    # Inputs: F - binary file-like object positioned at start; header_length - int,
+    # default 6; dtype - numpy dtype, default int16.
+    # Outputs: 2-D ndarray grid.
+    # Exceptions: KeyError if NODATA_value is absent; parsing errors from loadtxt.
+    # Side effects: consumes the file object.
+    # KNOWN ISSUE: when nodata != -9999 the code sets the whole ROW indexed by nodata to
+    # -9999 instead of replacing cells equal to nodata (a boolean mask was likely
+    # intended). It is harmless for the shipped data whose nodata is -9999.
     """Load a coverage file from an open file object.
 
     This will return a numpy array of the given dtype
@@ -81,6 +101,14 @@ def _load_coverage(F, header_length=6, dtype=np.int16):
 
 
 def _load_csv(F):
+    # [FUNCTION DOC]
+    # HELPER: Parses a species occurrence CSV (species, dd long, dd lat).
+    # Steps: read the header line as ASCII column names, load the rest as a structured
+    # array with dtype (22-byte string, float32, float32), then rename the fields to the
+    # header names.
+    # Inputs: F - binary file-like object.
+    # Outputs: structured (record) ndarray with one row per occurrence.
+    # Side effects: consumes the file object.
     """Load csv file.
 
     Parameters
@@ -101,6 +129,18 @@ def _load_csv(F):
 
 
 def construct_grids(batch):
+    # [FUNCTION DOC]
+    # Computes the longitude and latitude coordinates of the coverage grid cells from a
+    # Bunch returned by fetch_species_distributions.
+    # Steps: start at the lower-left corner plus one grid_size, span Nx (resp. Ny) cells
+    # with step grid_size.
+    # Inputs: batch - object with x_left_lower_corner, y_left_lower_corner, Nx, Ny,
+    # grid_size attributes.
+    # Outputs: tuple (xgrid of length about Nx, ygrid of length about Ny) of float
+    # arrays.
+    # Side effects: none.
+    # KNOWN ISSUE: using arange with float steps can produce one element more or less
+    # than Nx/Ny due to floating point rounding.
     """Construct the map grid from the batch object
 
     Parameters
@@ -143,6 +183,20 @@ def fetch_species_distributions(
     n_retries=3,
     delay=1.0,
 ):
+    # [FUNCTION DOC]
+    # Returns the species distribution Bunch, downloading and caching it on first use.
+    # Steps: if the cache pickle is absent: raise when downloads are disabled; download
+    # samples.zip (a valid npz), parse the train and test CSV members; download
+    # coverages.zip, parse every member as a coverage grid and stack into an int16 array
+    # (n_coverages, Ny, Nx); delete both zip files; build a Bunch with coverages, train,
+    # test and grid parameters (corners, Nx=1212, Ny=1592, grid_size=0.05) and dump it
+    # with joblib. Else load the pickle.
+    # Inputs: data_home; download_if_missing; n_retries; delay.
+    # Outputs: Bunch with coverages, train, test, x_left_lower_corner,
+    # y_left_lower_corner, Nx, Ny, grid_size.
+    # Exceptions: OSError when data is missing and downloads are disabled; network
+    # errors.
+    # Side effects: downloads, cache file write, zip removal, logging.
     """Loader for species distribution dataset from Phillips et. al. (2006).
 
     Read more in the :ref:`User Guide <species_distribution_dataset>`.

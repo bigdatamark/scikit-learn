@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Implements KernelPCA: PCA in a reproducing-kernel feature space obtained by eigen-
+# decomposing the centered Gram matrix of the training data, with an optional learned
+# pre-image map (kernel ridge regression) for inverse_transform.
+# Side effects at import: none.
 """Kernel Principal Components Analysis."""
 
 # Authors: The scikit-learn developers
@@ -30,6 +35,12 @@ from sklearn.utils.validation import (
 
 
 class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator storing kernel and solver hyperparameters. Fitting sets gamma_,
+    # _centerer (KernelCenterer), eigenvalues_ (descending), eigenvectors_ (unit-norm in
+    # sample space, not yet scaled), X_fit_, and with fit_inverse_transform also
+    # dual_coef_ and X_transformed_fit_. Transformed coordinates of training points
+    # equal eigenvectors_ times sqrt(eigenvalues_).
     """Kernel Principal component analysis (KPCA).
 
     Non-linear dimensionality reduction through the use of kernels [1]_, see also
@@ -299,6 +310,14 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         copy_X=True,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all constructor arguments as attributes without validation.
+        # Inputs: n_components (int or None = keep all non-zero), kernel (name,
+        #   'precomputed' or callable), gamma/degree/coef0 kernel parameters,
+        #   kernel_params (dict for callables), alpha (ridge for pre-image),
+        #   fit_inverse_transform (bool), eigen_solver ('auto', 'dense', 'arpack',
+        #   'randomized'), tol and max_iter (arpack), iterated_power (randomized),
+        #   remove_zero_eig (bool), random_state, copy_X (bool), n_jobs.
         self.n_components = n_components
         self.kernel = kernel
         self.kernel_params = kernel_params
@@ -317,6 +336,14 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         self.copy_X = copy_X
 
     def _get_kernel(self, X, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Computes the kernel matrix between X and Y (or X with itself) using
+        #   pairwise_kernels. For callable kernels passes kernel_params; otherwise
+        #   passes gamma_, degree and coef0 and lets pairwise_kernels filter out those
+        #   irrelevant to the kernel.
+        # Inputs: X (n_a, n_features), Y optional (n_b, n_features). Outputs: ndarray
+        #   (n_a, n_b).
+        # Exceptions: AttributeError if gamma_ is not yet set for non-callable kernels.
         if callable(self.kernel):
             params = self.kernel_params or {}
         else:
@@ -326,6 +353,20 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         )
 
     def _fit_transform_in_place(self, K):
+        # [FUNCTION DOC]
+        # HELPER: Eigen-decomposes the training kernel. Centers K in place with the
+        #   KernelCenterer; picks n_components (all rows, or min of rows and
+        #   n_components); for 'auto' uses arpack when there are more than 200 samples
+        #   and fewer than 10 components, else dense; computes the top eigenpairs with
+        #   scipy eigh (index subset), arpack eigsh (largest algebraic, seeded v0) or
+        #   randomized eigsh (largest modulus); cleans eigenvalues with
+        #   _check_psd_eigenvalues (zeroing tiny/negative ones); flips eigenvector signs
+        #   deterministically; sorts descending; drops zero-eigenvalue components when
+        #   remove_zero_eig is set or n_components is None.
+        # Inputs: K (n_samples, n_samples) kernel matrix, modified in place.
+        # Outputs: the centered K.
+        # Side effects: fits _centerer; sets eigenvalues_ and eigenvectors_; consumes
+        #   random_state.
         """Fit's using kernel K"""
         # center kernel in place
         K = self._centerer.fit(K).transform(K, copy=False)
@@ -404,6 +445,18 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         return K
 
     def _fit_inverse_transform(self, X_transformed, X):
+        # [FUNCTION DOC]
+        # HELPER: Learns the pre-image map via kernel ridge regression: builds the
+        #   kernel among the transformed training points, adds alpha to its diagonal,
+        #   and solves for dual_coef_ so that the kernel times dual_coef_ approximates
+        #   X.
+        # Inputs: X_transformed (n_samples, n_components); X original training data
+        #   (n_samples, n_features).
+        # Exceptions: NotImplementedError if X is sparse; LinAlgError if the regularised
+        #   kernel is not positive definite.
+        # Side effects: sets dual_coef_ (n_samples, n_features) and X_transformed_fit_.
+        # KNOWN ISSUE: uses the configured kernel (and gamma_ computed from the input
+        #   feature count) on the low-dimensional transformed space.
         if hasattr(X, "tocsr"):
             raise NotImplementedError(
                 "Inverse transform not implemented for sparse matrices!"
@@ -417,6 +470,17 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model: rejects fit_inverse_transform with a precomputed kernel,
+        # validates X (dense or CSR, copied if copy_X), sets gamma_ (1/n_features if
+        # gamma is None), creates the KernelCenterer, computes and decomposes the kernel
+        # via _fit_transform_in_place, optionally fits the pre-image map using the
+        # shortcut training embedding, and stores X_fit_.
+        # Inputs: X (n_samples, n_features) or (n_samples, n_samples) when precomputed;
+        #   y ignored. Outputs: self.
+        # Exceptions: ValueError for fit_inverse_transform with precomputed kernel;
+        #   NotImplementedError for sparse X with fit_inverse_transform; validation
+        #   errors.
         """Fit the model from data in X.
 
         Parameters
@@ -453,6 +517,13 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         return self
 
     def fit_transform(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits via fit(X, **params) and returns the training embedding eigenvectors_
+        # times sqrt(eigenvalues_) (shape (n_samples, n_components)), refitting the pre-
+        # image map when fit_inverse_transform is set.
+        # KNOWN ISSUE: with fit_inverse_transform the pre-image map is fitted twice
+        #   (once in fit, again here) with identical inputs, which is redundant work.
+        #   Extra params are forwarded to fit, which accepts none besides y.
         """Fit the model from data in X and transform X.
 
         Parameters
@@ -484,6 +555,14 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         return X_transformed
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Projects new data: computes the kernel between X and X_fit_, centers it with
+        # the fitted centerer, divides each eigenvector by the square root of its
+        # eigenvalue (leaving zero-eigenvalue columns at zero), and returns the kernel
+        # times these scaled vectors.
+        # Inputs: X (n_samples, n_features), dense or CSR. Outputs: ndarray (n_samples,
+        #   n_components).
+        # Exceptions: NotFittedError; validation errors.
         """Transform X.
 
         Parameters
@@ -515,6 +594,14 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         return np.dot(K, scaled_alphas)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Approximates the pre-image: kernel between X and X_transformed_fit_ times
+        # dual_coef_.
+        # Inputs: X (n_samples, n_components). Outputs: ndarray (n_samples, n_features).
+        # Exceptions: NotFittedError if fit_inverse_transform was False.
+        # KNOWN ISSUE: X is not validated and the fitted check only inspects the
+        #   hyperparameter, so calling on an unfitted estimator with
+        #   fit_inverse_transform=True raises AttributeError.
         """Transform X back to original space.
 
         ``inverse_transform`` approximates the inverse transformation using
@@ -567,6 +654,9 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
         return np.dot(K, self.dual_coef_)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: accepts sparse input, preserves float64/float32, and
+        # marks the estimator as pairwise when kernel is 'precomputed'.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
@@ -575,5 +665,8 @@ class KernelPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the number of
+        #   retained eigenvalues.
         """Number of transformed output features."""
         return self.eigenvalues_.shape[0]

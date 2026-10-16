@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for FeatureAgglomeration: fit/transform/inverse_transform with mean and median
+# pooling, and output feature names.
 """
 Tests for sklearn.cluster._feature_agglomeration
 """
@@ -11,6 +14,11 @@ from sklearn.utils._testing import assert_array_almost_equal
 
 
 def test_feature_agglomeration():
+    # [FUNCTION DOC]
+    # Verifies on a single sample [0, 0, 1] with n_clusters=1 that mean and median pooling
+    # give one label per feature, transform yields one column equal to 1/3 (mean) or 0
+    # (median), inverse_transform broadcasts the pooled value back to all features, and
+    # transforming the reconstruction recovers the reduced data.
     n_clusters = 1
     X = np.array([0, 0, 1]).reshape(1, 3)  # (n_samples, n_features)
 
@@ -43,6 +51,9 @@ def test_feature_agglomeration():
 
 
 def test_feature_agglomeration_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns "featureagglomeration0", ... one per fitted
+    # cluster (n_clusters_) after fitting on 6-feature blobs with n_clusters=3.
     """Check `get_feature_names_out` for `FeatureAgglomeration`."""
     X, _ = make_blobs(n_features=6, random_state=0)
     agglo = FeatureAgglomeration(n_clusters=3)

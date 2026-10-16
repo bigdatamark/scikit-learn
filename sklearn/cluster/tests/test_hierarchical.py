@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for hierarchical (agglomerative) clustering: AgglomerativeClustering,
+# FeatureAgglomeration, ward_tree, linkage_tree, the private tree builders in
+# _TREE_BUILDERS, _hc_cut, _fix_connectivity, and the Cython helpers (mst_linkage_core,
+# max_merge, average_merge, IntFloatDict). Many tests compare with scipy.hierarchy.
 """
 Several basic tests for hierarchical clustering procedures
 
@@ -52,6 +57,11 @@ from sklearn.utils.fixes import LIL_CONTAINERS
 
 
 def test_linkage_misc():
+    # [FUNCTION DOC]
+    # Checks linkage_tree raises ValueError for an unknown linkage and for a connectivity
+    # of wrong shape; smoke-fits FeatureAgglomeration; checks precomputed cosine distances
+    # and a callable affinity (manhattan_distances) give the same children as the
+    # corresponding string affinities.
     # Misc tests on linkage
     rng = np.random.RandomState(42)
     X = rng.normal(size=(5, 5))
@@ -77,6 +87,10 @@ def test_linkage_misc():
 
 
 def test_structured_linkage_tree():
+    # [FUNCTION DOC]
+    # For each tree builder with a 10x10 grid connectivity (on 100 features) checks the
+    # number of merges plus leaves equals 2 * n_leaves - 1, and ValueError for a wrongly
+    # shaped connectivity and for zero samples.
     # Check that we obtain the correct solution for structured linkage trees.
     rng = np.random.RandomState(0)
     mask = np.ones([10, 10], dtype=bool)
@@ -100,6 +114,10 @@ def test_structured_linkage_tree():
 
 
 def test_unstructured_linkage_tree():
+    # [FUNCTION DOC]
+    # Checks ward_tree and every tree builder without connectivity, with n_clusters=10
+    # (which warns since it is ignored), produce a complete tree, on a 2D X and on its
+    # first row.
     # Check that we obtain the correct solution for unstructured linkage trees.
     rng = np.random.RandomState(0)
     X = rng.randn(50, 100)
@@ -124,6 +142,10 @@ def test_unstructured_linkage_tree():
 
 
 def test_height_linkage_tree():
+    # [FUNCTION DOC]
+    # Checks every tree builder with grid connectivity produces a complete tree.
+    # KNOWN ISSUE: despite the comment, merge heights are never checked to be sorted;
+    # only the node count is asserted.
     # Check that the height of the results of linkage tree is sorted.
     rng = np.random.RandomState(0)
     mask = np.ones([10, 10], dtype=bool)
@@ -138,6 +160,8 @@ def test_height_linkage_tree():
 
 
 def test_zero_cosine_linkage_tree():
+    # [FUNCTION DOC]
+    # Checks linkage_tree with cosine affinity raises ValueError when X has a zero row.
     # Check that zero vectors in X produce an error when
     # 'cosine' affinity is used
     X = np.array([[0, 1], [0, 0]])
@@ -152,6 +176,9 @@ def test_zero_cosine_linkage_tree():
 def test_agglomerative_clustering_distances(
     n_clusters, compute_distances, distance_threshold, linkage
 ):
+    # [FUNCTION DOC]
+    # Checks distances_ (shape n_merges) exists iff compute_distances is True or
+    # distance_threshold is set, for every linkage with grid connectivity.
     # Check that when `compute_distances` is True or `distance_threshold` is
     # given, the fitted model has an attribute `distances_`.
     rng = np.random.RandomState(0)
@@ -180,6 +207,15 @@ def test_agglomerative_clustering_distances(
 @pytest.mark.no_check_spmatrix  # pickle breaks check_spmatrix
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_agglomerative_clustering(global_random_seed, lil_container):
+    # [FUNCTION DOC]
+    # For each linkage with grid connectivity: fit with a memory cache dir (temp dir
+    # removed afterwards) gives 10 clusters; compute_full_tree=False gives same
+    # partition (NMI 1); no connectivity gives 10 clusters; a wrongly shaped LIL
+    # connectivity raises ValueError. Then checks complete linkage with full
+    # connectivity matches unstructured for every paired metric, and precomputed
+    # distances match euclidean with connectivity.
+    # KNOWN ISSUE: inline comment says TypeError on dense matrices but the code asserts a
+    # ValueError for a wrongly sized sparse connectivity.
     # Check that we obtain the correct number of clusters with
     # agglomerative clustering.
     rng = np.random.RandomState(global_random_seed)
@@ -263,6 +299,8 @@ def test_agglomerative_clustering(global_random_seed, lil_container):
 
 
 def test_agglomerative_clustering_memory_mapped():
+    # [FUNCTION DOC]
+    # Non-regression (issue 19875): single linkage fit must work on memmap-backed data.
     """AgglomerativeClustering must work on mem-mapped dataset.
 
     Non-regression test for issue #19875.
@@ -273,6 +311,10 @@ def test_agglomerative_clustering_memory_mapped():
 
 
 def test_ward_agglomeration(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks FeatureAgglomeration with 5 clusters and grid connectivity: 5 labels,
+    # transform gives 5 columns, inverse_transform has 5 unique values per row and
+    # round-trips through transform; fitting on zero samples raises ValueError.
     # Check that we obtain the correct solution in a simplistic case
     rng = np.random.RandomState(global_random_seed)
     mask = np.ones([10, 10], dtype=bool)
@@ -294,6 +336,8 @@ def test_ward_agglomeration(global_random_seed):
 
 
 def test_single_linkage_clustering():
+    # [FUNCTION DOC]
+    # Checks single linkage perfectly separates make_moons and make_circles (NMI 1).
     # Check that we get the correct result in two emblematic cases
     moons, moon_labels = make_moons(noise=0.05, random_state=42)
     clustering = AgglomerativeClustering(n_clusters=2, linkage="single")
@@ -311,6 +355,12 @@ def test_single_linkage_clustering():
 
 
 def assess_same_labelling(cut1, cut2):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two flat labelings define the same partition by building the
+    # one-hot membership matrix of each and comparing their co-clustering matrices
+    # (membership times its transpose) for exact equality.
+    # Inputs: cut1, cut2 - 1D integer label arrays of equal length with labels from 0.
+    # Exceptions: AssertionError if partitions differ.
     """Util for comparison with scipy"""
     co_clust = []
     for cut in [cut1, cut2]:
@@ -323,6 +373,11 @@ def assess_same_labelling(cut1, cut2):
 
 
 def test_sparse_scikit_vs_scipy(global_random_seed):
+    # [FUNCTION DOC]
+    # For every linkage in _TREE_BUILDERS and 5 random well-ordered datasets, checks
+    # children with dense full connectivity equal scipy linkage children (after sorting
+    # each row) and _hc_cut into 3 clusters gives the same partition; then checks _hc_cut
+    # raises ValueError when asked for more clusters than leaves.
     # Test scikit linkage with full connectivity (i.e. unstructured) vs scipy
     n, p, k = 10, 5, 3
     rng = np.random.RandomState(global_random_seed)
@@ -363,6 +418,9 @@ def test_sparse_scikit_vs_scipy(global_random_seed):
 # Make sure our custom mst_linkage_core gives
 # the same results as scipy's builtin
 def test_vector_scikit_single_vs_scipy_single(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks unstructured single linkage (mst_linkage_core based) matches scipy's single
+    # linkage children and 3-cluster cut.
     n_samples, n_features, n_clusters = 10, 5, 3
     rng = np.random.RandomState(global_random_seed)
     X = 0.1 * rng.normal(size=(n_samples, n_features))
@@ -389,6 +447,10 @@ def test_vector_scikit_single_vs_scipy_single(global_random_seed):
 
 @pytest.mark.parametrize("metric_param_grid", METRICS_DEFAULT_PARAMS)
 def test_mst_linkage_core_memory_mapped(metric_param_grid):
+    # [FUNCTION DOC]
+    # Non-regression (issue 19875): for each metric and every parameter combination in
+    # METRICS_DEFAULT_PARAMS, mst_linkage_core gives identical output on an array and
+    # on its memmap copy.
     """The MST-LINKAGE-CORE algorithm must work on mem-mapped dataset.
 
     Non-regression test for issue #19875.
@@ -407,6 +469,10 @@ def test_mst_linkage_core_memory_mapped(metric_param_grid):
 
 
 def test_identical_points():
+    # [FUNCTION DOC]
+    # Checks duplicated points with a symmetrized kneighbors connectivity fixed by
+    # _fix_connectivity are clustered correctly into 3 groups (NMI 1).
+    # KNOWN ISSUE: the linkage tuple lists "average" twice and omits "complete".
     # Ensure identical points are handled correctly when using mst with
     # a sparse connectivity matrix
     X = np.array([[0, 0, 0], [0, 0, 0], [1, 1, 1], [1, 1, 1], [2, 2, 2], [2, 2, 2]])
@@ -427,6 +493,9 @@ def test_identical_points():
 
 
 def test_connectivity_propagation():
+    # [FUNCTION DOC]
+    # Regression smoke test: ward with a kneighbors connectivity on near-duplicate points
+    # must not crash (IndexError) due to bad connectivity propagation during merges.
     # Check that connectivity in the ward tree is propagated correctly during
     # merging.
     X = np.array(
@@ -458,6 +527,9 @@ def test_connectivity_propagation():
 
 
 def test_ward_tree_children_order(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks ward_tree children are identical with and without full connectivity on 5
+    # random datasets.
     # Check that children are ordered in the same way for both structured and
     # unstructured versions of ward_tree.
 
@@ -478,6 +550,14 @@ def test_ward_tree_children_order(global_random_seed):
 
 
 def test_ward_linkage_tree_return_distance(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks return_distance outputs agree between structured (full connectivity) and
+    # unstructured ward_tree and linkage_tree on random data, then compares children and
+    # distances to hard-coded scipy reference linkages for ward, complete and average.
+    # KNOWN ISSUE: in the random-data loop, linkage_tree(...)[-1] is already the
+    # distances array, so the further [-1] / [0] index scalar distances and the
+    # "children" comparison is really a first-distance comparison. Also zip with only two
+    # truth arrays silently drops the "single" option.
     # Test return_distance option on linkage and ward trees
 
     # test that return_distance when set true, gives same
@@ -596,6 +676,9 @@ def test_ward_linkage_tree_return_distance(global_random_seed):
 
 
 def test_connectivity_fixing_non_lil():
+    # [FUNCTION DOC]
+    # Non-regression: a non item-assignable (COO) connectivity with 2 components must be
+    # fixed, emitting a UserWarning, without crashing.
     # Check non regression of a bug if a non item assignable connectivity is
     # provided with more than one component.
     # create dummy data
@@ -609,6 +692,9 @@ def test_connectivity_fixing_non_lil():
 
 
 def test_int_float_dict():
+    # [FUNCTION DOC]
+    # Checks IntFloatDict stores and returns given key/value pairs, and smoke-tests
+    # max_merge and average_merge on two dicts.
     rng = np.random.RandomState(0)
     keys = np.unique(rng.randint(100, size=10).astype(np.intp, copy=False))
     values = rng.rand(len(keys))
@@ -626,6 +712,9 @@ def test_int_float_dict():
 
 
 def test_connectivity_callable():
+    # [FUNCTION DOC]
+    # Checks a callable connectivity (partial kneighbors_graph) gives the same labels as
+    # the precomputed graph.
     rng = np.random.RandomState(0)
     X = rng.rand(20, 5)
     connectivity = kneighbors_graph(X, 3, include_self=False)
@@ -639,6 +728,8 @@ def test_connectivity_callable():
 
 
 def test_connectivity_ignores_diagonal():
+    # [FUNCTION DOC]
+    # Checks labels are the same whether connectivity includes self-loops or not.
     rng = np.random.RandomState(0)
     X = rng.rand(20, 5)
     connectivity = kneighbors_graph(X, 3, include_self=False)
@@ -651,6 +742,10 @@ def test_connectivity_ignores_diagonal():
 
 
 def test_compute_full_tree():
+    # [FUNCTION DOC]
+    # Checks compute_full_tree="auto": with 2 clusters the full tree (n_samples - 1
+    # merges) is built; with 101 clusters (above max(100, 0.02 n)) building stops early
+    # with n_samples - n_clusters merges.
     # Test that the full tree is computed if n_clusters is small
     rng = np.random.RandomState(0)
     X = rng.randn(10, 2)
@@ -677,6 +772,9 @@ def test_compute_full_tree():
 
 
 def test_n_components():
+    # [FUNCTION DOC]
+    # Checks every tree builder reports 5 connected components for identity
+    # connectivity (warnings ignored).
     # Test n_components returned by linkage, average and ward tree
     rng = np.random.RandomState(0)
     X = rng.rand(5, 5)
@@ -689,6 +787,9 @@ def test_n_components():
 
 
 def test_affinity_passed_to_fix_connectivity():
+    # [FUNCTION DOC]
+    # Checks the callable affinity is forwarded to connectivity fixing by counting calls:
+    # a 2x2 grid with 2 components leads to exactly 3 calls of the counter.
     # Test that the affinity parameter is actually passed to the pairwise
     # function
 
@@ -700,10 +801,17 @@ def test_affinity_passed_to_fix_connectivity():
     connectivity = grid_to_graph(n_x=size, n_y=size, mask=mask, return_as=np.ndarray)
 
     class FakeAffinity:
+        # [CLASS DOC]
+        # HELPER: Callable-affinity stand-in that counts how many times it is invoked.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: Initializes counter to 0.
             self.counter = 0
 
         def increment(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Accepts any args, increments counter and returns the new count.
+            # Side effects: mutates self.counter.
             self.counter += 1
             return self.counter
 
@@ -716,6 +824,10 @@ def test_affinity_passed_to_fix_connectivity():
 
 @pytest.mark.parametrize("linkage", ["ward", "complete", "average"])
 def test_agglomerative_clustering_with_distance_threshold(linkage, global_random_seed):
+    # [FUNCTION DOC]
+    # With distance_threshold 10 (with and without grid connectivity) checks the number
+    # of clusters equals 1 plus the number of merge distances >= threshold from the
+    # tree builder, and labels equal _hc_cut at that number of clusters.
     # Check that we obtain the correct number of clusters with
     # agglomerative clustering with distance_threshold.
     rng = np.random.RandomState(global_random_seed)
@@ -754,6 +866,11 @@ def test_agglomerative_clustering_with_distance_threshold(linkage, global_random
 
 
 def test_small_distance_threshold(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks single linkage with threshold 1.0 on 10 integer points with pairwise
+    # distances verified above 0.1 leaves every point in its own cluster.
+    # KNOWN ISSUE: the check uses 0.1 while the threshold is 1.0, so the precondition
+    # asserted is weaker than what the outcome relies on (integer points make it hold).
     rng = np.random.RandomState(global_random_seed)
     n_samples = 10
     X = rng.randint(-300, 300, size=(n_samples, 3))
@@ -771,6 +888,10 @@ def test_small_distance_threshold(global_random_seed):
 
 
 def test_cluster_distances_with_distance_threshold(global_random_seed):
+    # [FUNCTION DOC]
+    # Single linkage, threshold 4: for each cluster checks every member's nearest
+    # in-cluster neighbor is closer than threshold (non-singletons) and the nearest
+    # out-of-cluster point is at least threshold away.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
     X = rng.randint(-10, 10, size=(n_samples, 3))
@@ -804,6 +925,9 @@ def test_cluster_distances_with_distance_threshold(global_random_seed):
 def test_agglomerative_clustering_with_distance_threshold_edge_case(
     linkage, threshold, y_true
 ):
+    # [FUNCTION DOC]
+    # Two points at distance 1: thresholds 0.5 and 1.0 give two clusters, 1.5 gives
+    # one, checked with ARI for ward, complete and average.
     # test boundary case of distance_threshold matching the distance
     X = [[0], [1]]
     clusterer = AgglomerativeClustering(
@@ -814,6 +938,9 @@ def test_agglomerative_clustering_with_distance_threshold_edge_case(
 
 
 def test_dist_threshold_invalid_parameters():
+    # [FUNCTION DOC]
+    # Checks ValueError when both or neither of n_clusters and distance_threshold are
+    # set, and when distance_threshold is used with compute_full_tree=False.
     X = [[0], [1]]
     with pytest.raises(ValueError, match="Exactly one of "):
         AgglomerativeClustering(n_clusters=None, distance_threshold=None).fit(X)
@@ -829,6 +956,8 @@ def test_dist_threshold_invalid_parameters():
 
 
 def test_invalid_shape_precomputed_dist_matrix():
+    # [FUNCTION DOC]
+    # Checks precomputed metric with a non-square (5, 3) matrix raises ValueError.
     # Check that an error is raised when affinity='precomputed'
     # and a non square matrix is passed (PR #16257).
     rng = np.random.RandomState(0)
@@ -841,6 +970,10 @@ def test_invalid_shape_precomputed_dist_matrix():
 
 
 def test_precomputed_connectivity_metric_with_2_connected_components():
+    # [FUNCTION DOC]
+    # Non-regression (issue 16151): with a 2-component connectivity, precomputed and
+    # euclidean fits both warn about completing the connectivity and give identical
+    # labels and children.
     """Check that connecting components works when connectivity and
     affinity are both precomputed and the number of connected components is
     greater than 1. Non-regression test for #16151.
@@ -881,6 +1014,9 @@ def test_precomputed_connectivity_metric_with_2_connected_components():
 
 @pytest.mark.parametrize("Clustering", [AgglomerativeClustering, FeatureAgglomeration])
 def test_agglomeration_ward_constrained_metric(Clustering):
+    # [FUNCTION DOC]
+    # Checks ward linkage with metric "manhattan" raises ValueError for both
+    # AgglomerativeClustering and FeatureAgglomeration.
     """Check that we raise an error when 'euclidean' or 'l2' are not passed with
     ward linkage."""
     rng = np.random.RandomState(0)
@@ -902,6 +1038,8 @@ def test_agglomeration_ward_constrained_metric(Clustering):
 @pytest.mark.parametrize("Clustering", [AgglomerativeClustering, FeatureAgglomeration])
 @pytest.mark.parametrize("metric", ["euclidean", "l2"])
 def test_agglomeration_ward_euclidean(Clustering, metric):
+    # [FUNCTION DOC]
+    # Smoke test that ward accepts metric "euclidean" and "l2" for both estimators.
     """Check that we can pass 'euclidean' and 'l2' as metric with Ward linkage."""
     rng = np.random.RandomState(0)
     mask = np.ones([10, 10], dtype=bool)
