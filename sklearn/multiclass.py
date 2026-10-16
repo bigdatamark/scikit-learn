@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Meta-estimators that reduce multiclass (and, for OvR, multilabel) classification to
+# a set of binary problems: OneVsRestClassifier (one estimator per class),
+# OneVsOneClassifier (one estimator per class pair, voting) and OutputCodeClassifier
+# (random error-correcting code book, nearest-code decoding).
+# Module-level private helpers fit/predict single binary sub-estimators and handle the
+# degenerate single-label case through _ConstantPredictor.
+# Public names: those listed in __all__. No import-time side effects.
 """Multiclass learning algorithms.
 
 - one-vs-the-rest / one-vs-all
@@ -79,6 +87,16 @@ __all__ = [
 
 
 def _fit_binary(estimator, X, y, fit_params, classes=None):
+    # [FUNCTION DOC]
+    # HELPER: Fits one binary sub-problem. If y contains a single unique value, a
+    # _ConstantPredictor is fitted instead of cloning the estimator.
+    # Inputs: estimator - unfitted template estimator; X - training data; y - 1-D binary
+    # (or code) targets; fit_params - dict forwarded to estimator.fit; classes - optional
+    # pair of display labels used only for the warning message.
+    # Outputs: a fitted clone of estimator, or a fitted _ConstantPredictor.
+    # Side effects: emits a UserWarning "Label ... is present in all training examples"
+    # when y is constant and classes is given; the label shown is classes[0] if y[0] is
+    # -1 else classes[y[0]].
     """Fit a single binary estimator."""
     unique_y = np.unique(y)
     if len(unique_y) == 1:
@@ -98,12 +116,26 @@ def _fit_binary(estimator, X, y, fit_params, classes=None):
 
 
 def _partial_fit_binary(estimator, X, y, partial_fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Calls estimator.partial_fit on X, y with classes fixed to [0, 1] and the
+    # given extra params.
+    # Inputs: estimator (already cloned/fitted, mutated in place); X; y - binary 0/1 targets;
+    # partial_fit_params - dict.
+    # Outputs: the same estimator object.
+    # Side effects: updates the estimator's state.
     """Partially fit a single binary estimator."""
     estimator.partial_fit(X, y, classes=np.array((0, 1)), **partial_fit_params)
     return estimator
 
 
 def _predict_binary(estimator, X):
+    # [FUNCTION DOC]
+    # HELPER: Computes a continuous score for the positive class of one binary estimator.
+    # Regressors: return predict(X). Otherwise try decision_function (raveled to 1-D) and
+    # fall back to the second column of predict_proba if that raises AttributeError or
+    # NotImplementedError.
+    # Inputs: estimator - fitted binary estimator; X - samples.
+    # Outputs: 1-D float array of length n_samples.
     """Make predictions using a single binary estimator."""
     if is_regressor(estimator):
         return estimator.predict(X)
@@ -116,6 +148,13 @@ def _predict_binary(estimator, X):
 
 
 def _threshold_for_binary_predict(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns the decision threshold matching the score from _predict_binary:
+    # 0.0 for classifiers exposing decision_function, otherwise 0.5 (probability).
+    # Inputs: estimator - fitted sub-estimator. Outputs: float.
+    # KNOWN ISSUE: for a regressor that has decision_function this returns 0.5 while
+    # _predict_binary uses predict; for a _ConstantPredictor (has decision_function, not a
+    # classifier) it returns 0.5, which is consistent with constant 0/1 outputs.
     """Threshold for predictions from binary estimator."""
     if hasattr(estimator, "decision_function") and is_classifier(estimator):
         return 0.0
@@ -125,9 +164,19 @@ def _threshold_for_binary_predict(estimator):
 
 
 class _ConstantPredictor(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Degenerate estimator used when a binary sub-problem has only one label.
+    # It memorizes that label and returns it for every sample from predict and
+    # decision_function, and the matching one-hot probabilities from predict_proba.
+    # Fitted attribute: y_ (array of the unique label(s) passed to fit).
     """Helper predictor to be used when only one class is present."""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Validates X and y leniently (no finiteness check, any dtype, sparse allowed, 1-D
+        # allowed), sets n_features_in_ etc. via validate_data, and stores y as y_.
+        # Inputs: X - samples; y - array containing the single unique label.
+        # Outputs: self. Side effects: sets y_ and validation attributes.
         check_params = dict(
             ensure_all_finite=False, dtype=None, ensure_2d=False, accept_sparse=True
         )
@@ -138,6 +187,10 @@ class _ConstantPredictor(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state, validates X without resetting, then repeats y_ once per sample.
+        # Outputs: 1-D array of length n_samples (if y_ has length 1).
+        # Exceptions: NotFittedError if not fitted; validation errors on feature mismatch.
         check_is_fitted(self)
         validate_data(
             self,
@@ -152,6 +205,9 @@ class _ConstantPredictor(BaseEstimator):
         return np.repeat(self.y_, _num_samples(X))
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Same behavior as predict: returns y_ repeated n_samples times, so the constant label
+        # (0 or 1) serves as the decision score.
         check_is_fitted(self)
         validate_data(
             self,
@@ -166,6 +222,12 @@ class _ConstantPredictor(BaseEstimator):
         return np.repeat(self.y_, _num_samples(X))
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns an (n_samples, 2) float array whose rows are [1 - y_, y_], i.e. probability 1
+        # for the memorized label when it is 0 or 1.
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: assumes y_ is a single 0/1 value; other labels give meaningless
+        # "probabilities" (e.g. -1 from OutputCodeClassifier code books).
         check_is_fitted(self)
         validate_data(
             self,
@@ -181,6 +243,10 @@ class _ConstantPredictor(BaseEstimator):
 
 
 def _estimators_has(attr):
+    # [FUNCTION DOC]
+    # HELPER: Builds a predicate for available_if that checks that the fitted first
+    # sub-estimator (if estimators_ exists) or else the unfitted estimator has attr.
+    # Inputs: attr - method name. Outputs: callable taking self.
     """Check if self.estimator or self.estimators_[0] has attr.
 
     If `self.estimators_[0]` has the attr, then its safe to assume that other
@@ -189,6 +255,9 @@ def _estimators_has(attr):
     """
 
     def check(self):
+        # [FUNCTION DOC]
+        # HELPER: Accesses attr on estimators_[0] when fitted, otherwise on self.estimator,
+        # letting AttributeError propagate; returns True if access succeeds.
         if hasattr(self, "estimators_"):
             getattr(self.estimators_[0], attr)
         else:
@@ -205,6 +274,13 @@ class OneVsRestClassifier(
     MetaEstimatorMixin,
     BaseEstimator,
 ):
+    # [CLASS DOC]
+    # One-vs-rest meta-classifier. A sparse LabelBinarizer turns y (labels or indicator
+    # matrix) into n_classes binary columns, and one clone of estimator is fitted per
+    # column (in parallel via joblib). Multiclass prediction takes the argmax of the
+    # per-class scores; multilabel prediction thresholds each score independently.
+    # Fitted attributes: label_binarizer_, classes_, estimators_, and optionally
+    # n_features_in_ / feature_names_in_ copied from the first sub-estimator.
     """One-vs-the-rest (OvR) multiclass strategy.
 
     Also known as one-vs-all, this strategy consists in fitting one classifier
@@ -320,6 +396,8 @@ class OneVsRestClassifier(
     }
 
     def __init__(self, estimator, *, n_jobs=None, verbose=0):
+        # [FUNCTION DOC]
+        # Stores estimator, n_jobs and verbose unchanged (sklearn convention, no validation).
         self.estimator = estimator
         self.n_jobs = n_jobs
         self.verbose = verbose
@@ -329,6 +407,16 @@ class OneVsRestClassifier(
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Steps: reject unrouted metadata (_raise_for_params), route fit_params; fit a sparse
+        # LabelBinarizer on y and convert to CSC; set classes_; for each column i fit
+        # _fit_binary on a dense 0/1 vector, with warning labels "not <class>" / <class>; copy
+        # n_features_in_ and feature_names_in_ from estimators_[0] when present.
+        # Inputs: X; y - 1-D labels or 2-D indicator; fit_params - routed metadata.
+        # Outputs: self.
+        # Exceptions: ValueError from _raise_for_params when metadata is passed without
+        # routing enabled; LabelBinarizer errors for unsupported target types.
+        # Side effects: sets fitted attributes; parallel work with n_jobs/verbose.
         """Fit underlying estimators.
 
         Parameters
@@ -400,6 +488,18 @@ class OneVsRestClassifier(
         prefer_skip_nested_validation=False
     )
     def partial_fit(self, X, y, classes=None, **partial_fit_params):
+        # [FUNCTION DOC]
+        # Incremental fit. On the first call (classes given) creates n_classes clones and a
+        # sparse LabelBinarizer fitted on classes_. Rejects batches containing labels outside
+        # classes_, binarizes y, then calls _partial_fit_binary on each sub-estimator with its
+        # column. Copies n_features_in_ from the first sub-estimator.
+        # Inputs: X; y; classes - required on the first call; partial_fit_params - routed.
+        # Outputs: self.
+        # Exceptions: ValueError if y contains unseen labels, or if classes is missing on the
+        # first call / inconsistent later (from _check_partial_fit_first_call).
+        # Side effects: sets classes_ (via helper), estimators_, label_binarizer_.
+        # KNOWN ISSUE: unlike fit, verbose is not forwarded to Parallel and
+        # feature_names_in_ is never set.
         """Partially fit underlying estimators.
 
         Should be used when memory is inefficient to train all data.
@@ -480,6 +580,16 @@ class OneVsRestClassifier(
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Multiclass target type: iterate the estimators in reverse, keep a running elementwise
+        # maximum of scores and record the index wherever the score equals the current max, so
+        # ties resolve to the lowest class index (like argmax); return classes_ at those
+        # indices. Multilabel: threshold each estimator's score (0 or 0.5 depending on the
+        # first estimator), build a sparse CSC indicator (n_samples, n_classes) and
+        # inverse-transform it with the label binarizer.
+        # Inputs: X. Outputs: 1-D label array or indicator matrix (sparse/dense as the
+        # binarizer returns).
+        # Exceptions: NotFittedError.
         """Predict multi-class targets using underlying estimators.
 
         Parameters
@@ -521,6 +631,12 @@ class OneVsRestClassifier(
 
     @available_if(_estimators_has("predict_proba"))
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Stacks each sub-estimator's positive-class probability into (n_samples, n_classes).
+        # With a single estimator (binary problem) prepends the complement column. In the
+        # non-multilabel case, rows with a nonzero sum are normalized to sum to 1 (in place).
+        # Inputs: X. Outputs: float array (n_samples, n_classes) (2 columns for binary).
+        # Exceptions: NotFittedError; only available if the sub-estimators have predict_proba.
         """Probability estimates.
 
         The returned estimates for all classes are ordered by label of classes.
@@ -563,6 +679,11 @@ class OneVsRestClassifier(
 
     @available_if(_estimators_has("decision_function"))
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns estimators_[0].decision_function(X) unchanged for a single estimator
+        # (binary), otherwise stacks each estimator's raveled decision values column-wise.
+        # Outputs: (n_samples,) or (n_samples, n_classes).
+        # Exceptions: NotFittedError; available only if sub-estimators have decision_function.
         """Decision function for the OneVsRestClassifier.
 
         Return the distance of each sample from the decision boundary for each
@@ -593,15 +714,23 @@ class OneVsRestClassifier(
 
     @property
     def multilabel_(self):
+        # [FUNCTION DOC]
+        # Property: True when the label binarizer saw a "multilabel-*" target type.
+        # Exceptions: AttributeError if not fitted.
         """Whether this is a multilabel classifier."""
         return self.label_binarizer_.y_type_.startswith("multilabel")
 
     @property
     def n_classes_(self):
+        # [FUNCTION DOC]
+        # Property: number of entries in classes_.
         """Number of classes."""
         return len(self.classes_)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags by copying the wrapped estimator's pairwise and sparse input tags.
+        # Outputs: Tags object.
         """Indicate if wrapped estimator is using a precomputed Gram matrix"""
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = get_tags(self.estimator).input_tags.pairwise
@@ -609,6 +738,10 @@ class OneVsRestClassifier(
         return tags
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter that includes self requests and routes fit->fit and
+        # partial_fit->partial_fit to the wrapped estimator.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -637,6 +770,13 @@ class OneVsRestClassifier(
 
 
 def _fit_ovo_binary(estimator, X, y, i, j, fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Fits the classifier for one class pair (i, j). Selects samples whose label is
+    # i or j, encodes i as 0 and j as 1, subsets X with _safe_split (which also handles
+    # pairwise/precomputed kernels by selecting rows and columns) and subsets the
+    # sample-aligned fit params, then delegates to _fit_binary.
+    # Inputs: estimator; X; y - full label array; i, j - the two class labels; fit_params.
+    # Outputs: tuple (fitted estimator, integer indices of the selected samples).
     """Fit a single binary estimator (one-vs-one)."""
     cond = np.logical_or(y == i, y == j)
     y = y[cond]
@@ -659,6 +799,16 @@ def _fit_ovo_binary(estimator, X, y, i, j, fit_params):
 
 
 def _partial_fit_ovo_binary(estimator, X, y, i, j, partial_fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Incremental counterpart of _fit_ovo_binary. Selects the samples labelled i or
+    # j in this batch; if there are any, encodes j as 1 and others as 0, subsets params by
+    # the boolean mask and calls _partial_fit_binary; otherwise returns the estimator
+    # untouched.
+    # Inputs: estimator - current sub-estimator; X; y; i, j; partial_fit_params.
+    # Outputs: the (possibly updated) estimator.
+    # KNOWN ISSUE: subsets X with plain boolean indexing rather than _safe_split, so
+    # pairwise/precomputed inputs are not column-subset as in fit (partial_fit sets
+    # pairwise_indices_ to None accordingly).
     """Partially fit a single binary estimator(one-vs-one)."""
 
     cond = np.logical_or(y == i, y == j)
@@ -676,6 +826,12 @@ def _partial_fit_ovo_binary(estimator, X, y, i, j, partial_fit_params):
 
 
 class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # One-vs-one meta-classifier: fits n_classes*(n_classes-1)/2 binary estimators, one per
+    # ordered pair (i < j) of classes, each on the samples of those two classes only.
+    # Decision values are votes plus normalized confidences (_ovr_decision_function).
+    # Fitted attributes: classes_, estimators_, pairwise_indices_, n_features_in_,
+    # feature_names_in_ (from validate_data).
     """One-vs-one multiclass strategy.
 
     This strategy consists in fitting one classifier per class pair.
@@ -759,6 +915,8 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
     }
 
     def __init__(self, estimator, *, n_jobs=None):
+        # [FUNCTION DOC]
+        # Stores estimator and n_jobs unchanged.
         self.estimator = estimator
         self.n_jobs = n_jobs
 
@@ -767,6 +925,17 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Steps: reject/route metadata; validate X (csr/csc sparse allowed, non-finite allowed)
+        # and y; check classification targets; set classes_ (sorted unique); in parallel fit
+        # _fit_ovo_binary for every pair (i < j) in that order; split the results into
+        # estimators_ (tuple) and pairwise_indices_ (kept only if this meta-estimator's
+        # pairwise tag is set, else None).
+        # Inputs: X; y - 1-D labels; fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError if only one class is present or targets are not
+        # classification-like; ValueError for unrouted metadata.
+        # Side effects: sets fitted attributes.
         """Fit underlying estimators.
 
         Parameters
@@ -843,6 +1012,17 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def partial_fit(self, X, y, classes=None, **partial_fit_params):
+        # [FUNCTION DOC]
+        # Incremental fit. On the first call creates one clone per class pair. Rejects batches
+        # with labels not in classes_, validates X/y (resetting feature info only on the first
+        # call), then for each pair from itertools combinations calls _partial_fit_ovo_binary
+        # in parallel. Sets pairwise_indices_ to None and copies n_features_in_ from the first
+        # estimator.
+        # Inputs: X; y; classes - required on first call; partial_fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError for unseen labels, missing classes on the first call, or
+        # unrouted metadata.
+        # KNOWN ISSUE: the unseen-label check runs on raw y before validate_data.
         """Partially fit underlying estimators.
 
         Should be used when memory is inefficient to train all data. Chunks
@@ -930,6 +1110,15 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Computes decision_function. For two classes, thresholds the 1-D result with
+        # _threshold_for_binary_predict of the first estimator and maps 0/1 to classes_;
+        # otherwise returns classes_ at the row-wise argmax.
+        # Outputs: 1-D label array.
+        # KNOWN ISSUE: in the binary case decision_function returns the vote-plus-confidence
+        # value of class 1 (in [0, 1] style ranges, not a raw margin), yet it is compared with
+        # 0.0 or 0.5 depending on the base estimator; behavior relies on the vote term
+        # dominating.
         """Estimate the best class label for each sample in X.
 
         This is implemented as ``argmax(decision_function(X), axis=1)`` which
@@ -953,6 +1142,13 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return self.classes_[Y.argmax(axis=1)]
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Validates X (no reset). For each estimator uses X itself, or the column subset given
+        # by pairwise_indices_ when stored (precomputed kernels). Stacks predictions (0/1) and
+        # confidences (_predict_binary) into (n_samples, n_estimators) arrays and combines them
+        # with _ovr_decision_function into (n_samples, n_classes). Returns only column 1 for
+        # binary problems.
+        # Exceptions: NotFittedError; feature-count mismatch errors.
         """Decision function for the OneVsOneClassifier.
 
         The decision values for the samples are computed by adding the
@@ -1002,10 +1198,14 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
 
     @property
     def n_classes_(self):
+        # [FUNCTION DOC]
+        # Property: number of entries in classes_.
         """Number of classes."""
         return len(self.classes_)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies the wrapped estimator's pairwise and sparse input tags onto the parent tags.
         """Indicate if wrapped estimator is using a precomputed Gram matrix"""
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = get_tags(self.estimator).input_tags.pairwise
@@ -1013,6 +1213,9 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return tags
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # MetadataRouter with self requests, routing fit->fit and partial_fit->partial_fit to
+        # the wrapped estimator.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1041,6 +1244,13 @@ class OneVsOneClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
 
 
 class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Error-correcting output-code meta-classifier. A random code book of shape
+    # (n_classes, int(n_classes * code_size)) is drawn; one binary estimator is fitted per
+    # column; prediction picks the class whose code row is closest (Euclidean) to the
+    # vector of sub-estimator scores.
+    # Fitted attributes: classes_, code_book_, estimators_, optional n_features_in_ /
+    # feature_names_in_ from the first sub-estimator.
     """(Error-Correcting) Output-Code multiclass strategy.
 
     Output-code based strategies consist in representing each class with a
@@ -1151,6 +1361,8 @@ class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
     }
 
     def __init__(self, estimator, *, code_size=1.5, random_state=None, n_jobs=None):
+        # [FUNCTION DOC]
+        # Stores estimator, code_size, random_state and n_jobs unchanged.
         self.estimator = estimator
         self.code_size = code_size
         self.random_state = random_state
@@ -1161,6 +1373,22 @@ class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Steps: reject/route metadata; validate y only (X is not validated here); create the
+        # RNG from random_state; check targets; set classes_; draw a uniform
+        # (n_classes, n_estimators) matrix, set entries > 0.5 to 1 and the rest to -1 if the
+        # estimator has decision_function else 0; build the per-sample integer code matrix Y by
+        # looking up each sample's class row; fit _fit_binary on each column in parallel; copy
+        # n_features_in_ / feature_names_in_ from the first estimator.
+        # Inputs: X; y - 1-D labels; fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError for non-classification targets or unrouted metadata.
+        # Side effects: consumes randomness; sets fitted attributes.
+        # KNOWN ISSUE: the "no class is present" check (n_classes == 0) is effectively
+        # unreachable since y validation fails earlier on empty input. Also if
+        # int(n_classes * code_size) is 0 there are no estimators and estimators_[0] raises
+        # IndexError. A random code column can be constant, which silently yields a
+        # _ConstantPredictor (no warning since classes is not passed).
         """Fit underlying estimators.
 
         Parameters
@@ -1238,6 +1466,11 @@ class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Builds an F-ordered float64 matrix of _predict_binary scores (one row per estimator),
+        # transposes it to C-contiguous (n_samples, n_estimators), finds for each sample the
+        # nearest code-book row by Euclidean distance and returns the corresponding class.
+        # Exceptions: NotFittedError.
         """Predict multi-class targets using underlying estimators.
 
         Parameters
@@ -1263,6 +1496,8 @@ class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return self.classes_[pred]
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # MetadataRouter routing fit->fit to the wrapped estimator (no self requests).
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1284,6 +1519,8 @@ class OutputCodeClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies the wrapped estimator's sparse input tag onto the parent tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         return tags

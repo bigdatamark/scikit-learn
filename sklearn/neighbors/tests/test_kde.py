@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for KernelDensity: densities against a brute-force reference, sampling,
+# algorithm/metric combinations, sample_weight validation and semantics, pipeline
+# and grid-search integration, pickling, fitted checks and bandwidth rules.
 import joblib
 import numpy as np
 import pytest
@@ -14,6 +18,14 @@ from sklearn.utils._testing import assert_allclose
 
 # XXX Duplicated in test_neighbors_tree, test_kde
 def compute_kernel_slow(Y, X, kernel, h):
+    # [FUNCTION DOC]
+    # HELPER: Brute-force reference KDE. Resolves h for "scott" (n^(-1/(d+4))) or
+    # "silverman" ((n(d+2)/4)^(-1/(d+4))), computes all pairwise Euclidean distances
+    # between query rows Y and training rows X, and sums the chosen kernel over X,
+    # scaled by kernel_norm(h, d, kernel)/n.
+    # Inputs: Y (m, d), X (n, d) float arrays; kernel - name; h - float or rule name.
+    # Outputs: (m,) array of densities (not log). Exceptions: ValueError for an
+    # unknown kernel. Memory is O(m*n*d).
     if h == "scott":
         h = X.shape[0] ** (-1 / (X.shape[1] + 4))
     elif h == "silverman":
@@ -39,6 +51,11 @@ def compute_kernel_slow(Y, X, kernel, h):
 
 
 def check_results(kernel, bandwidth, atol, rtol, X, Y, dens_true):
+    # [FUNCTION DOC]
+    # HELPER: Fits KernelDensity with given kernel/bandwidth/atol/rtol on X and asserts
+    # exp(score_samples(Y)) matches dens_true, and exp(score(Y)) matches the product of
+    # dens_true, within atol and rtol (rtol floored at 1e-7).
+    # Outputs: None. Exceptions: AssertionError on mismatch.
     kde = KernelDensity(kernel=kernel, bandwidth=bandwidth, atol=atol, rtol=rtol)
     log_dens = kde.fit(X).score_samples(Y)
     assert_allclose(np.exp(log_dens), dens_true, atol=atol, rtol=max(1e-7, rtol))
@@ -52,6 +69,11 @@ def check_results(kernel, bandwidth, atol, rtol, X, Y, dens_true):
 )
 @pytest.mark.parametrize("bandwidth", [0.01, 0.1, 1, "scott", "silverman"])
 def test_kernel_density(kernel, bandwidth):
+    # [FUNCTION DOC]
+    # Compares KernelDensity to compute_kernel_slow for all kernels and bandwidths
+    # (numeric and rule-based) over a grid of atol/rtol tolerances on random 3D data.
+    # KNOWN ISSUE: the breadth_first loop variable is never passed to check_results /
+    # KernelDensity, so each check simply runs twice identically.
     n_samples, n_features = (100, 3)
 
     rng = np.random.RandomState(0)
@@ -67,6 +89,13 @@ def test_kernel_density(kernel, bandwidth):
 
 
 def test_kernel_density_sampling(n_samples=100, n_features=3):
+    # [FUNCTION DOC]
+    # Checks sample() for gaussian and tophat kernels returns the right shape and that
+    # every training point lies within bandwidth (tophat) or 5*bandwidth (gaussian) of
+    # its nearest neighbour; other kernels raise NotImplementedError on sample; and
+    # sample() with defaults returns shape (1, 1) for 1-feature data (regression).
+    # KNOWN ISSUE: the range check queries neighbours of X in X (distance 0) rather
+    # than of the drawn samples, so it is trivially satisfied and does not test samp.
     rng = np.random.RandomState(0)
     X = rng.randn(n_samples, n_features)
 
@@ -106,6 +135,10 @@ def test_kernel_density_sampling(n_samples=100, n_features=3):
     "metric", ["euclidean", "minkowski", "manhattan", "chebyshev", "haversine"]
 )
 def test_kde_algorithm_metric_choice(algorithm, metric):
+    # [FUNCTION DOC]
+    # Smoke test: for each algorithm/metric pair, fitting either raises ValueError
+    # "invalid metric" (kd_tree with a metric KDTree does not support) or succeeds and
+    # score_samples returns one value per query row.
     # Smoke test for various metrics and algorithms
     rng = np.random.RandomState(0)
     X = rng.randn(10, 2)  # 2 features required for haversine dist.
@@ -123,6 +156,9 @@ def test_kde_algorithm_metric_choice(algorithm, metric):
 
 
 def test_kde_score(n_samples=100, n_features=3):
+    # [FUNCTION DOC]
+    # Placeholder; does nothing.
+    # KNOWN ISSUE: empty test (body is pass plus FIXME comments); always passes.
     pass
     # FIXME
     # rng = np.random.RandomState(0)
@@ -131,6 +167,9 @@ def test_kde_score(n_samples=100, n_features=3):
 
 
 def test_kde_sample_weights_error():
+    # [FUNCTION DOC]
+    # Checks fit raises ValueError for a 2D sample_weight and for negative weights.
+    # Uses the global unseeded numpy RNG.
     kde = KernelDensity()
     with pytest.raises(ValueError):
         kde.fit(np.random.random((200, 10)), sample_weight=np.random.random((200, 10)))
@@ -139,6 +178,9 @@ def test_kde_sample_weights_error():
 
 
 def test_kde_pipeline_gridsearch():
+    # [FUNCTION DOC]
+    # Checks KernelDensity works inside a pipeline with an identity StandardScaler and
+    # that GridSearchCV over bandwidth on tight 3-blob data picks bandwidth 0.1.
     # test that kde plays nice in pipelines and grid-searches
     X, _ = make_blobs(cluster_std=0.1, random_state=1, centers=[[0, 1], [1, 0], [0, 0]])
     pipe1 = make_pipeline(
@@ -152,6 +194,11 @@ def test_kde_pipeline_gridsearch():
 
 
 def test_kde_sample_weights():
+    # [FUNCTION DOC]
+    # For dims 1, 2, 10 and each valid algorithm/metric, verifies: constant weights
+    # equal no weights (scores and seeded sample); integer weights equal repeating rows
+    # (scores and sample); weights change scores by more than 1e-3; scaling weights by
+    # a random factor leaves scores unchanged.
     n_samples = 400
     size_test = 20
     weights_neutral = np.full(n_samples, 3.0)
@@ -200,6 +247,10 @@ def test_kde_sample_weights():
 
 @pytest.mark.parametrize("sample_weight", [None, [0.1, 0.2, 0.3]])
 def test_pickling(tmpdir, sample_weight):
+    # [FUNCTION DOC]
+    # Checks score_samples is unchanged after joblib dump/load to tmpdir, with and
+    # without sample_weight (regression: sample weights were not pickled).
+    # Side effects: writes dump.pkl in pytest tmpdir.
     # Make sure that predictions are the same before and after pickling. Used
     # to be a bug because sample_weights wasn't pickled and the resulting tree
     # would miss some info.
@@ -221,6 +272,8 @@ def test_pickling(tmpdir, sample_weight):
 
 @pytest.mark.parametrize("method", ["score_samples", "sample"])
 def test_check_is_fitted(method):
+    # [FUNCTION DOC]
+    # Checks score_samples and sample raise NotFittedError on an unfitted estimator.
     # Check that predict raises an exception in an unfitted estimator.
     # Unfitted estimators should raise a NotFittedError.
     rng = np.random.RandomState(0)
@@ -233,6 +286,9 @@ def test_check_is_fitted(method):
 
 @pytest.mark.parametrize("bandwidth", ["scott", "silverman", 0.1])
 def test_bandwidth(bandwidth):
+    # [FUNCTION DOC]
+    # For "scott", "silverman" and 0.1, checks sample/score_samples output shapes and
+    # that the fitted bandwidth_ equals the rule's formula or the given number.
     n_samples, n_features = (100, 3)
     rng = np.random.RandomState(0)
     X = rng.randn(n_samples, n_features)

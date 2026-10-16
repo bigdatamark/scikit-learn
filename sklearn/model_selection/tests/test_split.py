@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests for sklearn.model_selection._split: all cross-validation splitters (KFold,
+# StratifiedKFold, group splitters, shuffle splitters, leave-out splitters,
+# TimeSeriesSplit, PredefinedSplit, repeated splitters), train_test_split,
+# check_cv, private helpers (_build_repr, _validate_shuffle_split,
+# _yields_constant_splits), metadata routing defaults and array API support.
+# Module-level fixtures: lists of splitter instances by group requirement, toy X/y,
+# several group arrays, the digits dataset (loaded at import), and a pytestmark
+# turning the "groups parameter" UserWarning into an error.
 """Test the split module"""
 
 import re
@@ -110,6 +119,11 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 def _split(splitter, X, y, groups):
+    # [FUNCTION DOC]
+    # HELPER: Calls splitter.split, passing groups only for splitters whose class is in
+    # GROUP_SPLITTER_NAMES (so non-group splitters do not warn about ignored groups).
+    # Inputs: splitter - CV object; X, y - data; groups - group labels or None.
+    # Outputs: the generator of (train, test) index arrays from split.
     if splitter.__class__.__name__ in GROUP_SPLITTER_NAMES:
         return splitter.split(X, y, groups=groups)
     else:
@@ -117,6 +131,12 @@ def _split(splitter, X, y, groups):
 
 
 def test_cross_validator_with_default_params():
+    # [FUNCTION DOC]
+    # Verifies for default-parameter splitters (LOO, LPO, KFold, StratifiedKFold,
+    # LOGO, LPGO, ShuffleSplit, PredefinedSplit, StratifiedGroupKFold) that
+    # get_n_splits returns the expected count, splits on 1d and 2d X are identical,
+    # indices are integer arrays, and repr matches the expected string. Also checks
+    # LOO/LPO get_n_splits raise ValueError when X is None.
     n_samples = 4
     n_unique_groups = 4
     n_splits = 2
@@ -202,6 +222,10 @@ def test_cross_validator_with_default_params():
 
 
 def test_2d_y():
+    # [FUNCTION DOC]
+    # Smoke test: every splitter accepts 1d and column-vector y; for multilabel y a
+    # ValueError is tolerated only if it mentions supported target types binary and
+    # multiclass. Randomness: seeded RandomState data.
     # smoke test for 2d y and multi-label
     n_samples = 30
     rng = np.random.RandomState(1)
@@ -241,6 +265,11 @@ def test_2d_y():
 
 
 def check_valid_split(train, test, n_samples=None):
+    # [FUNCTION DOC]
+    # HELPER: Asserts train and test index collections are disjoint and, when
+    # n_samples is given, that their union covers range(n_samples).
+    # Inputs: train, test - iterables of indices; n_samples - int or None.
+    # Exceptions: AssertionError on violation.
     # Use python sets to get more informative assertion failure messages
     train, test = set(train), set(test)
 
@@ -253,6 +282,13 @@ def check_valid_split(train, test, n_samples=None):
 
 
 def check_cv_coverage(cv, X, y, groups, expected_n_splits):
+    # [FUNCTION DOC]
+    # HELPER: Asserts cv.get_n_splits equals expected_n_splits, every split is valid
+    # (via check_valid_split), the number of iterations equals expected_n_splits, and
+    # the union of test folds covers all samples.
+    # Inputs: cv - splitter; X, y, groups - data passed to get_n_splits/split;
+    # expected_n_splits - int.
+    # Exceptions: AssertionError on violation.
     n_samples = _num_samples(X)
     # Check that all the samples appear at least once in a test fold
     assert cv.get_n_splits(X, y, groups) == expected_n_splits
@@ -271,6 +307,13 @@ def check_cv_coverage(cv, X, y, groups, expected_n_splits):
 
 
 def test_kfold_valueerrors():
+    # [FUNCTION DOC]
+    # Verifies KFold/StratifiedKFold/StratifiedGroupKFold validation: least-populated
+    # class warnings, folds still covering data despite the warning, ValueError when
+    # every class has fewer members than n_splits, ValueError for n_splits <= 1 or
+    # non-int n_splits, and TypeError for non-bool shuffle.
+    # KNOWN ISSUE: the first check is a bare tuple expression (ValueError, next, ...)
+    # that asserts nothing, so the "not enough samples" error is never tested.
     X1 = np.array([[1, 2], [3, 4], [5, 6]])
     X2 = np.array([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]])
     # Check that errors are raised if there is not enough samples
@@ -344,6 +387,9 @@ def test_kfold_valueerrors():
 
 
 def test_kfold_indices():
+    # [FUNCTION DOC]
+    # Verifies KFold test folds cover all indices for evenly (18) and unevenly (17)
+    # divisible sample counts, and get_n_splits returns n_splits.
     # Check all indices are returned in the test folds
     X1 = np.ones(18)
     kf = KFold(3)
@@ -360,6 +406,9 @@ def test_kfold_indices():
 
 
 def test_kfold_no_shuffle():
+    # [FUNCTION DOC]
+    # Verifies non-shuffled KFold produces contiguous, ordered test folds on toy data,
+    # with the first folds getting the extra sample when sizes are uneven.
     # Manually check that KFold preserves the data ordering on toy datasets
     X2 = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
 
@@ -383,6 +432,11 @@ def test_kfold_no_shuffle():
 
 
 def test_stratified_kfold_no_shuffle():
+    # [FUNCTION DOC]
+    # Verifies non-shuffled StratifiedKFold keeps ordering as much as possible on toy
+    # data (explicit expected folds), get_n_splits returns n_splits, string and int
+    # labels give identical splits, and on perfectly alternating labels it matches
+    # KFold.
     # Manually check that StratifiedKFold preserves the data ordering as much
     # as possible on toy datasets in order to avoid hiding sample dependencies
     # when possible
@@ -429,6 +483,10 @@ def test_stratified_kfold_no_shuffle():
 @pytest.mark.parametrize("k", [4, 5, 6, 7, 8, 9, 10])
 @pytest.mark.parametrize("kfold", (StratifiedKFold, StratifiedGroupKFold))
 def test_stratified_kfold_ratios(k, shuffle, kfold):
+    # [FUNCTION DOC]
+    # Verifies StratifiedKFold and StratifiedGroupKFold (groups = one per sample)
+    # preserve class proportions within 0.02 in every train and test fold, with and
+    # without shuffling, and that test fold sizes differ by at most 1.
     # Check that stratified kfold preserves class ratios in individual splits
     # Repeat with shuffling turned off and on
     n_samples = 1000
@@ -456,6 +514,9 @@ def test_stratified_kfold_ratios(k, shuffle, kfold):
 @pytest.mark.parametrize("k", [4, 6, 7])
 @pytest.mark.parametrize("kfold", (StratifiedKFold, StratifiedGroupKFold))
 def test_stratified_kfold_label_invariance(k, shuffle, kfold):
+    # [FUNCTION DOC]
+    # Verifies stratified splitters yield identical splits when class labels are
+    # relabelled by every permutation of {0, 1, 2}.
     # Check that stratified kfold gives the same indices regardless of labels
     n_samples = 100
     y = np.array(
@@ -468,6 +529,9 @@ def test_stratified_kfold_label_invariance(k, shuffle, kfold):
     groups = np.arange(len(y))
 
     def get_splits(y):
+        # [FUNCTION DOC]
+        # HELPER: Returns the list of (train list, test list) pairs from a fresh
+        # splitter of the enclosing kfold class, k, shuffle and fixed groups, for labels y.
         random_state = None if not shuffle else 0
         return [
             (list(train), list(test))
@@ -487,6 +551,9 @@ def test_stratified_kfold_label_invariance(k, shuffle, kfold):
 
 
 def test_kfold_balance():
+    # [FUNCTION DOC]
+    # Verifies KFold(5) test fold sizes differ by at most one and sum to n for n in
+    # 11..16.
     # Check that KFold returns folds with balanced sizes
     for i in range(11, 17):
         kf = KFold(5).split(X=np.ones(i))
@@ -498,6 +565,10 @@ def test_kfold_balance():
 
 @pytest.mark.parametrize("kfold", (StratifiedKFold, StratifiedGroupKFold))
 def test_stratifiedkfold_balance(kfold):
+    # [FUNCTION DOC]
+    # Verifies stratified splitters give balanced test fold sizes (spread <= 1,
+    # summing to n) for prefixes of an imbalanced dataset, with and without shuffle.
+    # KNOWN ISSUE: shuffle=True is used without random_state, so it is nondeterministic.
     # Check that KFold returns folds with balanced sizes (only when
     # stratification is possible)
     # Repeat with shuffling turned off and on
@@ -517,6 +588,9 @@ def test_stratifiedkfold_balance(kfold):
 
 
 def test_shuffle_kfold():
+    # [FUNCTION DOC]
+    # Verifies shuffled KFold with different seeds and unshuffled KFold never produce
+    # identical training sets, and that the shuffled test folds cover all 300 samples.
     # Check the indices are shuffled properly
     kf = KFold(3)
     kf2 = KFold(3, shuffle=True, random_state=0)
@@ -541,6 +615,11 @@ def test_shuffle_kfold():
 
 @pytest.mark.parametrize("kfold", (KFold, StratifiedKFold, StratifiedGroupKFold))
 def test_shuffle_kfold_stratifiedkfold_reproducibility(kfold):
+    # [FUNCTION DOC]
+    # Verifies shuffled KFold/StratifiedKFold/StratifiedGroupKFold are reproducible
+    # across split calls with an int random_state, and give different test folds on
+    # repeated split calls when random_state is a RandomState instance (state
+    # advances), for data sizes divisible and not divisible by 3.
     X = np.ones(15)  # Divisible by 3
     y = [0] * 7 + [1] * 8
     groups_1 = np.arange(len(y))
@@ -572,6 +651,10 @@ def test_shuffle_kfold_stratifiedkfold_reproducibility(kfold):
 
 
 def test_shuffle_stratifiedkfold():
+    # [FUNCTION DOC]
+    # Verifies shuffled StratifiedKFold with different seeds yields different test
+    # sets, still covers all samples, and that each class is shuffled with a
+    # different random draw (non-regression for PR 13124).
     # Check that shuffling is happening when requested, and for proper
     # sample coverage
     X_40 = np.ones(40)
@@ -595,6 +678,9 @@ def test_shuffle_stratifiedkfold():
 
 
 def test_shuffle_groupkfold():
+    # [FUNCTION DOC]
+    # Verifies GroupKFold with shuffle and different seeds assigns different group
+    # sets to each test fold, and that both splitters fully cover the samples.
     # Check that shuffling is happening when requested, and for proper
     # sample coverage
     X = np.ones(40)
@@ -619,6 +705,10 @@ def test_shuffle_groupkfold():
 
 
 def test_kfold_can_detect_dependent_samples_on_digits():  # see #2372
+    # [FUNCTION DOC]
+    # Verifies on 600 digits samples with an SVC that non-shuffled KFold and
+    # StratifiedKFold give lower CV accuracy (0.80..0.92/0.94) than shuffled KFold
+    # (> 0.92), showing that shuffling hides author-dependent samples.
     # The digits samples are dependent: they are apparently grouped by authors
     # although we don't have any information on the groups segment locations
     # for this data. We can highlight this fact by computing k-fold cross-
@@ -663,6 +753,10 @@ def test_kfold_can_detect_dependent_samples_on_digits():  # see #2372
 
 
 def test_stratified_group_kfold_trivial():
+    # [FUNCTION DOC]
+    # Verifies StratifiedGroupKFold on groups with identical class distribution:
+    # no group overlap between train and test, class ratios within 0.02, and test
+    # sizes differ by at most 1.
     sgkf = StratifiedGroupKFold(n_splits=3)
     # Trivial example - groups with the same distribution
     y = np.array([1] * 6 + [0] * 12)
@@ -681,6 +775,10 @@ def test_stratified_group_kfold_trivial():
 
 
 def test_stratified_group_kfold_approximate():
+    # [FUNCTION DOC]
+    # Verifies StratifiedGroupKFold yields the documented approximate per-fold class
+    # distributions (due to greedy group iteration) with no group overlap and
+    # balanced test sizes.
     # Not perfect stratification (even though it is possible) because of
     # iteration over groups
     sgkf = StratifiedGroupKFold(n_splits=3)
@@ -714,6 +812,9 @@ def test_stratified_group_kfold_approximate():
     ],
 )
 def test_stratified_group_kfold_homogeneous_groups(y, groups, expected):
+    # [FUNCTION DOC]
+    # Verifies StratifiedGroupKFold on groups that each contain a single class yields
+    # the expected per-fold class distributions with no group overlap.
     sgkf = StratifiedGroupKFold(n_splits=3)
     X = np.ones_like(y).reshape(-1, 1)
     for (train, test), expect_dist in zip(sgkf.split(X, y, groups), expected):
@@ -724,6 +825,10 @@ def test_stratified_group_kfold_homogeneous_groups(y, groups, expected):
 
 
 def test_stratified_group_kfold_shuffle_preserves_stratification():
+    # [FUNCTION DOC]
+    # Verifies shuffled StratifiedGroupKFold keeps exact (1e-8) class ratios in all
+    # train/test folds, no group overlap and balanced test sizes, for 100 seeds, since
+    # shuffling only affects tie-breaking among groups (issue 32478).
     # Check StratifiedGroupKFold with shuffle=True preserves stratification:
     # shuffling only affects tie-breaking among groups with identical
     # standard deviation of class distribution (see #32478)
@@ -757,6 +862,10 @@ def test_stratified_group_kfold_shuffle_preserves_stratification():
 @pytest.mark.parametrize("cls_distr", [(0.4, 0.6), (0.3, 0.7), (0.2, 0.8), (0.8, 0.2)])
 @pytest.mark.parametrize("n_groups", [5, 30, 70])
 def test_stratified_group_kfold_against_group_kfold(cls_distr, n_groups):
+    # [FUNCTION DOC]
+    # Verifies that on 1000 random samples StratifiedGroupKFold yields lower average
+    # KL divergence of test-fold class distributions from the true distribution than
+    # GroupKFold, while respecting group separation. Seeded randomness.
     # Check that given sufficient amount of samples StratifiedGroupKFold
     # produces better stratified folds than regular GroupKFold
     n_splits = 5
@@ -784,6 +893,9 @@ def test_stratified_group_kfold_against_group_kfold(cls_distr, n_groups):
 
 
 def test_shuffle_split():
+    # [FUNCTION DOC]
+    # Verifies ShuffleSplit gives identical splits for test_size given as fraction
+    # 0.2, int 2 and numpy int32 2 on 10 samples with the same seed.
     ss1 = ShuffleSplit(test_size=0.2, random_state=0).split(X)
     ss2 = ShuffleSplit(test_size=2, random_state=0).split(X)
     ss3 = ShuffleSplit(test_size=np.int32(2), random_state=0).split(X)
@@ -802,6 +914,9 @@ def test_shuffle_split():
     "train_size, exp_train, exp_test", [(None, 9, 1), (8, 8, 2), (0.8, 8, 2)]
 )
 def test_shuffle_split_default_test_size(split_class, train_size, exp_train, exp_test):
+    # [FUNCTION DOC]
+    # Verifies ShuffleSplit/StratifiedShuffleSplit default test_size: 0.1 when
+    # train_size is None, otherwise the complement of train_size.
     # Check that the default value has the expected behavior, i.e. 0.1 if both
     # unspecified or complement train_size unless both are specified.
     X = np.ones(10)
@@ -817,6 +932,9 @@ def test_shuffle_split_default_test_size(split_class, train_size, exp_train, exp
     "train_size, exp_train, exp_test", [(None, 8, 2), (7, 7, 3), (0.7, 7, 3)]
 )
 def test_group_shuffle_split_default_test_size(train_size, exp_train, exp_test):
+    # [FUNCTION DOC]
+    # Verifies GroupShuffleSplit default test_size: 0.2 when train_size is None,
+    # otherwise the complement of train_size (one sample per group).
     # Check that the default value has the expected behavior, i.e. 0.2 if both
     # unspecified or complement train_size unless both are specified.
     X = np.ones(10)
@@ -830,6 +948,9 @@ def test_group_shuffle_split_default_test_size(train_size, exp_train, exp_test):
 
 
 def test_stratified_shuffle_split_init():
+    # [FUNCTION DOC]
+    # Verifies StratifiedShuffleSplit.split raises ValueError for a class with one
+    # sample, test or train sizes smaller than the number of classes.
     X = np.arange(7)
     y = np.asarray([0, 1, 1, 1, 2, 2, 2])
     # Check that error is raised if there is a class with only one sample
@@ -855,6 +976,8 @@ def test_stratified_shuffle_split_init():
 
 
 def test_stratified_shuffle_split_respects_test_size():
+    # [FUNCTION DOC]
+    # Verifies StratifiedShuffleSplit honours explicit integer train and test sizes.
     y = np.array([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2])
     test_size = 5
     train_size = 10
@@ -867,6 +990,10 @@ def test_stratified_shuffle_split_respects_test_size():
 
 
 def test_stratified_shuffle_split_iter():
+    # [FUNCTION DOC]
+    # Verifies StratifiedShuffleSplit across varied label arrays (lists, strings,
+    # imbalanced): train and test contain the same classes, class proportions match to
+    # one decimal, sizes match ceil-based test_size, and the sets are disjoint.
     ys = [
         np.array([1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3]),
         np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]),
@@ -904,12 +1031,22 @@ def test_stratified_shuffle_split_iter():
 
 
 def test_stratified_shuffle_split_even():
+    # [FUNCTION DOC]
+    # Verifies StratifiedShuffleSplit draws indices uniformly: over 1000 splits, each
+    # index's train/test inclusion count must have binomial pmf above a Bonferroni
+    # threshold; also checks sizes match _validate_shuffle_split and disjointness.
+    # KNOWN ISSUE: size/disjointness asserts only inspect the last split of the loop.
     # Test the StratifiedShuffleSplit, indices are drawn with a
     # equal chance
     n_folds = 5
     n_splits = 1000
 
     def assert_counts_are_ok(idx_counts, p):
+        # [FUNCTION DOC]
+        # HELPER: Asserts each count has probability above 0.05 / n_splits under a
+        # binomial(n_splits, p) distribution.
+        # Inputs: idx_counts - list of per-index counts; p - expected inclusion probability.
+        # Exceptions: AssertionError for an implausible count.
         # Here we test that the distribution of the counts
         # per index is close enough to a binomial
         threshold = 0.05 / n_splits
@@ -956,6 +1093,9 @@ def test_stratified_shuffle_split_even():
 
 
 def test_stratified_shuffle_split_overlap_train_test_bug():
+    # [FUNCTION DOC]
+    # Non-regression for issue 6121: StratifiedShuffleSplit train and test indices
+    # are disjoint and together cover all samples.
     # See https://github.com/scikit-learn/scikit-learn/issues/6121 for
     # the original bug report
     y = [0, 1, 2, 3] * 3 + [4, 5] * 5
@@ -973,6 +1113,9 @@ def test_stratified_shuffle_split_overlap_train_test_bug():
 
 
 def test_stratified_shuffle_split_multilabel():
+    # [FUNCTION DOC]
+    # Non-regression for issue 9037: StratifiedShuffleSplit on multilabel y gives a
+    # disjoint complete partition and stratifies whole rows (first-column mean kept).
     # fix for issue 9037
     for y in [
         np.array([[0, 1], [1, 0], [1, 0], [0, 1]]),
@@ -998,6 +1141,9 @@ def test_stratified_shuffle_split_multilabel():
 
 
 def test_stratified_shuffle_split_multilabel_many_labels():
+    # [FUNCTION DOC]
+    # Non-regression for PR 9922: multilabel rows with >1000 labels (whose str is
+    # truncated) are still stratified correctly by full row identity.
     # fix in PR #9922: for multilabel data with > 1000 labels, str(row)
     # truncates with an ellipsis for elements in positions 4 through
     # len(row) - 4, so labels were not being correctly split using the powerset
@@ -1021,6 +1167,9 @@ def test_stratified_shuffle_split_multilabel_many_labels():
 
 
 def test_predefinedsplit_with_kfold_split():
+    # [FUNCTION DOC]
+    # Verifies PredefinedSplit built from shuffled KFold fold assignments reproduces
+    # the same train/test indices and reports the number of unique folds as n_splits.
     # Check that PredefinedSplit can reproduce a split generated by Kfold.
     folds = np.full(10, -1.0)
     kf_train = []
@@ -1038,6 +1187,10 @@ def test_predefinedsplit_with_kfold_split():
 
 
 def test_group_shuffle_split():
+    # [FUNCTION DOC]
+    # Verifies GroupShuffleSplit on each module-level group array: repr works,
+    # get_n_splits is correct, train and test groups never overlap, splits are
+    # disjoint and cover all data, and group counts match test_size within 1.
     for groups_i in test_groups:
         X = y = np.ones(len(groups_i))
         n_splits = 6
@@ -1075,6 +1228,12 @@ def test_group_shuffle_split():
 
 
 def test_leave_one_p_group_out():
+    # [FUNCTION DOC]
+    # Verifies LeaveOneGroupOut and LeavePGroupsOut: reprs, get_n_splits equals
+    # n_groups or C(n_groups, 2), no group overlap, full coverage; get_n_splits with
+    # dummy X/y; ValueError for NaN/inf groups and for groups None.
+    # KNOWN ISSUE: "assert np.unique(...).shape[0], p_groups_out" uses p_groups_out as
+    # the assertion message, so the number of test groups is never compared.
     logo = LeaveOneGroupOut()
     lpgo_1 = LeavePGroupsOut(n_groups=1)
     lpgo_2 = LeavePGroupsOut(n_groups=2)
@@ -1130,6 +1289,11 @@ def test_leave_one_p_group_out():
 
 
 def test_leave_group_out_changing_groups():
+    # [FUNCTION DOC]
+    # Verifies LOGO/LPGO split generators are unaffected by mutating a copy of groups
+    # before iterating, and get_n_splits returns 3 for 3 unique groups.
+    # KNOWN ISSUE: both generators receive the original groups, never groups_changing,
+    # so the mutation scenario is not actually exercised.
     # Check that LeaveOneGroupOut and LeavePGroupsOut work normally if
     # the groups variable is changed before calling split
     groups = np.array([0, 1, 2, 1, 1, 2, 0, 0])
@@ -1152,6 +1316,8 @@ def test_leave_group_out_changing_groups():
 
 
 def test_leave_group_out_order_dependence():
+    # [FUNCTION DOC]
+    # Verifies LeaveOneGroupOut emits splits ordered by sorted group value.
     # Check that LeaveOneGroupOut orders the splits according to the index
     # of the group left out.
     groups = np.array([2, 2, 0, 0, 1, 1])
@@ -1172,6 +1338,9 @@ def test_leave_group_out_order_dependence():
 
 
 def test_leave_one_p_group_out_error_on_fewer_number_of_groups():
+    # [FUNCTION DOC]
+    # Verifies LOGO/LPGO split errors: empty input, fewer than 2 unique groups for
+    # LOGO, and at most n_groups unique groups for LeavePGroupsOut, with exact messages.
     X = y = groups = np.ones(0)
     msg = re.escape("Found array with 0 sample(s)")
     with pytest.raises(ValueError, match=msg):
@@ -1207,6 +1376,9 @@ def test_leave_one_p_group_out_error_on_fewer_number_of_groups():
 
 
 def test_repeated_cv_value_errors():
+    # [FUNCTION DOC]
+    # Verifies RepeatedKFold/RepeatedStratifiedKFold raise ValueError for n_repeats
+    # 0 or non-integer.
     # n_repeats is not integer or <= 0
     for cv in (RepeatedKFold, RepeatedStratifiedKFold):
         with pytest.raises(ValueError):
@@ -1217,6 +1389,8 @@ def test_repeated_cv_value_errors():
 
 @pytest.mark.parametrize("RepeatedCV", [RepeatedKFold, RepeatedStratifiedKFold])
 def test_repeated_cv_repr(RepeatedCV):
+    # [FUNCTION DOC]
+    # Verifies the repr of repeated splitters lists n_repeats, n_splits, random_state.
     n_splits, n_repeats = 2, 6
     repeated_cv = RepeatedCV(n_splits=n_splits, n_repeats=n_repeats)
     repeated_cv_repr = "{}(n_repeats=6, n_splits=2, random_state=None)".format(
@@ -1226,6 +1400,9 @@ def test_repeated_cv_repr(RepeatedCV):
 
 
 def test_repeated_kfold_deterministic_split():
+    # [FUNCTION DOC]
+    # Verifies RepeatedKFold with a fixed seed yields the same hard-coded 4 splits on
+    # each of three split calls and then stops.
     X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
     random_state = 258173307
     rkf = RepeatedKFold(n_splits=2, n_repeats=2, random_state=random_state)
@@ -1255,6 +1432,8 @@ def test_repeated_kfold_deterministic_split():
 
 
 def test_get_n_splits_for_repeated_kfold():
+    # [FUNCTION DOC]
+    # Verifies RepeatedKFold.get_n_splits equals n_splits times n_repeats.
     n_splits = 3
     n_repeats = 4
     rkf = RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats)
@@ -1263,6 +1442,8 @@ def test_get_n_splits_for_repeated_kfold():
 
 
 def test_get_n_splits_for_repeated_stratified_kfold():
+    # [FUNCTION DOC]
+    # Verifies RepeatedStratifiedKFold.get_n_splits equals n_splits times n_repeats.
     n_splits = 3
     n_repeats = 4
     rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats)
@@ -1271,6 +1452,9 @@ def test_get_n_splits_for_repeated_stratified_kfold():
 
 
 def test_repeated_stratified_kfold_deterministic_split():
+    # [FUNCTION DOC]
+    # Verifies RepeatedStratifiedKFold with a fixed seed yields the same hard-coded 4
+    # splits on each of three split calls and then stops.
     X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
     y = [1, 1, 1, 0, 0]
     random_state = 1944695409
@@ -1301,6 +1485,10 @@ def test_repeated_stratified_kfold_deterministic_split():
 
 
 def test_train_test_split_errors():
+    # [FUNCTION DOC]
+    # Verifies train_test_split errors: no arrays, invalid/oversized/conflicting
+    # sizes, wrong-type size, unexpected kwarg (TypeError), inconsistent lengths,
+    # stratify with shuffle False, and the message for an int train_size too large.
     pytest.raises(ValueError, train_test_split)
 
     pytest.raises(ValueError, train_test_split, range(3), train_size=1.1)
@@ -1332,6 +1520,9 @@ def test_train_test_split_errors():
     "train_size, exp_train, exp_test", [(None, 7, 3), (8, 8, 2), (0.8, 8, 2)]
 )
 def test_train_test_split_default_test_size(train_size, exp_train, exp_test):
+    # [FUNCTION DOC]
+    # Verifies train_test_split default test_size is 0.25 (ceil) when train_size is
+    # None, otherwise the complement of train_size, on 10 samples.
     # Check that the default value has the expected behavior, i.e. complement
     # train_size unless both are specified.
     X_train, X_test = train_test_split(X, train_size=train_size)
@@ -1356,6 +1547,10 @@ def test_train_test_split_default_test_size(train_size, exp_train, exp_test):
 def test_array_api_train_test_split(
     shuffle, stratify, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies train_test_split under array API dispatch preserves namespace, device
+    # and dtype of outputs and returns the same values as the NumPy path, with and
+    # without shuffle/stratify, for each namespace/device/dtype combination.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     X = np.arange(100).reshape((10, 10))
@@ -1409,6 +1604,11 @@ def test_array_api_train_test_split(
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_train_test_split(coo_container):
+    # [FUNCTION DOC]
+    # Verifies train_test_split basics: X and y rows stay aligned, list inputs stay
+    # lists, nd-arrays are split along the first axis (default 75/25), stratified
+    # splits keep a 1:1 class ratio for int and float test sizes, and shuffle=False
+    # puts the last samples in the test set.
     X = np.arange(100).reshape((10, 10))
     X_s = coo_container(X)
     y = np.arange(10)
@@ -1456,6 +1656,9 @@ def test_train_test_split(coo_container):
 
 
 def test_train_test_split_32bit_overflow():
+    # [FUNCTION DOC]
+    # Non-regression for issue 20774: stratified train_test_split on 100000 samples
+    # must not overflow 32-bit integers; train plus test sizes equal n_samples.
     """Check for integer overflow on 32-bit platforms.
 
     Non-regression test for:
@@ -1479,6 +1682,9 @@ def test_train_test_split_32bit_overflow():
 
 
 def test_train_test_split_pandas():
+    # [FUNCTION DOC]
+    # Verifies train_test_split returns the same container type for MockDataFrame and
+    # (if installed) pandas DataFrame inputs.
     # check train_test_split doesn't destroy pandas dataframe
     types = [MockDataFrame]
     try:
@@ -1499,6 +1705,8 @@ def test_train_test_split_pandas():
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_train_test_split_sparse(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies train_test_split converts COO/CSC/CSR sparse inputs to CSR outputs.
     # check that train_test_split converts scipy sparse matrices
     # to csr, as stated in the documentation
     X = np.arange(100).reshape((10, 10))
@@ -1509,6 +1717,9 @@ def test_train_test_split_sparse(sparse_container):
 
 
 def test_train_test_split_mock_pandas():
+    # [FUNCTION DOC]
+    # Verifies train_test_split preserves the MockDataFrame type.
+    # KNOWN ISSUE: the second split result is assigned but never checked.
     # X mock dataframe
     X_df = MockDataFrame(X)
     X_train, X_test = train_test_split(X_df)
@@ -1518,6 +1729,9 @@ def test_train_test_split_mock_pandas():
 
 
 def test_train_test_split_list_input():
+    # [FUNCTION DOC]
+    # Verifies train_test_split gives identical splits for string-list, float-array
+    # and float-list labels with and without stratification (fixed seed).
     # Check that when y is a list / list of string labels, it works.
     X = np.ones(7)
     y1 = ["1"] * 4 + ["0"] * 3
@@ -1546,11 +1760,17 @@ def test_train_test_split_list_input():
     [(2.0, None), (1.0, None), (0.1, 0.95), (None, 1j), (11, None), (10, None), (8, 3)],
 )
 def test_shufflesplit_errors(test_size, train_size):
+    # [FUNCTION DOC]
+    # Verifies ShuffleSplit.split raises ValueError for invalid test/train size
+    # combinations (out-of-range, complex, too large, sum exceeding n_samples).
     with pytest.raises(ValueError):
         next(ShuffleSplit(test_size=test_size, train_size=train_size).split(X))
 
 
 def test_shufflesplit_reproducible():
+    # [FUNCTION DOC]
+    # Verifies ShuffleSplit with an int random_state yields the same training sets on
+    # two iterations.
     # Check that iterating twice on the ShuffleSplit gives the same
     # sequence of train-test when the random_state is given
     ss = ShuffleSplit(random_state=21)
@@ -1558,6 +1778,9 @@ def test_shufflesplit_reproducible():
 
 
 def test_stratifiedshufflesplit_list_input():
+    # [FUNCTION DOC]
+    # Verifies StratifiedShuffleSplit gives identical splits for string-list,
+    # float-array and float-list labels.
     # Check that when y is a list / list of string labels, it works.
     sss = StratifiedShuffleSplit(test_size=2, random_state=42)
     X = np.ones(7)
@@ -1570,6 +1793,8 @@ def test_stratifiedshufflesplit_list_input():
 
 
 def test_train_test_split_allow_nans():
+    # [FUNCTION DOC]
+    # Smoke test: train_test_split accepts X containing NaN rows.
     # Check that train_test_split allows input data with NaNs
     X = np.arange(200, dtype=np.float64).reshape(10, -1)
     X[2, :] = np.nan
@@ -1578,6 +1803,10 @@ def test_train_test_split_allow_nans():
 
 
 def test_check_cv():
+    # [FUNCTION DOC]
+    # Verifies check_cv: an int gives KFold for regressors and StratifiedKFold for
+    # binary/multiclass (including column-vector) targets with classifier=True, KFold
+    # for multilabel and multioutput targets, and ValueError for an invalid cv string.
     X = np.ones(9)
     cv = check_cv(3, classifier=False)
     # Use numpy.testing.assert_equal which recursively compares
@@ -1625,6 +1854,12 @@ def test_check_cv():
 
 
 def test_cv_iterable_wrapper():
+    # [FUNCTION DOC]
+    # Verifies check_cv wraps a split iterator into a reusable splitter that returns
+    # the same stored splits on every call, and that wrapped unshuffled and shuffled
+    # KFold iterators yield different splits.
+    # KNOWN ISSUE: the comment says randomized wrapped iterators yield different
+    # results on successive calls, but the code asserts they are equal (correctly).
     kf_iter = KFold().split(X, y)
     kf_iter_wrapped = check_cv(kf_iter)
     # Since the wrapped iterable is enlisted and stored,
@@ -1660,6 +1895,13 @@ def test_cv_iterable_wrapper():
 @pytest.mark.parametrize("kfold", (GroupKFold, StratifiedGroupKFold))
 @pytest.mark.parametrize("shuffle", [True, False])
 def test_group_kfold(kfold, shuffle, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies GroupKFold/StratifiedGroupKFold (shuffled or not): fold sizes within
+    # 5 percent of ideal on random int groups, each group in exactly one fold, no
+    # group on both sides; same on string groups (size check only without shuffle);
+    # list groups match array groups; ValueError when n_splits exceeds group count.
+    # Uses the global_random_seed fixture.
+    # KNOWN ISSUE: the bare expression computing the number of unique groups is unused.
     rng = np.random.RandomState(global_random_seed)
 
     # Parameters of the test
@@ -1787,6 +2029,10 @@ def test_group_kfold(kfold, shuffle, global_random_seed):
 
 
 def test_time_series_cv():
+    # [FUNCTION DOC]
+    # Verifies TimeSeriesSplit: ValueError when n_splits >= n_samples, expanding
+    # ordered train windows followed by contiguous test blocks on toy data, and
+    # get_n_splits equal to the number of produced splits.
     X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14]]
 
     # Should fail if there are more folds than samples
@@ -1824,6 +2070,11 @@ def test_time_series_cv():
 
 
 def _check_time_series_max_train_size(splits, check_splits, max_train_size):
+    # [FUNCTION DOC]
+    # HELPER: For paired splits, asserts test indices match and the checked train set
+    # is the last max_train_size indices of the reference train set (and not longer).
+    # Inputs: splits - reference split iterable; check_splits - splits from a
+    # TimeSeriesSplit with max_train_size; max_train_size - int.
     for (train, test), (check_train, check_test) in zip(splits, check_splits):
         assert_array_equal(test, check_test)
         assert len(check_train) <= max_train_size
@@ -1832,6 +2083,12 @@ def _check_time_series_max_train_size(splits, check_splits, max_train_size):
 
 
 def test_time_series_max_train_size():
+    # [FUNCTION DOC]
+    # Verifies TimeSeriesSplit with max_train_size keeps only the most recent training
+    # samples, for limits 3, 2 and 5 against an unrestricted splitter.
+    # KNOWN ISSUE: the reference splits generator is exhausted by the first helper
+    # call, so the second and third checks iterate over nothing; the third also passes
+    # max_train_size 2 while the splitter uses 5.
     X = np.zeros((6, 1))
     splits = TimeSeriesSplit(n_splits=3).split(X)
     check_splits = TimeSeriesSplit(n_splits=3, max_train_size=3).split(X)
@@ -1847,6 +2104,9 @@ def test_time_series_max_train_size():
 
 
 def test_time_series_test_size():
+    # [FUNCTION DOC]
+    # Verifies TimeSeriesSplit with test_size gives fixed-size test blocks (alone and
+    # with max_train_size) and raises ValueError when too many splits are requested.
     X = np.zeros((10, 1))
 
     # Test alone
@@ -1882,6 +2142,10 @@ def test_time_series_test_size():
 
 
 def test_time_series_gap():
+    # [FUNCTION DOC]
+    # Verifies TimeSeriesSplit gap excludes samples between train and test, combined
+    # with max_train_size and test_size, and raises ValueError when gap makes the
+    # configuration infeasible.
     X = np.zeros((10, 1))
 
     # Test alone
@@ -1940,6 +2204,10 @@ def test_time_series_gap():
 
 @ignore_warnings
 def test_nested_cv():
+    # [FUNCTION DOC]
+    # Verifies nested CV (GridSearchCV inside cross_val_score) works for every pair of
+    # inner/outer splitters, routing groups to the inner search via params. Warnings
+    # are ignored via decorator.
     # Test if nested cross validation works with different combinations of cv
     rng = np.random.RandomState(0)
 
@@ -1969,13 +2237,21 @@ def test_nested_cv():
 
 
 def test_build_repr():
+    # [FUNCTION DOC]
+    # Verifies _build_repr renders a class's init parameters in signature order.
     class MockSplitter:
+        # [CLASS DOC]
+        # HELPER: Minimal object with init params a, b, c whose repr uses _build_repr.
         def __init__(self, a, b=0, c=None):
+            # [FUNCTION DOC]
+            # HELPER: Stores a, b (default 0) and c (default None) as attributes.
             self.a = a
             self.b = b
             self.c = c
 
         def __repr__(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns the _build_repr string for self.
             return _build_repr(self)
 
     assert repr(MockSplitter(5, 6)) == "MockSplitter(a=5, b=6, c=None)"
@@ -1985,6 +2261,9 @@ def test_build_repr():
     "CVSplitter", (ShuffleSplit, GroupShuffleSplit, StratifiedShuffleSplit)
 )
 def test_shuffle_split_empty_trainset(CVSplitter):
+    # [FUNCTION DOC]
+    # Verifies shuffle-based splitters raise ValueError explaining the train set
+    # would be empty for 1 sample and test_size 0.99.
     cv = CVSplitter(test_size=0.99)
     X, y = [[1]], [0]  # 1 sample
     with pytest.raises(
@@ -1998,6 +2277,9 @@ def test_shuffle_split_empty_trainset(CVSplitter):
 
 
 def test_train_test_split_empty_trainset():
+    # [FUNCTION DOC]
+    # Verifies train_test_split raises ValueError when test_size leaves an empty
+    # train set (1 sample at 0.99, 3 samples at 0.67).
     (X,) = [[1]]  # 1 sample
     with pytest.raises(
         ValueError,
@@ -2020,6 +2302,8 @@ def test_train_test_split_empty_trainset():
 
 
 def test_leave_one_out_empty_trainset():
+    # [FUNCTION DOC]
+    # Verifies LeaveOneOut.split raises ValueError for a single sample.
     # LeaveOneGroup out expect at least 2 groups so no need to check
     cv = LeaveOneOut()
     X, y = [[1]], [0]  # 1 sample
@@ -2028,6 +2312,8 @@ def test_leave_one_out_empty_trainset():
 
 
 def test_leave_p_out_empty_trainset():
+    # [FUNCTION DOC]
+    # Verifies LeavePOut(p=2).split raises ValueError when p equals n_samples.
     # No need to check LeavePGroupsOut
     cv = LeavePOut(p=2)
     X, y = [[1], [2]], [0, 3]  # 2 samples
@@ -2041,6 +2327,9 @@ def test_leave_p_out_empty_trainset():
     "Klass", (KFold, StratifiedKFold, StratifiedGroupKFold, GroupKFold)
 )
 def test_random_state_shuffle_false(Klass):
+    # [FUNCTION DOC]
+    # Verifies k-fold splitters raise ValueError when random_state is set but
+    # shuffle is False.
     # passing a non-default random_state when shuffle=False makes no sense
     with pytest.raises(ValueError, match="has no effect since shuffle is False"):
         Klass(3, shuffle=False, random_state=0)
@@ -2084,11 +2373,18 @@ def test_random_state_shuffle_false(Klass):
     ],
 )
 def test_yields_constant_splits(cv, expected):
+    # [FUNCTION DOC]
+    # Verifies _yields_constant_splits is True for deterministic splitters or those
+    # with int seeds, and False for shuffling splitters seeded with None or a
+    # RandomState instance.
     assert _yields_constant_splits(cv) == expected
 
 
 @pytest.mark.parametrize("cv", ALL_SPLITTERS, ids=[str(cv) for cv in ALL_SPLITTERS])
 def test_splitter_get_metadata_routing(cv):
+    # [FUNCTION DOC]
+    # Verifies get_metadata_routing: group splitters request groups in split, other
+    # splitters request nothing, and no other method has requests.
     """Check get_metadata_routing returns the correct MetadataRouter."""
     assert hasattr(cv, "get_metadata_routing")
     metadata = cv.get_metadata_routing()
@@ -2102,6 +2398,8 @@ def test_splitter_get_metadata_routing(cv):
 
 @pytest.mark.parametrize("cv", ALL_SPLITTERS, ids=[str(cv) for cv in ALL_SPLITTERS])
 def test_splitter_set_split_request(cv):
+    # [FUNCTION DOC]
+    # Verifies set_split_request exists only for group splitters.
     """Check set_split_request is defined for group splitters and not for others."""
     if cv in GROUP_SPLITTERS:
         assert hasattr(cv, "set_split_request")
@@ -2111,6 +2409,9 @@ def test_splitter_set_split_request(cv):
 
 @pytest.mark.parametrize("cv", NO_GROUP_SPLITTERS, ids=str)
 def test_no_group_splitters_warns_with_groups(cv):
+    # [FUNCTION DOC]
+    # Verifies non-group splitters emit a UserWarning that groups is ignored when
+    # split is called with groups. Seeded random data.
     msg = f"The groups parameter is ignored by {cv.__class__.__name__}"
 
     n_samples = 30
@@ -2127,6 +2428,8 @@ def test_no_group_splitters_warns_with_groups(cv):
     "cv", SPLITTERS_REQUIRING_TARGET, ids=[str(cv) for cv in SPLITTERS_REQUIRING_TARGET]
 )
 def test_stratified_splitter_without_y(cv):
+    # [FUNCTION DOC]
+    # Verifies stratified splitters raise TypeError when split is called without y.
     msg = "missing 1 required positional argument: 'y'"
     with pytest.raises(TypeError, match=msg):
         cv.split(X)
