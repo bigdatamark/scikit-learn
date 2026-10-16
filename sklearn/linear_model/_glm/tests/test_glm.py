@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for the GLM regressors in sklearn.linear_model._glm (PoissonRegressor,
+#   GammaRegressor, TweedieRegressor, the base _GeneralizedLinearRegressor) and the
+#   NewtonCholeskySolver. Covers agreement with independently optimized reference
+#   solutions (penalized and unpenalized, with stacked/duplicated data), sample weight
+#   semantics, y-range validation, links, warm start, comparison with Ridge and R glmnet,
+#   D^2 score, tags, singular-Hessian fallback, solver verbosity, and Array API
+#   compliance. Defines a test-only BinomialRegressor and the module constant SOLVERS.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -42,11 +50,23 @@ SOLVERS = ["lbfgs", "newton-cholesky"]
 
 
 class BinomialRegressor(_GeneralizedLinearRegressor):
+    # [CLASS DOC]
+    # HELPER: Test-only GLM subclass using the half binomial loss (logit link), to
+    #   exercise the generic GLM machinery with a bounded target.
     def _get_loss(self, xp=None, device=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns a new HalfBinomialLoss; xp and device are ignored.
         return HalfBinomialLoss()
 
 
 def _special_minimize(fun, grad, x, tol_NM, tol):
+    # [FUNCTION DOC]
+    # HELPER: High-precision minimizer for reference solutions: runs Nelder-Mead from x
+    #   with tolerance tol_NM to get a starting point, then solves gradient equal to zero
+    #   by Levenberg-Marquardt root finding with tolerance tol.
+    # Inputs: fun, grad - callables of the coefficient vector; x - starting vector;
+    #   tol_NM, tol - floats.
+    # Outputs: 1d array, the refined minimizer.
     # Find good starting point by Nelder-Mead
     res_NM = minimize(
         fun, x, method="Nelder-Mead", options={"xatol": tol_NM, "fatol": tol_NM}
@@ -64,6 +84,9 @@ def _special_minimize(fun, grad, x, tol_NM, tol):
 
 @pytest.fixture(scope="module")
 def regression_data():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning (X, y) from make_regression with 107
+    #   samples, 10 features, noise 0.5, random_state 2.
     X, y = make_regression(
         n_samples=107, n_features=10, n_informative=80, noise=0.5, random_state=2
     )
@@ -85,6 +108,17 @@ def regression_data():
     ids=lambda param: f"{param[0]}-{param[1]}",
 )
 def glm_dataset(global_random_seed, request):
+    # [FUNCTION DOC]
+    # HELPER: Parametrized fixture over data shape ("long" 12x4 or "wide" 4x12) and
+    #   model (Binomial, Poisson, Gamma, Tweedie power 1.5). Builds a well-conditioned
+    #   low-rank X whose last column is all ones (acts as intercept), true unpenalized
+    #   coefficients (random signs in the long case, minimum-norm solution for random raw
+    #   predictions in the wide case), y as the inverse link of the raw predictions, and
+    #   computes reference penalized solutions (l2 strength 1, uniform weights) with and
+    #   without intercept via _special_minimize.
+    # Outputs: tuple (model, X, y, coef_unpenalized, coef_penalized_with_intercept,
+    #   coef_penalized_without_intercept, l2_reg_strength).
+    # Side effects: asserts conditioning and that penalization shrinks the norm.
     """Dataset with GLM solutions, well conditioned X.
 
     This is inspired by ols_ridge_dataset in test_ridge.py.
@@ -220,6 +254,10 @@ def glm_dataset(global_random_seed, request):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_glm_regression(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Verifies that fitting with alpha equal to the fixture's l2 strength (intercept
+    #   column removed) recovers the reference penalized coef and intercept for each
+    #   solver, with and without unit sample weights.
     """Test that GLM converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -260,6 +298,10 @@ def test_glm_regression(solver, fit_intercept, glm_dataset):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_glm_regression_hstacked_X(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Verifies that duplicating the columns of X (each scaled by 0.5) with half the
+    #   alpha yields the same coefficients repeated twice and the same intercept;
+    #   ConvergenceWarnings are ignored.
     """Test that GLM converges for all solvers to correct solution on hstacked data.
 
     We work with a simple constructed data set with known solution.
@@ -304,6 +346,9 @@ def test_glm_regression_hstacked_X(solver, fit_intercept, glm_dataset):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_glm_regression_vstacked_X(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Verifies that stacking X and y twice row-wise gives the same penalized solution as
+    #   the original data (weights are averaged, so duplication is neutral).
     """Test that GLM converges for all solvers to correct solution on vstacked data.
 
     We work with a simple constructed data set with known solution.
@@ -344,6 +389,13 @@ def test_glm_regression_vstacked_X(solver, fit_intercept, glm_dataset):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_glm_regression_unpenalized(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Verifies unpenalized fits (alpha 0). Long data: coef and intercept match the true
+    #   coefficients. Wide (underdetermined) data: predictions interpolate y; lbfgs with
+    #   intercept is shown to NOT give the minimum-norm solution, lbfgs without intercept
+    #   does, and newton-cholesky is checked only when it happens to find a solution no
+    #   larger in norm. LinAlgWarning (newton on wide data) and ConvergenceWarning are
+    #   ignored.
     """Test that unpenalized GLM converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -426,6 +478,12 @@ def test_glm_regression_unpenalized(solver, fit_intercept, glm_dataset):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_glm_regression_unpenalized_hstacked_X(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Like test_glm_regression_unpenalized but with duplicated columns. In the wide case
+    #   with intercept, one intercept column is kept unscaled and the model's intercept
+    #   and coef are doubled before comparison. Long data must match the duplicated true
+    #   coefficients; wide data must interpolate y and, except for lbfgs without
+    #   intercept, the solution norm is asserted to exceed the minimum norm.
     """Test that unpenalized GLM converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -511,6 +569,9 @@ def test_glm_regression_unpenalized_hstacked_X(solver, fit_intercept, glm_datase
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_glm_regression_unpenalized_vstacked_X(solver, fit_intercept, glm_dataset):
+    # [FUNCTION DOC]
+    # Like test_glm_regression_unpenalized but with X and y stacked twice row-wise; same
+    #   expectations for long and wide data.
     """Test that unpenalized GLM converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -584,6 +645,12 @@ def test_glm_regression_unpenalized_vstacked_X(solver, fit_intercept, glm_datase
 
 
 def test_sample_weights_validation():
+    # [FUNCTION DOC]
+    # Verifies sample_weight validation: a scalar weight is accepted, a 2d weight raises
+    #   "must be 1D array or scalar", and a weight of the wrong length raises a shape
+    #   mismatch ValueError.
+    # KNOWN ISSUE: the variable weights = 0 and the comment "scalar value but not
+    #   positive" are dead; the test never checks a non-positive scalar.
     """Test the raised errors in the validation of sample_weight."""
     # scalar value but not positive
     X = [[1]]
@@ -616,6 +683,9 @@ def test_sample_weights_validation():
     ],
 )
 def test_glm_wrong_y_range(glm):
+    # [FUNCTION DOC]
+    # Verifies that GLMs whose loss requires non-negative or positive y raise ValueError
+    #   with "out of the valid range" when y contains -1.
     """
     Test that fitting a GLM model raises a ValueError when `y` contains
     values outside the valid range for the given distribution.
@@ -634,6 +704,10 @@ def test_glm_wrong_y_range(glm):
 
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_glm_identity_regression(fit_intercept):
+    # [FUNCTION DOC]
+    # Verifies the base (normal, identity link) GLM with alpha 0 exactly recovers a
+    #   noiseless linear relationship, with the intercept either fitted or provided as a
+    #   column of ones.
     """Test GLM regression with identity link on a simple dataset."""
     coef = [1.0, 2.0]
     X = np.array([[1, 1, 1, 1, 1], [0, 1, 2, 3, 4]]).T
@@ -658,6 +732,10 @@ def test_glm_identity_regression(fit_intercept):
     "GLMEstimator", [_GeneralizedLinearRegressor, PoissonRegressor, GammaRegressor]
 )
 def test_glm_sample_weight_consistency(fit_intercept, alpha, GLMEstimator):
+    # [FUNCTION DOC]
+    # Verifies sample weight semantics for several GLMs: unit weights equal no weights,
+    #   scaling all weights has no effect, a zero weight equals dropping the sample, and
+    #   weight 2 equals duplicating the sample.
     """Test that the impact of sample_weight is consistent"""
     rng = np.random.RandomState(0)
     n_samples, n_features = 10, 5
@@ -715,6 +793,10 @@ def test_glm_sample_weight_consistency(fit_intercept, alpha, GLMEstimator):
     ],
 )
 def test_glm_log_regression(solver, fit_intercept, estimator):
+    # [FUNCTION DOC]
+    # Verifies log-link GLMs (Poisson, Gamma, several Tweedie powers) with alpha 0
+    #   recover exact coefficients when y is the exponential of a linear predictor, for
+    #   both solvers and with/without intercept.
     """Test GLM regression with log link on a simple dataset."""
     coef = [0.2, -0.1]
     X = np.array([[0, 1, 2, 3, 4], [1, 1, 1, 1, 1]]).T
@@ -737,6 +819,11 @@ def test_glm_log_regression(solver, fit_intercept, estimator):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_warm_start(solver, fit_intercept, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies warm start for PoissonRegressor: a 1-iteration warm-started fit warns
+    #   with ConvergenceWarning and has a higher objective than a fully converged fit;
+    #   after raising max_iter and refitting (continuing from the previous coef) the
+    #   coefficients and score match the cold-start model.
     """
     Test that `warm_start=True` enables incremental fitting in PoissonRegressor.
 
@@ -811,6 +898,11 @@ def test_warm_start(solver, fit_intercept, global_random_seed):
 def test_normal_ridge_comparison(
     n_samples, n_features, fit_intercept, sample_weight, request
 ):
+    # [FUNCTION DOC]
+    # Verifies the base GLM (normal deviance) matches Ridge with alpha scaled by
+    #   n_samples (or the sum of weights), for long and wide data, with/without intercept
+    #   and random sample weights, comparing coef, intercept and train/test predictions.
+    #   The request argument is unused.
     """Compare with Ridge regression for Normal distributions."""
     test_size = 10
     X, y = make_regression(
@@ -866,6 +958,9 @@ def test_normal_ridge_comparison(
 
 @pytest.mark.parametrize("solver", ["lbfgs", "newton-cholesky"])
 def test_poisson_glmnet(solver):
+    # [FUNCTION DOC]
+    # Verifies PoissonRegressor with alpha 1 reproduces reference coefficients and
+    #   intercept computed with R glmnet on a tiny dataset, for both solvers.
     """Compare Poisson regression with L2 regularization and LogLink to glmnet"""
     # library("glmnet")
     # options(digits=10)
@@ -893,6 +988,8 @@ def test_poisson_glmnet(solver):
 
 
 def test_convergence_warning(regression_data):
+    # [FUNCTION DOC]
+    # Verifies a ConvergenceWarning is emitted when max_iter is 1 and tol is tiny.
     X, y = regression_data
 
     est = _GeneralizedLinearRegressor(max_iter=1, tol=1e-20)
@@ -904,6 +1001,9 @@ def test_convergence_warning(regression_data):
     "name, link_class", [("identity", IdentityLink), ("log", LogLink)]
 )
 def test_tweedie_link_argument(name, link_class):
+    # [FUNCTION DOC]
+    # Verifies TweedieRegressor uses the requested link class (identity or log) in its
+    #   fitted _base_loss.
     """Test GLM link argument set as string."""
     y = np.array([0.1, 0.5])  # in range of all distributions
     X = np.array([[1], [2]])
@@ -921,6 +1021,9 @@ def test_tweedie_link_argument(name, link_class):
     ],
 )
 def test_tweedie_link_auto(power, expected_link_class):
+    # [FUNCTION DOC]
+    # Verifies link="auto" selects the identity link for power 0 and the log link for
+    #   powers 1, 2 and 3.
     """Test that link='auto' delivers the expected link function"""
     y = np.array([0.1, 0.5])  # in range of all distributions
     X = np.array([[1], [2]])
@@ -931,6 +1034,9 @@ def test_tweedie_link_auto(power, expected_link_class):
 @pytest.mark.parametrize("power", [0, 1, 1.5, 2, 3])
 @pytest.mark.parametrize("link", ["log", "identity"])
 def test_tweedie_score(regression_data, power, link):
+    # [FUNCTION DOC]
+    # Verifies TweedieRegressor.score equals d2_tweedie_score of its predictions for
+    #   several powers and both links.
     """Test that GLM score equals d2_tweedie_score for Tweedie losses."""
     X, y = regression_data
     # make y positive
@@ -951,11 +1057,21 @@ def test_tweedie_score(regression_data, power, link):
     ],
 )
 def test_tags(estimator, value):
+    # [FUNCTION DOC]
+    # Verifies the positive_only target tag: True for Poisson, Gamma and Tweedie 1.5,
+    #   False for Tweedie power 0.
     """Test that `positive_only` tag is correctly set for different estimators."""
     assert estimator.__sklearn_tags__().target_tags.positive_only is value
 
 
 def test_linalg_warning_with_newton_solver(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies newton-cholesky behavior on a collinear design (columns repeated 10
+    #   times) for Poisson data: no warning on the well-conditioned original data; lbfgs
+    #   on collinear data matches the original deviance; unpenalized newton-cholesky on
+    #   collinear data emits a LinAlgWarning about a singular Hessian but still reaches
+    #   the same deviance through the lbfgs fallback; a tiny alpha removes the warning
+    #   while keeping the deviance.
     """
     Test that the Newton solver raises a warning and falls back to LBFGS when
     encountering a singular or ill-conditioned Hessian matrix.
@@ -1050,6 +1166,13 @@ def test_linalg_warning_with_newton_solver(global_random_seed):
 
 @pytest.mark.parametrize("verbose", [0, 1, 2])
 def test_newton_solver_verbosity(capsys, verbose):
+    # [FUNCTION DOC]
+    # Verifies printed output of NewtonCholeskySolver at verbose 0, 1, 2: nothing at 0;
+    #   iteration and convergence messages at 1 and above; line search details at 2. Also
+    #   drives the solver into specific states manually: a wrong Newton step (line search
+    #   failure message), a tiny step (machine-precision branches of the line search), and
+    #   a Tweedie power 3 loss with bad start (negative pointwise Hessian fallback
+    #   message), using capsys to capture stdout.
     """Test the std output of verbose newton solvers."""
     y = np.array([1, 2], dtype=float)
     X = np.array([[1.0, 0], [0, 1]], dtype=float)
@@ -1164,6 +1287,11 @@ def test_poisson_regressor_array_api_compliance(
     dtype_name,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Verifies PoissonRegressor (lbfgs) under Array API dispatch matches the NumPy fit
+    #   (coef_, intercept_, predictions within dtype-based tolerances, similar n_iter_),
+    #   and that fitted attributes and predictions keep the input dtype and device;
+    #   optional sample weights include zeros. ConvergenceWarnings are turned into errors.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rng = np.random.default_rng(global_random_seed)
     n_samples = 1000
@@ -1237,6 +1365,9 @@ def test_poisson_regressor_array_api_warm_start(
     device_name,
     dtype_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies that a warm-started PoissonRegressor can be refit under Array API
+    #   dispatch without errors (warm start moves coef_ and intercept_ to NumPy and back).
     """Test that incremental fitting of PoissonRegressor works correctly
     with the array API when warm_start is True."""
     rng = np.random.default_rng(42)
