@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Estimator tags data model (scikit-learn >= 1.6): slotted dataclasses describing
+# input, target, transformer, classifier and regressor capabilities, the
+# aggregating Tags class, and get_tags to retrieve an instance's tags. No
+# import-time side effects.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +13,9 @@ from dataclasses import dataclass, field
 
 @dataclass(slots=True)
 class InputTags:
+    # [CLASS DOC]
+    # Slotted dataclass of boolean flags describing accepted X input formats and
+    # constraints; fields and defaults as in the docstring. No validation.
     """Tags for the input data.
 
     Parameters
@@ -73,6 +81,9 @@ class InputTags:
 
 @dataclass(slots=True)
 class TargetTags:
+    # [CLASS DOC]
+    # Slotted dataclass describing y requirements; required has no default and must be
+    # given, other flags default as documented.
     """Tags for the target data.
 
     Parameters
@@ -114,6 +125,9 @@ class TargetTags:
 
 @dataclass(slots=True)
 class TransformerTags:
+    # [CLASS DOC]
+    # Slotted dataclass; preserves_dtype defaults to a fresh ['float64'] list per
+    # instance (default_factory).
     """Tags for the transformer.
 
     Parameters
@@ -134,6 +148,9 @@ class TransformerTags:
 
 @dataclass(slots=True)
 class ClassifierTags:
+    # [CLASS DOC]
+    # Slotted dataclass of classifier capability flags (poor_score, multi_class,
+    # multi_label).
     """Tags for the classifier.
 
     Parameters
@@ -167,6 +184,8 @@ class ClassifierTags:
 
 @dataclass(slots=True)
 class RegressorTags:
+    # [CLASS DOC]
+    # Slotted dataclass with the regressor poor_score flag.
     """Tags for the regressor.
 
     Parameters
@@ -185,6 +204,10 @@ class RegressorTags:
 
 @dataclass(slots=True)
 class Tags:
+    # [CLASS DOC]
+    # Slotted dataclass aggregating all tags. estimator_type and target_tags are
+    # required; sub-tag objects for transformer/classifier/regressor default to None;
+    # input_tags defaults to a fresh InputTags.
     """Tags for the estimator.
 
     See :ref:`estimator_tags` for more information.
@@ -248,6 +271,14 @@ class Tags:
 
 
 def get_tags(estimator) -> Tags:
+    # [FUNCTION DOC]
+    # Returns estimator.__sklearn_tags__().
+    # Inputs: estimator - estimator instance.
+    # Outputs: Tags.
+    # Exceptions: TypeError if a class is passed instead of an instance; AttributeError
+    # with an explanatory message when the call fails because no class in the MRO
+    # implements __sklearn_tags__ (e.g. only mixins inherited); other AttributeErrors
+    # are re-raised unchanged.
     """Get estimator tags.
 
     :class:`~sklearn.BaseEstimator` provides the estimator tags machinery.

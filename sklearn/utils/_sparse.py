@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Helper aligning scipy sparse containers with the 'sparse_interface' global
+# config (sparray vs spmatrix).
 """Control sparse interface based on config"""
 
 # Authors: The scikit-learn developers
@@ -9,6 +12,14 @@ from sklearn._config import get_config
 
 
 def _align_api_if_sparse(X):
+    # [FUNCTION DOC]
+    # HELPER: Non-sparse inputs are returned unchanged. For sparse X: with config
+    # 'sparray', converts spmatrix inputs to the sparse array class of the same format
+    # (e.g. csr_matrix to csr_array); with 'spmatrix', converts sparse arrays to the
+    # matching matrix class; inputs already in the requested interface are returned
+    # as is (no copy).
+    # Inputs: X - any. Outputs: X or a converted sparse container.
+    # Exceptions: ValueError if the config value is neither 'sparray' nor 'spmatrix'.
     """
     Convert to sparse interface as set in config.
 

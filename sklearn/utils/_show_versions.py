@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Implements sklearn.show_versions: prints platform, Python, dependency versions,
+# OpenMP build status and threadpoolctl runtime information for bug reports.
 """
 Utility methods to print system info for debugging
 
@@ -17,6 +20,9 @@ from sklearn.utils._openmp_helpers import _openmp_parallelism_enabled
 
 
 def _get_sys_info():
+    # [FUNCTION DOC]
+    # HELPER: Returns a dict with keys python (sys.version with newlines replaced by
+    # spaces), executable (sys.executable) and machine (platform.platform()).
     """System information
 
     Returns
@@ -37,6 +43,11 @@ def _get_sys_info():
 
 
 def _get_deps_info():
+    # [FUNCTION DOC]
+    # HELPER: Returns a dict with 'sklearn' mapped to the scikit-learn version and each
+    # of a fixed list of dependencies (pip, setuptools, numpy, scipy, Cython, pandas,
+    # matplotlib, joblib, threadpoolctl, narwhals) mapped to its installed distribution
+    # version from importlib.metadata, or None when not installed. Does not import them.
     """Overview of the installed version of main dependencies
 
     This function does not import the modules to collect the version numbers
@@ -76,6 +87,12 @@ def _get_deps_info():
 
 
 def show_versions():
+    # [FUNCTION DOC]
+    # Prints, to stdout, a 'System:' section, a 'Python dependencies:' section
+    # (right-aligned keys), whether scikit-learn was built with OpenMP, and for each
+    # threadpoolctl-detected library its info key/value pairs separated by blank lines.
+    # Outputs: None. Side effects: stdout output; threadpool_info inspects loaded
+    # native libraries.
     """Print useful debugging information.
 
     .. versionadded:: 0.20
