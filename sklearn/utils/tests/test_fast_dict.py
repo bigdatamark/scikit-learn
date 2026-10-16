@@ -12,7 +12,8 @@ from sklearn.utils._fast_dict import IntFloatDict, argmin
 def test_int_float_dict():
     # [FUNCTION DOC]
     # Verifies IntFloatDict construction from unique random intp keys and float values:
-    # every key maps to its value, len matches, append adds a new key (len grows by one),
+    # every key maps to its value, len matches, append adds a new key (len grows by
+    # one),
     # and appending 2000 more keys still allows correct lookup (internal growth works).
     rng = np.random.RandomState(0)
     keys = np.unique(rng.randint(100, size=10).astype(np.intp))

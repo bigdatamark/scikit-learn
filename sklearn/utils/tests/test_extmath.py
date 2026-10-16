@@ -71,7 +71,8 @@ from sklearn.utils.fixes import (
 )
 def test_density(sparse_container):
     # [FUNCTION DOC]
-    # Verifies density of a sparse container (COO/CSC/CSR/LIL) built from a random integer
+    # Verifies density of a sparse container (COO/CSC/CSR/LIL) built from a random
+    # integer
     # matrix with some zeros equals density of the dense array.
     rng = np.random.RandomState(0)
     X = rng.randint(10, size=(10, 5))
@@ -83,7 +84,8 @@ def test_density(sparse_container):
 
 def test_uniform_weights():
     # [FUNCTION DOC]
-    # Verifies weighted_mode with all-one weights matches fixes._mode (unweighted mode and
+    # Verifies weighted_mode with all-one weights matches fixes._mode (unweighted mode
+    # and
     # count) for axis None, 0 and 1.
     # with uniform weights, results should be identical to stats.mode
     rng = np.random.RandomState(0)
@@ -101,7 +103,8 @@ def test_uniform_weights():
 def test_random_weights():
     # [FUNCTION DOC]
     # Verifies weighted_mode along rows: the first 5 columns are set to 6 with weights
-    # boosted by 1, so every row's mode is 6 and its score equals the sum of those weights.
+    # boosted by 1, so every row's mode is 6 and its score equals the sum of those
+    # weights.
     # set this up so that each row should have a weighted mode of 6,
     # with a score that is easily reproduced
     mode_result = 6
@@ -210,7 +213,8 @@ def test_randomized_svd_low_rank_all_dtypes(dtype):
 def test_randomized_eigsh(dtype):
     # [FUNCTION DOC]
     # Verifies _randomized_eigsh on a randomly rotated diag(1, -2, 0, 3): selection
-    # "module" returns the two largest-magnitude eigenvalues [3, -2] with 4x2 eigenvectors,
+    # "module" returns the two largest-magnitude eigenvalues [3, -2] with 4x2
+    # eigenvectors,
     # and selection "value" raises NotImplementedError.
     """Test that `_randomized_eigsh` returns the appropriate components"""
 
@@ -237,8 +241,10 @@ def test_randomized_eigsh(dtype):
 def test_randomized_eigsh_compared_to_others(k):
     # [FUNCTION DOC]
     # Verifies _randomized_eigsh (default normalizer and QR with oversampling) on a
-    # 200x200 sparse SPD matrix matches LAPACK eigh top-k eigenvalues and (sign-normalised
-    # with svd_flip) eigenvectors, and that ARPACK eigsh agrees with LAPACK when k < 200.
+    # 200x200 sparse SPD matrix matches LAPACK eigh top-k eigenvalues and (sign-
+    # normalised
+    # with svd_flip) eigenvectors, and that ARPACK eigsh agrees with LAPACK when k <
+    # 200.
     # Input: k - number of components.
     """Check that `_randomized_eigsh` is similar to other `eigsh`
 
@@ -430,7 +436,8 @@ def test_randomized_svd_low_rank_with_noise():
 
 def test_randomized_svd_infinite_rank():
     # [FUNCTION DOC]
-    # Same as the noise test but with tail_strength=1 (slowly decaying spectrum): n_iter=0
+    # Same as the noise test but with tail_strength=1 (slowly decaying spectrum):
+    # n_iter=0
     # errs by more than 0.1, while n_iter=5 recovers the top-k singular values.
     # Check that extmath.randomized_svd can handle noisy matrices
     n_samples = 100
@@ -580,7 +587,8 @@ def test_randomized_svd_sparse_warnings(sparse_container):
 
 def test_svd_flip():
     # [FUNCTION DOC]
-    # Verifies svd_flip with u_based_decision False and True preserves the reconstruction
+    # Verifies svd_flip with u_based_decision False and True preserves the
+    # reconstruction
     # U*S*Vt for a matrix and its transpose.
     # Check that svd_flip works in both situations, and reconstructs input.
     rs = np.random.RandomState(1999)
@@ -628,7 +636,8 @@ def test_svd_flip_max_abs_cols(n_samples, n_features, global_random_seed):
 def test_randomized_svd_sign_flip():
     # [FUNCTION DOC]
     # Verifies randomized_svd with flip_sign=True gives identical U and V for 10
-    # different seeds on a diagonal 2x2 matrix, with valid reconstruction and orthonormal
+    # different seeds on a diagonal 2x2 matrix, with valid reconstruction and
+    # orthonormal
     # factors.
     a = np.array([[2.0, 0.0], [0.0, 1.0]])
     u1, s1, v1 = randomized_svd(a, 2, flip_sign=True, random_state=41)
@@ -652,10 +661,13 @@ def test_randomized_svd_sign_flip_with_transpose():
     # for more details.
     def max_loading_is_positive(u, v):
         # [FUNCTION DOC]
-        # HELPER: Returns a pair of booleans: whether every column of u has its max-abs value
+        # HELPER: Returns a pair of booleans: whether every column of u has its max-abs
+        # value
         # equal to its max (positive), and the same for every row of v.
-        # KNOWN ISSUE: the docstring says "across all rows for u and across all columns for v"
-        # but the code reduces over axis 0 for u (per column) and axis 1 for v (per row).
+        # KNOWN ISSUE: the docstring says "across all rows for u and across all columns
+        # for v"
+        # but the code reduces over axis 0 for u (per column) and axis 1 for v (per
+        # row).
         """
         returns bool tuple indicating if the values maximising np.abs
         are positive across all rows for u and across all columns for v.
@@ -799,8 +811,10 @@ def test_incremental_weighted_mean_and_variance_array_api(
     array_namespace, device_name, dtype_name
 ):
     # [FUNCTION DOC]
-    # Verifies _incremental_mean_and_var under array API dispatch returns mean/var on the
-    # input's device with the namespace's max-precision float dtype, numerically equal to
+    # Verifies _incremental_mean_and_var under array API dispatch returns mean/var on
+    # the
+    # input's device with the namespace's max-precision float dtype, numerically equal
+    # to
     # the NumPy result.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rng = np.random.RandomState(42)
@@ -848,7 +862,8 @@ def test_incremental_weighted_mean_and_variance(mean, var, weight_loc, weight_sc
     def _assert(X, sample_weight, expected_mean, expected_var):
         # [FUNCTION DOC]
         # HELPER: Feeds X in batches of sizes 1, n/10+1, n/4+1, n/2+1 and n into
-        # _incremental_mean_and_var starting from zero state, and asserts the final mean and
+        # _incremental_mean_and_var starting from zero state, and asserts the final mean
+        # and
         # variance (atol 1e-6) match the expected values.
         n = X.shape[0]
         for chunk_size in [1, n // 10 + 1, n // 4 + 1, n // 2 + 1, n]:
@@ -886,7 +901,8 @@ def test_incremental_weighted_mean_and_variance(mean, var, weight_loc, weight_sc
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_incremental_weighted_mean_and_variance_ignore_nan(dtype):
     # [FUNCTION DOC]
-    # Verifies weighted incremental update ignores NaN: an X_nan whose non-NaN entries per
+    # Verifies weighted incremental update ignores NaN: an X_nan whose non-NaN entries
+    # per
     # column equal X's column values gives the same means, variances and counts.
     old_means = np.array([535.0, 535.0, 535.0, 535.0])
     old_variances = np.array([4225.0, 4225.0, 4225.0, 4225.0])
@@ -1001,7 +1017,8 @@ def test_incremental_variance_numerical_stability():
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     def one_pass_var(X):
         # [FUNCTION DOC]
-        # HELPER: Numerically unstable one-pass variance, E[x^2] minus squared mean per column.
+        # HELPER: Numerically unstable one-pass variance, E[x^2] minus squared mean per
+        # column.
         n = X.shape[0]
         exp_x2 = (X**2).sum(axis=0) / n
         expx_2 = (X.sum(axis=0) / n) ** 2
@@ -1012,7 +1029,8 @@ def test_incremental_variance_numerical_stability():
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Two-pass_algorithm
     def two_pass_var(X):
         # [FUNCTION DOC]
-        # HELPER: Stable two-pass per-column variance (mean of squared deviations); copies X
+        # HELPER: Stable two-pass per-column variance (mean of squared deviations);
+        # copies X
         # unnecessarily but does not modify it.
         mean = X.mean(axis=0)
         Y = X.copy()
@@ -1023,7 +1041,8 @@ def test_incremental_variance_numerical_stability():
     # This works only for chunks for size 1
     def naive_mean_variance_update(x, last_mean, last_variance, last_sample_count):
         # [FUNCTION DOC]
-        # HELPER: Naive online update for one sample x: increments count, updates mean as a
+        # HELPER: Naive online update for one sample x: increments count, updates mean
+        # as a
         # count-weighted blend and variance via (x - old mean)(x - new mean)/n.
         # Outputs: (updated_mean, updated_variance, updated_sample_count).
         updated_sample_count = last_sample_count + 1
@@ -1074,7 +1093,8 @@ def test_incremental_variance_numerical_stability():
 
 def test_incremental_variance_ddof():
     # [FUNCTION DOC]
-    # Verifies that incremental mean/variance over consecutive batches of sizes 11, 20 and
+    # Verifies that incremental mean/variance over consecutive batches of sizes 11, 20
+    # and
     # 37 equals np.mean/np.var (ddof=0) of all rows seen so far, with matching counts.
     # Test that degrees of freedom parameter for calculations are correct.
     rng = np.random.RandomState(1999)
@@ -1109,7 +1129,8 @@ def test_incremental_variance_ddof():
 
 def test_vector_sign_flip():
     # [FUNCTION DOC]
-    # Verifies _deterministic_vector_sign_flip makes each row's max-abs entry positive and
+    # Verifies _deterministic_vector_sign_flip makes each row's max-abs entry positive
+    # and
     # only multiplies rows by their sign.
     # Testing that sign flip is working & largest value has positive sign
     data = np.random.RandomState(36).randn(5, 5)
@@ -1235,7 +1256,8 @@ def test_safe_sparse_dot_dense_output(dense_output):
 
 def test_approximate_mode():
     # [FUNCTION DOC]
-    # Non-regression (issue 20774): _approximate_mode with int32 counts whose product with
+    # Non-regression (issue 20774): _approximate_mode with int32 counts whose product
+    # with
     # n_draws overflows int32 returns the proportional draw [24750, 250].
     """Make sure sklearn.utils.extmath._approximate_mode returns valid
     results for cases where "class_counts * n_draws" is enough

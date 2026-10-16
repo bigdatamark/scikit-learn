@@ -21,7 +21,8 @@ from sklearn.utils.fixes import (
 @pytest.mark.parametrize("dtype, val", ([object, 1], [object, "a"], [float, 1]))
 def test_object_dtype_isnan(dtype, val):
     # [FUNCTION DOC]
-    # Verifies _object_dtype_isnan returns a boolean mask flagging exactly the NaN cells of
+    # Verifies _object_dtype_isnan returns a boolean mask flagging exactly the NaN cells
+    # of
     # a 2x2 array, for object arrays holding ints or strings and for a float array.
     # Inputs: dtype - array dtype; val - non-missing value placed on the diagonal.
     X = np.array([[val, np.nan], [np.nan, val]], dtype=dtype)
@@ -43,7 +44,8 @@ def test_object_dtype_isnan(dtype, val):
 )
 def test_smallest_admissible_index_dtype_max_val(params, expected_dtype):
     # [FUNCTION DOC]
-    # Verifies _smallest_admissible_index_dtype with only maxval: int32 by default and at
+    # Verifies _smallest_admissible_index_dtype with only maxval: int32 by default and
+    # at
     # the int32 max, int64 once maxval exceeds the int32 max.
     # Inputs: params - keyword arguments; expected_dtype - expected numpy dtype.
     """Check the behaviour of `smallest_admissible_index_dtype` depending only on the
@@ -97,7 +99,8 @@ def test_smallest_admissible_index_dtype_without_checking_contents(
 ):
     # [FUNCTION DOC]
     # Verifies dtype selection from the arrays' dtypes alone (check_contents False): any
-    # int64 array forces int64, all-int32 or smaller dtypes give int32, and a large maxval
+    # int64 array forces int64, all-int32 or smaller dtypes give int32, and a large
+    # maxval
     # overrides to int64.
     """Check the behaviour of `smallest_admissible_index_dtype` using the passed
     arrays but without checking the contents of the arrays.
@@ -182,7 +185,8 @@ def test_smallest_admissible_index_dtype_by_checking_contents(params, expected_d
 )
 def test_smallest_admissible_index_dtype_error(params, err_type, err_msg):
     # [FUNCTION DOC]
-    # Verifies error cases: maxval beyond int64 raises ValueError, a float64 array raises
+    # Verifies error cases: maxval beyond int64 raises ValueError, a float64 array
+    # raises
     # ValueError about unsupported dtype, and a non-ndarray list raises TypeError.
     """Check that we raise the proper error message."""
     with pytest.raises(err_type, match=err_msg):
@@ -213,7 +217,8 @@ SPARSE_CONSTRUCTORS = INDEX_CONSTRUCTORS + NO_INDEX_TEST_CONSTRUCTORS
 @pytest.mark.parametrize("constructor", SPARSE_CONSTRUCTORS)
 def test_ensure_sparse_index_int32(constructor):
     # [FUNCTION DOC]
-    # Smoke test: _ensure_sparse_index_int32 accepts a small matrix built with every sparse
+    # Smoke test: _ensure_sparse_index_int32 accepts a small matrix built with every
+    # sparse
     # constructor (with and without index arrays) without raising.
     A = constructor(np.array([[1.0, 2.0, 3.0], [3.0, 2.0, 1.0]]))
     _ensure_sparse_index_int32(A)

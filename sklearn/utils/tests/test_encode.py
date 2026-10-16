@@ -83,7 +83,8 @@ def test_encode_with_check_unknown():
 def _assert_check_unknown(values, uniques, expected_diff, expected_mask):
     # [FUNCTION DOC]
     # HELPER: Asserts _check_unknown returns expected_diff (the unknown values) both
-    # without and with return_mask, and that the returned valid mask equals expected_mask.
+    # without and with return_mask, and that the returned valid mask equals
+    # expected_mask.
     # Inputs: values, uniques - arrays; expected_diff, expected_mask - array-likes.
     # Exceptions: AssertionError on mismatch.
     diff = _check_unknown(values, uniques)
@@ -146,7 +147,8 @@ def _assert_check_unknown(values, uniques, expected_diff, expected_mask):
 )
 def test_check_unknown(values, uniques, expected_diff, expected_mask):
     # [FUNCTION DOC]
-    # Verifies _check_unknown over parametrized numeric (with/without NaN on either side),
+    # Verifies _check_unknown over parametrized numeric (with/without NaN on either
+    # side),
     # object and str cases via _assert_check_unknown.
     _assert_check_unknown(values, uniques, expected_diff, expected_mask)
 
@@ -157,7 +159,8 @@ def test_check_unknown_missing_values(missing_value, pickle_uniques):
     # [FUNCTION DOC]
     # Verifies _check_unknown on object arrays with a missing value (None or NaN):
     # missing in both values and uniques is known; missing only in values is reported in
-    # the diff; and a missing value in values is unknown when uniques have none. Repeated
+    # the diff; and a missing value in values is unknown when uniques have none.
+    # Repeated
     # with uniques round-tripped through pickle (NaN identity changes).
     # check for check_unknown with missing values with object dtypes
     values = np.array(["d", "c", "a", "b", missing_value], dtype=object)
@@ -194,7 +197,8 @@ def test_check_unknown_missing_values(missing_value, pickle_uniques):
 def test_unique_util_missing_values_objects(missing_value, pickle_uniques):
     # [FUNCTION DOC]
     # Verifies _unique on object arrays with one missing value places it last (checking
-    # NaN via isnan), and _encode maps values to correct codes, also after pickling uniques.
+    # NaN via isnan), and _encode maps values to correct codes, also after pickling
+    # uniques.
     # check for _unique and _encode with missing values with object dtypes
     values = np.array(["a", "c", "c", missing_value, "b"], dtype=object)
     expected_uniques = np.array(["a", "b", "c", missing_value], dtype=object)
@@ -216,7 +220,8 @@ def test_unique_util_missing_values_objects(missing_value, pickle_uniques):
 
 def test_unique_util_missing_values_numeric():
     # [FUNCTION DOC]
-    # Verifies _unique, its inverse and _encode for a float array containing repeated NaN:
+    # Verifies _unique, its inverse and _encode for a float array containing repeated
+    # NaN:
     # NaN is a single unique sorted last.
     # Check missing values in numerical values
     values = np.array([3, 1, np.nan, 5, 3, np.nan], dtype=float)
@@ -236,7 +241,8 @@ def test_unique_util_missing_values_numeric():
 
 def test_unique_util_with_all_missing_values():
     # [FUNCTION DOC]
-    # Verifies an object array mixing NaN, float("nan") and None yields uniques with None
+    # Verifies an object array mixing NaN, float("nan") and None yields uniques with
+    # None
     # before a single trailing NaN, and the inverse codes group both NaN kinds together.
     # test for all types of missing values for object dtype
     values = np.array([np.nan, "a", "c", "c", None, float("nan"), None], dtype=object)
@@ -253,7 +259,8 @@ def test_unique_util_with_all_missing_values():
 
 def test_check_unknown_with_both_missing_values():
     # [FUNCTION DOC]
-    # Verifies _check_unknown on object values containing both None and NaN against known
+    # Verifies _check_unknown on object values containing both None and NaN against
+    # known
     # "a"/"c" reports None then NaN as unknown, and the valid mask flags them as False.
     # test for both types of missing values for object dtype
     values = np.array([np.nan, "a", "c", "c", None, np.nan, None], dtype=object)
