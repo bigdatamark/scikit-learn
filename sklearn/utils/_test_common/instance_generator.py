@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# HELPER: Instance generation for scikit-learn's common estimator tests. Defines
+# INIT_PARAMS (fast constructor arguments per estimator class, possibly a list of
+# parameter sets), PER_ESTIMATOR_CHECK_PARAMS (extra parameter sets for specific
+# checks), PER_ESTIMATOR_XFAIL_CHECKS (expected failures with reasons),
+# SKIPPED_ESTIMATORS, CROSS_DECOMPOSITION and a seeded RandomState rng, plus
+# functions to build instances, pytest ids and expected-failure maps.
+# Import-time side effects: imports essentially all estimators; conditionally adds
+# xfail entries for SplineTransformer (scipy < 1.11) and LinearSVR (when
+# pytest_run_parallel is loaded).
+# KNOWN ISSUE: the SplineTransformer xfail reason lacks a space between 'does not'
+# and 'support' due to implicit string concatenation.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -795,6 +807,11 @@ PER_ESTIMATOR_CHECK_PARAMS: dict = {
 
 
 def _tested_estimators(type_filter=None):
+    # [FUNCTION DOC]
+    # HELPER: Generator over all scikit-learn estimators (optionally filtered by
+    # type_filter as in all_estimators) yielding every instance built by
+    # _construct_instances; estimators raising SkipTest are silently skipped.
+    # Inputs: type_filter - None, str or list of str. Yields: estimator instances.
     for _, Estimator in all_estimators(type_filter=type_filter):
         with suppress(SkipTest):
             for estimator in _construct_instances(Estimator):
@@ -805,6 +822,11 @@ SKIPPED_ESTIMATORS = [FrozenEstimator]
 
 
 def _construct_instances(Estimator):
+    # [FUNCTION DOC]
+    # HELPER: Generator of instances of Estimator: one per parameter set in INIT_PARAMS
+    # (a single dict is treated as a one-element list), or a single default instance.
+    # Exceptions: SkipTest (after emitting a SkipTestWarning) for SKIPPED_ESTIMATORS;
+    # constructor errors propagate.
     """Construct Estimator instances if possible.
 
     If parameter sets in INIT_PARAMS are provided, use them. If there are a list
@@ -828,6 +850,11 @@ def _construct_instances(Estimator):
 
 
 def _get_check_estimator_ids(obj):
+    # [FUNCTION DOC]
+    # HELPER: Produces pytest ids. Functions give their name; partials give the func
+    # name, followed by '(k=v,...)' when they have keyword arguments; objects with
+    # get_params give their changed-only repr with all whitespace removed. Anything
+    # else returns None (pytest then falls back to its default id).
     """Create pytest ids for checks.
 
     When `obj` is an estimator, this returns the pprint version of the
@@ -864,6 +891,12 @@ def _get_check_estimator_ids(obj):
 
 
 def _yield_instances_for_check(check, estimator_orig):
+    # [FUNCTION DOC]
+    # HELPER: Generator. If the estimator's exact type has an entry in
+    # PER_ESTIMATOR_CHECK_PARAMS that names this check (by function name, or the
+    # wrapped function name for partials), yields a clone of the estimator with each
+    # listed parameter set applied; otherwise yields the original estimator once.
+    # Side effects: none on estimator_orig (clones are modified).
     """Yield instances for a check.
 
     For most estimators, this is a no-op.
@@ -1374,6 +1407,15 @@ if "pytest_run_parallel" in sys.modules:
 
 
 def _get_expected_failed_checks(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns the mapping of check name to xfail reason for the estimator's
+    # exact type, adding instance-dependent entries: for KNeighbors classifier/
+    # regressor with pairwise input tag, two FIXME checks; for LinearRegression on
+    # 32-bit with scipy 1.15.x, two sample-weight equivalence checks.
+    # Outputs: dict.
+    # KNOWN ISSUE: the dict obtained from PER_ESTIMATOR_XFAIL_CHECKS is updated in
+    # place, so instance-dependent entries leak into the global table for later
+    # instances of the same class (e.g. a non-pairwise KNeighbors instance).
     """Get the expected failed checks for all estimators in scikit-learn."""
     failed_checks = PER_ESTIMATOR_XFAIL_CHECKS.get(type(estimator), {})
 
