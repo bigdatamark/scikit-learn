@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Common tests shared across the binary-classifier curve displays (Calibration,
+# DET, PrecisionRecall, ROC, plus PredictionError and ConfusionMatrix where relevant):
+# error handling for non-binary or regressor inputs, missing response methods, unfitted
+# estimators, inconsistent lengths, pos_label; name overriding; subclass return types;
+# multi-curve legend labels; from_cv_results validation and curve_kwargs; deprecations.
+# Also provides _check_pos_label_statistics, imported by the ROC and PR test modules.
 from collections.abc import Mapping
 from contextlib import suppress
 
@@ -26,11 +33,16 @@ from sklearn.utils import shuffle
 
 @pytest.fixture(scope="module")
 def data():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning the full 3-class iris (X, y).
     return load_iris(return_X_y=True)
 
 
 @pytest.fixture(scope="module")
 def data_binary(data):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning the iris samples of classes 0 and 1 only.
+    # Inputs: data fixture. Outputs: (X, y) binary subset.
     X, y = data
     return X[y < 2], y[y < 2]
 
@@ -38,6 +50,21 @@ def data_binary(data):
 def _check_pos_label_statistics(
     display_class, response_method, constructor_name, check_metric
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds a highly imbalanced binary problem from breast cancer (all
+    # negatives plus 25 positives, shuffled, first 2 features only, string labels
+    #   'cancer'
+    # and 'not cancer'), splits it stratified, fits a LogisticRegression on the train
+    #   set
+    # and runs a 3-fold cross_validate on all data. Asserts classes_ is ['cancer', 'not
+    # cancer'], then for pos_label 'cancer' (scores: column 0 of probabilities or
+    #   negated
+    # decision function) and 'not cancer' (column 1 or raw decision function) builds the
+    # display with the requested constructor and calls check_metric on it.
+    # Inputs: display_class; response_method; constructor_name - 'from_estimator',
+    # 'from_predictions' or anything else meaning 'from_cv_results'; check_metric -
+    # callable(display, constructor_name, pos_label) performing the assertions.
+    # Outputs: none. Side effects: creates figures.
     """Test switching `pos_label` gives correct statistics, using imbalanced data."""
     X, y = load_breast_cancer(return_X_y=True)
     # create highly imbalanced classes
@@ -133,6 +160,10 @@ def _check_pos_label_statistics(
     [CalibrationDisplay, DetCurveDisplay, PrecisionRecallDisplay, RocCurveDisplay],
 )
 def test_display_curve_error_binary_classifier(pyplot, data, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies that from_estimator raises ValueError for a multiclass classifier (with
+    # multiclass or binary target) and for a binary classifier given a multiclass
+    #   target.
     """Check correct error raised when only binary classification supported."""
     X, y = data
     X_binary, y_binary = data_binary
@@ -159,6 +190,9 @@ def test_display_curve_error_binary_classifier(pyplot, data, data_binary, Displa
     [CalibrationDisplay, DetCurveDisplay, PrecisionRecallDisplay, RocCurveDisplay],
 )
 def test_display_curve_error_regression(pyplot, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies ValueError when from_estimator gets a regressor, and when the target is
+    # continuous for from_estimator and from_predictions.
     """Check that we raise an error with regressor."""
 
     # Case 1: regressor
@@ -214,11 +248,22 @@ def test_display_curve_error_no_response_method(
     msg,
     Display,
 ):
+    # [FUNCTION DOC]
+    # Verifies that from_estimator raises AttributeError listing the missing
+    # method(s) when the classifier lacks predict_proba/decision_function or the
+    #   requested
+    # method does not exist.
     """Check error raised when `response_method` not defined for `estimator`."""
     X, y = data_binary
 
     class MyClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Minimal classifier with only fit; has no predict_proba nor
+        # decision_function.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets classes_ to [0, 1] and returns self; ignores the data.
+            # Side effects: sets self.classes_.
             self.classes_ = [0, 1]
             return self
 
@@ -241,6 +286,11 @@ def test_display_curve_name_overwritten_by_plot_multiple_calls(
     Display,
     constructor_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies for each display and constructor (skipping from_cv_results where not
+    # implemented) that the name given to the constructor is stored (name or
+    # estimator_name), reused when calling plot without a name, and replaced when plot
+    # receives a new name.
     """Check passing `name` in `plot` overwrites name passed in `from_*` method."""
     X, y = data_binary
     clf_name = "my hand-crafted name"
@@ -295,6 +345,10 @@ def test_display_curve_name_overwritten_by_plot_multiple_calls(
     [CalibrationDisplay, DetCurveDisplay, PrecisionRecallDisplay, RocCurveDisplay],
 )
 def test_display_curve_not_fitted_errors(pyplot, data_binary, clf, Display):
+    # [FUNCTION DOC]
+    # Verifies that from_estimator raises NotFittedError on unfitted classifiers or
+    # pipelines, and after fitting the class name appears in the line label and stored
+    # name.
     """Check correct error raised when `estimator` is not fitted."""
     X, y = data_binary
     # clone since we parametrize the test and the classifier will be fitted
@@ -317,6 +371,9 @@ def test_display_curve_not_fitted_errors(pyplot, data_binary, clf, Display):
     [CalibrationDisplay, DetCurveDisplay, PrecisionRecallDisplay, RocCurveDisplay],
 )
 def test_display_curve_n_samples_consistency(pyplot, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies ValueError for inconsistent numbers of samples between X and y, and for a
+    # short sample_weight (except CalibrationDisplay which has no sample_weight).
     """Check error raised when `y_pred` or `sample_weight` have inconsistent length."""
     X, y = data_binary
     classifier = DecisionTreeClassifier().fit(X, y)
@@ -339,6 +396,9 @@ def test_display_curve_n_samples_consistency(pyplot, data_binary, Display):
     [CalibrationDisplay, DetCurveDisplay, PrecisionRecallDisplay, RocCurveDisplay],
 )
 def test_display_curve_error_pos_label(pyplot, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies that from_predictions on labels {10, 11} without pos_label raises the
+    # standard ValueError asking to specify pos_label.
     """Check consistency of error message when `pos_label` should be specified."""
     X, y = data_binary
     y = y + 10
@@ -368,6 +428,11 @@ def test_display_curve_error_pos_label(pyplot, data_binary, Display):
 def test_classifier_display_curve_named_constructor_return_type(
     pyplot, data_binary, Display, constructor
 ):
+    # [FUNCTION DOC]
+    # Non-regression for PR #27675: verifies that from_predictions, from_estimator and
+    # (where implemented) from_cv_results called on a subclass return an instance of
+    #   that
+    # subclass.
     """Check that named constructors return the correct type when subclassed.
 
     Non-regression test for:
@@ -385,6 +450,8 @@ def test_classifier_display_curve_named_constructor_return_type(
     )
 
     class SubclassOfDisplay(Display):
+        # [CLASS DOC]
+        # HELPER: Empty subclass of the parametrized display class.
         pass
 
     if constructor == "from_predictions":
@@ -425,6 +492,15 @@ def test_classifier_display_curve_named_constructor_return_type(
     ],
 )
 def test_display_validate_plot_params(pyplot, Display, display_args):
+    # [FUNCTION DOC]
+    # Verifies that _validate_plot_params of the PR and ROC displays returns as many
+    # values as constructor args, wraps names and arrays into single-element lists and
+    #   keeps
+    # None values as None.
+    # KNOWN ISSUE: the name check 'assert x == [value] if cond else value' parses as a
+    # conditional around the comparison, so for non-string names it only asserts value
+    #   is
+    # truthy.
     """Check `_validate_plot_params` returns the correct variables.
 
     `display_args` should be given in the same order as output by
@@ -486,6 +562,15 @@ auc_metrics = [[1.0, 1.0, 1.0], None]
 def test_display_plot_legend_label(
     pyplot, Display, auc_metric_name, auc_arg_name, display_args, curve_kwargs, name
 ):
+    # [FUNCTION DOC]
+    # Verifies multi-curve (3 curves) legend labels from direct construction for PR and
+    # ROC across curve_kwargs (None, dict, list) and name (None, str, list) with or
+    #   without
+    # metric values: ValueError when name is a list but curve_kwargs is not; no legend
+    #   when
+    # neither name nor metric exists; one label per curve with list curve_kwargs;
+    #   otherwise
+    # a single aggregate label with mean +/- std.
     """Check legend label correct with all `curve_kwargs`, `name` combinations.
 
     Checks `from_estimator` and `from_predictions` methods, when plotting multiple
@@ -563,6 +648,9 @@ def test_display_default_name(
     expected_clf_name,
     Display,
 ):
+    # [FUNCTION DOC]
+    # Verifies default names ('LogisticRegression' or 'Classifier') appear in disp.name
+    # and the line label for PR and ROC.
     # Check the default name display in the figure when `name` is not provided
     X, y = data_binary
 
@@ -593,6 +681,14 @@ def test_display_default_name(
 def test_display_from_cv_results_legend_label(
     pyplot, Display, auc_metrics, auc_metric_name, curve_kwargs, name
 ):
+    # [FUNCTION DOC]
+    # Verifies the same name/curve_kwargs legend rules as test_display_plot_legend_label
+    # but through from_cv_results on a 50-sample problem, with hard-coded per-fold
+    #   metric
+    # values.
+    # KNOWN ISSUE: the line 'X, y = X, y = make_classification(...)' contains a
+    #   redundant
+    # chained assignment.
     """Check legend label correct with all `curve_kwargs`, `name` combinations.
 
     This function verifies that the legend labels in a Display object created from
@@ -651,6 +747,14 @@ def test_display_from_cv_results_legend_label(
 
 @pytest.mark.parametrize("Display", [PrecisionRecallDisplay, RocCurveDisplay])
 def test_display_from_cv_results_param_validation(pyplot, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies from_cv_results errors: missing cv_results keys, wrong X length,
+    # non-binary y, inconsistent y/sample_weight lengths, a 'No positive ... in y_true'
+    # warning when the positive label is absent, list name with non-list curve_kwargs,
+    #   wrong
+    # curve_kwargs length and conflicting style aliases (TypeError).
+    # KNOWN ISSUE: both 'missing key' cv_results are built identically (return_estimator
+    # True, return_indices False), so the missing-estimator case is never tested.
     """Check parameter validation is correct."""
     X, y = data_binary
 
@@ -722,6 +826,9 @@ def test_display_from_cv_results_param_validation(pyplot, data_binary, Display):
 
 @pytest.mark.parametrize("Display", [PrecisionRecallDisplay, RocCurveDisplay])
 def test_display_from_cv_results_pos_label_inferred(pyplot, data_binary, Display):
+    # [FUNCTION DOC]
+    # Verifies that with pos_label None, from_cv_results stores pos_label equal to the
+    # fold estimator's classes_[1] (1).
     """Check `pos_label` inferred correctly by `from_cv_results(pos_label=None)`."""
     X, y = data_binary
     cv_results = cross_validate(
@@ -741,6 +848,9 @@ def test_display_from_cv_results_pos_label_inferred(pyplot, data_binary, Display
 def test_display_from_cv_results_curve_kwargs(
     pyplot, data_binary, curve_kwargs, Display
 ):
+    # [FUNCTION DOC]
+    # Verifies that fold lines use default alpha 0.5, a shared dict alpha, or per-curve
+    # alphas from a list.
     """Check `curve_kwargs` correctly passed from `from_cv_results`."""
     X, y = data_binary
     cv_results = cross_validate(
@@ -774,6 +884,9 @@ def test_display_from_cv_results_curve_kwargs(
 def test_display_from_cv_results_curve_kwargs_default_kwargs(
     pyplot, data_binary, curve_kwargs, Display
 ):
+    # [FUNCTION DOC]
+    # Verifies that fold lines default to blue, take a shared dict color, or per-curve
+    # colors given with the 'c' alias.
     """Check `curve_kwargs` and default color handled correctly in `from_cv_results`."""
 
     X, y = data_binary
@@ -805,6 +918,9 @@ def test_display_from_cv_results_curve_kwargs_default_kwargs(
     ],
 )
 def test_display_estimator_name_deprecation(pyplot, Display, display_kwargs):
+    # [FUNCTION DOC]
+    # Verifies that passing estimator_name to the PrecisionRecallDisplay constructor
+    # emits a FutureWarning.
     """Check deprecation of `estimator_name`."""
     with pytest.warns(FutureWarning, match="`estimator_name` is deprecated in"):
         Display(**display_kwargs, estimator_name="test")
@@ -826,6 +942,10 @@ def test_display_estimator_name_deprecation(pyplot, Display, display_kwargs):
 def test_display_kwargs_deprecation(
     pyplot, data_binary, constructor_name, Display, display_kwargs
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_estimator, from_predictions and plot that passing both
+    # curve_kwargs and extra matplotlib kwargs raises ValueError, and extra kwargs alone
+    # emit a FutureWarning.
     """Check **kwargs deprecated correctly in favour of `curve_kwargs`."""
     X, y = data_binary
     lr = LogisticRegression()
