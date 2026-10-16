@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.linear_model._base: LinearRegression (dense, sparse, weighted,
+# positive, multi-output), the _preprocess_data / _rescale_data helpers,
+# make_dataset dtype handling, array API estimator moving, and
+# LinearClassifierMixin._predict_proba_lr numerical stability.
+# Module constant rtol is the tolerance used by test_fused_types_make_dataset.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -37,6 +43,9 @@ rtol = 1e-6
 
 
 def test_linear_regression():
+    # [FUNCTION DOC]
+    # Fits LinearRegression on two collinear points and on a single point and checks
+    # the exact coef_, intercept_ and predictions (degenerate input gives zeros).
     # Test LinearRegression on a simple dataset.
     # a simple dataset
     X = [[1], [2]]
@@ -62,6 +71,10 @@ def test_linear_regression():
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 def test_linear_regression_vs_lstsq(dtype):
+    # [FUNCTION DOC]
+    # Builds 500k samples with two strongly correlated features for float64 and float32,
+    # and checks the residual norm of LinearRegression (no intercept) matches
+    # scipy.linalg.lstsq to rel 1e-6 (regression test for issue #33032).
     """
     Check that LinearRegression is as good as `scipy.linalg.lstsq`.
     Non regression test for issue #33032.
@@ -90,6 +103,11 @@ def test_linear_regression_vs_lstsq(dtype):
 def test_linear_regression_sample_weights(
     sparse_container, fit_intercept, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Compares weighted LinearRegression (dense and CSR, with/without intercept) to the
+    # closed-form weighted normal equations solved with an explicit diagonal weight
+    # matrix; with intercept, a column of ones is prepended and its coefficient is
+    # compared to intercept_.
     rng = np.random.RandomState(global_random_seed)
 
     # It would not work with under-determined systems
@@ -127,6 +145,10 @@ def test_linear_regression_sample_weights(
 
 
 def test_raises_value_error_if_positive_and_sparse():
+    # [FUNCTION DOC]
+    # Checks that fitting LinearRegression(positive=True) on a sparse identity matrix
+    # raises TypeError mentioning that dense data is required.
+    # KNOWN ISSUE: the test name says ValueError but the expected exception is TypeError.
     error_msg = "Sparse data was passed for X, but dense data is required."
     # X must not be sparse if positive == True
     X = _sparse_eye_array(10)
@@ -140,6 +162,11 @@ def test_raises_value_error_if_positive_and_sparse():
 
 @pytest.mark.parametrize("n_samples, n_features", [(2, 3), (3, 2)])
 def test_raises_value_error_if_sample_weights_greater_than_1d(n_samples, n_features):
+    # [FUNCTION DOC]
+    # Fits LinearRegression with a valid 1D weight vector and two scalar weights for two
+    # shapes, checking only that these succeed.
+    # KNOWN ISSUE: despite its name, nothing checks that 2D sample weights raise; no
+    # error case is exercised.
     # Sample weights must be either scalar or 1D
     rng = np.random.RandomState(0)
     X = rng.randn(n_samples, n_features)
@@ -157,6 +184,9 @@ def test_raises_value_error_if_sample_weights_greater_than_1d(n_samples, n_featu
 
 
 def test_fit_intercept():
+    # [FUNCTION DOC]
+    # Checks that coef_ shape and ndim do not depend on fit_intercept, for 2- and
+    # 3-feature inputs with two samples.
     # Test assertions on betas shape.
     X2 = np.array([[0.38349978, 0.61650022], [0.58853682, 0.41146318]])
     X3 = np.array(
@@ -176,6 +206,9 @@ def test_fit_intercept():
 
 
 def test_linear_regression_sparse(global_random_seed):
+    # [FUNCTION DOC]
+    # Fits on a sparse identity design with random targets and checks coef_ plus
+    # intercept_ recovers the targets and that predictions are exact.
     # Test that linear regression also works with sparse data
     rng = np.random.RandomState(global_random_seed)
     n = 100
@@ -193,6 +226,9 @@ def test_linear_regression_sparse(global_random_seed):
 @pytest.mark.parametrize("fit_intercept", [True, False])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_linear_regression_sparse_equal_dense(fit_intercept, csr_container):
+    # [FUNCTION DOC]
+    # Checks that dense and CSR versions of the same thresholded random data give the
+    # same intercept_ and coef_, with and without intercept.
     # Test that linear regression agrees between sparse and dense
     rng = np.random.RandomState(0)
     n_samples = 200
@@ -211,6 +247,9 @@ def test_linear_regression_sparse_equal_dense(fit_intercept, csr_container):
 
 
 def test_linear_regression_multiple_outcome():
+    # [FUNCTION DOC]
+    # Fits a 2-column target made of a duplicated y and checks coef_ shape (2,
+    # n_features) and that the predictions equal those of the single-target fit.
     # Test multiple-outcome linear regressions
     rng = np.random.RandomState(0)
     X, y = make_regression(random_state=rng)
@@ -229,6 +268,9 @@ def test_linear_regression_multiple_outcome():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_linear_regression_sparse_multiple_outcome(global_random_seed, coo_container):
+    # [FUNCTION DOC]
+    # Same as test_linear_regression_multiple_outcome but with COO sparse X from
+    # make_sparse_uncorrelated.
     # Test multiple-outcome linear regressions with sparse data
     rng = np.random.RandomState(global_random_seed)
     X, y = make_sparse_uncorrelated(random_state=rng)
@@ -246,6 +288,8 @@ def test_linear_regression_sparse_multiple_outcome(global_random_seed, coo_conta
 
 
 def test_linear_regression_positive():
+    # [FUNCTION DOC]
+    # positive=True counterpart of test_linear_regression on the same tiny datasets.
     # Test nonnegative LinearRegression on a simple dataset.
     X = [[1], [2]]
     y = [1, 2]
@@ -269,6 +313,9 @@ def test_linear_regression_positive():
 
 
 def test_linear_regression_positive_multiple_outcome(global_random_seed):
+    # [FUNCTION DOC]
+    # With positive=True and duplicated targets, checks coef_ shape, non-negativity,
+    # and agreement of multi-output and single-output predictions.
     # Test multiple-outcome nonnegative linear regressions
     rng = np.random.RandomState(global_random_seed)
     X, y = make_sparse_uncorrelated(random_state=rng)
@@ -286,6 +333,9 @@ def test_linear_regression_positive_multiple_outcome(global_random_seed):
 
 
 def test_linear_regression_positive_vs_nonpositive(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that positive=True gives coefficients noticeably different (mean squared
+    # difference > 1e-3) from unconstrained OLS on data with negative true coefficients.
     # Test differences with LinearRegression when positive=False.
     rng = np.random.RandomState(global_random_seed)
     X, y = make_sparse_uncorrelated(random_state=rng)
@@ -299,6 +349,9 @@ def test_linear_regression_positive_vs_nonpositive(global_random_seed):
 
 
 def test_linear_regression_positive_vs_nonpositive_when_positive(global_random_seed):
+    # [FUNCTION DOC]
+    # On noiseless data generated from positive coefficients, checks positive and
+    # unconstrained fits agree (mean squared difference < 1e-6).
     # Test LinearRegression fitted coefficients
     # when the problem is positive.
     rng = np.random.RandomState(global_random_seed)
@@ -318,6 +371,11 @@ def test_linear_regression_positive_vs_nonpositive_when_positive(global_random_s
 @pytest.mark.parametrize("sparse_container", [None] + CSR_CONTAINERS)
 @pytest.mark.parametrize("use_sw", [True, False])
 def test_inplace_data_preprocessing(sparse_container, use_sw, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks copy semantics of LinearRegression.fit for dense/CSR X, with or without
+    # weights: with default copy_X nothing is modified; with copy_X=False dense X is
+    # modified in place (norm of change > 0.42) while sparse X, y and sample_weight
+    # remain unchanged.
     # Check that the data is not modified inplace by the linear regression
     # estimator.
     rng = np.random.RandomState(global_random_seed)
@@ -372,6 +430,10 @@ def test_inplace_data_preprocessing(sparse_container, use_sw, global_random_seed
 
 
 def test_preprocess_data(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _preprocess_data on dense data: without intercept it returns zero means,
+    # unit scale, no sqrt_sw and unchanged data; with intercept it returns column/target
+    # means and centered X and y.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 2
@@ -403,6 +465,9 @@ def test_preprocess_data(global_random_seed):
 
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS)
 def test_preprocess_data_multioutput(global_random_seed, sparse_container):
+    # [FUNCTION DOC]
+    # Checks y_mean and centered yt for a 2-output target, with dense or CSC X,
+    # with and without fit_intercept.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 3
@@ -428,6 +493,12 @@ def test_preprocess_data_multioutput(global_random_seed, sparse_container):
 def test_preprocess_data_weighted(
     rescale_with_sw, sparse_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Checks weighted _preprocess_data on dense/CSR X containing a scaled feature, a
+    # constant feature and an all-zero feature: weighted means for X and y, unit
+    # X_scale, and, with rescale_with_sw, sqrt_sw equal to sqrt of weights and outputs
+    # multiplied by it (sparse X is not centered). Without rescaling, sqrt_sw is None.
+    # Note: expected_X_scale is computed but never asserted (dead setup code).
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 4
@@ -500,6 +571,10 @@ def test_preprocess_data_weighted(
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_sparse_preprocess_data_offsets(global_random_seed, lil_container):
+    # [FUNCTION DOC]
+    # For LIL sparse X, checks _preprocess_data returns zero/actual means, unit scale,
+    # no sqrt_sw, and an uncentered X in both intercept settings, with centered y only
+    # when fit_intercept is true.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 2
@@ -531,6 +606,8 @@ def test_sparse_preprocess_data_offsets(global_random_seed, lil_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_csr_preprocess_data(csr_container):
+    # [FUNCTION DOC]
+    # Checks that CSR input stays in CSR format after _preprocess_data with intercept.
     # Test output format of _preprocess_data, when input is csr
     X, y = make_regression()
     X[X < 2.5] = 0.0
@@ -543,6 +620,10 @@ def test_csr_preprocess_data(csr_container):
 @pytest.mark.parametrize("to_copy", (True, False))
 @pytest.mark.parametrize("use_sample_weight", (False, True))
 def test_preprocess_copy_data_no_checks(sparse_container, to_copy, use_sample_weight):
+    # [FUNCTION DOC]
+    # With check_input=False, checks memory sharing of the returned X: dense X is
+    # shared iff copy is False; sparse X data is shared only when copy is False and no
+    # sample_weight is given.
     X, y = make_regression()
     X[X < 2.5] = 0.0
 
@@ -573,6 +654,13 @@ def test_preprocess_copy_data_no_checks(sparse_container, to_copy, use_sample_we
 @pytest.mark.parametrize("rescale_with_sw", [False, True])
 @pytest.mark.parametrize("fit_intercept", [False, True])
 def test_dtype_preprocess_data(rescale_with_sw, fit_intercept, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _preprocess_data output dtypes follow X for all float32/float64 mixtures of
+    # X and y (y is cast to X dtype), inputs keep their dtypes, and float32 and float64
+    # results agree numerically.
+    # KNOWN ISSUE: in the float64-X / float32-y block, the X_scale dtype assertion
+    # checks X_scale_3264 instead of X_scale_6432 (copy-paste), so X_scale_6432 is
+    # never checked.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 2
@@ -670,6 +758,9 @@ def test_dtype_preprocess_data(rescale_with_sw, fit_intercept, global_random_see
 
 
 def test_preprocess_data_integer_array_api_on_float32_only_device():
+    # [FUNCTION DOC]
+    # With torch on MPS (float32-only device; skipped otherwise by the helper) and array
+    # API dispatch enabled, checks that int64 X and y are converted to float32.
     xp, device = _array_api_for_tests("torch", device_name="mps", dtype_name="float32")
 
     # TODO: replace this torch/MPS-specific coverage by array-api-strict once
@@ -691,6 +782,9 @@ def test_preprocess_data_integer_array_api_on_float32_only_device():
 @pytest.mark.parametrize("n_targets", [None, 2])
 @pytest.mark.parametrize("sparse_container", [None] + CSR_CONTAINERS)
 def test_rescale_data(n_targets, sparse_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _rescale_data multiplies X and y (1D or 2D, dense or CSR) row-wise by the
+    # square root of the weights and returns those square roots.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 200
     n_features = 2
@@ -733,6 +827,10 @@ def test_rescale_data(n_targets, sparse_container, global_random_seed):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_fused_types_make_dataset(csr_container):
+    # [FUNCTION DOC]
+    # Builds float32 and float64 datasets from iris, dense and CSR, via make_dataset,
+    # draws the first sample of each and checks feature dtypes follow the input and
+    # that values agree across dtypes and between dense and CSR.
     iris = load_iris()
 
     X_32 = iris.data.astype(np.float32)
@@ -795,6 +893,12 @@ def test_fused_types_make_dataset(csr_container):
 def test_linear_regression_sample_weight_consistency(
     X_shape, sparse_container, fit_intercept, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Checks sample_weight properties of LinearRegression for several shapes, dense and
+    # CSR (CSR marked xfail): unit weights and a scalar weight equal no weights;
+    # rescaling weights has no effect; zero weights equal dropping samples; doubling a
+    # weight equals duplicating the sample.
+    # Side effects: mutates the local y (last 5 targets multiplied by 1000).
     """Test that the impact of sample_weight is consistent.
 
     Note that this test is stricter than the common test
@@ -878,6 +982,10 @@ def test_linear_regression_sample_weight_consistency(
 
 @skip_if_array_api_compat_not_configured
 def test_array_api_move_estimator_to():
+    # [FUNCTION DOC]
+    # Checks that a NumPy-fitted LinearRegression fails to predict on array_api_strict
+    # input under array API dispatch with a namespace mismatch ValueError, and
+    # succeeds after move_estimator_to the input's namespace and device.
     xp = pytest.importorskip("array_api_strict")
     rng = np.random.default_rng(0)
     X = rng.normal(size=(10, 5))
@@ -896,6 +1004,9 @@ def test_array_api_move_estimator_to():
 
 
 def test_predict_proba_lr_large_values():
+    # [FUNCTION DOC]
+    # Uses a mock linear classifier whose decision function is -1000 for all 4 classes
+    # and checks _predict_proba_lr still returns rows summing to 1 (no 0/0).
     """Test that _predict_proba_lr of LinearClassifierMixin deals with large
     negative values.
 
@@ -903,13 +1014,22 @@ def test_predict_proba_lr_large_values():
     """
 
     class MockClassifier(LinearClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Minimal LinearClassifierMixin estimator with a constant decision function.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: No parameters; does nothing.
             pass
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Ignores inputs; marks the estimator as fitted by setting
+            # __sklearn_is_fitted__ to True. Returns None.
             self.__sklearn_is_fitted__ = True
 
         def decision_function(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns an array (X.shape[0], 4) filled with -1000.0.
             n_samples = X.shape[0]
             return np.tile([-1000.0] * 4, [n_samples, 1])
 
