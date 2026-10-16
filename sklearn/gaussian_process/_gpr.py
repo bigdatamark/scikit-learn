@@ -39,9 +39,9 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     # [CLASS DOC]
     # GP regressor supporting multiple targets, optional target normalisation, prior
     #   prediction without fitting (requires_fit tag is False), and custom optimizers.
-    #   Fitted attributes: kernel_, X_train_, y_train_, L_ (lower Cholesky factor), alpha_
-    #   (dual coefficients), log_marginal_likelihood_value_, plus private _y_train_mean,
-    #   _y_train_std and _rng.
+    #   Fitted attributes: kernel_, X_train_, y_train_, L_ (lower Cholesky factor),
+    #   alpha_ (dual coefficients), log_marginal_likelihood_value_, plus private
+    #   _y_train_mean, _y_train_std and _rng.
     """Gaussian process regression (GPR).
 
     The implementation is based on Algorithm 2.1 of [RW2006]_.
@@ -252,16 +252,17 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     def fit(self, X, y):
         # [FUNCTION DOC]
         # Steps: clone kernel (or build C()*RBF()) into kernel_; create _rng; validate X
-        #   and y (numeric 2-D X only if the kernel requires vector input; multi-output y
-        #   allowed); check y's target count matches n_targets if given; if normalize_y,
-        #   standardise y per target (zero std replaced by 1), else store zero means and
-        #   unit stds; validate alpha length; store training data (copied if
-        #   copy_X_train). If an optimizer is set and the kernel has hyperparameters,
-        #   minimise the negative log-marginal likelihood starting from the kernel's theta
-        #   and from n_restarts_optimizer log-uniform random draws within the bounds, keep
-        #   the best theta in kernel_ and its likelihood; otherwise just compute the
-        #   likelihood at the current theta. Finally compute L_ as the Cholesky factor of
-        #   K + alpha*I and alpha_ by solving (K + alpha*I) alpha_ = y_train_.
+        #   and y (numeric 2-D X only if the kernel requires vector input; multi-output
+        #   y allowed); check y's target count matches n_targets if given; if
+        #   normalize_y, standardise y per target (zero std replaced by 1), else store
+        #   zero means and unit stds; validate alpha length; store training data (copied
+        #   if copy_X_train). If an optimizer is set and the kernel has hyperparameters,
+        #   minimise the negative log-marginal likelihood starting from the kernel's
+        #   theta and from n_restarts_optimizer log-uniform random draws within the
+        #   bounds, keep the best theta in kernel_ and its likelihood; otherwise just
+        #   compute the likelihood at the current theta. Finally compute L_ as the
+        #   Cholesky factor of K + alpha*I and alpha_ by solving (K + alpha*I) alpha_ =
+        #   y_train_.
         # Inputs: X - array (n_samples, n_features) or list of objects; y - (n_samples,)
         #   or (n_samples, n_targets).
         # Outputs: self.
@@ -272,8 +273,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # Side effects: sets the fitted attributes listed on the class, consumes
         #   randomness from random_state, and may emit optimizer convergence warnings.
         # KNOWN ISSUE: when alpha is a length-1 array it overwrites the constructor
-        #   parameter self.alpha with its scalar element, mutating a public hyperparameter
-        #   during fit.
+        #   parameter self.alpha with its scalar element, mutating a public
+        #   hyperparameter during fit.
         """Fit Gaussian process regression model.
 
         Parameters
@@ -422,12 +423,12 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # [FUNCTION DOC]
         # If not fitted, uses the GP prior: mean zeros of shape (n_samples, n_targets)
         #   squeezed, covariance kernel(X) or std sqrt(kernel.diag(X)), repeated along a
-        #   last axis for n_targets > 1; a None kernel becomes a fixed 1.0 * RBF(1.0). If
-        #   fitted: mean is K(X, X_train) times alpha_, de-normalised and squeezed for
-        #   single targets; covariance is K(X, X) - V^T V with V the triangular solve of
-        #   L_ against K(X, X_train)^T; std is the square root of diag(K(X)) minus the
-        #   column sums of squares of V. Both are scaled by the squared training std per
-        #   target and squeezed for single targets.
+        #   last axis for n_targets > 1; a None kernel becomes a fixed 1.0 * RBF(1.0).
+        #   If fitted: mean is K(X, X_train) times alpha_, de-normalised and squeezed
+        #   for single targets; covariance is K(X, X) - V^T V with V the triangular
+        #   solve of L_ against K(X, X_train)^T; std is the square root of diag(K(X))
+        #   minus the column sums of squares of V. Both are scaled by the squared
+        #   training std per target and squeezed for single targets.
         # Inputs: X - query points; return_std, return_cov - bools, default False.
         # Outputs: y_mean, optionally followed by y_std or y_cov.
         # Exceptions: RuntimeError if both return_std and return_cov are True;
@@ -618,8 +619,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         # [FUNCTION DOC]
         # Computes, summed over targets, -0.5 y^T alpha - sum(log diag(L)) - (n/2) log(2
         #   pi) for K(theta) + alpha*I = L L^T on the stored (normalised) training
-        #   targets; the gradient per hyperparameter is 0.5 * trace((alpha alpha^T - K^-1)
-        #   dK/dtheta), summed over targets.
+        #   targets; the gradient per hyperparameter is 0.5 * trace((alpha alpha^T -
+        #   K^-1) dK/dtheta), summed over targets.
         # Inputs: theta - hyperparameters (log-scale) or None; eval_gradient - bool;
         #   clone_kernel - if False, kernel_.theta is overwritten in place.
         # Outputs: float, or (float, gradient array of shape (n_kernel_params,)).
@@ -744,8 +745,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         # [FUNCTION DOC]
         # HELPER: Runs one bounded minimisation of obj_func from initial_theta, using
-        #   scipy L-BFGS-B with analytic gradient for "fmin_l_bfgs_b" or the user callable
-        #   otherwise.
+        #   scipy L-BFGS-B with analytic gradient for "fmin_l_bfgs_b" or the user
+        #   callable otherwise.
         # Inputs: obj_func, initial_theta (array), bounds (n_params, 2 array).
         # Outputs: (theta_opt, func_min).
         # Exceptions: ValueError for an unknown optimizer string.

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Core univariate imputation module: defines _BaseImputer (shared add_indicator plumbing
+# for all imputers), SimpleImputer (per-column mean/median/most-frequent/
+# constant/callable imputation for dense and CSC sparse data) and MissingIndicator
+# (boolean mask of missing entries, optionally restricted to features that had missing
+# values at fit), plus small helpers for dtype checks and mode computation.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -28,6 +34,14 @@ from sklearn.utils.validation import (
 
 
 def _check_inputs_dtype(X, missing_values):
+    # [FUNCTION DOC]
+    # HELPER: Checks that a numeric X is paired with a numeric missing_values
+    # placeholder.
+    # Inputs: X - validated array or sparse matrix with a dtype; missing_values - scalar
+    # placeholder.
+    # Outputs: None. Returns early (accepts) when missing_values is pandas NA.
+    # Exceptions: ValueError if X has float/int/uint dtype and missing_values is not a
+    # real number (e.g. a string).
     if is_pandas_na(missing_values):
         # Allow using `pd.NA` as missing values to impute numerical arrays.
         return
@@ -40,6 +54,12 @@ def _check_inputs_dtype(X, missing_values):
 
 
 def _safe_min(items):
+    # [FUNCTION DOC]
+    # HELPER: Minimum of a list that may mix non-comparable types. Tries the builtin
+    # min; on a "'<' not supported" TypeError, falls back to ordering by (type name
+    # string, value string).
+    # Inputs: items - non-empty iterable. Outputs: one element of items.
+    # Exceptions: re-raises any other TypeError; ValueError from min on an empty list.
     """Compute the minimum of a list of potentially non-comparable values.
 
     If values cannot be directly compared due to type incompatibility, the object with
@@ -54,6 +74,17 @@ def _safe_min(items):
 
 
 def _most_frequent(array, extra_value, n_repeat):
+    # [FUNCTION DOC]
+    # HELPER: Mode of a 1D array conceptually extended with n_repeat copies of
+    # extra_value (used for sparse columns whose implicit zeros are not stored).
+    # Algorithm: compute the mode of array (Counter for object dtype, ties broken by
+    # _safe_min; scipy-based _mode otherwise, which returns the smallest tied value),
+    # with count 0 for an empty array; then compare its count with n_repeat: return NaN
+    # if both are 0, extra_value if n_repeat is larger, the array mode if larger, and
+    # the smaller of the two (via _safe_min) on a tie.
+    # Inputs: array - 1D ndarray of non-missing values; extra_value - value assumed
+    # absent from array; n_repeat - int >= 0.
+    # Outputs: scalar most frequent value, or np.nan.
     """Compute the most frequent value in a 1d array extended with
     [extra_value] * n_repeat, where extra_value is assumed to be not part
     of the array."""
@@ -93,6 +124,10 @@ def _most_frequent(array, extra_value, n_repeat):
 
 
 class _BaseImputer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Base class for imputers adding the optional MissingIndicator
+    # (add_indicator) and keep_empty_features handling; subclasses call _fit_indicator
+    # during fit and _transform_indicator / _concatenate_indicator during transform.
     """Base class for all imputers.
 
     It adds automatically support for `add_indicator`.
@@ -107,11 +142,21 @@ class _BaseImputer(TransformerMixin, BaseEstimator):
     def __init__(
         self, *, missing_values=np.nan, add_indicator=False, keep_empty_features=False
     ):
+        # [FUNCTION DOC]
+        # Stores missing_values (default np.nan), add_indicator (default False) and
+        # keep_empty_features (default False); keyword-only.
         self.missing_values = missing_values
         self.add_indicator = add_indicator
         self.keep_empty_features = keep_empty_features
 
     def _fit_indicator(self, X):
+        # [FUNCTION DOC]
+        # HELPER: If add_indicator, creates and fits indicator_ as a MissingIndicator
+        # with error_on_new=False on X, which must already be a boolean missing mask
+        # (precomputed); otherwise sets indicator_ to None.
+        # Inputs: X - boolean mask array or sparse matrix (n_samples, n_features).
+        # Side effects: sets self.indicator_.
+        # Exceptions: ValueError from MissingIndicator._fit if X is not boolean.
         """Fit a MissingIndicator."""
         if self.add_indicator:
             self.indicator_ = MissingIndicator(
@@ -122,6 +167,11 @@ class _BaseImputer(TransformerMixin, BaseEstimator):
             self.indicator_ = None
 
     def _transform_indicator(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns indicator_.transform(X) when add_indicator, else None
+        # (implicitly).
+        # Inputs: X - the boolean missing mask of the original (pre-imputation) data.
+        # Exceptions: ValueError if add_indicator but _fit_indicator was never called.
         """Compute the indicator mask.'
 
         Note that X must be the original data as passed to the imputer before
@@ -135,6 +185,15 @@ class _BaseImputer(TransformerMixin, BaseEstimator):
             return self.indicator_.transform(X)
 
     def _concatenate_indicator(self, X_imputed, X_indicator):
+        # [FUNCTION DOC]
+        # HELPER: Horizontally stacks the imputed data and the indicator mask when
+        # add_indicator, otherwise returns X_imputed unchanged. For sparse input the
+        # sparse format of X_imputed is kept and the result is aligned to sparse
+        # array/matrix API.
+        # Inputs: X_imputed - dense or sparse (n_samples, n_features_kept); X_indicator
+        # - mask.
+        # Outputs: combined array (n_samples, n_features_kept + n_indicator_features).
+        # Exceptions: ValueError if add_indicator and X_indicator is None.
         """Concatenate indicator mask with the imputed data."""
         if not self.add_indicator:
             return X_imputed
@@ -156,6 +215,11 @@ class _BaseImputer(TransformerMixin, BaseEstimator):
         return _align_api_if_sparse(hstack((X_imputed, X_indicator)))
 
     def _concatenate_indicator_feature_names_out(self, names, input_features):
+        # [FUNCTION DOC]
+        # HELPER: Appends the indicator's output feature names to names when
+        # add_indicator.
+        # Inputs: names - ndarray of output names for imputed columns; input_features -
+        # full input names. Outputs: ndarray of str.
         if not self.add_indicator:
             return names
 
@@ -163,12 +227,18 @@ class _BaseImputer(TransformerMixin, BaseEstimator):
         return np.concatenate([names, indicator_names])
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: allow_nan is True only if missing_values is a scalar NaN.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = is_scalar_nan(self.missing_values)
         return tags
 
 
 class SimpleImputer(_BaseImputer):
+    # [CLASS DOC]
+    # Fits one statistic per column (statistics_) and replaces missing entries with it.
+    # Columns whose statistic is NaN (all missing at fit) are dropped at transform
+    # unless keep_empty_features is True.
     """Univariate imputer for completing missing values with simple strategies.
 
     Replace missing values using a descriptive statistic (e.g. mean, median, or
@@ -319,6 +389,9 @@ class SimpleImputer(_BaseImputer):
         add_indicator=False,
         keep_empty_features=False,
     ):
+        # [FUNCTION DOC]
+        # Stores strategy (default "mean"), fill_value (default None), copy (default
+        # True) and the base-class arguments; keyword-only, no validation here.
         super().__init__(
             missing_values=missing_values,
             add_indicator=add_indicator,
@@ -329,6 +402,27 @@ class SimpleImputer(_BaseImputer):
         self.copy = copy
 
     def _validate_input(self, X, in_fit):
+        # [FUNCTION DOC]
+        # HELPER: Validates X for fit (in_fit=True) or transform. Chooses dtype: object
+        # when a list containing strings is given with most_frequent/constant, None
+        # (keep) for those strategies otherwise, float dtypes for numeric strategies; at
+        # transform, reuses the object dtype seen at fit. Accepts CSC sparse input,
+        # allows NaN only if missing_values is NaN or pandas NA, copies according to
+        # self.copy and forces writeable at transform. For the constant strategy, checks
+        # that the fill dtype (fill_value's type at fit, the fit-time dtype at
+        # transform) can be cast "same_kind" to X's dtype.
+        # Inputs: X - array-like or sparse; in_fit - bool.
+        # Outputs: validated ndarray or CSC sparse matrix.
+        # Side effects: on fit, sets _fit_dtype and n_features_in_/feature_names_in_
+        # (via validate_data reset).
+        # Exceptions: ValueError for non-numeric data with numeric strategies ("Cannot
+        # use ... strategy with non-numeric data"), mismatched numeric X and non-numeric
+        # missing_values, unsupported dtype kinds, sparse X with missing_values == 0,
+        # and uncastable fill values.
+        # KNOWN ISSUE: at fit with constant strategy and fill_value None,
+        # fill_value_dtype is the input dtype, so the cast check is trivially true; also
+        # np.can_cast on a Python type (e.g. str) can behave differently across numpy
+        # versions.
         if self.strategy in ("most_frequent", "constant"):
             # If input is a list of strings, dtype = object.
             # Otherwise ValueError is raised in SimpleImputer
@@ -429,6 +523,14 @@ class SimpleImputer(_BaseImputer):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X, resolves the effective fill value (fill_value, or 0 for numeric
+        # and "missing_value" for other dtypes when None), records _fill_dtype as X's
+        # dtype, and computes statistics_ with _sparse_fit or _dense_fit.
+        # Inputs: X - array-like or sparse (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Side effects: sets statistics_, _fill_dtype, _fit_dtype, indicator_,
+        # n_features_in_ (and feature_names_in_).
         """Fit the imputer on `X`.
 
         Parameters
@@ -471,6 +573,27 @@ class SimpleImputer(_BaseImputer):
         return self
 
     def _sparse_fit(self, X, strategy, missing_values, fill_value):
+        # [FUNCTION DOC]
+        # HELPER: Computes per-column statistics for CSC X. Builds the missing mask on
+        # stored values; implicit zeros per column = n_samples minus stored count. For
+        # constant: every statistic is fill_value, set to NaN for columns whose stored
+        # values are all missing unless keep_empty_features (different column slicing
+        # depending on scipy version). Otherwise, per column: drop missing stored
+        # values, separate explicit zeros and count all zeros (explicit + implicit); if
+        # no nonzero values remain and keep_empty_features, statistic is 0; else mean =
+        # sum / (nonzeros + zeros) (NaN if both are 0), median via _get_median with the
+        # zero count, most_frequent via _most_frequent with 0 repeated n_zeros times, or
+        # the callable applied to the column.
+        # Inputs: X - CSC matrix; strategy; missing_values; fill_value.
+        # Outputs: float ndarray (n_features,).
+        # Side effects: fits indicator_ on the sparse missing mask.
+        # KNOWN ISSUE: the callable strategy receives only the nonzero non-missing
+        # values (zeros are excluded), unlike the dense path which passes all
+        # non-missing values. With keep_empty_features, a column of only zeros (no
+        # missing) also gets statistic 0 via the "empty" branch (harmless for numeric
+        # strategies, but bypasses the strategy). For constant, a column with no stored
+        # values (all implicit zeros) has all() of an empty mask equal to True and is
+        # wrongly marked NaN/empty.
         """Fit the transformer on sparse data."""
         missing_mask = _get_mask(X, missing_values)
         mask_data = missing_mask.data
@@ -527,6 +650,20 @@ class SimpleImputer(_BaseImputer):
         return statistics
 
     def _dense_fit(self, X, strategy, missing_values, fill_value):
+        # [FUNCTION DOC]
+        # HELPER: Computes per-column statistics for dense X using a masked array of the
+        # missing mask. mean/median: masked column mean/median, with fully-masked
+        # columns set to 0 if keep_empty_features else NaN. most_frequent: for each
+        # column, mode of non-missing values via _most_frequent (object array for object
+        # dtype), or 0 for empty columns when keep_empty_features. constant: object
+        # array filled with fill_value, NaN for fully missing columns unless
+        # keep_empty_features. callable: the callable applied to each column's
+        # non-missing values (float result array).
+        # Inputs: X - ndarray; strategy; missing_values; fill_value.
+        # Outputs: ndarray (n_features,).
+        # Side effects: fits indicator_ on the dense missing mask.
+        # KNOWN ISSUE: for the callable strategy, a fully missing column is passed as an
+        # empty array and keep_empty_features is not applied.
         """Fit the transformer on dense data."""
         missing_mask = _get_mask(X, missing_values)
         masked_X = ma.masked_array(X, mask=missing_mask)
@@ -599,6 +736,22 @@ class SimpleImputer(_BaseImputer):
             return statistics
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X with fit-time settings, computes the missing mask, and drops
+        # columns with NaN statistics (with a UserWarning naming them, using feature
+        # names when available) unless keep_empty_features. Statistics are cast to the
+        # fit dtype. Sparse: replaces missing stored values with their column statistic
+        # (column index derived from indptr), recomputing the mask if columns were
+        # dropped. Dense: fills missing positions column by column with np.repeat of
+        # statistics. Finally appends the indicator mask computed on the original mask.
+        # Inputs: X - array-like or sparse (n_samples, n_features).
+        # Outputs: imputed ndarray or sparse matrix (n_samples, n_features_out).
+        # Exceptions: NotFittedError; ValueError on feature-count mismatch or sparse X
+        # with missing_values == 0; validation errors from _validate_input.
+        # Side effects: may modify X in place when copy=False and no conversion was
+        # needed.
+        # KNOWN ISSUE: the sparse missing_values == 0 check is unreachable because
+        # _validate_input already raises for that case.
         """Impute all missing values in `X`.
 
         Parameters
@@ -688,6 +841,19 @@ class SimpleImputer(_BaseImputer):
         return super()._concatenate_indicator(X, X_indicator)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Reverses transform using the appended indicator columns: splits X into imputed
+        # part and boolean mask, rebuilds an all-zero (n_samples, n_features_original)
+        # float array, places the mask into the indicator_.features_ columns, then
+        # copies imputed columns into original columns in order, skipping columns whose
+        # mask column is all True (assumed to be features dropped at transform), and
+        # finally writes missing_values into masked cells.
+        # Inputs: X - ndarray (n_samples, n_kept_features + n_indicator_features).
+        # Outputs: float ndarray (n_samples, n_features_original).
+        # Exceptions: NotFittedError; ValueError if add_indicator is False.
+        # KNOWN ISSUE: a kept feature whose values are missing in every row of X is
+        # treated as a dropped feature and skipped, misaligning the following columns; X
+        # is not validated and object/string data is coerced to float.
         """Convert the data back to the original representation.
 
         Inverts the `transform` operation performed on an array.
@@ -750,6 +916,9 @@ class SimpleImputer(_BaseImputer):
         return X_original
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends tags: sparse input supported; allow_nan when missing_values is NaN or
+        # pandas NA.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.allow_nan = is_pandas_na(self.missing_values) or is_scalar_nan(
@@ -758,6 +927,15 @@ class SimpleImputer(_BaseImputer):
         return tags
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns input feature names for columns with non-NaN statistics (columns kept
+        # at transform), followed by indicator names if add_indicator.
+        # Inputs: input_features - optional array-like of str.
+        # Outputs: ndarray of str. Exceptions: NotFittedError; ValueError on mismatched
+        # names.
+        # KNOWN ISSUE: with keep_empty_features=True, transform keeps NaN-statistic
+        # columns but they are omitted here (only relevant when statistics are NaN, e.g.
+        # callable strategy).
         """Get output feature names for transformation.
 
         Parameters
@@ -785,6 +963,9 @@ class SimpleImputer(_BaseImputer):
 
 
 class MissingIndicator(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer outputting a boolean mask of missing entries for the features selected
+    # at fit (features_: either all features or those with missing values at fit).
     """Binary indicators for missing values.
 
     Note that this component typically should not be used in a vanilla
@@ -884,12 +1065,30 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         sparse="auto",
         error_on_new=True,
     ):
+        # [FUNCTION DOC]
+        # Stores missing_values (default np.nan), features ("missing-only"), sparse
+        # ("auto") and error_on_new (True); keyword-only.
         self.missing_values = missing_values
         self.features = features
         self.sparse = sparse
         self.error_on_new = error_on_new
 
     def _get_missing_features_info(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Computes the missing mask (or uses X itself when _precomputed) and the
+        # feature indices to report. Sparse: removes explicit zeros from the mask,
+        # counts missing per column for "missing-only", converts to dense if sparse is
+        # False or CSR to CSC. Dense: counts missing per column and converts to CSC
+        # sparse if sparse is True.
+        # Inputs: X - validated ndarray or sparse matrix (or boolean mask if
+        # precomputed).
+        # Outputs: tuple (imputer_mask, features_indices) - mask (n_samples, n_features)
+        # and indices of all features or those with at least one missing value.
+        # Side effects: when precomputed and sparse, eliminate_zeros mutates the
+        # caller's mask.
+        # KNOWN ISSUE: the dense branch recomputes imputer_mask identically to the code
+        # before the branch (redundant work), and the comment "count number of True
+        # values in each row" is wrong (it counts per column).
         """Compute the imputer mask and the indices of the features
         containing missing values.
 
@@ -945,6 +1144,13 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         return imputer_mask, features_indices
 
     def _validate_input(self, X, in_fit):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (CSC/CSR sparse allowed, any dtype kept, NaN allowed only
+        # when missing_values is NaN), then checks dtype compatibility.
+        # Inputs: X; in_fit - bool (resets n_features_in_ when True).
+        # Outputs: validated X.
+        # Exceptions: ValueError for numeric X with non-numeric missing_values,
+        # unsupported dtype kinds, or sparse X with missing_values == 0.
         if not is_scalar_nan(self.missing_values):
             ensure_all_finite = True
         else:
@@ -980,6 +1186,16 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         return X
 
     def _fit(self, X, y=None, precomputed=False):
+        # [FUNCTION DOC]
+        # HELPER: Shared fit logic. If precomputed, X must be a boolean mask (only
+        # feature count is checked); otherwise X is validated. Records _precomputed,
+        # _n_features and features_.
+        # Inputs: X; y - ignored; precomputed - bool, default False.
+        # Outputs: the full imputer mask (before column selection).
+        # Exceptions: ValueError if precomputed is True and X is not boolean; validation
+        # errors.
+        # Side effects: sets _precomputed, n_features_in_ (and feature_names_in_ when
+        # validated), _n_features, features_.
         """Fit the transformer on `X`.
 
         Parameters
@@ -1022,6 +1238,8 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the indicator via _fit and returns self. Inputs: X; y ignored.
         """Fit the transformer on `X`.
 
         Parameters
@@ -1043,6 +1261,13 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Computes the mask for X (validating unless precomputed). For "missing-only",
+        # raises if error_on_new and features with missing values at transform had none
+        # at fit, and restricts the mask to features_ columns.
+        # Inputs: X (n_samples, n_features). Outputs: boolean ndarray or sparse matrix.
+        # Exceptions: NotFittedError; ValueError for new missing features or non-boolean
+        # input when precomputed.
         """Generate missing values indicator for `X`.
 
         Parameters
@@ -1085,6 +1310,10 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits and returns the mask in one pass, restricted to features_ when fewer than
+        # all features are selected. Inputs: X; y ignored. Outputs: boolean mask.
+        # Side effects: same as fit.
         """Generate missing values indicator for `X`.
 
         Parameters
@@ -1110,6 +1339,12 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         return imputer_mask
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns "missingindicator_<name>" for each selected input feature in
+        # features_.
+        # Inputs: input_features - optional array-like of str.
+        # Outputs: object ndarray of str. Exceptions: NotFittedError; ValueError on
+        # mismatch.
         """Get output feature names for transformation.
 
         Parameters
@@ -1141,6 +1376,9 @@ class MissingIndicator(TransformerMixin, BaseEstimator):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends tags: allows NaN, string and sparse input; preserves_dtype is empty
+        # (output is boolean).
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         tags.input_tags.string = True

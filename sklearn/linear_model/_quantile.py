@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Implements QuantileRegressor: L1-penalised linear quantile regression solved exactly
+# as a linear program with scipy.optimize.linprog (HiGHS or legacy scipy solvers).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +21,10 @@ from sklearn.utils.validation import _check_sample_weight, validate_data
 
 
 class QuantileRegressor(LinearModel, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Linear model minimising the sample-weighted mean pinball loss at level quantile plus
+    # alpha times the L1 norm of the coefficients (intercept unpenalised). Fitting builds
+    # an equality-constrained LP over non-negative slack variables; see fit.
     """Linear regression model that predicts conditional quantiles.
 
     The linear :class:`QuantileRegressor` optimizes the pinball loss for a
@@ -133,6 +140,10 @@ class QuantileRegressor(LinearModel, RegressorMixin, BaseEstimator):
         solver="highs",
         solver_options=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged (quantile, alpha, fit_intercept, solver,
+        # solver_options). No validation here; it happens in fit through the parameter
+        # constraints. Side effects: sets attributes on self.
         self.quantile = quantile
         self.alpha = alpha
         self.fit_intercept = fit_intercept
@@ -141,6 +152,32 @@ class QuantileRegressor(LinearModel, RegressorMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits coef_ and intercept_ by linear programming.
+        # Steps: validate X (dense or csc/csr/coo sparse) and numeric 1-D y; validate
+        # sample_weight (defaults to ones). Rescale the penalty to alpha times the sum of the
+        # weights so the LP objective (sum of weighted pinball losses + scaled L1) matches the
+        # documented averaged objective. Reject unsupported solver configurations. Drop samples
+        # with zero weight. Build the cost vector: alpha for the positive and negative parts of
+        # every parameter (set to 0 for both intercept parts when fit_intercept), then
+        # weight*quantile for the positive residual slacks and weight*(1-quantile) for the
+        # negative residual slacks. Build the equality matrix [ones, X, -ones, -X, I, -I]
+        # (ones columns omitted without intercept) as sparse CSC for HiGHS solvers, dense
+        # otherwise, with right-hand side y. Solve with linprog; the parameters are the
+        # positive parts minus the negative parts; the first one is the intercept when
+        # fit_intercept.
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight (n_samples,) or None.
+        # Outputs: self.
+        # Exceptions: ValueError if solver is "interior-point" with SciPy >= 1.11, or if X is
+        # sparse and the solver is not a HiGHS variant; validation errors from validate_data.
+        # Side effects: sets coef_ (n_features,), intercept_ (float, 0.0 without intercept),
+        # n_iter_ (LP iterations); emits ConvergenceWarning when the LP reports failure. When
+        # solver_options is None and solver is "interior-point", uses {"lstsq": True}.
+        # KNOWN ISSUE: if linprog fails without returning a solution (result.x is None), the
+        # subsequent slicing raises a TypeError right after the warning instead of a clean
+        # error.
+        # KNOWN ISSUE: inline comment says "use n_mask instead of n_samples" but the variable
+        # is n_indices; the comment is stale.
         """Fit the model according to the given training data.
 
         Parameters
@@ -296,6 +333,8 @@ class QuantileRegressor(LinearModel, RegressorMixin, BaseEstimator):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns the inherited tags with input_tags.sparse set to True (sparse X accepted).
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags

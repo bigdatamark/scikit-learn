@@ -1,7 +1,7 @@
 # [MODULE DOC]
 # Tests for VarianceThreshold on dense and sparse (BSR/CSC/CSR) inputs: default zero
-#   variance removal, error cases, custom threshold, floating-point near-zero variance and
-#   NaN handling. Module-level data/data2 are small shared toy matrices.
+#   variance removal, error cases, custom threshold, floating-point near-zero variance
+#   and NaN handling. Module-level data/data2 are small shared toy matrices.
 import numpy as np
 import pytest
 
@@ -81,7 +81,8 @@ def test_zero_variance_floating_point_error(sparse_container):
 def test_variance_nan(sparse_container):
     # [FUNCTION DOC]
     # Checks NaNs are ignored when computing variance: a column with one NaN is kept, a
-    #   column of all NaNs is dropped together with the constant column (support 0, 3, 4).
+    #   column of all NaNs is dropped together with the constant column (support 0, 3,
+    #   4).
     arr = np.array(data, dtype=np.float64)
     # add single NaN and feature should still be included
     arr[0, 0] = np.nan

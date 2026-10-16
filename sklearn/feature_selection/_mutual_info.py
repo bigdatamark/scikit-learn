@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Mutual information estimators between each feature and a target, used as scoring
+#   functions for univariate selection. Continuous-continuous pairs use the Kraskov-
+#   Stoegbauer-Grassberger k-nearest-neighbour estimator, continuous-discrete pairs use
+#   Ross's nearest-neighbour estimator, and discrete-discrete pairs use the contingency-
+#   table mutual_info_score. All values are in nats and clipped at 0.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +24,16 @@ from sklearn.utils.validation import check_array, check_X_y
 
 
 def _compute_mi_cc(x, y, n_neighbors):
+    # [FUNCTION DOC]
+    # HELPER: KSG estimator for two continuous variables. Stack x and y into 2D points;
+    #   for each point find the Chebyshev distance to its n_neighbors-th neighbour in
+    #   the joint space and shrink it to the next smaller float. Count, in each marginal
+    #   with a Chebyshev KDTree, the points strictly within that radius excluding the
+    #   point itself (nx, ny). MI is digamma(n_samples) plus digamma(n_neighbors) minus
+    #   the means of digamma(nx + 1) and digamma(ny + 1).
+    # Inputs: x, y - 1D float arrays of equal length; n_neighbors - int.
+    # Outputs: non-negative float.
+    # Side effects: none.
     """Compute mutual information between two continuous variables.
 
     Parameters
@@ -81,6 +97,18 @@ def _compute_mi_cc(x, y, n_neighbors):
 
 
 def _compute_mi_cd(c, d, n_neighbors):
+    # [FUNCTION DOC]
+    # HELPER: Ross estimator for continuous c and discrete d. For each label with more
+    #   than one sample: k is min(n_neighbors, count - 1); the radius of each sample is
+    #   the (shrunk) distance to its k-th neighbour among same-label samples. Samples
+    #   whose label occurs once are dropped. With a KDTree on the remaining c, m is the
+    #   number of points (any label, including itself) within each radius. MI is
+    #   digamma(n kept) plus mean digamma(k) minus mean digamma(label count) minus mean
+    #   digamma(m).
+    # Inputs: c - 1D continuous array; d - 1D discrete labels; n_neighbors - int.
+    # Outputs: non-negative float.
+    # KNOWN ISSUE: if every label is unique, no sample is kept and the means of empty
+    #   arrays yield NaN (with RuntimeWarnings); max(0, NaN) then returns 0.
     """Compute mutual information between continuous and discrete variables.
 
     Parameters
@@ -154,6 +182,13 @@ def _compute_mi_cd(c, d, n_neighbors):
 
 
 def _compute_mi(x, y, x_discrete, y_discrete, n_neighbors=3):
+    # [FUNCTION DOC]
+    # HELPER: Dispatches on the discreteness of each variable: both discrete ->
+    #   mutual_info_score; one discrete -> _compute_mi_cd with the continuous variable
+    #   first; neither -> _compute_mi_cc.
+    # Inputs: x, y - 1D arrays; x_discrete, y_discrete - bool; n_neighbors - int,
+    #   default 3.
+    # Outputs: float MI.
     """Compute mutual information between two variables.
 
     This is a simple wrapper which selects a proper function to call based on
@@ -170,6 +205,14 @@ def _compute_mi(x, y, x_discrete, y_discrete, n_neighbors=3):
 
 
 def _iterate_columns(X, columns=None):
+    # [FUNCTION DOC]
+    # HELPER: Generator yielding columns of X as dense 1D arrays. For sparse X (assumed
+    #   CSC) each column is densified into a new zero array using indptr / indices /
+    #   data; dense columns are yielded as views.
+    # Inputs: X - ndarray or CSC matrix; columns - iterable of indices or None (all).
+    #   Yields: 1D float arrays of length n_samples.
+    # KNOWN ISSUE: sparse X in any format other than CSC would be read incorrectly; the
+    #   caller guarantees CSC through check_X_y.
     """Iterate over columns of a matrix.
 
     Parameters
@@ -210,6 +253,22 @@ def _estimate_mi(
     random_state=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Shared implementation of the public estimators. Validates X (CSC allowed)
+    #   and y (numeric unless discrete_target). Builds the discrete mask: "auto" means
+    #   discrete iff X is sparse; a bool applies to all features; an array is either a
+    #   boolean mask or indices of discrete features. Continuous features are scaled to
+    #   unit variance (no centering) on a float64 copy (or in place when copy is False
+    #   and X is already float64) and get tiny Gaussian noise of 1e-10 times max(1, mean
+    #   absolute value). A continuous y is scaled and jittered the same way. Then
+    #   computes MI per column, in parallel with joblib.
+    # Inputs: X, y; discrete_features - "auto", bool or array; discrete_target - bool;
+    #   n_neighbors - int; copy - bool; random_state - seed for the noise; n_jobs - int
+    #   or None.
+    # Outputs: ndarray (n_features,) of MI values.
+    # Exceptions: ValueError for an unknown string or sparse X with continuous features;
+    #   validation errors.
+    # Side effects: consumes the random generator; may modify X in place if copy False.
     """Estimate mutual information between the features and the target.
 
     Parameters
@@ -344,6 +403,10 @@ def mutual_info_regression(
     random_state=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Public wrapper: estimates MI with a continuous target by calling _estimate_mi with
+    #   discrete_target False. Parameters are validated by the decorator.
+    # Outputs: ndarray (n_features,).
     """Estimate mutual information for a continuous target variable.
 
     Mutual information (MI) [1]_ between two random variables is a non-negative
@@ -472,6 +535,11 @@ def mutual_info_classif(
     random_state=None,
     n_jobs=None,
 ):
+    # [FUNCTION DOC]
+    # Public wrapper: checks that y is a valid classification target, then calls
+    #   _estimate_mi with discrete_target True.
+    # Outputs: ndarray (n_features,).
+    # Exceptions: ValueError for continuous y.
     """Estimate mutual information for a discrete target variable.
 
     Mutual information (MI) [1]_ between two random variables is a non-negative

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# SequentialFeatureSelector: greedy forward or backward feature selection where each
+#   step adds (or removes) the single feature that maximizes the cross-validated score
+#   of a cloned estimator.
 """
 Sequential feature selection
 """
@@ -32,6 +36,9 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class SequentialFeatureSelector(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-estimator selector. Fitted attributes: n_features_to_select_ (final number of
+    #   selected features), support_ (bool mask) and n_features_in_ / feature_names_in_.
     """Transformer that performs Sequential Feature Selection.
 
     This Sequential Feature Selector adds (forward selection) or
@@ -191,6 +198,9 @@ class SequentialFeatureSelector(SelectorMixin, MetaEstimatorMixin, BaseEstimator
         cv=5,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, n_features_to_select, tol, direction, scoring, cv and
+        #   n_jobs.
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
         self.tol = tol
@@ -204,6 +214,21 @@ class SequentialFeatureSelector(SelectorMixin, MetaEstimatorMixin, BaseEstimator
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Validates X (CSC allowed, at least 2 features). Target count: "auto" gives
+        #   n_features - 1 when tol is set (stopping decided by tol) else half the
+        #   features; an int must be below n_features; a float is that fraction of
+        #   n_features (truncated). current_mask tracks features already added (forward)
+        #   or already removed (backward). Iterations: the target count for forward or
+        #   auto mode, else n_features minus the target. Each iteration picks the best
+        #   candidate; in auto mode with tol, stops when the score gain is below tol.
+        #   For backward, the final support is the complement of the removed set.
+        # Inputs: X - (n_samples, n_features); y - targets or None; params - metadata
+        #   routed to cross_val_score (only with routing enabled).
+        # Outputs: self.
+        # Exceptions: ValueError for int target >= n_features, negative tol with forward
+        #   selection, or params passed without routing enabled.
+        # Side effects: sets n_features_to_select_ and support_.
         """Learn the features to select from X.
 
         Parameters
@@ -304,6 +329,16 @@ class SequentialFeatureSelector(SelectorMixin, MetaEstimatorMixin, BaseEstimator
         return self
 
     def _get_best_new_feature_score(self, estimator, X, y, cv, current_mask, **params):
+        # [FUNCTION DOC]
+        # HELPER: For each feature not yet in current_mask, builds the candidate mask
+        #   with that feature added (complemented for backward, i.e. evaluating the
+        #   features kept after removing it), computes the mean cross_val_score of the
+        #   estimator on those columns, and returns the feature with the highest mean
+        #   score.
+        # Inputs: estimator - unfitted clone; X, y; cv - splitter; current_mask - bool
+        #   array; params - forwarded to cross_val_score.
+        # Outputs: tuple (feature index, mean score). Ties go to the lowest index.
+        # Side effects: none on self.
         # Return the best new feature and its score to add to the current_mask,
         # i.e. return the best new feature and its score to add (resp. remove)
         # when doing forward selection (resp. backward selection).
@@ -330,16 +365,25 @@ class SequentialFeatureSelector(SelectorMixin, MetaEstimatorMixin, BaseEstimator
         return new_feature_idx, scores[new_feature_idx]
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Returns support_.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
         return self.support_
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies allow_nan and sparse input tags from the wrapped estimator.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = get_tags(self.estimator).input_tags.allow_nan
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         return tags
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Routes fit metadata to the estimator's fit, the cv splitter's split and the
+        #   scorer's score.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing

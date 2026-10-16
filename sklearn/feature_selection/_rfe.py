@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Recursive feature elimination. RFE repeatedly fits the estimator and drops the least
+#   important features until the requested number remains; RFECV runs RFE on each CV
+#   split, scores every intermediate feature count, and refits with the best count.
+#   _rfe_single_fit is the per-split worker.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -43,6 +48,16 @@ from sklearn.utils.validation import (
 
 
 def _rfe_single_fit(rfe, estimator, X, y, train, test, scorer, routed_params):
+    # [FUNCTION DOC]
+    # HELPER: Runs one RFE elimination on a train split, scoring each step on the test
+    #   split. Splits X / y (pairwise-aware), slices fit and score params by sample
+    #   indices, and calls rfe._fit with a step_score callable that scores the fitted
+    #   estimator on the test columns currently kept.
+    # Inputs: rfe - unfitted RFE clone; estimator - used only for splitting; X, y;
+    #   train, test - index arrays; scorer - callable; routed_params - routing bunch.
+    # Outputs: tuple (step_scores_, step_support_, step_ranking_, step_n_features_)
+    #   lists, one entry per step from all features down to the target.
+    # Side effects: fits and mutates rfe.
     """
     Return the score and n_features per step for a fit across one fold.
     """
@@ -72,6 +87,10 @@ def _rfe_single_fit(rfe, estimator, X, y, train, test, scorer, routed_params):
 
 
 class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Recursive feature elimination selector. Fitted attributes: estimator_ (fitted on
+    #   the selected features), n_features_, support_, ranking_ (1 for selected, larger
+    #   values for earlier eliminations), plus step_* lists when used by RFECV.
     """Feature ranking with recursive feature elimination.
 
     Given an external estimator that assigns weights to features (e.g., the
@@ -222,6 +241,8 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         verbose=0,
         importance_getter="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, n_features_to_select, step, importance_getter and verbose.
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
         self.step = step
@@ -230,6 +251,9 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
     @property
     def classes_(self):
+        # [FUNCTION DOC]
+        # Property returning estimator_.classes_.
+        # Exceptions: AttributeError if unfitted or the estimator has no classes_.
         """Classes labels available when `estimator` is a classifier.
 
         Returns
@@ -243,6 +267,10 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Resolves routing (process_routing when enabled, otherwise all fit_params go to
+        #   the estimator's fit) and delegates to _fit.
+        # Outputs: self.
         """Fit the RFE model and then the underlying estimator on the selected features.
 
         Parameters
@@ -277,6 +305,25 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         return self._fit(X, y, **routed_params.estimator.fit)
 
     def _fit(self, X, y, step_score=None, **fit_params):
+        # [FUNCTION DOC]
+        # HELPER: Core elimination. Validates X (CSC, NaN allowed, at least 2 features,
+        #   multi-output y). Target count: None -> half; int as is (warns if larger than
+        #   n_features); float -> fraction of n_features truncated. Step: a fraction
+        #   gives max(1, step * n_features) truncated, else int. While more than target
+        #   features remain: fit a fresh clone on the kept columns, optionally record
+        #   step data via step_score, compute squared importances (summed over rows if
+        #   2D), sort ascending (stable), remove the min(step, excess) least important,
+        #   and increment ranking_ of every unsupported feature. Finally fit estimator_
+        #   on the kept columns and record a final step.
+        # Inputs: X, y; step_score - callable(estimator, features) or None; fit_params -
+        #   forwarded to every fit.
+        # Outputs: self.
+        # Side effects: sets estimator_, n_features_, support_, ranking_ and, with
+        #   step_score, step_n_features_, step_scores_, step_support_, step_ranking_;
+        #   prints progress when verbose.
+        # KNOWN ISSUE: intermediate step_support_ / step_ranking_ entries are stored as
+        #   lists but the final entry stores the live arrays support_ and ranking_
+        #   themselves.
         # Parameter step_score controls the calculation of self.step_scores_
         # step_score is not exposed to users and is used when implementing RFECV
         # self.step_scores_ will not be calculated when calling _fit through fit
@@ -378,6 +425,11 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
     @available_if(_estimator_has("predict"))
     def predict(self, X, **predict_params):
+        # [FUNCTION DOC]
+        # Transforms X to the selected features and returns estimator_.predict,
+        #   forwarding routed predict params. Available only if the estimator has
+        #   predict.
+        # Exceptions: NotFittedError; ValueError for params without routing enabled.
         """Reduce X to the selected features and predict using the estimator.
 
         Parameters
@@ -414,6 +466,9 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
     @available_if(_estimator_has("score"))
     def score(self, X, y, **score_params):
+        # [FUNCTION DOC]
+        # Transforms X and returns estimator_.score on (selected X, y), forwarding
+        #   routed or raw score params. Available only if the estimator has score.
         """Reduce X to the selected features and return the score of the estimator.
 
         Parameters
@@ -454,11 +509,16 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         )
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Returns support_.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
         return self.support_
 
     @available_if(_estimator_has("decision_function"))
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns estimator_.decision_function on the transformed X.
         """Compute the decision function of ``X``.
 
         Parameters
@@ -481,6 +541,8 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
     @available_if(_estimator_has("predict_proba"))
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns estimator_.predict_proba on the transformed X.
         """Predict class probabilities for X.
 
         Parameters
@@ -501,6 +563,8 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
     @available_if(_estimator_has("predict_log_proba"))
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns estimator_.predict_log_proba on the transformed X.
         """Predict class log-probabilities for X.
 
         Parameters
@@ -518,6 +582,9 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         return self.estimator_.predict_log_proba(self.transform(X))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Mirrors estimator type, classifier / regressor tags (marked poor_score),
+        #   sparse and allow_nan input tags of the wrapped estimator; requires y.
         tags = super().__sklearn_tags__()
         sub_estimator_tags = get_tags(self.estimator)
         tags.estimator_type = sub_estimator_tags.estimator_type
@@ -533,6 +600,8 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         return tags
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Routes fit, predict and score metadata to the corresponding estimator methods.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -557,6 +626,11 @@ class RFE(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
 
 
 class RFECV(RFE):
+    # [CLASS DOC]
+    # RFE with the number of features chosen by cross-validation. n_features_to_select
+    #   is removed from the parameters; min_features_to_select, cv, scoring and n_jobs
+    #   are added. Additional fitted attribute cv_results_. groups is marked unused for
+    #   fit routing at the class level (it is only passed to the splitter).
     """Recursive feature elimination with cross-validation to select features.
 
     The number of features selected is tuned automatically by fitting an :class:`RFE`
@@ -785,6 +859,9 @@ class RFECV(RFE):
         n_jobs=None,
         importance_getter="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, step, importance_getter, cv, scoring, verbose, n_jobs and
+        #   min_features_to_select.
         self.estimator = estimator
         self.step = step
         self.importance_getter = importance_getter
@@ -799,6 +876,20 @@ class RFECV(RFE):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Validates X (CSR, NaN allowed) and y, resolves routing (without routing only
+        #   groups is passed to cv.split). Builds an RFE targeting
+        #   min(min_features_to_select, n_features), warning if the minimum exceeds
+        #   n_features. Runs _rfe_single_fit for every split (sequentially when n_jobs
+        #   is effectively 1, so bound-method scorers work). Sums scores across splits,
+        #   reverses order (fewest features first) so ties pick the smallest feature
+        #   count, and takes the argmax count. Refits an RFE with that count on all
+        #   data, copies support_, n_features_, ranking_, and fits estimator_ on the
+        #   selected columns. cv_results_ holds mean / std test score, per-split scores,
+        #   rankings and supports, and n_features, ordered by increasing feature count.
+        # Inputs: X, y; params - groups and routed metadata.
+        # Outputs: self.
+        # Side effects: sets support_, n_features_, ranking_, estimator_, cv_results_.
         """Fit the RFE model and automatically tune the number of selected features.
 
         Parameters
@@ -939,6 +1030,10 @@ class RFECV(RFE):
         return self
 
     def score(self, X, y, **score_params):
+        # [FUNCTION DOC]
+        # Scores the fitted RFECV itself (predictions on selected features) with the
+        #   scorer from _get_scorer, forwarding routed score params.
+        # Outputs: float.
         """Score using the `scoring` option on the given test data and labels.
 
         Parameters
@@ -974,6 +1069,9 @@ class RFECV(RFE):
         return scoring(self, X, y, **routed_params.scorer.score)
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Routes fit / predict to the estimator, fit to the cv splitter's split, and fit
+        #   / score to the scorer.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1011,6 +1109,9 @@ class RFECV(RFE):
         return router
 
     def _get_scorer(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the scorer for scoring, defaulting to "accuracy" for
+        #   classifiers and "r2" otherwise.
         if self.scoring is None:
             scoring = "accuracy" if is_classifier(self.estimator) else "r2"
         else:

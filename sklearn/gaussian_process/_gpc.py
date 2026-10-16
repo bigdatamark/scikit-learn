@@ -194,9 +194,9 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         #   validated here), label-encodes y and requires exactly two classes. If an
         #   optimizer is set and the kernel has free hyperparameters, minimises the
         #   negative Laplace log-marginal likelihood from the initial theta plus
-        #   n_restarts_optimizer random starts and keeps the best; otherwise evaluates the
-        #   likelihood at the current theta. Finally runs posterior mode finding on the
-        #   training kernel matrix and stores pi_, W_sr_ and L_.
+        #   n_restarts_optimizer random starts and keeps the best; otherwise evaluates
+        #   the likelihood at the current theta. Finally runs posterior mode finding on
+        #   the training kernel matrix and stores pi_, W_sr_ and L_.
         # Inputs: X - (n_samples, n_features) array or list of objects; y - binary
         #   labels.
         # Outputs: self.
@@ -206,8 +206,8 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         #   randomness.
         # KNOWN ISSUE: restart initial points are exponentiated draws within the bounds,
         #   but theta and bounds are already log-transformed (the regressor uses the raw
-        #   draws), so restart starting points are on the wrong scale and may fall outside
-        #   the bounds.
+        #   draws), so restart starting points are on the wrong scale and may fall
+        #   outside the bounds.
         """Fit Gaussian process classification model.
 
         Parameters
@@ -390,10 +390,10 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         # [FUNCTION DOC]
         # HELPER: Returns the stored value when theta is None; otherwise builds the
         #   kernel at theta (cloned or in place), runs Laplace mode finding for the
-        #   approximate log-marginal likelihood Z and, if requested, computes its gradient
-        #   per hyperparameter following Algorithm 5.1: an explicit term 0.5 a^T dK a -
-        #   0.5 trace(R dK) plus an implicit term from the change of the mode, using the
-        #   third derivative of the log-likelihood.
+        #   approximate log-marginal likelihood Z and, if requested, computes its
+        #   gradient per hyperparameter following Algorithm 5.1: an explicit term 0.5
+        #   a^T dK a - 0.5 trace(R dK) plus an implicit term from the change of the
+        #   mode, using the third derivative of the log-likelihood.
         # Inputs: theta - log-scale hyperparameters or None; eval_gradient - bool;
         #   clone_kernel.
         # Outputs: Z, or (Z, gradient array of shape (n_kernel_params,)).
@@ -520,9 +520,9 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         # [FUNCTION DOC]
         # HELPER: Newton iteration (Algorithm 3.1) for the Laplace posterior mode f of
         #   the latent values given kernel matrix K: starting from f_cached when
-        #   warm_start and shapes match, else zeros; each step computes pi = sigmoid(f), W
-        #   = pi(1-pi), Cholesky L of I + sqrt(W) K sqrt(W), b = W f + (y - pi), a = b -
-        #   sqrt(W) L-solve(sqrt(W) K b), f = K a, and the approximate log-marginal
+        #   warm_start and shapes match, else zeros; each step computes pi = sigmoid(f),
+        #   W = pi(1-pi), Cholesky L of I + sqrt(W) K sqrt(W), b = W f + (y - pi), a = b
+        #   - sqrt(W) L-solve(sqrt(W) K b), f = K a, and the approximate log-marginal
         #   likelihood -0.5 a^T f - sum log(1 + exp(-(2y-1) f)) - sum log diag(L); stops
         #   when it improves by less than 1e-10 or after max_iter_predict iterations.
         # Inputs: K - (n, n) kernel matrix; return_temporaries - bool.
@@ -611,9 +611,9 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
     # [CLASS DOC]
     # Public Laplace GPC. Binary problems use a single
     #   _BinaryGaussianProcessClassifierLaplace; multi-class problems wrap it in
-    #   OneVsRestClassifier or OneVsOneClassifier (n_jobs parallelism). Fitted attributes:
-    #   base_estimator_, classes_, n_classes_, log_marginal_likelihood_value_, and the
-    #   kernel_ property.
+    #   OneVsRestClassifier or OneVsOneClassifier (n_jobs parallelism). Fitted
+    #   attributes: base_estimator_, classes_, n_classes_,
+    #   log_marginal_likelihood_value_, and the kernel_ property.
     """Gaussian process classification (GPC) based on Laplace approximation.
 
     The implementation is based on Algorithm 3.1, 3.2, and 5.1 from [RW2006]_.
@@ -820,9 +820,9 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
         # [FUNCTION DOC]
         # Rejects CompoundKernel, validates X and y (numeric 2-D X unless the kernel
         #   accepts generic inputs), builds the binary base estimator, finds classes,
-        #   wraps the base estimator in the multi-class meta-estimator when there are more
-        #   than 2 classes, fits it, and stores the log-marginal likelihood (mean over
-        #   sub-estimators for multi-class).
+        #   wraps the base estimator in the multi-class meta-estimator when there are
+        #   more than 2 classes, fits it, and stores the log-marginal likelihood (mean
+        #   over sub-estimators for multi-class).
         # Inputs: X - training data; y - class labels (binary or multi-class).
         # Outputs: self.
         # Exceptions: ValueError for a CompoundKernel, a single class, or invalid input.
@@ -992,8 +992,8 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
         #   theta has an invalid length; NotImplementedError for gradients in the multi-
         #   class case.
         # KNOWN ISSUE: the compound-theta slicing assumes one sub-estimator per class;
-        #   with one_vs_one there are n_classes*(n_classes-1)/2 estimators, so the length
-        #   check and slices do not match the actual compound kernel.
+        #   with one_vs_one there are n_classes*(n_classes-1)/2 estimators, so the
+        #   length check and slices do not match the actual compound kernel.
         """Return log-marginal likelihood of theta for training data.
 
         In the case of multi-class classification, the mean log-marginal

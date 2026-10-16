@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests for PartialDependenceDisplay (from_estimator and plot): layout of axes, lines,
+# contours, bars and decile markers; string/integer/categorical features; custom axes
+# and grid values; multiclass and multi-output targets; ICE kinds, centering,
+# subsampling; y-limits and contour levels; line styling keywords; error messages; and
+# subclass-preserving constructors. Shared fixtures use a 50-sample diabetes subset and
+# a
+# small GradientBoostingRegressor fitted on it. Tests require matplotlib (pyplot
+# fixture).
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -20,6 +29,10 @@ from sklearn.utils._testing import _convert_container
 
 @pytest.fixture(scope="module")
 def diabetes():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning the diabetes Bunch truncated to its first
+    # 50
+    # samples (data and target) for speed.
     # diabetes dataset, subsampled for speed
     data = load_diabetes()
     data.data = data.data[:50]
@@ -29,12 +42,19 @@ def diabetes():
 
 @pytest.fixture(scope="module")
 def clf_diabetes(diabetes):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning a 10-tree GradientBoostingRegressor
+    # (random_state=1) fitted on the diabetes subset.
     clf = GradientBoostingRegressor(n_estimators=10, random_state=1)
     clf.fit(diabetes.data, diabetes.target)
     return clf
 
 
 def custom_values_helper(feature, grid_resolution):
+    # [FUNCTION DOC]
+    # HELPER: Builds a custom grid for one feature: grid_resolution evenly spaced values
+    # between the 5th and 95th percentiles (scipy mquantiles), endpoints included.
+    # Inputs: feature - 1-d array; grid_resolution - int. Outputs: 1-d array.
     return np.linspace(
         *mquantiles(feature, (0.05, 0.95), axis=0), num=grid_resolution, endpoint=True
     )
@@ -50,6 +70,14 @@ def test_plot_partial_dependence(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Plots features 0, 2 and the pair (0, 2) and verifies figure/axes bookkeeping (3
+    # plot
+    # axes plus bounding axis), array shapes, which slots hold lines/contours/deciles,
+    # stored
+    # features, feature names and deciles, axis labels, line data equal to the
+    # partial dependence results, and the contour colormap from contour_kw. Run with and
+    # without custom grid values for two resolutions.
     # Test partial dependence plot function.
     # Use columns 0 & 2 as 1 is not quantitative (sex)
     feature_names = diabetes.feature_names
@@ -152,6 +180,12 @@ def test_plot_partial_dependence_kind(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Verifies lines_ shape for each kind/subsample combination (individual lines count
+    # is
+    # the subsample size; "both" adds one average line) and that centered curves start
+    # at 0
+    # while non-centered ones do not.
     disp = PartialDependenceDisplay.from_estimator(
         clf_diabetes,
         diabetes.data,
@@ -202,6 +236,11 @@ def test_plot_partial_dependence_str_features(
     input_type,
     feature_names_type,
 ):
+    # [FUNCTION DOC]
+    # Verifies string features and a pair with various X containers and feature_names
+    # containers (list, array, Series, Index, or None for DataFrames) in a single-column
+    # layout: shapes, which slots are populated, axis labels, line_kw alpha, and line
+    # data.
     age = diabetes.data[:, diabetes.feature_names.index("age")]
     bmi = diabetes.data[:, diabetes.feature_names.index("bmi")]
 
@@ -275,6 +314,9 @@ def test_plot_partial_dependence_str_features(
 def test_plot_partial_dependence_custom_axes(
     use_custom_values, pyplot, clf_diabetes, diabetes
 ):
+    # [FUNCTION DOC]
+    # Verifies passing a list of two axes: bounding_ax_ is None, axes_ is the given 1-d
+    # array, labels and line data are correct, and the second axis shows the 2-way plot.
     grid_resolution = 25
     fig, (ax1, ax2) = pyplot.subplots(1, 2)
 
@@ -332,6 +374,10 @@ def test_plot_partial_dependence_passing_numpy_axes(
     kind,
     lines,
 ):
+    # [FUNCTION DOC]
+    # Verifies that a second display drawn on disp1.axes_ reuses those axes, doubling
+    # the
+    # number of lines per axis, for each kind.
     grid_resolution = 25
     feature_names = diabetes.feature_names
 
@@ -387,6 +433,11 @@ def test_plot_partial_dependence_incorrect_num_axes(
     nrows,
     ncols,
 ):
+    # [FUNCTION DOC]
+    # Verifies ValueError "Expected ax to have 2 axes" when passing a list, tuple or
+    # array of
+    # the wrong number of axes to from_estimator and to plot.
+    # KNOWN ISSUE: the block building custom_values is duplicated verbatim.
     grid_resolution = 5
     fig, axes = pyplot.subplots(nrows, ncols)
     axes_formats = [list(axes.ravel()), tuple(axes.ravel()), axes]
@@ -442,6 +493,10 @@ def test_plot_partial_dependence_incorrect_num_axes(
 def test_plot_partial_dependence_with_same_axes(
     use_custom_values, pyplot, clf_diabetes, diabetes
 ):
+    # [FUNCTION DOC]
+    # Verifies ValueError when reusing a single axis already consumed by a previous
+    # display
+    # (the user should pass display.axes_ instead).
     # The first call to plot_partial_dependence will create two new axes to
     # place in the space of the passed in axes, which results in a total of
     # three axes in the figure.
@@ -497,6 +552,10 @@ def test_plot_partial_dependence_with_same_axes(
 def test_plot_partial_dependence_feature_name_reuse(
     use_custom_values, pyplot, clf_diabetes, diabetes
 ):
+    # [FUNCTION DOC]
+    # Verifies that plotting a second display without feature_names onto existing axes
+    # keeps
+    # the x labels set by the first display.
     # second call to plot does not change the feature names from the first
     # call
     grid_resolution = 10
@@ -534,6 +593,11 @@ def test_plot_partial_dependence_feature_name_reuse(
 @pytest.mark.filterwarnings("ignore:A Bunch will be returned")
 @pytest.mark.parametrize("use_custom_values", [True, False])
 def test_plot_partial_dependence_multiclass(use_custom_values, pyplot):
+    # [FUNCTION DOC]
+    # Verifies multiclass plots: target as integer or string label yields the same
+    # results
+    # and target_idx 0, layout shapes are correct, and another target gives different
+    # curves.
     grid_resolution = 25
     clf_int = GradientBoostingClassifier(n_estimators=10, random_state=1)
     iris = load_iris()
@@ -614,6 +678,10 @@ multioutput_regression_data = make_regression(n_samples=50, n_targets=2, random_
 @pytest.mark.parametrize("target", [0, 1])
 @pytest.mark.parametrize("use_custom_values", [True, False])
 def test_plot_partial_dependence_multioutput(use_custom_values, pyplot, target):
+    # [FUNCTION DOC]
+    # Verifies multi-output regression plots select the requested target, create 3 axes
+    # and
+    # label axes with generated feature names x0, x1.
     # Test partial dependence plot function on multi-output input.
     X, y = multioutput_regression_data
     clf = LinearRegression().fit(X, y)
@@ -651,6 +719,9 @@ def test_plot_partial_dependence_multioutput(use_custom_values, pyplot, target):
 
 
 def test_plot_partial_dependence_dataframe(pyplot, clf_diabetes, diabetes):
+    # [FUNCTION DOC]
+    # Smoke test that string features with a pandas DataFrame and explicit feature_names
+    # work; skipped without pandas.
     pd = pytest.importorskip("pandas")
     df = pd.DataFrame(diabetes.data, columns=diabetes.feature_names)
 
@@ -754,6 +825,12 @@ dummy_classification_data = make_classification(random_state=0)
     ],
 )
 def test_plot_partial_dependence_error(pyplot, data, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for invalid targets on multi-output data, unknown or
+    # malformed features, out-of-range indices, duplicate feature names, wrong kind list
+    # length, invalid subsample, non-boolean categorical mask, 2-way categorical pairs
+    # and
+    # ICE on categorical features.
     X, y = data
     estimator = LinearRegression().fit(X, y)
 
@@ -773,6 +850,10 @@ def test_plot_partial_dependence_error(pyplot, data, params, err_msg):
     ],
 )
 def test_plot_partial_dependence_multiclass_error(pyplot, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for multiclass targets: unknown class, missing target
+    # and
+    # a float feature entry.
     iris = load_iris()
     clf = GradientBoostingClassifier(n_estimators=10, random_state=1)
     clf.fit(iris.data, iris.target)
@@ -784,6 +865,10 @@ def test_plot_partial_dependence_multiclass_error(pyplot, params, err_msg):
 def test_plot_partial_dependence_does_not_override_ylabel(
     pyplot, clf_diabetes, diabetes
 ):
+    # [FUNCTION DOC]
+    # Non-regression for issue 15772: an existing y label on the first axis is preserved
+    # and
+    # the second gets the default label.
     # Non-regression test to be sure to not override the ylabel if it has been
     # See https://github.com/scikit-learn/scikit-learn/issues/15772
     _, axes = pyplot.subplots(1, 2)
@@ -807,6 +892,12 @@ def test_plot_partial_dependence_does_not_override_ylabel(
 def test_plot_partial_dependence_with_categorical(
     pyplot, categorical_features, array_type
 ):
+    # [FUNCTION DOC]
+    # Verifies categorical features (by name, index or mask) produce bar plots for a
+    # single
+    # categorical feature and a heatmap (no lines/contours/deciles) for a categorical
+    # pair,
+    # without legends.
     X = [[1, 1, "A"], [2, 0, "C"], [3, 2, "B"]]
     column_names = ["col_A", "col_B", "col_C"]
     X = _convert_container(X, array_type, column_names=column_names)
@@ -862,6 +953,9 @@ def test_plot_partial_dependence_with_categorical(
 
 
 def test_plot_partial_dependence_legend(pyplot):
+    # [FUNCTION DOC]
+    # Verifies legend handling with a kind list: the "both" numeric plot shows a single
+    # "average" legend entry, the categorical bar plot has no legend.
     pd = pytest.importorskip("pandas")
     X = pd.DataFrame(
         {
@@ -904,6 +998,9 @@ def test_plot_partial_dependence_subsampling(
     kind,
     expected_shape,
 ):
+    # [FUNCTION DOC]
+    # Non-regression for PR 18359: with subsample=20 and random_state, lines_ has the
+    # expected shape and every element is a Line2D.
     # check that the subsampling is properly working
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/pull/18359
@@ -958,6 +1055,10 @@ def test_partial_dependence_overwrite_labels(
     line_kw,
     label,
 ):
+    # [FUNCTION DOC]
+    # Verifies legends: none for individual-only plots, the line_kw label for average
+    # plots,
+    # and "average" (or the custom label) for "both".
     """Test that make sure that we can overwrite the label of the PDP plot"""
     disp = PartialDependenceDisplay.from_estimator(
         clf_diabetes,
@@ -987,6 +1088,10 @@ def test_partial_dependence_overwrite_labels(
     ],
 )
 def test_grid_resolution_with_categorical(pyplot, categorical_features, array_type):
+    # [FUNCTION DOC]
+    # Verifies ValueError when grid_resolution is smaller than the number of categories
+    # of a
+    # categorical feature.
     """Check that we raise a ValueError when the grid_resolution is too small
     respect to the number of categories in the categorical features targeted.
     """
@@ -1018,6 +1123,11 @@ def test_grid_resolution_with_categorical(pyplot, categorical_features, array_ty
 def test_partial_dependence_plot_limits_one_way(
     pyplot, clf_diabetes, diabetes, kind, centered
 ):
+    # [FUNCTION DOC]
+    # Overwrites pd_results to span [-1, 1], re-plots, and verifies every one-way axis
+    # has
+    # y-limits equal to that range (shifted to start at 0 when centered) with 5%
+    # padding.
     """Check that the PD limit on the plots are properly set on one-way plots."""
     disp = PartialDependenceDisplay.from_estimator(
         clf_diabetes,
@@ -1051,6 +1161,10 @@ def test_partial_dependence_plot_limits_one_way(
 def test_partial_dependence_plot_limits_two_way(
     pyplot, clf_diabetes, diabetes, centered
 ):
+    # [FUNCTION DOC]
+    # Same as the one-way limits test for a 2-way contour: verifies 8 contour levels
+    # spanning
+    # the padded (and possibly centered) range.
     """Check that the PD limit on the plots are properly set on two-way plots."""
     disp = PartialDependenceDisplay.from_estimator(
         clf_diabetes,
@@ -1082,6 +1196,9 @@ def test_partial_dependence_kind_list(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Verifies a list kind: lines for "both" one-way plots and only a contour for the
+    # "average" 2-way plot.
     """Check that we can provide a list of strings to kind parameter."""
     matplotlib = pytest.importorskip("matplotlib")
 
@@ -1124,6 +1241,10 @@ def test_partial_dependence_kind_error(
     features,
     kind,
 ):
+    # [FUNCTION DOC]
+    # Verifies ValueError when ICE (individual/both) is requested for 2-way
+    # interactions,
+    # for string or list kinds.
     """Check that we raise an informative error when 2-way PD is requested
     together with 1-way PD/ICE"""
     warn_msg = (
@@ -1164,6 +1285,12 @@ def test_plot_partial_dependence_lines_kw(
     ice_lines_kw,
     expected_colors,
 ):
+    # [FUNCTION DOC]
+    # Verifies precedence of styling keywords: pd_line_kw and ice_lines_kw override
+    # line_kw
+    # for colour and linestyle (aliases c/ls supported); defaults are dashed for the PD
+    # line
+    # and solid for ICE lines.
     """Check that passing `pd_line_kw` and `ice_lines_kw` will act on the
     specific lines in the plot.
     """
@@ -1211,6 +1338,13 @@ def test_partial_dependence_display_wrong_len_kind(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Verifies plot raises ValueError when disp.kind is manually set to a list whose
+    # length
+    # differs from the number of features.
+    # KNOWN ISSUE: the inline comment "len(kind) != len(features)" is on the initial
+    # call that
+    # uses the valid string kind "average"; the mismatch is introduced afterwards.
     """Check that we raise an error when `kind` is a list with a wrong length.
 
     This case can only be triggered using the `PartialDependenceDisplay.from_estimator`
@@ -1245,6 +1379,8 @@ def test_partial_dependence_display_kind_centered_interaction(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Verifies all plotted lines start at 0 when centered=True for string or list kinds.
     """Check that we properly center ICE and PD when passing kind as a string and as a
     list."""
     disp = PartialDependenceDisplay.from_estimator(
@@ -1264,6 +1400,9 @@ def test_partial_dependence_display_with_constant_sample_weight(
     clf_diabetes,
     diabetes,
 ):
+    # [FUNCTION DOC]
+    # Verifies constant unit sample weights give the same brute-force average as no
+    # weights.
     """Check that the utilization of a constant sample weight maintains the
     standard behavior.
     """
@@ -1293,6 +1432,8 @@ def test_partial_dependence_display_with_constant_sample_weight(
 def test_subclass_named_constructors_return_type_is_subclass(
     pyplot, diabetes, clf_diabetes
 ):
+    # [FUNCTION DOC]
+    # Verifies from_estimator called on a subclass returns an instance of that subclass.
     """Check that named constructors return the correct type when subclassed.
 
     Non-regression test for:
@@ -1300,6 +1441,8 @@ def test_subclass_named_constructors_return_type_is_subclass(
     """
 
     class SubclassOfDisplay(PartialDependenceDisplay):
+        # [CLASS DOC]
+        # HELPER: Empty subclass of PartialDependenceDisplay.
         pass
 
     curve = SubclassOfDisplay.from_estimator(

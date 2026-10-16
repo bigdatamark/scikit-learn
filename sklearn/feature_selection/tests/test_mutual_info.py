@@ -76,8 +76,8 @@ def test_compute_mi_cc(global_dtype):
 def test_compute_mi_cd(global_dtype):
     # [FUNCTION DOC]
     # For Bernoulli x with p in 0.3/0.5/0.7 and y uniform on (-1,1) or (0,2) depending
-    #   on x, checks the discrete-continuous MI estimate for several n_neighbors is within
-    #   10% of the analytic H(Y)-H(Y|X).
+    #   on x, checks the discrete-continuous MI estimate for several n_neighbors is
+    #   within 10% of the analytic H(Y)-H(Y|X).
     # KNOWN ISSUE: x is generated as uniform > p, so P(x=1) is 1-p rather than p; the
     #   analytic formula is symmetric in p and 1-p, so the test still holds.
     # To test define a joint distribution as follows:

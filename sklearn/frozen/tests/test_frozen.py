@@ -78,9 +78,9 @@ def classification_dataset():
 def test_frozen_methods(estimator, dataset, request, method):
     # [FUNCTION DOC]
     # For several estimators (regressor, classifier, pipelines, scaler, KMeans, LOF,
-    #   column transformer) and each prediction/transform method name: fits a clone, wraps
-    #   it, calls fit on the wrapper with dummy data and checks that every method the
-    #   estimator has gives identical output via the wrapper, and that the
+    #   column transformer) and each prediction/transform method name: fits a clone,
+    #   wraps it, calls fit on the wrapper with dummy data and checks that every method
+    #   the estimator has gives identical output via the wrapper, and that the
     #   classifier/regressor/clusterer/outlier detector type checks agree. Inputs:
     #   estimator, dataset fixture name, pytest request, method name.
     """Test that frozen.fit doesn't do anything, and that all other methods are
@@ -107,9 +107,10 @@ def test_frozen_methods(estimator, dataset, request, method):
 def test_frozen_metadata_routing(regression_dataset):
     # [FUNCTION DOC]
     # With metadata routing enabled, checks that a frozen pipeline routes predict
-    #   metadata like the original, that setting the step's predict request to False makes
-    #   the frozen pipeline raise TypeError for unrouted metadata, and that resetting it
-    #   to None raises UnsetMetadataPassedError. Also exercises __getitem__ forwarding.
+    #   metadata like the original, that setting the step's predict request to False
+    #   makes the frozen pipeline raise TypeError for unrouted metadata, and that
+    #   resetting it to None raises UnsetMetadataPassedError. Also exercises __getitem__
+    #   forwarding.
     """Test that metadata routing works with frozen estimators."""
 
     class ConsumesMetadata(BaseEstimator):
@@ -275,8 +276,8 @@ def test_frozen_tags():
 def test_frozen_params():
     # [FUNCTION DOC]
     # Checks set_params rejects nested inner parameters with ValueError, get_params
-    #   returns only {"estimator": est}, and set_params(estimator=...) replaces the inner
-    #   estimator.
+    #   returns only {"estimator": est}, and set_params(estimator=...) replaces the
+    #   inner estimator.
     """Test that FrozenEstimator only exposes the estimator parameter."""
     est = LogisticRegression()
     frozen = FrozenEstimator(est)

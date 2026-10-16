@@ -3,9 +3,9 @@
 #   r_regression, f_regression, chi2, mutual information) and the selectors SelectKBest,
 #   SelectPercentile, SelectFpr, SelectFdr, SelectFwe and GenericUnivariateSelect,
 #   covering correctness on synthetic data with known informative features (always the
-#   first ones, via shuffle=False), sparse input, force_finite corner cases, tie-breaking,
-#   NaN scores, warnings, inverse_transform, pandas dtype preservation and unsupervised
-#   score functions.
+#   first ones, via shuffle=False), sparse input, force_finite corner cases, tie-
+#   breaking, NaN scores, warnings, inverse_transform, pandas dtype preservation and
+#   unsupervised score functions.
 """
 Todo: cross-check the F-value with stats model
 """
@@ -190,8 +190,8 @@ def test_f_regression_input_dtype():
 def test_f_regression_center():
     # [FUNCTION DOC]
     # With zero-mean X and Y, checks the uncentered F equals the centered F scaled by
-    #   (n-1)/(n-2) (one fewer degree of freedom used) and matches a statsmodels reference
-    #   value.
+    #   (n-1)/(n-2) (one fewer degree of freedom used) and matches a statsmodels
+    #   reference value.
     # Test whether f_regression preserves dof according to 'center' argument
     # We use two centered variates so we have a simple relationship between
     # F-score with variates centering and F-score without variates centering.
@@ -752,14 +752,14 @@ def test_boundary_case_ch2():
 def test_select_fdr_regression(alpha, n_informative):
     # [FUNCTION DOC]
     # Over 100 random datasets for each alpha and number of informative features, checks
-    #   the mean empirical false discovery rate of SelectFdr is at most alpha (Benjamini-
-    #   Hochberg), and when nonzero exceeds alpha/10.
+    #   the mean empirical false discovery rate of SelectFdr is at most alpha
+    #   (Benjamini- Hochberg), and when nonzero exceeds alpha/10.
     # Test that fdr heuristic actually has low FDR.
     def single_fdr(alpha, n_informative, random_state):
         # [FUNCTION DOC]
         # HELPER: Generates one regression dataset, fits SelectFdr and the equivalent
-        #   generic selector (warnings suppressed), asserts equal outputs and returns the
-        #   false discovery proportion FP/(TP+FP), or 0.0 when there are no false
+        #   generic selector (warnings suppressed), asserts equal outputs and returns
+        #   the false discovery proportion FP/(TP+FP), or 0.0 when there are no false
         #   positives.
         # Inputs: alpha, n_informative, random_state. Outputs: float.
         X, y = make_regression(
@@ -978,8 +978,8 @@ def test_f_classif_constant_feature():
 def test_no_feature_selected():
     # [FUNCTION DOC]
     # On random uncorrelated data, checks strict FWE/FDR/FPR selectors, percentile=0 and
-    #   k=0 select nothing, warn "No features were selected" at transform and output (40,
-    #   0).
+    #   k=0 select nothing, warn "No features were selected" at transform and output
+    #   (40, 0).
     rng = np.random.RandomState(0)
 
     # Generate random uncorrelated data: a strict univariate test should
@@ -1003,7 +1003,8 @@ def test_no_feature_selected():
 def test_mutual_info_classif():
     # [FUNCTION DOC]
     # Checks k-best (k=2) and percentile (40) selection with mutual_info_classif match
-    #   the generic selector and select the first 2 (informative and redundant) features.
+    #   the generic selector and select the first 2 (informative and redundant)
+    #   features.
     X, y = make_classification(
         n_samples=100,
         n_features=5,

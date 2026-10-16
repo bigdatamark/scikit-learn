@@ -2,8 +2,9 @@
 # Tests for SelectFromModel: threshold parsing ("mean", "median", scaled strings,
 #   defaults for L1 models), max_features (int, callable, validation, tie-breaking and
 #   interaction with threshold), prefit handling, partial_fit, sample_weight forwarding,
-#   multi-output coef norms, importance_getter, NaN/inf handling and tags, feature names,
-#   and sparse importances. Uses iris (data, y) loaded at import time as shared data.
+#   multi-output coef norms, importance_getter, NaN/inf handling and tags, feature
+#   names, and sparse importances. Uses iris (data, y) loaded at import time as shared
+#   data.
 import re
 import warnings
 from unittest.mock import Mock
@@ -135,8 +136,8 @@ def test_max_features_error(max_features, err_type, err_msg):
 def test_inferred_max_features_integer(max_features):
     # [FUNCTION DOC]
     # For integer max_features (0, 2, n_features) checks max_features_ equals it and
-    #   output width matches; for None checks max_features_ is absent and all features are
-    #   kept.
+    #   output width matches; for None checks max_features_ is absent and all features
+    #   are kept.
     """Check max_features_ and output shape for integer max_features."""
     clf = RandomForestClassifier(n_estimators=5, random_state=0)
     transformer = SelectFromModel(
@@ -331,7 +332,8 @@ def test_threshold_and_max_features():
 def test_feature_importances():
     # [FUNCTION DOC]
     # For "mean" and "median" thresholds with a random forest, checks transform keeps
-    #   exactly the features whose |importance| is strictly greater than the mean/median.
+    #   exactly the features whose |importance| is strictly greater than the
+    #   mean/median.
     X, y = datasets.make_classification(
         n_samples=1000,
         n_features=10,
@@ -494,8 +496,8 @@ def test_prefit():
     # [FUNCTION DOC]
     # Checks prefit=True with a fitted model transforms like prefit=False fitting, fit
     #   with prefit copies rather than reuses the estimator, unfitted prefit estimators
-    #   raise NotFittedError in fit/partial_fit/transform, and fit/partial_fit with prefit
-    #   do not alter the copied coefficients.
+    #   raise NotFittedError in fit/partial_fit/transform, and fit/partial_fit with
+    #   prefit do not alter the copied coefficients.
     # Test all possible combinations of the prefit parameter.
 
     # Passing a prefit parameter with the selected model

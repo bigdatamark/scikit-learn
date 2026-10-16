@@ -3,7 +3,8 @@
 #   handling, metadata routing to fit/score, cv_results_ contents and sizes, ranking
 #   formulas, n_jobs/threading consistency, groups, importance_getter, NaN/inf support,
 #   PLS and pipelines, warnings, sample weights and sparse coefficients. Most tests
-#   augment iris with 6 Gaussian noise columns and expect the 4 real features to be kept.
+#   augment iris with 6 Gaussian noise columns and expect the 4 real features to be
+#   kept.
 """
 Testing Recursive feature elimination
 """
@@ -121,8 +122,8 @@ def test_rfe_features_importance():
 def test_rfe(csr_container):
     # [FUNCTION DOC]
     # Checks RFE with linear SVC on noisy iris recovers exactly the 4 iris columns, that
-    #   predict/score match an SVC fit on the original data, and that dense and CSR input
-    #   give the same transform.
+    #   predict/score match an SVC fit on the original data, and that dense and CSR
+    #   input give the same transform.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -156,7 +157,8 @@ def test_rfe(csr_container):
 def test_RFE_fit_score_params():
     # [FUNCTION DOC]
     # Checks extra fit/score keyword arguments (prop) are forwarded to the estimator:
-    #   missing prop raises the estimator's ValueError in fit or score; passing it works.
+    #   missing prop raises the estimator's ValueError in fit or score; passing it
+    #   works.
     # Make sure RFE passes the metadata down to fit and score methods of the
     # underlying estimator
     class TestEstimator(BaseEstimator, ClassifierMixin):
@@ -237,10 +239,10 @@ def test_rfe_mockclassifier():
 def test_rfecv(csr_container):
     # [FUNCTION DOC]
     # On noisy iris checks RFECV: cv_results_ arrays have one entry per feature count,
-    #   the transform recovers iris data for default scoring, a custom loss scorer, and an
-    #   accuracy scorer; a constant scorer leads to selecting a single feature (fewest
-    #   features on ties); step=2 gives 6 entries; dense/sparse and fractional step all
-    #   recover iris.
+    #   the transform recovers iris data for default scoring, a custom loss scorer, and
+    #   an accuracy scorer; a constant scorer leads to selecting a single feature
+    #   (fewest features on ties); step=2 gives 6 entries; dense/sparse and fractional
+    #   step all recover iris.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -370,8 +372,8 @@ def test_rfecv_verbose_output():
 def test_rfecv_cv_results_size(global_random_seed):
     # [FUNCTION DOC]
     # For several (step, min_features_to_select) pairs with MockClassifier, checks each
-    #   cv_results_ array has ceil((n_features - min)/step) + 1 entries and n_features_ >=
-    #   min.
+    #   cv_results_ array has ceil((n_features - min)/step) + 1 entries and n_features_
+    #   >= min.
     generator = check_random_state(global_random_seed)
     iris = load_iris()
     X = np.c_[iris.data, generator.normal(size=(len(iris.data), 6))]
@@ -438,8 +440,8 @@ def test_rfe_min_step(global_random_seed):
 def test_number_of_subsets_of_features(global_random_seed):
     # [FUNCTION DOC]
     # Checks two equivalent formulas for the number of elimination iterations agree with
-    #   max(ranking_) for RFE and with the length of each cv_results_ array for RFECV, for
-    #   divisible and non-divisible step cases.
+    #   max(ranking_) for RFE and with the length of each cv_results_ array for RFECV,
+    #   for divisible and non-divisible step cases.
     # In RFE, 'number_of_subsets_of_features'
     # = the number of iterations in '_fit'
     # = max(ranking_)
@@ -688,8 +690,8 @@ def test_rfecv_cv_results_n_features(
 ):
     # [FUNCTION DOC]
     # Parametrized over min_features_to_select, n_features and step: checks
-    #   cv_results_["n_features"] lists the expected feature counts (always including the
-    #   full count) and all cv_results_ arrays have the same length.
+    #   cv_results_["n_features"] lists the expected feature counts (always including
+    #   the full count) and all cv_results_ arrays have the same length.
     X, y = make_classification(
         n_samples=20, n_features=n_features, n_informative=n_features, n_redundant=0
     )
@@ -808,7 +810,8 @@ def test_rfe_n_features_to_select_warning(ClsRFE, param):
 def test_rfe_with_sample_weight():
     # [FUNCTION DOC]
     # Checks weight 2 on the first half of samples gives the same ranking as duplicating
-    #   those samples, and unit weights give a different ranking than the duplicated data.
+    #   those samples, and unit weights give a different ranking than the duplicated
+    #   data.
     """Test that `RFE` works correctly with sample weights."""
     X, y = make_classification(random_state=0)
     n_samples = X.shape[0]

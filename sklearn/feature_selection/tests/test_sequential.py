@@ -1,8 +1,8 @@
 # [MODULE DOC]
 # Tests for SequentialFeatureSelector: validation of n_features_to_select and tol, the
-#   "auto"/tol stopping rule, float fractions, correct selection on a toy problem, sparse,
-#   NaN and pipeline support, unsupervised estimators, y validation, generator cv and
-#   rejection of fit params without metadata routing.
+#   "auto"/tol stopping rule, float fractions, correct selection on a toy problem,
+#   sparse, NaN and pipeline support, unsupervised estimators, y validation, generator
+#   cv and rejection of fit params without metadata routing.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -231,8 +231,8 @@ def test_sparse_support(csr_container):
 def test_nan_support():
     # [FUNCTION DOC]
     # Checks fitting works on data with ~50% NaNs when the estimator supports NaN
-    #   (HistGradientBoostingRegressor) and raises "Input X contains NaN" ValueError with
-    #   LinearRegression.
+    #   (HistGradientBoostingRegressor) and raises "Input X contains NaN" ValueError
+    #   with LinearRegression.
     # Make sure nans are OK if the underlying estimator supports nans
 
     rng = np.random.RandomState(0)
