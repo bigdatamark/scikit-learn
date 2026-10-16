@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.svm estimators (SVC, NuSVC, SVR, NuSVR, OneClassSVM, LinearSVC,
+# LinearSVR) and the low-level _libsvm bindings: fitted attributes on toy data,
+# precomputed/callable kernels, decision functions, sample and class weights, input
+# validation errors, sparse/dense consistency, convergence warnings, dual parameter
+# handling and more. Module-level toy data X/Y (6 points, 2 classes), test points T
+# and their expected labels true_result are shared by many tests.
 """
 Testing for Support Vector Machine module (sklearn.svm)
 
@@ -44,6 +51,11 @@ true_result = [1, 2, 2]
 
 
 def get_iris_dataset(random_seed):
+    # [FUNCTION DOC]
+    # HELPER: Loads iris and returns it with data and target permuted by a random
+    # permutation from check_random_state(random_seed).
+    # Inputs: random_seed - int/None/RandomState.
+    # Outputs: sklearn Bunch with shuffled data/target (mutated in place on the Bunch).
     iris = datasets.load_iris()
     rng = check_random_state(random_seed)
     perm = rng.permutation(iris.target.size)
@@ -53,6 +65,9 @@ def get_iris_dataset(random_seed):
 
 
 def test_libsvm_parameters():
+    # [FUNCTION DOC]
+    # Verifies a linear SVC on the toy data has the expected dual_coef_, support_,
+    # support_vectors_, zero intercept and perfectly predicts Y.
     # Test parameters on classes that make use of libsvm.
     clf = svm.SVC(kernel="linear").fit(X, Y)
     assert_array_equal(clf.dual_coef_, [[-0.25, 0.25]])
@@ -67,6 +82,12 @@ def test_libsvm_parameters():
 # TODO: investigate why assertion on L148 fails.
 @pytest.mark.thread_unsafe
 def test_libsvm_iris(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SVC (linear and rbf) reach >90% train accuracy on shuffled iris, coef_
+    # exists only for linear, classes_ are sorted, and the raw _libsvm fit/predict
+    # (rbf and linear) reach >95%; _libsvm.cross_validation with random_seed=0 is >95%
+    # accurate and deterministic across two calls.
+    # Side effects: seeds libsvm's global C rng (thread_unsafe).
     # Check consistency on dataset iris.
     iris = get_iris_dataset(global_random_seed)
     # shuffle the dataset so that labels are not ordered
@@ -147,6 +168,13 @@ def test_libsvm_iris(global_random_seed):
 
 
 def test_precomputed():
+    # [FUNCTION DOC]
+    # Verifies SVC with a precomputed Gram matrix and with a callable linear kernel match
+    # expected toy-data attributes and predictions, that a wrongly shaped test kernel
+    # raises ValueError, that kernel columns only for support vectors suffice, and that
+    # on iris precomputed and linear kernels give the same support/dual_coef/intercept.
+    # KNOWN ISSUE: the final block fits a callable-kernel SVC on iris but asserts on the
+    # stale pred from the precomputed model, so that fit is never checked.
     # SVC with a precomputed kernel.
     # We test it with a toy dataset and with iris.
     clf = svm.SVC(kernel="precomputed")
@@ -180,6 +208,8 @@ def test_precomputed():
     # matrix. kernel is just a linear kernel
 
     def kfunc(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Linear kernel; returns the Gram matrix x times y transposed.
         return np.dot(x, y.T)
 
     clf = svm.SVC(kernel=kfunc)
@@ -221,6 +251,10 @@ def test_precomputed():
 
 
 def test_svr():
+    # [FUNCTION DOC]
+    # Verifies NuSVR, SVR and LinearSVR score above 0.02 on diabetes, and that SVR and
+    # LinearSVR can fit a constant target without error.
+    # KNOWN ISSUE: LinearSVR(C=10.0) is listed twice in the loop (duplicate case).
     # Test Support Vector Regression
 
     diabetes = datasets.load_diabetes()
@@ -241,6 +275,10 @@ def test_svr():
 
 
 def test_linearsvr():
+    # [FUNCTION DOC]
+    # Verifies LinearSVR and SVR(kernel="linear") with C=1e3 give coef_ norms within
+    # tolerance and R^2 scores equal to 2 decimals on diabetes.
+    # KNOWN ISSUE: the comment mentions LinearSVC though LinearSVR is tested.
     # check that SVR(kernel='linear') and LinearSVC() give
     # comparable results
     diabetes = datasets.load_diabetes()
@@ -255,6 +293,10 @@ def test_linearsvr():
 
 
 def test_linearsvr_fit_sampleweight(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVR with unit sample_weight matches unweighted fitting, and that
+    # integer random sample weights are equivalent to repeating rows that many times
+    # (scores equal to 2 decimals).
     # check correct result when sample_weight is 1
     # check that SVR(kernel='linear') and LinearSVC() give
     # comparable results
@@ -296,6 +338,9 @@ def test_linearsvr_fit_sampleweight(global_random_seed):
 
 
 def test_svr_errors():
+    # [FUNCTION DOC]
+    # Verifies SVR with a callable kernel returning a wrong-shaped matrix raises
+    # ValueError at predict time.
     X = [[0.0], [1.0]]
     y = [0.0, 0.5]
 
@@ -307,6 +352,9 @@ def test_svr_errors():
 
 
 def test_oneclass():
+    # [FUNCTION DOC]
+    # Verifies OneClassSVM on toy data: predictions [1, -1, -1] with intp dtype, expected
+    # intercept_ and dual_coef_, and that coef_ raises AttributeError for rbf kernel.
     # Test OneClassSVM
     clf = svm.OneClassSVM()
     clf.fit(X)
@@ -322,6 +370,10 @@ def test_oneclass():
 
 # TODO: rework this test to be independent of the random seeds.
 def test_oneclass_decision_function():
+    # [FUNCTION DOC]
+    # Verifies OneClassSVM (rbf, nu=0.1) labels >90% of inliers as 1 and >90% of uniform
+    # outliers as -1, and that sign of decision_function agrees with predict.
+    # KNOWN ISSUE: the first OneClassSVM() assigned to clf is unused (overwritten).
     # Test OneClassSVM decision function
     clf = svm.OneClassSVM()
     rnd = check_random_state(2)
@@ -352,6 +404,8 @@ def test_oneclass_decision_function():
 
 
 def test_oneclass_score_samples():
+    # [FUNCTION DOC]
+    # Verifies score_samples equals decision_function plus offset_ for OneClassSVM.
     X_train = [[1, 1], [1, 2], [2, 1]]
     clf = svm.OneClassSVM(gamma=1).fit(X_train)
     assert_array_equal(
@@ -361,6 +415,9 @@ def test_oneclass_score_samples():
 
 
 def test_tweak_params():
+    # [FUNCTION DOC]
+    # Verifies that overwriting the private _dual_coef_ of a fitted SVC changes predict
+    # output, i.e. predictions use the Python-side attributes.
     # Make sure some tweaking of parameters works.
     # We change clf.dual_coef_ at run time and expect .predict() to change
     # accordingly. Notice that this is not trivial since it involves a lot
@@ -381,6 +438,10 @@ def test_tweak_params():
 @pytest.mark.thread_unsafe
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_probability(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SVC/NuSVC with probability=True produce rows summing to 1, argmax agreeing
+    # with predict >90%, and predict_proba equal to exp(predict_log_proba).
+    # Side effects: FutureWarnings ignored; thread_unsafe due to libsvm rng.
     # Predict probabilities using SVC
     # This uses cross validation, so we use a slightly bigger testing set.
     iris = get_iris_dataset(global_random_seed)
@@ -401,6 +462,11 @@ def test_probability(global_random_seed):
 
 
 def test_decision_function(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies decision_function of linear SVC equals X times coef_ transposed plus
+    # intercept_ (multiclass ovo on iris and binary on toy data, with expected values and
+    # sign-consistent predictions), and for rbf it equals rbf_kernel to support vectors
+    # times dual_coef_ plus intercept_.
     iris = get_iris_dataset(global_random_seed)
     # Test decision_function
     # Sanity check, test that decision_function implemented in python
@@ -436,6 +502,11 @@ def test_decision_function(global_random_seed):
 
 @pytest.mark.parametrize("SVM", (svm.SVC, svm.NuSVC))
 def test_decision_function_shape(SVM, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies decision_function_shape: "ovr" gives (n_samples, n_classes) for 3 and 5
+    # classes with argmax matching predict (break_ties=True), and "ovo" gives
+    # n_classes*(n_classes-1)/2 = 10 columns for 5 classes.
+    # Inputs: SVM - SVC or NuSVC class.
     # check that decision_function_shape='ovr' or 'ovo' gives
     # correct shape and is consistent with predict
     iris = get_iris_dataset(global_random_seed)
@@ -477,6 +548,9 @@ def test_decision_function_shape(SVM, global_random_seed):
 
 
 def test_svr_predict(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SVR.predict equals the manually computed linear and rbf decision values on
+    # iris.
     # Test SVR's decision_function
     # Sanity check, test that predict implemented in python
     # returns the same as the one in libsvm
@@ -501,6 +575,10 @@ def test_svr_predict(global_random_seed):
 
 # TODO: rework this test to be independent of the random seeds.
 def test_weight():
+    # [FUNCTION DOC]
+    # Verifies class_weight: tiny weight on class 1 makes SVC predict class 2 everywhere on
+    # toy data, and LogisticRegression/LinearSVC/SVC with weights {0: 0.1, 1: 10} reach
+    # F1 > 0.3 on an imbalanced split.
     # Test class weights
     clf = svm.SVC(class_weight={1: 0.1})
     # we give a small weights to class 1
@@ -528,6 +606,10 @@ def test_weight():
 
 @pytest.mark.parametrize("estimator", [svm.SVC(C=1e-2), svm.NuSVC()])
 def test_svm_classifier_sided_sample_weight(estimator):
+    # [FUNCTION DOC]
+    # Verifies with a linear SVC/NuSVC that unit weights place [-1, 1] on the boundary
+    # (decision 0), and up-weighting opposed samples pushes the decision negative or
+    # positive accordingly.
     estimator = base.clone(estimator)  # Avoid side effects from previous tests.
     # fit a linear SVM and check that giving more weight to opposed samples
     # in the space will flip the decision toward these samples.
@@ -555,6 +637,9 @@ def test_svm_classifier_sided_sample_weight(estimator):
 
 @pytest.mark.parametrize("estimator", [svm.SVR(C=1e-2), svm.NuSVR(C=1e-2)])
 def test_svm_regressor_sided_sample_weight(estimator):
+    # [FUNCTION DOC]
+    # Regression analog of the sided-weight test: with unit weights the prediction at
+    # [-1, 1] is 1.5, and opposed weightings push it below or above 1.5.
     estimator = base.clone(estimator)  # Avoid side effects from previous tests.
     # similar test to test_svm_classifier_sided_sample_weight but for
     # SVM regressors
@@ -581,6 +666,9 @@ def test_svm_regressor_sided_sample_weight(estimator):
 
 
 def test_svm_equivalence_sample_weight_C():
+    # [FUNCTION DOC]
+    # Verifies scaling all sample weights by 0.01 with C=100 yields the same dual_coef_
+    # as unweighted C=1 fitting.
     # test that rescaling all samples is the same as changing C
     clf = svm.SVC()
     clf.fit(X, Y)
@@ -611,6 +699,10 @@ def test_svm_equivalence_sample_weight_C():
     ids=["weights-are-zero", "weights-are-negative"],
 )
 def test_negative_sample_weights_mask_all_samples(Estimator, err_msg, sample_weight):
+    # [FUNCTION DOC]
+    # Verifies fitting with all-zero or all-negative sample weights raises ValueError
+    # with the expected message for each libsvm estimator (NuSVC may also report nu
+    # infeasible).
     est = Estimator(kernel="linear")
     with pytest.raises(ValueError, match=err_msg):
         est.fit(X, Y, sample_weight=sample_weight)
@@ -636,6 +728,9 @@ def test_negative_sample_weights_mask_all_samples(Estimator, err_msg, sample_wei
     ids=["mask-label-1", "mask-label-2"],
 )
 def test_negative_weights_svc_leave_just_one_label(Classifier, err_msg, sample_weight):
+    # [FUNCTION DOC]
+    # Verifies SVC/NuSVC raise ValueError when non-positive weights leave only one class
+    # with positive weight.
     clf = Classifier(kernel="linear")
     with pytest.raises(ValueError, match=err_msg):
         clf.fit(X, Y, sample_weight=sample_weight)
@@ -657,6 +752,9 @@ def test_negative_weights_svc_leave_just_one_label(Classifier, err_msg, sample_w
 def test_negative_weights_svc_leave_two_labels(
     Classifier, model, sample_weight, mask_side
 ):
+    # [FUNCTION DOC]
+    # Verifies linear SVC/NuSVC coef_ match reference values when some samples of one
+    # class are masked by zero/negative weight.
     clf = Classifier(kernel="linear")
     clf.fit(X, Y, sample_weight=sample_weight)
     assert_allclose(clf.coef_, [model[mask_side]], rtol=1e-3)
@@ -671,6 +769,9 @@ def test_negative_weights_svc_leave_two_labels(
     ids=["partial-mask-label-1", "partial-mask-label-2"],
 )
 def test_negative_weight_equal_coeffs(Estimator, sample_weight):
+    # [FUNCTION DOC]
+    # Verifies the two absolute coef_ entries are equal (rel 1e-3) for SVC/NuSVC/NuSVR when
+    # one sample is masked by a zero/negative weight.
     # model generates equal coefficients
     est = Estimator(kernel="linear")
     est.fit(X, Y, sample_weight=sample_weight)
@@ -680,6 +781,10 @@ def test_negative_weight_equal_coeffs(Estimator, sample_weight):
 
 # TODO: rework this test to be independent of the random seeds.
 def test_auto_weight():
+    # [FUNCTION DOC]
+    # Verifies class_weight="balanced" does not reduce macro F1 for SVC, LinearSVC and
+    # LogisticRegression on 2-D iris with half of class 3 removed (labels shifted by 1),
+    # and that compute_class_weight gives the largest weight to the minority class.
     # Test class weights for imbalanced data
     from sklearn.linear_model import LogisticRegression
 
@@ -718,6 +823,12 @@ def test_auto_weight():
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_bad_input(lil_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies input validation: mismatched label length raises ValueError, non-contiguous
+    # X/y still fit and predict correctly, precomputed kernel with non-square X raises,
+    # sparse predict after dense fit raises, and predicting with wrongly shaped inputs
+    # raises ValueError.
+    # Inputs: lil_container - LIL sparse constructor.
     # Test dimensions for labels
     Y2 = Y[:-1]  # wrong dimensions for labels
     with pytest.raises(ValueError):
@@ -756,6 +867,9 @@ def test_bad_input(lil_container, global_random_seed):
 
 
 def test_svc_nonfinite_params(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SVC.fit raises ValueError about non-finite dual coefficients/intercepts when
+    # X values are near float64 max.
     # Check SVC throws ValueError when dealing with non-finite parameter values
     rng = np.random.RandomState(global_random_seed)
     n_samples = 10
@@ -771,6 +885,8 @@ def test_svc_nonfinite_params(global_random_seed):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_precomputed(csr_container):
+    # [FUNCTION DOC]
+    # Verifies a sparse precomputed kernel raises TypeError("Sparse precomputed...").
     clf = svm.SVC(kernel="precomputed")
     sparse_gram = csr_container([[1, 0], [0, 1]])
     with pytest.raises(TypeError, match="Sparse precomputed"):
@@ -779,6 +895,9 @@ def test_sparse_precomputed(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_fit_support_vectors_empty(csr_container):
+    # [FUNCTION DOC]
+    # Regression test (#14893): sparse linear SVR fit with no support vectors yields empty
+    # sparse support_vectors_ and dual_coef_ without error.
     # Regression test for #14893
     X_train = csr_container([[0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
     y_train = np.array([0.04, 0.04, 0.10, 0.16])
@@ -792,6 +911,10 @@ def test_sparse_fit_support_vectors_empty(csr_container):
 @pytest.mark.parametrize("penalty", ["l1", "l2"])
 @pytest.mark.parametrize("dual", [True, False])
 def test_linearsvc_parameters(loss, penalty, dual, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC raises ValueError "Unsupported set of arguments" for invalid
+    # (loss, penalty, dual) combinations (hinge+l1; hinge+l2+primal; l1+dual) and fits
+    # otherwise.
     # Test possible parameter combinations in LinearSVC
     # Generate list of possible parameter combinations
     X, y = make_classification(
@@ -817,6 +940,10 @@ def test_linearsvc_parameters(loss, penalty, dual, global_random_seed):
 
 
 def test_linearsvc(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC fits the toy data with intercept by default (near 0), predicts
+    # true_result for several penalty/loss/dual settings, and that the sign of
+    # decision_function maps to the predicted classes.
     # Test basic routines using LinearSVC
     clf = svm.LinearSVC(random_state=global_random_seed).fit(X, Y)
 
@@ -855,6 +982,10 @@ def test_linearsvc(global_random_seed):
 
 
 def test_linearsvc_crammer_singer(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies crammer_singer LinearSVC agrees with OvR on >90% of iris predictions while
+    # having all-different coef_, and that its decision_function equals X times coef_
+    # transposed plus intercept_ with argmax matching predict.
     # Test LinearSVC with crammer_singer multi-class svm
     iris = get_iris_dataset(global_random_seed)
 
@@ -880,6 +1011,10 @@ def test_linearsvc_crammer_singer(global_random_seed):
 
 
 def test_linearsvc_fit_sampleweight(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC with unit sample weights matches unweighted fitting, and integer
+    # random weights are equivalent to repeating samples (same predictions on T, close
+    # coef_).
     # check correct result when sample_weight is 1
     n_samples = len(X)
     unit_weight = np.ones(n_samples)
@@ -916,6 +1051,9 @@ def test_linearsvc_fit_sampleweight(global_random_seed):
 
 
 def test_crammer_singer_binary(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies binary crammer_singer LinearSVC reaches >90% training accuracy with and
+    # without intercept.
     # Test Crammer-Singer formulation in the binary case
     X, y = make_classification(
         n_classes=2, class_sep=1.5, random_state=global_random_seed
@@ -935,6 +1073,10 @@ def test_crammer_singer_binary(global_random_seed):
 
 
 def test_linearsvc_iris(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC with string class names on iris: classes_ equal the target names,
+    # training accuracy >80%, and argmax of decision_function mapped to names equals
+    # predict.
     iris = get_iris_dataset(global_random_seed)
 
     # Test that LinearSVC gives plausible predictions on the iris dataset
@@ -952,6 +1094,12 @@ def test_linearsvc_iris(global_random_seed):
 def test_dense_liblinear_intercept_handling(
     classifier=svm.LinearSVC, global_random_seed=42
 ):
+    # [FUNCTION DOC]
+    # Verifies liblinear intercept_scaling: with scaling 1 the l1-penalized intercept is
+    # ~0, with 100 it is below -1, and 1000 gives nearly the same intercept as 100.
+    # Inputs: classifier - estimator class (default LinearSVC); global_random_seed -
+    # defaulted to 42 (a default argument, so pytest does not inject the fixture).
+    # Side effects: mutates clf.intercept_scaling between fits.
     # Test that dense liblinear honours intercept_scaling param
     X = [[2, 1], [3, 1], [1, 3], [2, 3]]
     y = [0, 0, 1, 1]
@@ -989,6 +1137,9 @@ def test_dense_liblinear_intercept_handling(
 
 
 def test_liblinear_set_coef(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies replacing coef_ and intercept_ with copies leaves LinearSVC
+    # decision_function unchanged, for multiclass iris and a binary toy problem.
     iris = get_iris_dataset(global_random_seed)
 
     # multi-class case
@@ -1012,6 +1163,9 @@ def test_liblinear_set_coef(global_random_seed):
 
 
 def test_immutable_coef_property(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies coef_ of linear-kernel libsvm models cannot be assigned (AttributeError)
+    # nor mutated in place (read-only array raising RuntimeError/ValueError).
     iris = get_iris_dataset(global_random_seed)
 
     # Check that primal coef modification are not silently ignored
@@ -1031,6 +1185,12 @@ def test_immutable_coef_property(global_random_seed):
 
 @pytest.mark.thread_unsafe
 def test_linearsvc_verbose():
+    # [FUNCTION DOC]
+    # Smoke test that LinearSVC(verbose=1) fits while file descriptor 1 is redirected to a
+    # pipe, then restores stdout.
+    # Side effects: manipulates process-level stdout fd (thread_unsafe).
+    # KNOWN ISSUE: the pipe's file descriptors and the saved stdout duplicate are never
+    # closed (fd leak), and stdout is not restored if fit raises.
     # stdout: redirect
     import os
 
@@ -1046,6 +1206,9 @@ def test_linearsvc_verbose():
 
 
 def test_svc_clone_with_callable_kernel():
+    # [FUNCTION DOC]
+    # Verifies a cloned SVC with a lambda linear kernel matches a built-in linear SVC in
+    # dual_coef_, intercept_, predictions and decision_function on iris.
     iris = get_iris_dataset(42)
 
     # create SVM with callable linear kernel, check that results are the same
@@ -1078,12 +1241,17 @@ def test_svc_clone_with_callable_kernel():
 
 
 def test_svc_bad_kernel():
+    # [FUNCTION DOC]
+    # Verifies a callable kernel returning a wrongly shaped matrix raises ValueError on fit.
     svc = svm.SVC(kernel=lambda x, y: x)
     with pytest.raises(ValueError):
         svc.fit(X, Y)
 
 
 def test_libsvm_convergence_warnings(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies SVC with max_iter=2 emits ConvergenceWarning with the expected message and
+    # n_iter_ equals 2 for every binary subproblem.
     a = svm.SVC(
         kernel=lambda x, y: np.dot(x, y.T),
         random_state=global_random_seed,
@@ -1099,6 +1267,9 @@ def test_libsvm_convergence_warnings(global_random_seed):
 
 
 def test_unfitted():
+    # [FUNCTION DOC]
+    # Verifies predict on unfitted SVC/NuSVR raises an error mentioning the class name and
+    # not fitted, before any input validation.
     X = "foo!"  # input validation not required when SVM not fitted
 
     clf = svm.SVC()
@@ -1111,6 +1282,8 @@ def test_unfitted():
 
 
 def test_consistent_decision_function(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies two identically seeded SVCs with max_iter=1 give the same decision function.
     a = svm.SVC(max_iter=1, random_state=global_random_seed)
     proba_1 = a.fit(X, Y).decision_function(X)
     a = svm.SVC(max_iter=1, random_state=global_random_seed)
@@ -1119,6 +1292,9 @@ def test_consistent_decision_function(global_random_seed):
 
 
 def test_linear_svm_convergence_warnings(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC and LinearSVR with max_iter=2 emit the liblinear
+    # ConvergenceWarning and expose n_iter_ as a Python int equal to 2.
     iris = get_iris_dataset(global_random_seed)
 
     # Test that warnings are raised if model does not converge
@@ -1140,6 +1316,9 @@ def test_linear_svm_convergence_warnings(global_random_seed):
 
 
 def test_svr_coef_sign(global_random_seed):
+    # [FUNCTION DOC]
+    # Regression test (#2933): for linear SVR, NuSVR and LinearSVR, predict equals X times
+    # coef_ plus intercept_ (coef_ sign is correct).
     # Test that SVR(kernel="linear") has coef_ with the right sign.
     # Non-regression test for #2933.
     rng = np.random.RandomState(global_random_seed)
@@ -1158,6 +1337,8 @@ def test_svr_coef_sign(global_random_seed):
 
 
 def test_lsvc_intercept_scaling_zero():
+    # [FUNCTION DOC]
+    # Verifies LinearSVC with fit_intercept=False has intercept_ exactly 0.
     # Test that intercept_scaling is ignored when fit_intercept is False
 
     lsvc = svm.LinearSVC(fit_intercept=False)
@@ -1168,6 +1349,10 @@ def test_lsvc_intercept_scaling_zero():
 # TODO(1.11): remove test entirely.
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_hasattr_predict_proba(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies predict_proba availability follows the probability parameter before and
+    # after fit, and that switching to True after a False fit exposes it but calling it
+    # raises NotFittedError.
     iris = get_iris_dataset(global_random_seed)
 
     # Method must be (un)available before or after fit, switched by
@@ -1194,6 +1379,9 @@ def test_hasattr_predict_proba(global_random_seed):
 
 
 def test_decision_function_shape_two_class(global_random_seed):
+    # [FUNCTION DOC]
+    # Smoke test that OneVsRestClassifier wrapping SVC/NuSVC with ovr shape fits and
+    # predicts on 2- and 3-class blobs.
     for n_classes in [2, 3]:
         X, y = make_blobs(centers=n_classes, random_state=global_random_seed)
         for estimator in [svm.SVC, svm.NuSVC]:
@@ -1204,6 +1392,10 @@ def test_decision_function_shape_two_class(global_random_seed):
 
 
 def test_ovr_decision_function():
+    # [FUNCTION DOC]
+    # Verifies ovr decision values for a 4-quadrant problem: predictions are correct,
+    # argmax of decision values equals prediction, the predicted class's value is positive,
+    # and points farther from the boundary get larger values.
     # One point from each quadrant represents one class
     X_train = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]])
     y_train = [0, 1, 2, 3]
@@ -1249,6 +1441,11 @@ def test_ovr_decision_function():
 
 @pytest.mark.parametrize("SVCClass", (svm.SVC, svm.NuSVC))
 def test_svc_invalid_break_ties_param(SVCClass, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies predict raises ValueError when break_ties=True with
+    # decision_function_shape="ovo".
+    # KNOWN ISSUE: predict is called with y instead of X; the test relies on the
+    # parameter check firing before input validation.
     X, y = make_blobs(random_state=global_random_seed)
 
     svm = SVCClass(
@@ -1264,6 +1461,10 @@ def test_svc_invalid_break_ties_param(SVCClass, global_random_seed):
 
 @pytest.mark.parametrize("SVCClass", (svm.SVC, svm.NuSVC))
 def test_svc_ovr_tie_breaking(SVCClass, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on a dense grid with an extremely narrow rbf kernel that without break_ties
+    # predictions sometimes differ from argmax of ovr decision values, and with break_ties
+    # they always match. xfails for NuSVC on 32-bit platforms.
     """Test if predict breaks ties in OVR mode.
     Related issue: https://github.com/scikit-learn/scikit-learn/issues/8277
     """
@@ -1304,6 +1505,8 @@ def test_svc_ovr_tie_breaking(SVCClass, global_random_seed):
 
 
 def test_gamma_scale():
+    # [FUNCTION DOC]
+    # Verifies gamma="scale" gives 1 / (n_features * X.var()) = 4 for X = [[0], [1]].
     X, y = [[0.0], [1.0]], [0, 1]
 
     clf = svm.SVC()
@@ -1326,6 +1529,12 @@ def test_gamma_scale():
     ],
 )
 def test_linearsvm_liblinear_sample_weight(SVM, params, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies liblinear-based LinearSVC/LinearSVR: fitting on data doubled with
+    # flipped labels given zero weight matches fitting on the original data (predict and
+    # decision_function within rtol 1e-6).
+    # KNOWN ISSUE: the LinearSVR squared_epsilon_insensitive case appears twice in the
+    # parametrization, while epsilon_insensitive is listed once.
     X = np.array(
         [
             [1, 3],
@@ -1376,6 +1585,9 @@ def test_linearsvm_liblinear_sample_weight(SVM, params, global_random_seed):
 
 @pytest.mark.parametrize("Klass", (OneClassSVM, SVR, NuSVR))
 def test_n_support(Klass):
+    # [FUNCTION DOC]
+    # Regression test (#14774): n_support_ is absent before fit and after fit is a single
+    # entry equal to the number of support vectors for OneClassSVM, SVR and NuSVR.
     # Make n_support is correct for oneclass and SVR (used to be
     # non-initialized)
     # this is a non regression test for issue #14774
@@ -1390,12 +1602,22 @@ def test_n_support(Klass):
 
 @pytest.mark.parametrize("Estimator", [svm.SVC, svm.SVR])
 def test_custom_kernel_not_array_input(Estimator):
+    # [FUNCTION DOC]
+    # Verifies a callable kernel on a list of strings gives the same scores, predictions
+    # and decision values as a linear kernel on count encodings and as the precomputed
+    # Gram matrix.
     """Test using a custom kernel that is not fed with array-like for floats"""
     data = ["A A", "A", "B", "B B", "A B"]
     X = np.array([[2, 0], [1, 0], [0, 1], [0, 2], [1, 1]])  # count encoding
     y = np.array([1, 1, 2, 2, 1])
 
     def string_kernel(X1, X2):
+        # [FUNCTION DOC]
+        # HELPER: String kernel: entry (i, j) is count of "A" in X1[i] times in X2[j] plus the
+        # same for "B". Asserts inputs are strings. Fills only j >= i and mirrors.
+        # Outputs: float array (n_samples1, n_samples2).
+        # KNOWN ISSUE: mirroring assumes X1 and X2 are the same set; for different inputs the
+        # lower triangle is wrong and indexing can fail when n_samples2 > n_samples1.
         assert isinstance(X1[0], str)
         n_samples1 = _num_samples(X1)
         n_samples2 = _num_samples(X2)
@@ -1427,6 +1649,9 @@ def test_custom_kernel_not_array_input(Estimator):
 
 
 def test_svc_raises_error_internal_representation():
+    # [FUNCTION DOC]
+    # Regression test (#18891, CVE-2020-28975): tampering with _n_support makes predict
+    # raise ValueError about altered internal representation.
     """Check that SVC raises error when internal representation is altered.
 
     Non-regression test for #18891 and https://nvd.nist.gov/vuln/detail/CVE-2020-28975
@@ -1454,6 +1679,9 @@ def test_svc_raises_error_internal_representation():
     [2, 3, 4],
 )
 def test_n_iter_libsvm(estimator, expected_n_iter_type, n_classes, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies n_iter_ type: ndarray of length n_classes*(n_classes-1)/2 for SVC/NuSVC,
+    # int for SVR/NuSVR/OneClassSVM, for 2-4 class problems.
     dataset = make_classification(
         n_classes=n_classes, n_informative=n_classes, random_state=global_random_seed
     )
@@ -1472,6 +1700,9 @@ def test_n_iter_libsvm(estimator, expected_n_iter_type, n_classes, global_random
 
 @pytest.mark.parametrize("loss", ["squared_hinge", "squared_epsilon_insensitive"])
 def test_dual_auto(loss):
+    # [FUNCTION DOC]
+    # Verifies dual="auto" resolves to False when n_samples > n_features and True
+    # otherwise, for squared hinge and squared epsilon-insensitive losses.
     # OvR, L2, N > M (6,2)
     dual = _validate_dual_parameter("auto", loss, "l2", "ovr", np.asarray(X))
     assert dual is False
@@ -1481,6 +1712,9 @@ def test_dual_auto(loss):
 
 
 def test_dual_auto_edge_cases():
+    # [FUNCTION DOC]
+    # Verifies dual="auto" edge cases: hinge and epsilon_insensitive force True, and
+    # squared_hinge with l1 penalty forces False regardless of shape.
     # Hinge, OvR, L2, N > M (6,2)
     dual = _validate_dual_parameter("auto", "hinge", "l2", "ovr", np.asarray(X))
     assert dual is True  # only supports True
@@ -1501,6 +1735,9 @@ def test_dual_auto_edge_cases():
 )
 @pytest.mark.parametrize("C_inf", [np.inf, float("inf")])
 def test_svm_with_infinite_C(Estimator, make_dataset, C_inf, global_random_seed):
+    # [FUNCTION DOC]
+    # Regression test (#29772): C=inf (numpy or float) gives the same predictions as
+    # C=1e10 for SVC and SVR.
     """Check that we can pass `C=inf` that is equivalent to a very large C value.
 
     Non-regression test for
@@ -1519,6 +1756,10 @@ def test_svm_with_infinite_C(Estimator, make_dataset, C_inf, global_random_seed)
 )
 @pytest.mark.parametrize("probability", [True, False])
 def test_probability_raises_futurewarning(Estimator, name, probability):
+    # [FUNCTION DOC]
+    # Verifies passing probability (True or False) explicitly to SVC/NuSVC emits a
+    # deprecation FutureWarning on fit.
+    # Inputs: name - parametrized but unused.
     X, y = make_classification()
     with pytest.warns(FutureWarning, match="probability.+parameter.+deprecated"):
         Estimator(probability=probability).fit(X, y)
@@ -1526,6 +1767,8 @@ def test_probability_raises_futurewarning(Estimator, name, probability):
 
 @pytest.mark.parametrize("est", (svm.SVC, svm.NuSVC))
 def test_svc_nusvc_probA_probB_deprecated(est):
+    # [FUNCTION DOC]
+    # Verifies accessing probA_ and probB_ on fitted SVC/NuSVC emits FutureWarning.
     """Test that accessing probA_ and probB_ raises FutureWarning for SVC and NuSVC."""
     X, y = make_classification(n_samples=50, n_informative=5, random_state=0)
     est = est().fit(X, y)
