@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Pairwise distance, kernel and paired-distance computations for sklearn.metrics.
+#   Provides input validation helpers (check_pairwise_arrays, check_paired_arrays),
+#   concrete distances (euclidean, nan_euclidean, manhattan, cosine, haversine), paired
+#   distances, kernels (linear, polynomial, sigmoid, rbf, laplacian, cosine, chi2), the
+#   dispatchers pairwise_distances, pairwise_distances_chunked, pairwise_kernels,
+#   paired_distances, and argmin reductions backed by ArgKmin.
+# Module-level registries: _VALID_METRICS, _NAN_METRICS, PAIRED_DISTANCES,
+#   PAIRWISE_DISTANCE_FUNCTIONS, PAIRWISE_BOOLEAN_FUNCTIONS, PAIRWISE_KERNEL_FUNCTIONS
+#   and KERNEL_PARAMS; some metric names are appended at import time depending on the
+#   installed SciPy version. Many functions support the array API (non-NumPy namespaces)
+#   on dense inputs.
 """Metrics for pairwise distances and affinity of sets of samples."""
 
 # Authors: The scikit-learn developers
@@ -49,6 +61,16 @@ from sklearn.utils.validation import _num_samples, check_non_negative
 
 # Utility Functions
 def _return_float_dtype(X, Y):
+    # [FUNCTION DOC]
+    # HELPER: Converts X (via the array namespace) and Y (via NumPy) to arrays unless
+    #   sparse or already ndarray, then picks float32 if both dtypes are float32, else
+    #   Python float (float64).
+    # Inputs: X - array-like/sparse; Y - array-like/sparse or None (then X's dtype is
+    #   used).
+    # Outputs: tuple (X, Y, dtype) with possibly converted X and Y (Y stays None if
+    #   None).
+    # KNOWN ISSUE: X is converted with the detected namespace but Y always with NumPy,
+    #   which is inconsistent for non-NumPy namespaces.
     """
     1. If dtype of X and Y is float32, then dtype float32 is returned.
     2. Else dtype float is returned.
@@ -74,6 +96,12 @@ def _return_float_dtype(X, Y):
 
 
 def _find_floating_dtype_allow_sparse(X, Y, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Chooses the floating dtype for X and Y. If either is sparse or the
+    #   namespace is NumPy, delegates to _return_float_dtype (which may convert inputs
+    #   to arrays); otherwise uses the array API _find_matching_floating_dtype.
+    # Inputs: X, Y - arrays or sparse; xp - array namespace or None.
+    # Outputs: tuple (X, Y, dtype_float).
     """Find matching floating type, allowing for sparse input."""
     if any([issparse(X), issparse(Y)]) or _is_numpy_namespace(xp):
         X, Y, dtype_float = _return_float_dtype(X, Y)
@@ -93,6 +121,14 @@ def check_pairwise_arrays(
     ensure_2d=True,
     copy=False,
 ):
+    # [FUNCTION DOC]
+    # Validates and converts X and Y with check_array using the same options for both.
+    #   When Y is None or is X, a single validated array is returned twice (same
+    #   object). dtype "infer_float" resolves through _find_floating_dtype_allow_sparse.
+    # Exceptions: ValueError when precomputed and X.shape[1] != Y.shape[0]; ValueError
+    #   when not precomputed, ensure_2d is set and the feature counts differ; plus any
+    #   check_array errors (non-finite values, bad sparse format, wrong ndim).
+    # Side effects: none on inputs unless check_array copies; copy=True forces a copy.
     """Set X and Y appropriately and checks inputs.
 
     If Y is None, it is set as a pointer to X (i.e. not a copy).
@@ -220,6 +256,10 @@ def check_pairwise_arrays(
 
 
 def check_paired_arrays(X, Y):
+    # [FUNCTION DOC]
+    # Validates X and Y with check_pairwise_arrays defaults and additionally requires
+    #   identical shapes.
+    # Exceptions: ValueError when X.shape != Y.shape.
     """Set X and Y appropriately and checks inputs for paired distances.
 
     All paired distance metrics should use this function first to assert that
@@ -268,6 +308,13 @@ def check_paired_arrays(X, Y):
 def euclidean_distances(
     X, Y=None, *, Y_norm_squared=None, squared=False, X_norm_squared=None
 ):
+    # [FUNCTION DOC]
+    # Public entry point: validates X/Y, then normalises optional precomputed squared
+    #   norms. X_norm_squared is reshaped to a column (n_samples_X, 1) from 1-D or a
+    #   row; Y_norm_squared is reshaped to a row (1, n_samples_Y) from 1-D or a column.
+    #   Delegates the computation to _euclidean_distances.
+    # Exceptions: ValueError when a provided norm vector cannot be reshaped to the
+    #   expected shape.
     """
     Compute the distance matrix between each pair from a feature array X and Y.
 
@@ -374,6 +421,21 @@ def euclidean_distances(
 
 
 def _euclidean_distances(X, Y, X_norm_squared=None, Y_norm_squared=None, squared=False):
+    # [FUNCTION DOC]
+    # HELPER: Computes the (squared) euclidean distance matrix via the expansion |x|^2 -
+    #   2 x.y + |y|^2.
+    # Steps: obtain XX (column of squared row norms) from X_norm_squared unless it is
+    #   float32, else compute it unless X is float32 (then left None); same for YY as a
+    #   row, reusing XX transposed when Y is X. If either input is float32, compute via
+    #   _euclidean_distances_upcast (chunked float64); otherwise compute the dense dot
+    #   product and add the norms. Clip negatives to 0, set the diagonal to 0 when X is
+    #   Y, and take the square root unless squared.
+    # Inputs: X, Y - validated 2-D arrays/sparse; norms already shaped by the caller;
+    #   squared - bool.
+    # Outputs: dense array of shape (n_samples_X, n_samples_Y); float32 when inputs are
+    #   float32.
+    # Side effects: none on inputs; modifies the freshly allocated result in place for
+    #   NumPy.
     """Computational part of euclidean_distances
 
     Assumes inputs are already checked.
@@ -440,6 +502,19 @@ def _euclidean_distances(X, Y, X_norm_squared=None, Y_norm_squared=None, squared
 def nan_euclidean_distances(
     X, Y=None, *, squared=False, missing_values=np.nan, copy=True
 ):
+    # [FUNCTION DOC]
+    # Euclidean distances ignoring missing coordinates, rescaled by the fraction of
+    #   present coordinates.
+    # Steps: validate (dense only, NaN allowed if missing_values is NaN); build boolean
+    #   missing masks; set missing entries to 0; compute squared euclidean distances;
+    #   subtract, for each pair, the squared values of X at coordinates missing in Y and
+    #   vice versa so only jointly present coordinates count; clip at 0; zero the
+    #   diagonal when X is Y; count jointly present coordinates per pair, set distance
+    #   NaN where the count is 0, divide by max(1, count) and multiply by n_features;
+    #   take sqrt unless squared.
+    # Outputs: float ndarray (n_samples_X, n_samples_Y), may contain NaN.
+    # Side effects: with copy=False the caller's X and Y arrays have their missing
+    #   entries overwritten with 0.
     """Calculate the euclidean distances in the presence of missing values.
 
     Compute the euclidean distance between each pair of samples in X and Y,
@@ -565,6 +640,21 @@ def nan_euclidean_distances(
 
 
 def _euclidean_distances_upcast(X, XX=None, Y=None, YY=None, batch_size=None):
+    # [FUNCTION DOC]
+    # HELPER: Computes squared euclidean distances for float32 input in blocks,
+    #   upcasting each block to the highest available float precision to reduce rounding
+    #   errors, and storing results as float32.
+    # Batch size, if not given, is solved from a quadratic so that the extra memory
+    #   (copies of an X block, a Y block and a block of distances) stays near max(10% of
+    #   the memory of X, Y and the distance matrix, about 10 MiB), accounting for sparse
+    #   density; at least 1.
+    # For each X block: upcast, take or compute squared norms; for each Y block: when X
+    #   is Y and the block lies below the diagonal, reuse the transposed already
+    #   computed block; otherwise compute -2 x.y plus both norms.
+    # Inputs: X, Y - 2-D arrays/sparse; XX - column norms or None; YY - row norms or
+    #   None; batch_size - int or None.
+    # Outputs: float32 array (n_samples_X, n_samples_Y) of squared distances (not yet
+    #   clipped).
     """Euclidean distances between X and Y.
 
     Assumes X and Y have float32 dtype.
@@ -639,6 +729,11 @@ def _euclidean_distances_upcast(X, XX=None, Y=None, YY=None, batch_size=None):
 
 
 def _argmin_min_reduce(dist, start):
+    # [FUNCTION DOC]
+    # HELPER: Reduction for pairwise_distances_chunked returning, for each row of the
+    #   distance chunk, the column index of the minimum and the minimum value. start is
+    #   unused.
+    # Outputs: tuple (indices, values) of 1-D NumPy arrays of length dist.shape[0].
     # `start` is specified in the signature but not used. This is because the higher
     # order `pairwise_distances_chunked` function needs reduction functions that are
     # passed as argument to have a two arguments signature.
@@ -648,6 +743,9 @@ def _argmin_min_reduce(dist, start):
 
 
 def _argmin_reduce(dist, start):
+    # [FUNCTION DOC]
+    # HELPER: Reduction for pairwise_distances_chunked returning the per-row argmin of a
+    #   distance chunk, using the chunk's array namespace. start is unused.
     # `start` is specified in the signature but not used. This is because the higher
     # order `pairwise_distances_chunked` function needs reduction functions that are
     # passed as argument to have a two arguments signature.
@@ -711,6 +809,14 @@ _NAN_METRICS = ["nan_euclidean"]
 def pairwise_distances_argmin_min(
     X, Y, *, axis=1, metric="euclidean", metric_kwargs=None
 ):
+    # [FUNCTION DOC]
+    # Finds, for each row of X, the closest row of Y and its distance (axis=0 swaps the
+    #   roles of X and Y). Validates inputs (NaN allowed for nan_euclidean).
+    # If ArgKmin supports the metric and data, uses it with k=1, mapping euclidean with
+    #   squared=True to sqeuclidean; otherwise falls back to pairwise_distances_chunked
+    #   with _argmin_min_reduce under assume_finite and concatenates the chunk results.
+    # Outputs: (indices, values) 1-D arrays.
+    # Exceptions: those from validation; ArgKmin or metric errors.
     """Compute minimum distances between one point and a set of points.
 
     This function computes for each row in X, the index of the row of Y which
@@ -859,6 +965,11 @@ def pairwise_distances_argmin_min(
     prefer_skip_nested_validation=False,  # metric is not validated yet
 )
 def pairwise_distances_argmin(X, Y, *, axis=1, metric="euclidean", metric_kwargs=None):
+    # [FUNCTION DOC]
+    # Like pairwise_distances_argmin_min but returns only indices. The ArgKmin fast path
+    #   is used only for the NumPy namespace; otherwise chunks are reduced with
+    #   _argmin_reduce and concatenated with the input's namespace (array API support).
+    # Outputs: 1-D integer array of indices into Y (or X when axis=0).
     """Compute minimum distances between one point and a set of points.
 
     This function computes for each row in X, the index of the row of Y which
@@ -992,6 +1103,11 @@ def pairwise_distances_argmin(X, Y, *, axis=1, metric="euclidean", metric_kwargs
     prefer_skip_nested_validation=True,
 )
 def haversine_distances(X, Y=None):
+    # [FUNCTION DOC]
+    # Great-circle distances on the unit sphere for [latitude, longitude] pairs in
+    #   radians, delegating to DistanceMetric "haversine" (imported locally to avoid
+    #   cycles). Validation of 2-feature inputs happens in DistanceMetric.
+    # Outputs: ndarray (n_samples_X, n_samples_Y).
     """Compute the Haversine distance between samples in X and Y.
 
     The Haversine (or great circle) distance is the angular distance between
@@ -1053,6 +1169,15 @@ def haversine_distances(X, Y=None):
     prefer_skip_nested_validation=True,
 )
 def manhattan_distances(X, Y=None):
+    # [FUNCTION DOC]
+    # L1 distances. Sparse path: convert both to CSR, sum duplicates (sorts indices in
+    #   place on the converted objects) and fill a dense float64 result with the Cython
+    #   _sparse_manhattan. NumPy dense path: scipy cdist "cityblock". Other array API
+    #   namespaces: compute blocks of 1024 x 1024 rows by broadcasting absolute
+    #   differences and summing over features.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
+    # Side effects: when the input is already CSR, csr_array(copy=False) may share data
+    #   so sum_duplicates can reorder the caller's matrix in place.
     """Compute the L1 distances between the vectors in X and Y.
 
     Read more in the :ref:`User Guide <metrics>`.
@@ -1134,6 +1259,10 @@ def manhattan_distances(X, Y=None):
     prefer_skip_nested_validation=True,
 )
 def cosine_distances(X, Y=None):
+    # [FUNCTION DOC]
+    # Computes 1 - cosine_similarity, clipped to [0, 2], and forces the diagonal to 0
+    #   when Y is None or is X.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
     """Compute cosine distance between samples in X and Y.
 
     Cosine distance is defined as 1.0 minus the cosine similarity.
@@ -1188,6 +1317,10 @@ def cosine_distances(X, Y=None):
     prefer_skip_nested_validation=True,
 )
 def paired_euclidean_distances(X, Y):
+    # [FUNCTION DOC]
+    # Row-wise euclidean distance between corresponding rows of X and Y (same shape
+    #   required via check_paired_arrays).
+    # Outputs: 1-D array of length n_samples.
     """Compute the paired euclidean distances between X and Y.
 
     Distances are calculated between (X[0], Y[0]), (X[1], Y[1]), ..., etc.
@@ -1226,6 +1359,12 @@ def paired_euclidean_distances(X, Y):
     prefer_skip_nested_validation=True,
 )
 def paired_manhattan_distances(X, Y):
+    # [FUNCTION DOC]
+    # Row-wise L1 distance between corresponding rows. For sparse differences, takes
+    #   absolute values of the stored data and sums each row; for dense, sums absolute
+    #   differences along the last axis using the input namespace.
+    # Outputs: 1-D array of length n_samples (squeezed; a single sample gives a 0-d
+    #   array in the sparse path).
     """Compute the paired L1 distances between X and Y.
 
     Distances are calculated between (X[0], Y[0]), (X[1], Y[1]), ..., etc.
@@ -1271,6 +1410,10 @@ def paired_manhattan_distances(X, Y):
     prefer_skip_nested_validation=True,
 )
 def paired_cosine_distances(X, Y):
+    # [FUNCTION DOC]
+    # Row-wise cosine distance computed as half the squared euclidean distance between
+    #   L2-normalised rows (equals 1 - cosine similarity).
+    # Outputs: 1-D array of length n_samples.
     """
     Compute the paired cosine distances between X and Y.
 
@@ -1329,6 +1472,14 @@ PAIRED_DISTANCES = {
     prefer_skip_nested_validation=True,
 )
 def paired_distances(X, Y, *, metric="euclidean", **kwds):
+    # [FUNCTION DOC]
+    # Dispatches paired distances: string metrics map through PAIRED_DISTANCES (kwds
+    #   ignored); a callable is validated with check_paired_arrays and applied to each
+    #   pair of rows, with extra kwds ignored.
+    # Outputs: 1-D float array of length n_samples.
+    # KNOWN ISSUE: kwds are accepted but never forwarded to the callable metric. If
+    #   metric is neither a known string nor callable the function returns None
+    #   (prevented in practice by validate_params).
     """
     Compute the paired distances between X and Y.
 
@@ -1400,6 +1551,10 @@ def paired_distances(X, Y, *, metric="euclidean", **kwds):
     prefer_skip_nested_validation=True,
 )
 def linear_kernel(X, Y=None, dense_output=True):
+    # [FUNCTION DOC]
+    # Linear kernel: dot product of each X row with each Y row (Y defaults to X).
+    # Outputs: array (n_samples_X, n_samples_Y); sparse if inputs are sparse and
+    #   dense_output is False.
     """
     Compute the linear kernel between X and Y.
 
@@ -1452,6 +1607,10 @@ def linear_kernel(X, Y=None, dense_output=True):
     prefer_skip_nested_validation=True,
 )
 def polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1):
+    # [FUNCTION DOC]
+    # Polynomial kernel (gamma times dot product plus coef0) raised to degree; gamma
+    #   defaults to 1 / n_features.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
     """
     Compute the polynomial kernel between X and Y.
 
@@ -1517,6 +1676,10 @@ def polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1):
     prefer_skip_nested_validation=True,
 )
 def sigmoid_kernel(X, Y=None, gamma=None, coef0=1):
+    # [FUNCTION DOC]
+    # Sigmoid kernel: hyperbolic tangent of (gamma times dot product plus coef0); gamma
+    #   defaults to 1 / n_features. tanh is applied in place for NumPy.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
     """Compute the sigmoid kernel between X and Y.
 
     .. code-block:: text
@@ -1581,6 +1744,10 @@ def sigmoid_kernel(X, Y=None, gamma=None, coef0=1):
     prefer_skip_nested_validation=True,
 )
 def rbf_kernel(X, Y=None, gamma=None):
+    # [FUNCTION DOC]
+    # RBF kernel: exp(-gamma times squared euclidean distance); gamma defaults to 1 /
+    #   n_features. Exponentiation is in place for NumPy.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
     """Compute the rbf (gaussian) kernel between X and Y.
 
     .. code-block:: text
@@ -1641,6 +1808,10 @@ def rbf_kernel(X, Y=None, gamma=None):
     prefer_skip_nested_validation=True,
 )
 def laplacian_kernel(X, Y=None, gamma=None):
+    # [FUNCTION DOC]
+    # Laplacian kernel: exp(-gamma times manhattan distance); gamma defaults to 1 /
+    #   n_features.
+    # Outputs: dense array (n_samples_X, n_samples_Y).
     """Compute the laplacian kernel between X and Y.
 
     The laplacian kernel is defined as:
@@ -1701,6 +1872,12 @@ def laplacian_kernel(X, Y=None, gamma=None):
     prefer_skip_nested_validation=True,
 )
 def cosine_similarity(X, Y=None, dense_output=True):
+    # [FUNCTION DOC]
+    # Cosine similarity: L2-normalise copies of X and Y (sharing the normalised array
+    #   when Y is X), then take their dot product.
+    # Outputs: array (n_samples_X, n_samples_Y), sparse when inputs are sparse and
+    #   dense_output=False; sparse results are aligned to the configured sparse API via
+    #   _align_api_if_sparse.
     """Compute cosine similarity between samples in X and Y.
 
     Cosine similarity, or the cosine kernel, computes similarity as the
@@ -1763,6 +1940,15 @@ def cosine_similarity(X, Y=None, dense_output=True):
     prefer_skip_nested_validation=True,
 )
 def additive_chi2_kernel(X, Y=None):
+    # [FUNCTION DOC]
+    # Additive chi-squared kernel: for each pair, minus the sum over features of (x -
+    #   y)^2 / (x + y), with terms where x + y = 0 contributing 0. NumPy uses the Cython
+    #   _chi2_kernel_fast into a zero array of X's dtype; other namespaces use full 3-D
+    #   broadcasting.
+    # Inputs: dense, non-negative X and Y.
+    # Exceptions: ValueError if X or Y contains negative values; sparse input rejected
+    #   by validation.
+    # Outputs: dense array (n_samples_X, n_samples_Y), values <= 0.
     """Compute the additive chi-squared kernel between observations in X and Y.
 
     The chi-squared kernel is computed between each pair of rows in X and Y.  X
@@ -1852,6 +2038,10 @@ def additive_chi2_kernel(X, Y=None):
     prefer_skip_nested_validation=True,
 )
 def chi2_kernel(X, Y=None, gamma=1.0):
+    # [FUNCTION DOC]
+    # Exponential chi-squared kernel: exp(gamma times additive_chi2_kernel).
+    #   Exponentiation in place for NumPy.
+    # Outputs: dense array (n_samples_X, n_samples_Y) in (0, 1].
     """Compute the exponential chi-squared kernel between X and Y.
 
     The chi-squared kernel is computed between each pair of rows in X and Y.  X
@@ -1932,6 +2122,9 @@ PAIRWISE_DISTANCE_FUNCTIONS = {
 
 
 def distance_metrics():
+    # [FUNCTION DOC]
+    # Returns the PAIRWISE_DISTANCE_FUNCTIONS registry (the module-level dict itself, so
+    #   mutating it changes global state).
     """Valid metrics for pairwise_distances.
 
     This function simply returns the valid pairwise distance metrics.
@@ -1964,11 +2157,27 @@ def distance_metrics():
 
 
 def _transposed_dist_wrapper(dist_func, dist_matrix, slice_, *args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Calls dist_func with the given arguments and writes the transposed result
+    #   into dist_matrix rows selected by slice_. Used by threads in _parallel_pairwise.
+    # Side effects: mutates dist_matrix in place.
     """Write in-place to a slice of a distance matrix."""
     dist_matrix[slice_, ...] = dist_func(*args, **kwargs).T
 
 
 def _parallel_pairwise(X, Y, func, n_jobs, **kwds):
+    # [FUNCTION DOC]
+    # HELPER: Evaluates func(X, Y, **kwds) either directly (one effective job) or in
+    #   parallel with a threading backend: Y is split into n_jobs even slices, each
+    #   thread computes func(X, Y_slice) (slicing Y_norm_squared to match) and writes
+    #   into its contiguous rows of a transposed output buffer. When func is
+    #   euclidean_distances and X is Y, the diagonal is zeroed. Returns the buffer
+    #   transposed back.
+    # Inputs: X, Y (None means X), func callable, n_jobs int or None, kwds forwarded.
+    # Outputs: array (n_samples_X, n_samples_Y) with dtype from
+    #   _find_floating_dtype_allow_sparse.
+    # KNOWN ISSUE: since Y is replaced by X when None, the "Y is None" part of the
+    #   diagonal-zeroing condition is dead.
     """Break the pairwise matrix in n_jobs even slices
     and compute them using multithreading."""
     xp, _, device = get_namespace_and_device(X, Y)
@@ -2012,6 +2221,14 @@ def _parallel_pairwise(X, Y, func, n_jobs, **kwds):
 
 
 def _pairwise_callable(X, Y, metric, ensure_all_finite=True, **kwds):
+    # [FUNCTION DOC]
+    # HELPER: Computes a pairwise matrix for a user-supplied callable metric by explicit
+    #   Python loops. Inputs are validated without dtype conversion or 2-D enforcement.
+    #   When X is Y, only the strict upper triangle is evaluated, mirrored, and the
+    #   diagonal is evaluated separately (non-zero diagonals allowed); otherwise every
+    #   (i, j) cell is evaluated.
+    # Inputs: metric - callable taking two rows (or scalars for 1-D input) plus kwds.
+    # Outputs: array (n_samples_X, n_samples_Y) of the inferred float dtype.
     """Handle the callable case for pairwise_{distances,kernels}."""
     xp, _, device = get_namespace_and_device(X)
     X, Y = check_pairwise_arrays(
@@ -2025,6 +2242,10 @@ def _pairwise_callable(X, Y, metric, ensure_all_finite=True, **kwds):
     _, _, dtype_float = _find_floating_dtype_allow_sparse(X, Y, xp=xp)
 
     def _get_slice(array, index):
+        # [FUNCTION DOC]
+        # HELPER: Extracts row index from array: a 2-D one-row slice for sparse (pre-
+        #   SciPy-1.14 compatibility), a scalar element for 1-D arrays, otherwise the
+        #   row.
         # TODO: below 2 lines can be removed once min scipy >= 1.14. Support for
         # 1D shapes in scipy sparse arrays (COO, DOK and CSR formats) only
         # added in 1.14. We must return 2D array until min scipy 1.14.
@@ -2069,6 +2290,12 @@ def _pairwise_callable(X, Y, metric, ensure_all_finite=True, **kwds):
 
 
 def _check_chunk_size(reduced, chunk_size):
+    # [FUNCTION DOC]
+    # HELPER: Validates the output of a user reduce_func. None is accepted. Otherwise
+    #   the result (or each element of a tuple result) must be a non-tuple iterable of
+    #   length chunk_size.
+    # Exceptions: TypeError if an element is a tuple or not iterable; ValueError if a
+    #   length differs from chunk_size.
     """Checks chunk is a sequence of expected size or a tuple of same."""
     if reduced is None:
         return
@@ -2090,6 +2317,13 @@ def _check_chunk_size(reduced, chunk_size):
 
 
 def _precompute_metric_params(X, Y, metric=None, **kwds):
+    # [FUNCTION DOC]
+    # HELPER: Derives missing data-dependent metric parameters: for "seuclidean" without
+    #   V, the per-feature sample variance (ddof=1) of X; for "mahalanobis" without VI,
+    #   the inverse covariance of X (transposed). Returns them as a dict, or an empty
+    #   dict otherwise.
+    # Exceptions: ValueError if the parameter must be derived but Y is not X;
+    #   LinAlgError for a singular covariance.
     """Precompute data-derived metric parameters if not provided."""
     if metric == "seuclidean" and "V" not in kwds:
         if X is Y:
@@ -2133,6 +2367,20 @@ def pairwise_distances_chunked(
     working_memory=None,
     **kwds,
 ):
+    # [FUNCTION DOC]
+    # Generator yielding the distance matrix in row chunks of X sized to fit
+    #   working_memory (8 bytes per distance, at least one row); for "precomputed" a
+    #   single chunk of all rows. Derived metric params are computed once on the full
+    #   data and merged into kwds. For each chunk, pairwise_distances is called (passing
+    #   X itself for a single full chunk to keep X is Y optimisations); for euclidean-
+    #   family metrics with X as Y the chunk's diagonal is zeroed. If reduce_func is
+    #   given, it is called with (chunk, start row) and its output validated by
+    #   _check_chunk_size.
+    # Outputs: yields dense arrays (rows of the chunk, n_samples_Y) or reduce_func
+    #   results.
+    # Side effects: kwds dict is updated with derived params.
+    # KNOWN ISSUE: diagonal zeroing uses NumPy's flat attribute, which is not available
+    #   for non-NumPy array API arrays.
     """Generate a distance matrix chunk by chunk with optional reduction.
 
     In cases where not all of a pairwise distance matrix needs to be
@@ -2315,6 +2563,18 @@ def pairwise_distances(
     ensure_all_finite=True,
     **kwds,
 ):
+    # [FUNCTION DOC]
+    # Dispatches distance computation. "precomputed": validates X as a square-compatible
+    #   distance matrix, requires non-negative values and returns X. Registry metrics
+    #   use their sklearn function; callables are wrapped with _pairwise_callable. Any
+    #   other string is a SciPy metric: sparse input raises TypeError; boolean metrics
+    #   convert data to bool with a DataConversionWarning if needed; derived params are
+    #   precomputed; with one job and X is Y, uses pdist plus squareform, else cdist.
+    #   All non-precomputed paths run through _parallel_pairwise.
+    # Outputs: array (n_samples_X, n_samples_Y).
+    # Exceptions: TypeError for sparse with SciPy metrics; ValueError from validation,
+    #   negative precomputed values or missing V/VI with Y.
+    # Side effects: may emit DataConversionWarning; updates kwds.
     """Compute the distance matrix from a feature array X and optional Y.
 
     This function takes one or two feature arrays or a distance matrix, and returns
@@ -2530,6 +2790,8 @@ PAIRWISE_KERNEL_FUNCTIONS = {
 
 
 def kernel_metrics():
+    # [FUNCTION DOC]
+    # Returns the PAIRWISE_KERNEL_FUNCTIONS registry (module-level dict itself).
     """Valid metrics for pairwise_kernels.
 
     This function simply returns the valid pairwise distance metrics.
@@ -2590,6 +2852,13 @@ KERNEL_PARAMS = {
 def pairwise_kernels(
     X, Y=None, metric="linear", *, filter_params=False, n_jobs=None, **kwds
 ):
+    # [FUNCTION DOC]
+    # Dispatches kernel computation. "precomputed": validates shapes and returns X. A
+    #   Gaussian process Kernel instance is called directly. Registry names use their
+    #   function, optionally dropping kwds not listed in KERNEL_PARAMS when
+    #   filter_params is True. Other callables are wrapped with _pairwise_callable. All
+    #   non-precomputed paths are evaluated through _parallel_pairwise with n_jobs.
+    # Outputs: array (n_samples_X, n_samples_Y).
     """Compute the kernel between arrays X and optional array Y.
 
     This function takes one or two feature arrays or a kernel matrix, and returns

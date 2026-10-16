@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.metrics.pairwise: pairwise_distances, pairwise_kernels, paired
+#   distances, chunked and argmin reductions, individual distance and kernel functions
+#   (euclidean, nan_euclidean, cosine, haversine, chi2, ...), input checkers
+#   check_pairwise_arrays/check_paired_arrays, and Array API dispatch support.
+# Results are mostly compared against scipy.spatial.distance (cdist, pdist) or direct
+#   per-pair reference computations.
 import warnings
 from types import GeneratorType
 
@@ -72,6 +79,11 @@ from sklearn.utils.parallel import Parallel, delayed
 
 
 def test_pairwise_distances_for_dense_data(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances on dense data equals the dedicated functions
+    #   (euclidean with and without Y, nan_euclidean with NaNs, tuple inputs, haversine)
+    #   and that string metrics match scipy callables (cityblock, manhattan, cosine),
+    #   checking dtype preservation where applicable.
     # Test the pairwise_distance helper function.
     rng = np.random.RandomState(0)
 
@@ -156,6 +168,9 @@ def test_pairwise_distances_for_dense_data(global_dtype):
 )
 @pytest.mark.parametrize("metric", ["cosine", "euclidean", "manhattan"])
 def test_pairwise_distances_array_api(array_namespace, device_name, dtype_name, metric):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances under array_api_dispatch returns arrays in the input
+    #   namespace, device and dtype, matching the numpy result, with and without Y.
     # Test array API support in pairwise_distances.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
@@ -189,6 +204,9 @@ def test_pairwise_distances_array_api(array_namespace, device_name, dtype_name, 
 
 
 def test_pairwise_distances_array_api_no_warnings():
+    # [FUNCTION DOC]
+    # Regression test for #33829: verifies pairwise_distances on array_api_strict inputs
+    #   emits no warnings at all (warnings turned into errors).
     # Regression test for https://github.com/scikit-learn/scikit-learn/issues/33829
     # pairwise_distances should not emit cross-library dtype comparison warnings
     # when called with Array API inputs under array_api_dispatch=True.
@@ -213,6 +231,12 @@ def test_pairwise_distances_array_api_no_warnings():
 def test_pairwise_distances_for_sparse_data(
     coo_container, csc_container, bsr_container, csr_container, global_dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances on sparse inputs (CSR, CSC, BSR, COO) matches
+    #   euclidean_distances, cosine_distances and manhattan_distances, documents that
+    #   manhattan does not preserve float32 (asserting the dtype check fails), checks
+    #   scipy minkowski string vs callable on dense data, and that scipy metrics raise
+    #   TypeError on sparse input.
     # Test the pairwise_distance helper function.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4)).astype(global_dtype, copy=False)
@@ -280,6 +304,12 @@ def test_pairwise_distances_for_sparse_data(
 @ignore_warnings(category=DeprecationWarning)
 @pytest.mark.parametrize("metric", PAIRWISE_BOOLEAN_FUNCTIONS)
 def test_pairwise_boolean_distance(metric):
+    # [FUNCTION DOC]
+    # Verifies boolean metrics give zero distance between identical boolean-converted
+    #   rows, emit DataConversionWarning when non-boolean X or Y is converted, and no
+    #   warning when X is already boolean and Y is None.
+    # KNOWN ISSUE: the result of xpx.nan_to_num is discarded, so NaNs in res are not
+    #   actually replaced before the comparison (NaN != 0 would count as non-zero).
     # test that we convert to boolean arrays for boolean distances
     rng = np.random.RandomState(0)
     X = rng.randn(5, 4)
@@ -310,6 +340,8 @@ def test_pairwise_boolean_distance(metric):
 
 
 def test_no_data_conversion_warning():
+    # [FUNCTION DOC]
+    # Verifies a non-boolean metric (minkowski) does not raise DataConversionWarning.
     # No warnings issued if metric is not a boolean distance function
     rng = np.random.RandomState(0)
     X = rng.randn(5, 4)
@@ -320,6 +352,10 @@ def test_no_data_conversion_warning():
 
 @pytest.mark.parametrize("func", [pairwise_distances, pairwise_kernels])
 def test_pairwise_precomputed(func):
+    # [FUNCTION DOC]
+    # Verifies metric="precomputed" for pairwise_distances and pairwise_kernels: wrong
+    #   shapes raise ValueError, the input is returned without copying when already
+    #   float, int input yields a float result, and lists are converted to ndarray.
     # Test correct shape
     with pytest.raises(ValueError, match=".* shape .*"):
         func(np.zeros((5, 3)), metric="precomputed")
@@ -349,6 +385,8 @@ def test_pairwise_precomputed(func):
 
 
 def test_pairwise_precomputed_non_negative():
+    # [FUNCTION DOC]
+    # Verifies a precomputed distance matrix with negative values raises ValueError.
     # Test non-negative values
     with pytest.raises(ValueError, match=".* non-negative values.*"):
         pairwise_distances(np.full((5, 5), -1), metric="precomputed")
@@ -358,6 +396,15 @@ _minkowski_kwds = {"w": np.arange(1, 5).astype("double", copy=False), "p": 1}
 
 
 def callable_rbf_kernel(x, y, **kwds):
+    # [FUNCTION DOC]
+    # HELPER: Callable version of rbf_kernel operating on two single samples, used as a
+    #   custom kernel metric.
+    # Inputs: x, y - 1-D (or 2-D) arrays of any supported namespace; kwds - forwarded to
+    #   rbf_kernel (e.g. gamma).
+    # Promotes inputs to 2-D, computes rbf_kernel and returns its single entry as a
+    #   Python float.
+    # Exceptions: ValueError if the kernel result is 0-dimensional or does not contain
+    #   exactly one element.
     xp, _ = get_namespace(x, y)
     # Callable version of pairwise.rbf_kernel.
     K = rbf_kernel(
@@ -392,6 +439,10 @@ def callable_rbf_kernel(x, y, **kwds):
 )
 @pytest.mark.parametrize("dtype", [np.float64, np.float32, int])
 def test_pairwise_parallel(func, metric, kwds, dtype):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances / pairwise_kernels give the same result with n_jobs=1
+    #   and n_jobs=2, with and without Y, for several metrics (string and callable) and
+    #   dtypes including int.
     rng = np.random.RandomState(0)
     X = np.array(5 * rng.random_sample((5, 4)), dtype=dtype)
     Y = np.array(5 * rng.random_sample((3, 4)), dtype=dtype)
@@ -422,6 +473,12 @@ def test_pairwise_parallel(func, metric, kwds, dtype):
 def test_pairwise_parallel_array_api(
     func, metric, kwds, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies n_jobs=1 and n_jobs=2 give the same result under array_api_dispatch with
+    #   the input namespace/device/dtype preserved, and match the numpy result.
+    # KNOWN ISSUE: the first loop iteration sets Y_xp and Y_np to None and the second
+    #   iteration keeps them None, so the Y-provided case is never tested; the numpy
+    #   reference also never receives Y.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rng = np.random.RandomState(0)
     X_np = np.array(5 * rng.random_sample((5, 4)), dtype=dtype_name)
@@ -453,6 +510,9 @@ def test_pairwise_parallel_array_api(
 
 
 def test_pairwise_callable_nonstrict_metric():
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances with a callable returning 5 for any pair computes the
+    #   diagonal instead of assuming zero.
     # paired_distances should allow callable metric where metric(x, x) != 0
     # Knowing that the callable is a strict metric would allow the diagonal to
     # be left uncalculated and set to 0.
@@ -466,6 +526,10 @@ def test_pairwise_callable_nonstrict_metric():
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pairwise_kernels(metric, csr_container):
+    # [FUNCTION DOC]
+    # Verifies pairwise_kernels with each kernel name matches the function in
+    #   PAIRWISE_KERNEL_FUNCTIONS for Y=None, Y given, tuple inputs and (except chi2
+    #   variants) CSR inputs.
     # Test the pairwise_kernels helper function.
 
     rng = np.random.RandomState(0)
@@ -505,6 +569,9 @@ def test_pairwise_kernels(metric, csr_container):
     ["rbf", "sigmoid", "polynomial", "linear", "laplacian", "chi2", "additive_chi2"],
 )
 def test_pairwise_kernels_array_api(metric, array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies pairwise_kernels under array_api_dispatch preserves namespace, device and
+    #   dtype and matches numpy results for each kernel, with and without Y.
     # Test array API support in pairwise_kernels.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
@@ -539,6 +606,9 @@ def test_pairwise_kernels_array_api(metric, array_namespace, device_name, dtype_
 
 
 def test_pairwise_kernels_callable():
+    # [FUNCTION DOC]
+    # Verifies pairwise_kernels with callable_rbf_kernel and gamma matches rbf_kernel
+    #   for Y distinct and Y equal to X.
     # Test the pairwise_kernels helper function
     # with a callable function, with given keywords.
     rng = np.random.RandomState(0)
@@ -558,6 +628,9 @@ def test_pairwise_kernels_callable():
 
 
 def test_pairwise_kernels_filter_param():
+    # [FUNCTION DOC]
+    # Verifies filter_params=True drops unknown keyword arguments for the rbf kernel and
+    #   that without it the extra keyword raises TypeError.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     Y = rng.random_sample((2, 4))
@@ -573,6 +646,10 @@ def test_pairwise_kernels_filter_param():
 @pytest.mark.parametrize("metric, func", PAIRED_DISTANCES.items())
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_paired_distances(metric, func, csr_container):
+    # [FUNCTION DOC]
+    # Verifies paired_distances for each PAIRED_DISTANCES metric matches the underlying
+    #   function on dense and CSR input, and equals the diagonal of the corresponding
+    #   pairwise distance when available.
     # Test the pairwise_distance helper function.
     rng = np.random.RandomState(0)
     # Euclidean distance should be equivalent to calling the function.
@@ -594,6 +671,9 @@ def test_paired_distances(metric, func, csr_container):
 
 
 def test_paired_distances_callable(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies paired_distances with a callable manhattan matches metric="manhattan",
+    #   and that X and Y with different numbers of rows raise ValueError.
     # Test the paired_distance helper function
     # with the callable implementation
     rng = np.random.RandomState(0)
@@ -619,6 +699,12 @@ def test_paired_distances_callable(global_dtype):
 @pytest.mark.parametrize("dok_container", DOK_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pairwise_distances_argmin_min(dok_container, csr_container, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances_argmin_min and pairwise_distances_argmin on a tiny 1-D
+    #   example for euclidean, sqeuclidean (both spellings), manhattan and scipy
+    #   minkowski, on dense and sparse (DOK/CSR) inputs returning ndarrays; then on
+    #   random data compares to a naive argmin along axis 0, checks axis/argument-swap
+    #   symmetry and C- vs F-contiguous equivalence.
     # Check pairwise minimum distances computation for any metric
     X = np.asarray([[0], [1]], dtype=global_dtype)
     Y = np.asarray([[-2], [3]], dtype=global_dtype)
@@ -740,10 +826,17 @@ def test_pairwise_distances_argmin_min(dok_container, csr_container, global_dtyp
 
 
 def _reduce_func(dist, start):
+    # [FUNCTION DOC]
+    # HELPER: reduce_func for pairwise_distances_chunked that keeps the first 100
+    #   columns of each distance chunk; start is ignored.
     return dist[:, :100]
 
 
 def test_pairwise_distances_chunked_reduce(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances_chunked with a reduce_func and tiny working_memory
+    #   returns a generator of several chunks preserving dtype whose vertical stack
+    #   equals the reduced full pairwise distances.
     rng = np.random.RandomState(0)
     X = rng.random_sample((400, 4)).astype(global_dtype, copy=False)
     # Reduced Euclidean distance
@@ -761,6 +854,8 @@ def test_pairwise_distances_chunked_reduce(global_dtype):
 
 
 def test_pairwise_distances_chunked_reduce_none(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies a reduce_func returning None yields a generator of several None chunks.
     # check that the reduce func is allowed to return None
     rng = np.random.RandomState(0)
     X = rng.random_sample((10, 4)).astype(global_dtype, copy=False)
@@ -794,6 +889,9 @@ def test_pairwise_distances_chunked_reduce_none(global_dtype):
     ],
 )
 def test_pairwise_distances_chunked_reduce_valid(good_reduce):
+    # [FUNCTION DOC]
+    # Verifies various valid reduce_func return types (list, array, tuple of lists, CSR,
+    #   tuple with DOK/array/list) are accepted for the first chunk.
     X = np.arange(10).reshape(-1, 1)
     S_chunks = pairwise_distances_chunked(
         X, None, reduce_func=good_reduce, working_memory=64
@@ -835,6 +933,9 @@ def test_pairwise_distances_chunked_reduce_valid(good_reduce):
 def test_pairwise_distances_chunked_reduce_invalid(
     global_dtype, bad_reduce, err_type, message
 ):
+    # [FUNCTION DOC]
+    # Verifies reduce_func outputs of wrong length raise ValueError and non-sequence
+    #   outputs raise TypeError, with messages naming the expected length 10.
     X = np.arange(10).reshape(-1, 1).astype(global_dtype, copy=False)
     S_chunks = pairwise_distances_chunked(
         X, None, reduce_func=bad_reduce, working_memory=64
@@ -844,6 +945,13 @@ def test_pairwise_distances_chunked_reduce_invalid(
 
 
 def check_pairwise_distances_chunked(X, Y, working_memory, metric="euclidean"):
+    # [FUNCTION DOC]
+    # HELPER: Checks pairwise_distances_chunked for given X, Y, working_memory (MiB) and
+    #   metric.
+    # Asserts the result is a generator, every block's byte size is at most the larger
+    #   of working_memory and one row of float64 distances (in MiB), and the stacked
+    #   blocks equal pairwise_distances within atol 1e-7.
+    # Exceptions: AssertionError on violation.
     gen = pairwise_distances_chunked(X, Y, working_memory=working_memory, metric=metric)
     assert isinstance(gen, GeneratorType)
     blockwise_distances = list(gen)
@@ -861,6 +969,9 @@ def check_pairwise_distances_chunked(X, Y, working_memory, metric="euclidean"):
 
 @pytest.mark.parametrize("metric", ("euclidean", "l2", "sqeuclidean"))
 def test_pairwise_distances_chunked_diagonal(metric, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies chunked euclidean/l2/sqeuclidean distances of a large-scale dataset with
+    #   itself have exactly-zero diagonal across multiple chunks.
     rng = np.random.RandomState(0)
     X = rng.normal(size=(1000, 10), scale=1e10).astype(global_dtype, copy=False)
     chunks = list(pairwise_distances_chunked(X, working_memory=1, metric=metric))
@@ -870,6 +981,9 @@ def test_pairwise_distances_chunked_diagonal(metric, global_dtype):
 
 @pytest.mark.parametrize("metric", ("euclidean", "l2", "sqeuclidean"))
 def test_parallel_pairwise_distances_diagonal(metric, global_dtype):
+    # [FUNCTION DOC]
+    # Verifies parallel (n_jobs=2) euclidean-type pairwise distances keep a zero
+    #   diagonal.
     rng = np.random.RandomState(0)
     X = rng.normal(size=(1000, 10), scale=1e10).astype(global_dtype, copy=False)
     distances = pairwise_distances(X, metric=metric, n_jobs=2)
@@ -877,6 +991,10 @@ def test_parallel_pairwise_distances_diagonal(metric, global_dtype):
 
 
 def test_parallel_pairwise_distances_y_norm_squared():
+    # [FUNCTION DOC]
+    # Non-regression test for #33877: verifies Y_norm_squared passed to parallel
+    #   pairwise_distances is sliced together with Y, giving the same result as
+    #   n_jobs=1.
     """Check that Y_norm_squared is correctly sliced alongside Y.
 
     Non-regression test for issue #33877.
@@ -897,6 +1015,11 @@ def test_parallel_pairwise_distances_y_norm_squared():
 
 @pytest.mark.filterwarnings("ignore:Could not adhere to working_memory config")
 def test_pairwise_distances_chunked(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances_chunked via check_pairwise_distances_chunked for many
+    #   working_memory sizes, list inputs, Y given, a huge working_memory and cityblock,
+    #   and that metric="precomputed" yields the input matrix itself as the single
+    #   chunk.
     # Test the pairwise_distance helper function.
     rng = np.random.RandomState(0)
     # Euclidean distance should be equivalent to calling the function.
@@ -943,6 +1066,9 @@ def test_pairwise_distances_chunked(global_dtype):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances_known_result(x_array_constr, y_array_constr):
+    # [FUNCTION DOC]
+    # Verifies euclidean_distances of [[0]] to [[1],[2]] is [[1, 2]] for every dense/CSR
+    #   combination.
     # Check the pairwise Euclidean distances computation on known result
     X = x_array_constr([[0]])
     Y = y_array_constr([[1], [2]])
@@ -956,6 +1082,9 @@ def test_euclidean_distances_known_result(x_array_constr, y_array_constr):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances_with_norms(global_dtype, y_array_constr):
+    # [FUNCTION DOC]
+    # Verifies euclidean_distances gives the same result when correct float64 X/Y
+    #   squared norms are supplied, and a different result when zero norms are supplied.
     # check that we still get the right answers with {X,Y}_norm_squared
     # and that we get a wrong answer with wrong {X,Y}_norm_squared
     rng = np.random.RandomState(0)
@@ -989,6 +1118,10 @@ def test_euclidean_distances_with_norms(global_dtype, y_array_constr):
 
 @pytest.mark.parametrize("symmetric", [True, False])
 def test_euclidean_distances_float32_norms(global_random_seed, symmetric):
+    # [FUNCTION DOC]
+    # Non-regression test for #27621: verifies float32-precomputed squared norms on
+    #   float64 data give results matching no norms, for symmetric and non-symmetric
+    #   cases.
     # Non-regression test for #27621
     rng = np.random.RandomState(global_random_seed)
     X = rng.random_sample((10, 10))
@@ -1005,6 +1138,9 @@ def test_euclidean_distances_float32_norms(global_random_seed, symmetric):
 
 
 def test_euclidean_distances_norm_shapes():
+    # [FUNCTION DOC]
+    # Verifies squared norms are accepted as 1-D, column and row vectors, and that norms
+    #   of the wrong length raise ValueError naming X or Y.
     # Check all accepted shapes for the norms or appropriate error messages.
     rng = np.random.RandomState(0)
     X = rng.random_sample((10, 10))
@@ -1049,6 +1185,9 @@ def test_euclidean_distances_norm_shapes():
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances(global_dtype, x_array_constr, y_array_constr):
+    # [FUNCTION DOC]
+    # Verifies euclidean_distances on sparse-ish data matches scipy cdist for every
+    #   dense/CSR combination, preserving dtype.
     # check that euclidean distances gives same result as scipy cdist
     # when X and Y != X are provided
     rng = np.random.RandomState(0)
@@ -1075,6 +1214,9 @@ def test_euclidean_distances(global_dtype, x_array_constr, y_array_constr):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances_sym(global_dtype, x_array_constr):
+    # [FUNCTION DOC]
+    # Verifies euclidean_distances(X) matches squareform(pdist(X)) for dense and CSR
+    #   input, preserving dtype.
     # check that euclidean distances gives same result as scipy pdist
     # when only X is provided
     rng = np.random.RandomState(0)
@@ -1104,6 +1246,10 @@ def test_euclidean_distances_sym(global_dtype, x_array_constr):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances_upcast(batch_size, x_array_constr, y_array_constr):
+    # [FUNCTION DOC]
+    # Verifies _euclidean_distances_upcast on float32 data with several batch sizes,
+    #   after clipping and square root, matches cdist for every dense/CSR combination
+    #   (#13910).
     # check batches handling when Y != X (#13910)
     rng = np.random.RandomState(0)
     X = rng.random_sample((100, 10)).astype(np.float32)
@@ -1130,6 +1276,9 @@ def test_euclidean_distances_upcast(batch_size, x_array_constr, y_array_constr):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_euclidean_distances_upcast_sym(batch_size, x_array_constr):
+    # [FUNCTION DOC]
+    # Verifies _euclidean_distances_upcast with Y equal to X matches squareform(pdist)
+    #   for several batch sizes.
     # check batches handling when X is Y (#13910)
     rng = np.random.RandomState(0)
     X = rng.random_sample((100, 10)).astype(np.float32)
@@ -1160,6 +1309,11 @@ def test_euclidean_distances_upcast_sym(batch_size, x_array_constr):
 )
 @pytest.mark.parametrize("dim", [1, 1000000])
 def test_euclidean_distances_extreme_values(dtype, eps, rtol, dim):
+    # [FUNCTION DOC]
+    # Verifies euclidean_distances is accurate for nearly equal vectors of dimension 1
+    #   or 1e6 in float32 (float64 case marked xfail).
+    # KNOWN ISSUE: the parametrized rtol is ignored; the assertion uses a hard-coded
+    #   rtol of 1e-5.
     # check that euclidean distances is correct with float32 input thanks to
     # upcasting. On float64 there are still precision issues.
     X = np.array([[1.0] * dim], dtype=dtype)
@@ -1173,6 +1327,9 @@ def test_euclidean_distances_extreme_values(dtype, eps, rtol, dim):
 
 @pytest.mark.parametrize("squared", [True, False])
 def test_nan_euclidean_distances_equal_to_euclidean_distance(squared):
+    # [FUNCTION DOC]
+    # Verifies nan_euclidean_distances equals euclidean_distances on data without
+    #   missing values, squared or not.
     # with no nan values
     rng = np.random.RandomState(1337)
     X = rng.randn(3, 4)
@@ -1186,6 +1343,9 @@ def test_nan_euclidean_distances_equal_to_euclidean_distance(squared):
 @pytest.mark.parametrize("X", [np.array([[np.inf, 0]]), np.array([[0, -np.inf]])])
 @pytest.mark.parametrize("Y", [np.array([[np.inf, 0]]), np.array([[0, -np.inf]]), None])
 def test_nan_euclidean_distances_infinite_values(X, Y):
+    # [FUNCTION DOC]
+    # Verifies nan_euclidean_distances raises ValueError with the exact infinity message
+    #   when X or Y contains +/-inf.
     with pytest.raises(ValueError) as excinfo:
         nan_euclidean_distances(X, Y=Y)
 
@@ -1209,6 +1369,10 @@ def test_nan_euclidean_distances_infinite_values(X, Y):
     ],
 )
 def test_nan_euclidean_distances_2x2(X, X_diag, missing_value):
+    # [FUNCTION DOC]
+    # Verifies nan_euclidean_distances on 2x2 inputs with NaN or -1 as missing marker
+    #   against known distance matrices, squared and unsquared, and with Y given as X or
+    #   a copy of X.
     exp_dist = np.array([[0.0, X_diag], [X_diag, 0]])
 
     dist = nan_euclidean_distances(X, missing_values=missing_value)
@@ -1226,6 +1390,9 @@ def test_nan_euclidean_distances_2x2(X, X_diag, missing_value):
 
 @pytest.mark.parametrize("missing_value", [np.nan, -1])
 def test_nan_euclidean_distances_complete_nan(missing_value):
+    # [FUNCTION DOC]
+    # Verifies a row with all values missing yields NaN distances (including to itself)
+    #   while other rows behave normally.
     X = np.array([[missing_value, missing_value], [0, 1]])
 
     exp_dist = np.array([[np.nan, np.nan], [np.nan, 0]])
@@ -1239,6 +1406,12 @@ def test_nan_euclidean_distances_complete_nan(missing_value):
 
 @pytest.mark.parametrize("missing_value", [np.nan, -1])
 def test_nan_euclidean_distances_not_trivial(missing_value):
+    # [FUNCTION DOC]
+    # Verifies nan_euclidean_distances symmetry, the weighted formula (scaling by total
+    #   over present coordinates) on hand-computed pairs, equality between Y omitted, Y
+    #   is X and Y a copy, and copy=True vs copy=False.
+    # KNOWN ISSUE: the copy comparison omits missing_values, so for missing_value -1 it
+    #   treats -1 as an ordinary value.
     X = np.array(
         [
             [1.0, missing_value, 3.0, 4.0, 2.0],
@@ -1292,6 +1465,9 @@ def test_nan_euclidean_distances_not_trivial(missing_value):
 
 @pytest.mark.parametrize("missing_value", [np.nan, -1])
 def test_nan_euclidean_distances_one_feature_match_positive(missing_value):
+    # [FUNCTION DOC]
+    # Verifies that when only one coordinate is shared, squared distances are non-
+    #   negative and unsquared distances are close to 0.
     # First feature is the only feature that is non-nan and in both
     # samples. The result of `nan_euclidean_distances` with squared=True
     # should be non-negative. The non-squared version should all be close to 0.
@@ -1312,6 +1488,10 @@ def test_nan_euclidean_distances_one_feature_match_positive(missing_value):
 
 
 def test_cosine_distances():
+    # [FUNCTION DOC]
+    # Verifies cosine_distances lies in [0, 2], is zero on the diagonal and for
+    #   identical rows, is 2 for opposite rows, and stays valid for a large random
+    #   matrix.
     # Check the pairwise Cosine distances computation
     rng = np.random.RandomState(1337)
     x = np.abs(rng.rand(910))
@@ -1342,8 +1522,14 @@ def test_cosine_distances():
 
 
 def test_haversine_distances():
+    # [FUNCTION DOC]
+    # Verifies haversine_distances matches a slow per-pair reference and raises
+    #   ValueError for data with other than 2 features.
     # Check haversine distance with distances computation
     def slow_haversine_distances(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Reference haversine distance between points x and y given as
+        #   (latitude, longitude) in radians; returns the great-circle angle as a float.
         diff_lat = y[0] - x[0]
         diff_lon = y[1] - x[1]
         a = np.sin(diff_lat / 2) ** 2 + (
@@ -1369,6 +1555,8 @@ def test_haversine_distances():
 
 
 def test_paired_euclidean_distances():
+    # [FUNCTION DOC]
+    # Verifies paired_euclidean_distances on a tiny known example.
     # Check the paired Euclidean distances computation
     X = [[0], [0]]
     Y = [[1], [2]]
@@ -1377,6 +1565,8 @@ def test_paired_euclidean_distances():
 
 
 def test_paired_manhattan_distances():
+    # [FUNCTION DOC]
+    # Verifies paired_manhattan_distances on a tiny known example.
     # Check the paired manhattan distances computation
     X = [[0], [0]]
     Y = [[1], [2]]
@@ -1385,6 +1575,11 @@ def test_paired_manhattan_distances():
 
 
 def test_paired_cosine_distances():
+    # [FUNCTION DOC]
+    # Verifies paired_cosine_distances on a tiny known example (expected 0.5 because the
+    #   zero vector has undefined direction).
+    # KNOWN ISSUE: the inline comment says manhattan although the cosine function is
+    #   tested.
     # Check the paired manhattan distances computation
     X = [[0], [0]]
     Y = [[1], [2]]
@@ -1393,6 +1588,11 @@ def test_paired_cosine_distances():
 
 
 def test_chi_square_kernel():
+    # [FUNCTION DOC]
+    # Verifies additive_chi2_kernel and chi2_kernel against per-pair formulas, unit
+    #   diagonal and off-diagonal in (0, 1), float32 preservation, integer input
+    #   converted to float with zeros handled, similarity ordering, and ValueError on
+    #   negative inputs or mismatched feature counts.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     Y = rng.random_sample((10, 4))
@@ -1458,6 +1658,10 @@ def test_chi_square_kernel():
     ),
 )
 def test_kernel_symmetry(kernel):
+    # [FUNCTION DOC]
+    # Verifies common kernels produce a symmetric matrix on X with itself.
+    # KNOWN ISSUE: the third positional argument 15 is interpreted as rtol, making the
+    #   check extremely loose (probably meant as a decimal count).
     # Valid kernels should be symmetric
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
@@ -1478,6 +1682,8 @@ def test_kernel_symmetry(kernel):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_kernel_sparse(kernel, csr_container):
+    # [FUNCTION DOC]
+    # Verifies common kernels give the same result on dense and CSR inputs.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     X_sparse = csr_container(X)
@@ -1487,6 +1693,8 @@ def test_kernel_sparse(kernel, csr_container):
 
 
 def test_linear_kernel():
+    # [FUNCTION DOC]
+    # Verifies the diagonal of linear_kernel(X, X) equals squared row norms.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     K = linear_kernel(X, X)
@@ -1495,6 +1703,8 @@ def test_linear_kernel():
 
 
 def test_rbf_kernel():
+    # [FUNCTION DOC]
+    # Verifies the diagonal of rbf_kernel(X, X) is all ones.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     K = rbf_kernel(X, X)
@@ -1503,6 +1713,9 @@ def test_rbf_kernel():
 
 
 def test_laplacian_kernel():
+    # [FUNCTION DOC]
+    # Verifies laplacian_kernel(X, X) has unit diagonal and off-diagonal values in (0,
+    #   1).
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     K = laplacian_kernel(X, X)
@@ -1520,6 +1733,9 @@ def test_laplacian_kernel():
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pairwise_similarity_sparse_output(metric, pairwise_func, csr_container):
+    # [FUNCTION DOC]
+    # Verifies linear_kernel/cosine_similarity with dense_output=False on CSR returns
+    #   sparse output that equals the dense output and pairwise_kernels.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     Y = rng.random_sample((3, 4))
@@ -1542,6 +1758,9 @@ def test_pairwise_similarity_sparse_output(metric, pairwise_func, csr_container)
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_cosine_similarity(csr_container):
+    # [FUNCTION DOC]
+    # Verifies the cosine kernel equals the linear kernel on L2-normalized data, for
+    #   dense and CSR X with Y None or given.
     # Test the cosine_similarity.
 
     rng = np.random.RandomState(0)
@@ -1562,6 +1781,9 @@ def test_cosine_similarity(csr_container):
 
 
 def test_check_dense_matrices():
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays with Y None returns the same object twice and
+    #   preserves values.
     # Ensure that pairwise array check works for dense matrices.
     # Check that if XB is None, XB is returned as reference to XA
     XA = np.resize(np.arange(40), (5, 8))
@@ -1571,6 +1793,9 @@ def test_check_dense_matrices():
 
 
 def test_check_XB_returned():
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays and check_paired_arrays return inputs with
+    #   unchanged values.
     # Ensure that if XA and XB are given correctly, they return as equal.
     # Check that if XB is not None, it is returned equal.
     # Note that the second dimension of XB is the same as XA.
@@ -1587,6 +1812,9 @@ def test_check_XB_returned():
 
 
 def test_check_different_dimensions():
+    # [FUNCTION DOC]
+    # Verifies mismatched feature counts raise ValueError in check_pairwise_arrays and
+    #   mismatched row counts raise ValueError in check_paired_arrays.
     # Ensure an error is raised if the dimensions are different.
     XA = np.resize(np.arange(45), (5, 9))
     XB = np.resize(np.arange(32), (4, 8))
@@ -1599,6 +1827,11 @@ def test_check_different_dimensions():
 
 
 def test_check_invalid_dimensions():
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays raises ValueError for inputs with different feature
+    #   counts.
+    # KNOWN ISSUE: despite the comment about 1D arrays, both blocks use identical 2-D
+    #   inputs, so the second check duplicates the first.
     # Ensure an error is raised on 1D input arrays.
     # The modified tests are not 1D. In the old test, the array was internally
     # converted to 2D anyways
@@ -1614,6 +1847,9 @@ def test_check_invalid_dimensions():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_check_sparse_arrays(csr_container):
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays keeps CSR inputs sparse and value-identical,
+    #   including when the same matrix is passed twice.
     # Ensures that checks return valid sparse matrices.
     rng = np.random.RandomState(0)
     XA = rng.random_sample((5, 4))
@@ -1636,6 +1872,10 @@ def test_check_sparse_arrays(csr_container):
 
 
 def tuplify(X):
+    # [FUNCTION DOC]
+    # HELPER: Recursively converts an n-dimensional array into nested tuples of its
+    #   elements.
+    # Inputs: X - numpy array. Outputs: nested tuple mirroring the array shape.
     # Turns a numpy matrix (any n-dimensional array) into tuples.
     s = X.shape
     if len(s) > 1:
@@ -1647,6 +1887,9 @@ def tuplify(X):
 
 
 def test_check_tuple_input():
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays accepts nested tuple inputs and returns arrays
+    #   equal to them.
     # Ensures that checks return valid tuples.
     rng = np.random.RandomState(0)
     XA = rng.random_sample((5, 4))
@@ -1659,6 +1902,9 @@ def test_check_tuple_input():
 
 
 def test_check_preserve_type():
+    # [FUNCTION DOC]
+    # Verifies check_pairwise_arrays keeps float32 when all inputs are float32 and
+    #   upcasts both to float64 when either is float64.
     # Ensures that type float32 is preserved.
     XA = np.resize(np.arange(40), (5, 8)).astype(np.float32)
     XB = np.resize(np.arange(40), (5, 8)).astype(np.float32)
@@ -1688,6 +1934,11 @@ def test_check_preserve_type():
     "dist_function", [pairwise_distances, pairwise_distances_chunked]
 )
 def test_pairwise_distances_data_derived_params(n_jobs, metric, dist_function):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances and pairwise_distances_chunked with
+    #   seuclidean/mahalanobis (parameters derived from the data) give the same results
+    #   as pdist, sequentially and in parallel, with small working_memory forcing
+    #   several chunks.
     # check that pairwise_distances give the same result in sequential and
     # parallel, when metric has data-derived parameters.
     with config_context(working_memory=0.1):  # to have more than 1 chunk
@@ -1702,6 +1953,9 @@ def test_pairwise_distances_data_derived_params(n_jobs, metric, dist_function):
 
 @pytest.mark.parametrize("metric", ["seuclidean", "mahalanobis"])
 def test_pairwise_distances_data_derived_params_error(metric):
+    # [FUNCTION DOC]
+    # Verifies passing Y with seuclidean/mahalanobis but without V/VI raises ValueError
+    #   requiring that parameter.
     # check that pairwise_distances raises an error when Y is passed but
     # metric has data-derived params that are not provided by the user.
     rng = np.random.RandomState(0)
@@ -1734,6 +1988,9 @@ def test_pairwise_distances_data_derived_params_error(metric):
 )
 @pytest.mark.parametrize("y_is_x", [True, False], ids=["Y is X", "Y is not X"])
 def test_numeric_pairwise_distances_datatypes(metric, global_dtype, y_is_x):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances matches scipy pdist/cdist for many scipy metrics in
+    #   both dtypes, precomputing V or VI from stacked X and Y when Y is not X (#15730).
     # Check that pairwise distances gives the same result as pdist and cdist
     # regardless of input datatype when using any scipy metric for comparing
     # numeric vectors
@@ -1769,6 +2026,10 @@ def test_numeric_pairwise_distances_datatypes(metric, global_dtype, y_is_x):
     [pairwise_distances, pairwise_distances_argmin, pairwise_distances_argmin_min],
 )
 def test_nan_euclidean_support(pairwise_distances_func):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances, pairwise_distances_argmin and
+    #   pairwise_distances_argmin_min with nan_euclidean produce no NaN in their output
+    #   on data containing NaN.
     """Check that `nan_euclidean` is lenient with `nan` values."""
 
     X = [[0, 1], [1, np.nan], [2, 3], [3, 5]]
@@ -1778,6 +2039,9 @@ def test_nan_euclidean_support(pairwise_distances_func):
 
 
 def test_nan_euclidean_constant_input_argmin():
+    # [FUNCTION DOC]
+    # Verifies argmin with nan_euclidean on all-NaN data equals the argmin on constant
+    #   zero data.
     """Check that the behavior of constant input is the same in the case of
     full of nan vector and full of zero vector.
     """
@@ -1807,9 +2071,15 @@ def test_nan_euclidean_constant_input_argmin():
     ],
 )
 def test_pairwise_dist_custom_metric_for_string(X, Y, expected_distance):
+    # [FUNCTION DOC]
+    # Verifies pairwise_distances accepts lists of strings with a custom callable
+    #   metric, with and without Y.
     """Check pairwise_distances with lists of strings as input."""
 
     def dummy_string_similarity(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Custom metric returning the absolute difference of the two strings'
+        #   lengths.
         return np.abs(len(x) - len(y))
 
     actual_distance = pairwise_distances(X=X, Y=Y, metric=dummy_string_similarity)
@@ -1817,11 +2087,17 @@ def test_pairwise_dist_custom_metric_for_string(X, Y, expected_distance):
 
 
 def test_pairwise_dist_custom_metric_for_bool():
+    # [FUNCTION DOC]
+    # Verifies boolean input is passed unchanged (not converted to float) to a custom
+    #   metric relying on bitwise operations.
     """Check that pairwise_distances does not convert boolean input to float
     when using a custom metric.
     """
 
     def dummy_bool_dist(v1, v2):
+        # [FUNCTION DOC]
+        # HELPER: Custom boolean distance equal to one minus the Jaccard similarity of
+        #   two boolean vectors.
         # dummy distance func using `&` and thus relying on the input data being boolean
         return 1 - (v1 & v2).sum() / (v1 | v2).sum()
 
@@ -1844,6 +2120,9 @@ def test_pairwise_dist_custom_metric_for_bool():
 @pytest.mark.thread_unsafe
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_manhattan_readonly_dataset(csr_container):
+    # [FUNCTION DOC]
+    # Non-regression test for #7981: verifies manhattan_distances on CSR matrices
+    #   memory-mapped read-only by joblib (n_jobs=2, max_nbytes=0) runs without error.
     # Non-regression test for: https://github.com/scikit-learn/scikit-learn/issues/7981
     matrices1 = [csr_container(np.ones((5, 5)))]
     matrices2 = [csr_container(np.ones((5, 5)))]

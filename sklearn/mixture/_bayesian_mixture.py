@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Implements BayesianGaussianMixture, a variational-inference Gaussian mixture with
+#   either a finite Dirichlet distribution prior or a truncated (stick-breaking)
+#   Dirichlet process prior on the mixture weights, a Gaussian prior on means and a
+#   Wishart prior on precisions.
+# Reuses the EM driver of BaseMixture (fit loop, n_init restarts, convergence on the
+#   lower bound) and the Gaussian helpers of _gaussian_mixture (sufficient statistics,
+#   Cholesky precisions, log-probabilities).
+# Also defines two private helpers giving log normalization constants of the Dirichlet
+#   and Wishart distributions.
 """Bayesian Gaussian Mixture Model."""
 
 # Authors: The scikit-learn developers
@@ -23,6 +33,13 @@ from sklearn.utils._param_validation import Interval, StrOptions
 
 
 def _log_dirichlet_norm(dirichlet_concentration):
+    # [FUNCTION DOC]
+    # HELPER: Log normalization constant of a Dirichlet distribution: log-gamma of the
+    #   sum of the concentrations minus the sum of log-gamma of each concentration.
+    # Inputs: dirichlet_concentration - 1-D array of positive concentrations (one per
+    #   component; the docstring's "n_samples" shape name is misleading).
+    # Outputs: scalar float.
+    # Exceptions/side effects: none.
     """Compute the log of the Dirichlet distribution normalization term.
 
     Parameters
@@ -41,6 +58,16 @@ def _log_dirichlet_norm(dirichlet_concentration):
 
 
 def _log_wishart_norm(degrees_of_freedom, log_det_precisions_chol, n_features):
+    # [FUNCTION DOC]
+    # HELPER: Log normalization constant of the Wishart distribution for each component,
+    #   with the constant pi term dropped.
+    # Computes, per component, the negative of: dof times log-det of the precision
+    #   Cholesky, plus dof * n_features * 0.5 * log(2), plus the sum over feature index
+    #   i in [0, n_features) of log-gamma(0.5 * (dof - i)).
+    # Inputs: degrees_of_freedom - array (n_components,) or scalar;
+    #   log_det_precisions_chol - array (n_components,) or scalar; n_features - int.
+    # Outputs: array of shape (n_components,) (or scalar-like for scalar inputs).
+    # Side effects: none.
     """Compute the log of the Wishart distribution normalization term.
 
     Parameters
@@ -72,6 +99,17 @@ def _log_wishart_norm(degrees_of_freedom, log_det_precisions_chol, n_features):
 
 
 class BayesianGaussianMixture(BaseMixture):
+    # [CLASS DOC]
+    # Variational Bayesian Gaussian mixture estimator. Subclasses BaseMixture and plugs
+    #   in the variational E/M quantities: the M step updates posterior hyperparameters
+    #   (weight_concentration_, mean_precision_, means_, degrees_of_freedom_,
+    #   covariances_) from responsibility-weighted sufficient statistics; the E step
+    #   uses expected log weights (digamma based) and expected log Gaussian densities.
+    # Priors are resolved at fit time into trailing-underscore attributes by
+    #   _check_parameters. covariances_ are stored normalized by degrees_of_freedom_
+    #   (unlike Bishop), so precisions_cholesky_ is computed from those normalized
+    #   covariances and the log-probability / lower bound compensate with a log(dof)
+    #   term.
     """Variational Bayesian estimation of a Gaussian mixture.
 
     This class allows to infer an approximate posterior distribution over the
@@ -389,6 +427,11 @@ class BayesianGaussianMixture(BaseMixture):
         verbose=0,
         verbose_interval=10,
     ):
+        # [FUNCTION DOC]
+        # Stores all constructor parameters verbatim (shared ones forwarded to
+        #   BaseMixture.__init__); no validation or computation.
+        # Inputs: see class docstring; all keyword-only.
+        # Side effects: sets the matching public attributes on self.
         super().__init__(
             n_components=n_components,
             tol=tol,
@@ -411,6 +454,15 @@ class BayesianGaussianMixture(BaseMixture):
         self.covariance_prior = covariance_prior
 
     def _check_parameters(self, X, xp=None):
+        # [FUNCTION DOC]
+        # Resolves all prior hyperparameters from the constructor values and the
+        #   training data by calling the weights, means, precision (degrees of freedom)
+        #   and covariance-prior checkers in order.
+        # Inputs: X - array (n_samples, n_features); xp - unused array-namespace
+        #   argument kept for the base-class signature.
+        # Exceptions: propagates ValueError from the individual checkers.
+        # Side effects: sets weight_concentration_prior_, mean_precision_prior_,
+        #   mean_prior_, degrees_of_freedom_prior_, covariance_prior_.
         """Check that the parameters are well defined.
 
         Parameters
@@ -423,6 +475,10 @@ class BayesianGaussianMixture(BaseMixture):
         self._checkcovariance_prior_parameter(X)
 
     def _check_weights_parameters(self):
+        # [FUNCTION DOC]
+        # Sets weight_concentration_prior_ to weight_concentration_prior, or to 1 /
+        #   n_components when it is None.
+        # Side effects: sets self.weight_concentration_prior_.
         """Check the parameter of the Dirichlet distribution."""
         if self.weight_concentration_prior is None:
             self.weight_concentration_prior_ = 1.0 / self.n_components
@@ -430,6 +486,14 @@ class BayesianGaussianMixture(BaseMixture):
             self.weight_concentration_prior_ = self.weight_concentration_prior
 
     def _check_means_parameters(self, X):
+        # [FUNCTION DOC]
+        # Sets mean_precision_prior_ (default 1.0) and mean_prior_ (default: column
+        #   means of X; otherwise the user value converted to a float array without
+        #   forcing 2-D).
+        # Inputs: X - array (n_samples, n_features).
+        # Exceptions: ValueError via _check_shape when a provided mean_prior does not
+        #   have shape (n_features,).
+        # Side effects: sets self.mean_precision_prior_ and self.mean_prior_.
         """Check the parameters of the Gaussian distribution.
 
         Parameters
@@ -452,6 +516,12 @@ class BayesianGaussianMixture(BaseMixture):
             _check_shape(self.mean_prior_, (n_features,), "means")
 
     def _check_precision_parameters(self, X):
+        # [FUNCTION DOC]
+        # Sets degrees_of_freedom_prior_: n_features when None, otherwise the user value
+        #   provided it is strictly greater than n_features - 1.
+        # Inputs: X - array (n_samples, n_features), used only for n_features.
+        # Exceptions: ValueError when degrees_of_freedom_prior <= n_features - 1.
+        # Side effects: sets self.degrees_of_freedom_prior_.
         """Check the prior parameters of the precision distribution.
 
         Parameters
@@ -472,6 +542,22 @@ class BayesianGaussianMixture(BaseMixture):
             )
 
     def _checkcovariance_prior_parameter(self, X):
+        # [FUNCTION DOC]
+        # Sets covariance_prior_. When None it is derived empirically from X: the (at
+        #   least 2-D) sample covariance for 'full' and 'tied', per-feature unbiased
+        #   variances for 'diag', and the mean of those variances for 'spherical'.
+        #   Otherwise the user value is converted to a float array and validated: shape
+        #   (n_features, n_features) and symmetric positive definite for 'full'/'tied';
+        #   shape (n_features,) and strictly positive for 'diag'; used as-is for
+        #   'spherical'.
+        # Inputs: X - array (n_samples, n_features).
+        # Exceptions: ValueError from _check_shape, _check_precision_matrix or
+        #   _check_precision_positivity.
+        # Side effects: sets self.covariance_prior_.
+        # KNOWN ISSUE: the method name is missing an underscore
+        #   ("_checkcovariance_prior_parameter"), unlike its sibling checkers. The
+        #   'spherical' user value is not validated for positivity here (only the
+        #   parameter constraints apply).
         """Check the `covariance_prior_`.
 
         Parameters
@@ -513,6 +599,14 @@ class BayesianGaussianMixture(BaseMixture):
             self.covariance_prior_ = self.covariance_prior
 
     def _initialize(self, X, resp):
+        # [FUNCTION DOC]
+        # Initializes the variational posterior from initial responsibilities: computes
+        #   Gaussian sufficient statistics (nk, xk, sk) with reg_covar and then runs the
+        #   weights, means and precisions update steps.
+        # Inputs: X - array (n_samples, n_features); resp - array (n_samples,
+        #   n_components) of initial responsibilities.
+        # Side effects: sets weight_concentration_, mean_precision_, means_,
+        #   degrees_of_freedom_, covariances_, precisions_cholesky_.
         """Initialization of the mixture parameters.
 
         Parameters
@@ -530,6 +624,14 @@ class BayesianGaussianMixture(BaseMixture):
         self._estimate_precisions(nk, xk, sk)
 
     def _estimate_weights(self, nk):
+        # [FUNCTION DOC]
+        # Updates the weight posterior. For 'dirichlet_process' sets
+        #   weight_concentration_ to a tuple of two Beta parameter arrays: first is 1 +
+        #   nk; second is weight_concentration_prior_ plus, for each component k, the
+        #   sum of nk over all components after k (0 for the last one). For
+        #   'dirichlet_distribution' it is weight_concentration_prior_ + nk.
+        # Inputs: nk - array (n_components,) of effective counts.
+        # Side effects: sets self.weight_concentration_.
         """Estimate the parameters of the Dirichlet distribution.
 
         Parameters
@@ -551,6 +653,14 @@ class BayesianGaussianMixture(BaseMixture):
             self.weight_concentration_ = self.weight_concentration_prior_ + nk
 
     def _estimate_means(self, nk, xk):
+        # [FUNCTION DOC]
+        # Updates the Gaussian posterior on means: mean_precision_ =
+        #   mean_precision_prior_ + nk; means_ is the precision-weighted average of
+        #   mean_prior_ (weight mean_precision_prior_) and xk (weight nk), divided per
+        #   component by mean_precision_.
+        # Inputs: nk - array (n_components,); xk - array (n_components, n_features) of
+        #   weighted means.
+        # Side effects: sets self.mean_precision_ and self.means_.
         """Estimate the parameters of the Gaussian distribution.
 
         Parameters
@@ -565,6 +675,14 @@ class BayesianGaussianMixture(BaseMixture):
         ) / self.mean_precision_[:, np.newaxis]
 
     def _estimate_precisions(self, nk, xk, sk):
+        # [FUNCTION DOC]
+        # Dispatches to the Wishart update for the current covariance_type, then
+        #   computes precisions_cholesky_ from the (normalized) covariances_.
+        # Inputs: nk, xk as in _estimate_means; sk - covariance statistics shaped per
+        #   covariance_type.
+        # Exceptions: ValueError from _compute_precision_cholesky if a covariance is not
+        #   positive definite.
+        # Side effects: sets degrees_of_freedom_, covariances_, precisions_cholesky_.
         """Estimate the precisions parameters of the precision distribution.
 
         Parameters
@@ -592,6 +710,16 @@ class BayesianGaussianMixture(BaseMixture):
         )
 
     def _estimate_wishart_full(self, nk, xk, sk):
+        # [FUNCTION DOC]
+        # Full-covariance Wishart update: degrees_of_freedom_ = prior dof + nk; for each
+        #   component, covariance = covariance_prior_ + nk * sk + nk *
+        #   mean_precision_prior_ / mean_precision_ * outer product of (xk -
+        #   mean_prior_) with itself; finally each covariance is divided by its degrees
+        #   of freedom.
+        # Inputs: nk (n_components,), xk (n_components, n_features), sk (n_components,
+        #   n_features, n_features).
+        # Side effects: sets degrees_of_freedom_ and covariances_ (allocated as
+        #   float64).
         """Estimate the full Wishart distribution parameters.
 
         Parameters
@@ -626,6 +754,15 @@ class BayesianGaussianMixture(BaseMixture):
         self.covariances_ /= self.degrees_of_freedom_[:, np.newaxis, np.newaxis]
 
     def _estimate_wishart_tied(self, nk, xk, sk):
+        # [FUNCTION DOC]
+        # Tied Wishart update: a single scalar degrees_of_freedom_ = prior dof + total
+        #   count / n_components; single covariance = covariance_prior_ + sk * total
+        #   count / n_components + mean_precision_prior_ / n_components * sum over k of
+        #   (nk / mean_precision_) weighted outer products of (xk - mean_prior_); then
+        #   divided by the dof.
+        # Inputs: nk, xk as above; sk (n_features, n_features).
+        # Side effects: sets degrees_of_freedom_ (scalar) and covariances_.
+        # KNOWN ISSUE: n_features is computed but unused.
         """Estimate the tied Wishart distribution parameters.
 
         Parameters
@@ -658,6 +795,14 @@ class BayesianGaussianMixture(BaseMixture):
         self.covariances_ /= self.degrees_of_freedom_
 
     def _estimate_wishart_diag(self, nk, xk, sk):
+        # [FUNCTION DOC]
+        # Diagonal Wishart update: degrees_of_freedom_ = prior dof + nk; covariances_ =
+        #   covariance_prior_ + nk * (sk + (mean_precision_prior_ / mean_precision_) *
+        #   squared (xk - mean_prior_)), elementwise per component and feature, then
+        #   each row divided by its dof.
+        # Inputs: nk, xk as above; sk (n_components, n_features).
+        # Side effects: sets degrees_of_freedom_ and covariances_.
+        # KNOWN ISSUE: n_features is computed but unused.
         """Estimate the diag Wishart distribution parameters.
 
         Parameters
@@ -686,6 +831,13 @@ class BayesianGaussianMixture(BaseMixture):
         self.covariances_ /= self.degrees_of_freedom_[:, np.newaxis]
 
     def _estimate_wishart_spherical(self, nk, xk, sk):
+        # [FUNCTION DOC]
+        # Spherical Wishart update: degrees_of_freedom_ = prior dof + nk; covariances_ =
+        #   covariance_prior_ + nk * (sk + mean_precision_prior_ / mean_precision_ *
+        #   mean over features of squared (xk - mean_prior_)), then divided by dof.
+        # Inputs: nk, xk as above; sk (n_components,).
+        # Side effects: sets degrees_of_freedom_ and covariances_.
+        # KNOWN ISSUE: n_features is computed but unused.
         """Estimate the spherical Wishart distribution parameters.
 
         Parameters
@@ -715,6 +867,13 @@ class BayesianGaussianMixture(BaseMixture):
         self.covariances_ /= self.degrees_of_freedom_
 
     def _m_step(self, X, log_resp, xp=None):
+        # [FUNCTION DOC]
+        # Variational M step: exponentiates log_resp to responsibilities, recomputes
+        #   sufficient statistics and runs the weights, means and precisions updates.
+        # Inputs: X (n_samples, n_features); log_resp (n_samples, n_components); xp
+        #   unused.
+        # Side effects: updates all posterior attributes (see _initialize).
+        # KNOWN ISSUE: n_samples is unpacked but unused.
         """M step.
 
         Parameters
@@ -735,6 +894,15 @@ class BayesianGaussianMixture(BaseMixture):
         self._estimate_precisions(nk, xk, sk)
 
     def _estimate_log_weights(self, xp=None):
+        # [FUNCTION DOC]
+        # Expected log mixture weights under the variational posterior. For
+        #   'dirichlet_process': with a, b the Beta parameters, returns digamma(a) -
+        #   digamma(a+b) plus the cumulative sum, over previous components only, of
+        #   digamma(b) - digamma(a+b) (stick-breaking). Otherwise digamma(concentration)
+        #   minus digamma of the total concentration.
+        # Inputs: xp - unused.
+        # Outputs: array (n_components,).
+        # Side effects: none.
         if self.weight_concentration_prior_type == "dirichlet_process":
             digamma_sum = digamma(
                 self.weight_concentration_[0] + self.weight_concentration_[1]
@@ -753,6 +921,15 @@ class BayesianGaussianMixture(BaseMixture):
             )
 
     def _estimate_log_prob(self, X, xp=None):
+        # [FUNCTION DOC]
+        # Expected log Gaussian density per sample and component: the plug-in log
+        #   Gaussian probability using precisions_cholesky_, minus 0.5 * n_features *
+        #   log(dof) (undoing the covariance normalization), plus 0.5 * (log_lambda -
+        #   n_features / mean_precision_), where log_lambda = n_features * log 2 + sum
+        #   over i of digamma(0.5 * (dof - i)).
+        # Inputs: X (n_samples, n_features); xp unused.
+        # Outputs: array (n_samples, n_components).
+        # Side effects: none.
         _, n_features = X.shape
         # We remove `n_features * np.log(self.degrees_of_freedom_)` because
         # the precision matrix is normalized
@@ -771,6 +948,18 @@ class BayesianGaussianMixture(BaseMixture):
         return log_gauss + 0.5 * (log_lambda - n_features / self.mean_precision_)
 
     def _compute_lower_bound(self, log_resp, log_prob_norm):
+        # [FUNCTION DOC]
+        # Variational lower bound up to constants: minus the responsibility entropy term
+        #   (sum of resp * log resp), minus the total Wishart log-normalization (for
+        #   'tied' the single component value times n_components), minus the weight
+        #   prior normalization (sum of log Beta function for the Dirichlet process,
+        #   Dirichlet log-norm otherwise), minus 0.5 * n_features * sum of log
+        #   mean_precision_. The log-det of precisions is corrected by -0.5 * n_features
+        #   * log(dof) for the normalized covariances.
+        # Inputs: log_resp (n_samples, n_components); log_prob_norm - unused (kept for
+        #   the base-class interface).
+        # Outputs: float.
+        # Side effects: none.
         """Estimate the lower bound of the model.
 
         The lower bound on the likelihood (of the training data with respect to
@@ -828,6 +1017,11 @@ class BayesianGaussianMixture(BaseMixture):
         )
 
     def _get_parameters(self):
+        # [FUNCTION DOC]
+        # Returns the fitted posterior state as a tuple (weight_concentration_,
+        #   mean_precision_, means_, degrees_of_freedom_, covariances_,
+        #   precisions_cholesky_) used by BaseMixture to keep the best initialization.
+        # Side effects: none.
         return (
             self.weight_concentration_,
             self.mean_precision_,
@@ -838,6 +1032,15 @@ class BayesianGaussianMixture(BaseMixture):
         )
 
     def _set_parameters(self, params, xp=None):
+        # [FUNCTION DOC]
+        # Restores the posterior from a tuple produced by _get_parameters and derives
+        #   weights_ and precisions_. For the Dirichlet process, weights are the
+        #   expected stick-breaking weights (a/(a+b) times the cumulative product of
+        #   earlier b/(a+b)) renormalized to sum to 1; otherwise the concentrations
+        #   normalized to sum to 1. precisions_ is L L^T per component ('full'), L L^T
+        #   ('tied') or the squared Cholesky values ('diag', 'spherical').
+        # Inputs: params - 6-tuple; xp unused.
+        # Side effects: sets the six posterior attributes plus weights_ and precisions_.
         (
             self.weight_concentration_,
             self.mean_precision_,

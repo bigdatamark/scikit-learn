@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Supervised (external) clustering metrics comparing a predicted labeling with a
+# reference labeling: contingency and pair confusion matrices, Rand and adjusted Rand
+# indices, entropy-based homogeneity / completeness / V-measure, mutual information
+# (raw, normalized, adjusted for chance via the compiled expected_mutual_information)
+# and Fowlkes-Mallows. All work on label identities only, so results are invariant to
+# renaming labels. Scores are returned as Python floats.
 """Utilities to evaluate the clustering performance of models.
 
 Functions named as *_score return a scalar value to maximize: the higher the
@@ -32,6 +39,14 @@ from sklearn.utils.validation import check_array, check_consistent_length
 
 
 def check_clusterings(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Converts both labelings with check_array (any dtype, empty allowed, 1d permitted),
+    # warns if either is detected as continuous by type_of_target, and checks both are
+    # 1d and of equal length.
+    # Inputs: labels_true, labels_pred - array-likes.
+    # Outputs: tuple of the two validated ndarrays.
+    # Exceptions: ValueError if either is not 1d or lengths differ.
+    # Side effects: emits UserWarning for continuous label values.
     """Check that the labels arrays are 1D and of same dimension.
 
     Parameters
@@ -78,6 +93,10 @@ def check_clusterings(labels_true, labels_pred):
 
 
 def _generalized_average(U, V, average_method):
+    # [FUNCTION DOC]
+    # HELPER: Returns the min, geometric mean (sqrt of product), arithmetic mean or max
+    # of two scalars U and V depending on average_method.
+    # Exceptions: ValueError for any other method name.
     """Return a particular mean of two numbers."""
     if average_method == "min":
         return min(U, V)
@@ -106,6 +125,14 @@ def _generalized_average(U, V, average_method):
 def contingency_matrix(
     labels_true, labels_pred, *, eps=None, sparse=False, dtype=np.int64
 ):
+    # [FUNCTION DOC]
+    # Maps each distinct true label and predicted label to consecutive indices (sorted
+    # unique values) and counts co-occurrences by building a COO matrix with one entry
+    # per sample (duplicates summed). Returns CSR (duplicates summed explicitly) if
+    # sparse, otherwise a dense array, with eps added (yielding float) when given.
+    # Exceptions: ValueError if eps is set together with sparse=True;
+    # InvalidParameterError for negative eps.
+    # Note: labels are not validated through check_clusterings here.
     """Build a contingency matrix describing the relationship between labels.
 
     Read more in the :ref:`User Guide <contingency_matrix>`.
@@ -193,6 +220,14 @@ def contingency_matrix(
     prefer_skip_nested_validation=True,
 )
 def pair_confusion_matrix(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Validates labelings, builds a sparse int64 contingency matrix and derives counts
+    # of ordered sample pairs: C11 = sum of squared cells minus n; C01 = sum over cells
+    # of cell times its column total minus sum of squares; C10 analogously with row
+    # totals; C00 = n squared minus the other three minus sum of squares (so the n
+    # self-pairs are excluded overall).
+    # Outputs: (2, 2) int64 ndarray [[C00, C01], [C10, C11]], indexing by "same cluster
+    # in true" then "same cluster in pred".
     """Pair confusion matrix arising from two clusterings.
 
     The pair confusion matrix :math:`C` computes a 2 by 2 similarity matrix
@@ -278,6 +313,10 @@ def pair_confusion_matrix(labels_true, labels_pred):
     prefer_skip_nested_validation=True,
 )
 def rand_score(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Computes the pair confusion matrix and returns the fraction of ordered pairs on
+    # which both labelings agree (diagonal sum over total). Returns 1.0 when there are
+    # no pairs (fewer than two samples) or full agreement.
     """Rand index.
 
     The Rand Index computes a similarity measure between two clusterings
@@ -358,6 +397,12 @@ def rand_score(labels_true, labels_pred):
     prefer_skip_nested_validation=True,
 )
 def adjusted_rand_score(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Takes the pair confusion matrix, converts entries to Python ints to avoid
+    # overflow, returns 1.0 when there are no disagreeing pairs (fn and fp both zero,
+    # including empty input), otherwise the closed-form ARI 2(tp tn - fn fp) /
+    # ((tp+fn)(fn+tn) + (tp+fp)(fp+tn)).
+    # Outputs: float in [-0.5, 1].
     """Rand index adjusted for chance.
 
     The Rand Index computes a similarity measure between two clusterings
@@ -471,6 +516,13 @@ def adjusted_rand_score(labels_true, labels_pred):
     prefer_skip_nested_validation=True,
 )
 def homogeneity_completeness_v_measure(labels_true, labels_pred, *, beta=1.0):
+    # [FUNCTION DOC]
+    # Validates labelings; returns (1, 1, 1) for empty input. Otherwise computes
+    # entropies of each labeling and MI from the sparse contingency. Homogeneity = MI /
+    # H(true) (1 if H(true) is 0); completeness = MI / H(pred) (1 if H(pred) is 0);
+    # V-measure is the beta-weighted harmonic mean (1 + beta) h c / (beta h + c), or 0
+    # when h + c is 0.
+    # Outputs: tuple of three Python floats.
     """Compute the homogeneity and completeness and V-Measure scores at once.
 
     Those metrics are based on normalized conditional entropy measures of
@@ -571,6 +623,8 @@ def homogeneity_completeness_v_measure(labels_true, labels_pred, *, beta=1.0):
     prefer_skip_nested_validation=True,
 )
 def homogeneity_score(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Returns the homogeneity component of homogeneity_completeness_v_measure.
     """Homogeneity metric of a cluster labeling given a ground truth.
 
     A clustering result satisfies homogeneity if all of its clusters
@@ -647,6 +701,8 @@ def homogeneity_score(labels_true, labels_pred):
     prefer_skip_nested_validation=True,
 )
 def completeness_score(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Returns the completeness component of homogeneity_completeness_v_measure.
     """Compute completeness metric of a cluster labeling given a ground truth.
 
     A clustering result satisfies completeness if all the data points
@@ -724,6 +780,9 @@ def completeness_score(labels_true, labels_pred):
     prefer_skip_nested_validation=True,
 )
 def v_measure_score(labels_true, labels_pred, *, beta=1.0):
+    # [FUNCTION DOC]
+    # Returns the V-measure component of homogeneity_completeness_v_measure with the
+    # given beta.
     """V-measure cluster labeling given a ground truth.
 
     This score is identical to :func:`normalized_mutual_info_score` with
@@ -828,6 +887,16 @@ def v_measure_score(labels_true, labels_pred, *, beta=1.0):
     prefer_skip_nested_validation=True,
 )
 def mutual_info_score(labels_true, labels_pred, *, contingency=None):
+    # [FUNCTION DOC]
+    # If no contingency is given, validates labelings and builds a sparse contingency;
+    # otherwise validates the supplied contingency (dense or CSR/CSC/COO, converted to
+    # an integer dtype) and ignores the labels. Extracts non-zero cells and row/column
+    # totals; returns 0.0 if either labeling has a single cluster. Otherwise sums, over
+    # non-zero cells, p_ij times (log n_ij - log N - log(a_i b_j) + log sum a + log sum
+    # b), where p_ij = n_ij / N, with the product of marginals computed in int64; terms
+    # smaller than machine eps are zeroed and the total is clipped at 0.
+    # Outputs: Python float, MI in nats.
+    # Exceptions: ValueError from check_clusterings or check_array.
     """Mutual Information between two clusterings.
 
     The Mutual Information is a measure of the similarity between two labels
@@ -946,6 +1015,13 @@ def mutual_info_score(labels_true, labels_pred, *, contingency=None):
 def adjusted_mutual_info_score(
     labels_true, labels_pred, *, average_method="arithmetic"
 ):
+    # [FUNCTION DOC]
+    # Validates labelings; returns 1.0 if both have a single cluster or both are empty,
+    # 0.0 if only one has a single cluster. Otherwise computes MI from the sparse
+    # contingency, EMI via expected_mutual_information, entropies, and the normalizer as
+    # the average_method mean of the entropies. Denominator (normalizer minus EMI) and
+    # numerator (MI minus EMI) are each pushed away from zero to at least machine eps in
+    # magnitude while keeping sign, and the ratio is returned as a float.
     """Adjusted Mutual Information between two clusterings.
 
     Adjusted Mutual Information (AMI) is an adjustment of the Mutual
@@ -1084,6 +1160,13 @@ def adjusted_mutual_info_score(
 def normalized_mutual_info_score(
     labels_true, labels_pred, *, average_method="arithmetic"
 ):
+    # [FUNCTION DOC]
+    # Validates labelings; returns 1.0 if both have one cluster or both are empty.
+    # Builds a sparse contingency, casts it to float64, computes MI; returns 0.0 if MI
+    # is 0, otherwise MI divided by the average_method mean of the two entropies.
+    # KNOWN ISSUE: the cast of the contingency to float64 is undone inside
+    # mutual_info_score, whose check_array restricts dtype to integer types and converts
+    # float input back to int, so the cast only adds copies.
     """Normalized Mutual Information between two clusterings.
 
     Normalized Mutual Information (NMI) is a normalization of the Mutual
@@ -1193,6 +1276,12 @@ def normalized_mutual_info_score(
     prefer_skip_nested_validation=True,
 )
 def fowlkes_mallows_score(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Validates labelings, builds a sparse int64 contingency, and computes tk = sum of
+    # squared cells minus n, pk = sum of squared column totals minus n, qk = sum of
+    # squared row totals minus n (pair counts times two). Returns sqrt(tk/pk) times
+    # sqrt(tk/qk) as a float, or 0.0 when tk is zero.
+    # Exceptions: ValueError from check_clusterings.
     """Measure the similarity of two clusterings of a set of points.
 
     .. versionadded:: 0.18
@@ -1269,6 +1358,15 @@ def fowlkes_mallows_score(labels_true, labels_pred):
 
 
 def _entropy(labels):
+    # [FUNCTION DOC]
+    # HELPER: Shannon entropy (natural log) of a labeling, array-API aware. Returns 1.0
+    # for empty input and 0.0 when only one distinct label exists; otherwise counts each
+    # unique label in the highest-precision float dtype and returns minus the sum of p
+    # log p, with log p computed as log count minus log total for precision.
+    # Inputs: labels - 1d array (any namespace) or list.
+    # Outputs: Python float.
+    # KNOWN ISSUE: the empty-input value of 1.0 is a convention, not a true entropy
+    # (which would be 0); callers rely on it.
     """Calculate the entropy for a labeling.
 
     Parameters
@@ -1307,6 +1405,9 @@ def _entropy(labels):
 # TODO(1.10): Remove
 @deprecated("`entropy` is deprecated in 1.8 and will be removed in 1.10.")
 def entropy(labels):
+    # [FUNCTION DOC]
+    # Deprecated public alias of _entropy (emits FutureWarning via the deprecated
+    # decorator, removal planned for 1.10).
     """Calculate the entropy for a labeling.
 
     Parameters
