@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Array-API-compatible CuPy namespace. Re-exports everything from cupy (plus abs, max,
+# min, round, which a star-import would not shadow builtins with), then overrides
+# names with the wrappers in ._aliases and adds __array_namespace_info__ and
+# __array_api_version__ ("2025.12"). __all__ is the sorted set of public globals minus
+# helper module names, plus linalg and fft.
+# Side effects at import: imports cupy (ImportError without it) and eagerly imports the
+# .linalg and .fft submodules so they are attributes of the package.
 from typing import Final
 from cupy import * # noqa: F403
 
@@ -21,4 +29,6 @@ __all__ = sorted(
 )
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Package __dir__ hook returning __all__.
     return __all__

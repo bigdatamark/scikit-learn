@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Backend-generic implementations of Array API functions whose NumPy-like counterparts
+#   differ in name, signature, keyword names or return types. Each function takes the
+#   wrapped library namespace as xp; per-backend subpackages bind xp with
+#   _internal.get_xp. Also defines the named-tuple result types of the unique_* family
+#   and a module __dir__ limited to __all__.
 """
 These are functions that are just aliases of existing functions in NumPy.
 """
@@ -33,6 +39,13 @@ def arange(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with stop, step forwarded; start is positional-only, dtype and
+    #   any extra keyword arguments; device itself is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.arange(start, stop=stop, step=step, dtype=dtype, **kwargs)
 
@@ -45,6 +58,13 @@ def empty(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with shape, dtype and any extra keyword arguments; device itself
+    #   is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.empty(shape, dtype=dtype, **kwargs)
 
@@ -58,6 +78,13 @@ def empty_like(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with x, dtype and any extra keyword arguments; device itself is
+    #   not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.empty_like(x, dtype=dtype, **kwargs)
 
@@ -73,6 +100,13 @@ def eye(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with n_rows, optional n_cols (passed as M) and diagonal offset k,
+    #   dtype and any extra keyword arguments; device itself is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.eye(n_rows, M=n_cols, k=k, dtype=dtype, **kwargs)
 
@@ -86,6 +120,13 @@ def full(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with shape, fill_value, dtype and any extra keyword arguments;
+    #   device itself is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.full(shape, fill_value, dtype=dtype, **kwargs)
 
@@ -100,6 +141,13 @@ def full_like(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with x, fill_value, dtype and any extra keyword arguments; device
+    #   itself is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.full_like(x, fill_value, dtype=dtype, **kwargs)
 
@@ -116,6 +164,13 @@ def linspace(
     endpoint: bool = True,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with start, stop, num and endpoint, dtype and any extra keyword
+    #   arguments; device itself is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.linspace(start, stop, num, dtype=dtype, endpoint=endpoint, **kwargs)
 
@@ -128,6 +183,13 @@ def ones(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with shape, dtype and any extra keyword arguments; device itself
+    #   is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.ones(shape, dtype=dtype, **kwargs)
 
@@ -141,6 +203,13 @@ def ones_like(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with x, dtype and any extra keyword arguments; device itself is
+    #   not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.ones_like(x, dtype=dtype, **kwargs)
 
@@ -153,6 +222,13 @@ def zeros(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with shape, dtype and any extra keyword arguments; device itself
+    #   is not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.zeros(shape, dtype=dtype, **kwargs)
 
@@ -166,6 +242,13 @@ def zeros_like(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API creation function: validates the device keyword with _check_device (only
+    #   CPU / None accepted for NumPy-like backends) and then calls the same-named
+    #   function of xp with x, dtype and any extra keyword arguments; device itself is
+    #   not forwarded.
+    # Outputs: the new array. Exceptions: ValueError from _check_device for an
+    #   unsupported device.
     _check_device(xp, device)
     return xp.zeros_like(x, dtype=dtype, **kwargs)
 
@@ -181,6 +264,8 @@ def zeros_like(
 # Note that these named tuples aren't actually part of the standard namespace,
 # but I don't see any issue with exporting the names here regardless.
 class UniqueAllResult(NamedTuple):
+    # [CLASS DOC]
+    # Named tuple (values, indices, inverse_indices, counts) returned by unique_all.
     values: Array
     indices: Array
     inverse_indices: Array
@@ -188,16 +273,24 @@ class UniqueAllResult(NamedTuple):
 
 
 class UniqueCountsResult(NamedTuple):
+    # [CLASS DOC]
+    # Named tuple (values, counts) returned by unique_counts.
     values: Array
     counts: Array
 
 
 class UniqueInverseResult(NamedTuple):
+    # [CLASS DOC]
+    # Named tuple (values, inverse_indices) returned by unique_inverse.
     values: Array
     inverse_indices: Array
 
 
 def _unique_kwargs(xp: Namespace) -> dict[str, bool]:
+    # [FUNCTION DOC]
+    # HELPER: Returns {"equal_nan": False} if xp.unique's signature has an equal_nan
+    #   parameter (newer NumPy/CuPy), else an empty dict, so NaNs are treated as
+    #   distinct as the standard requires.
     # Older versions of NumPy and CuPy do not have equal_nan. Rather than
     # trying to parse version numbers, just check if equal_nan is in the
     # signature.
@@ -208,6 +301,9 @@ def _unique_kwargs(xp: Namespace) -> dict[str, bool]:
 
 
 def unique_all(x: Array, /, xp: Namespace) -> UniqueAllResult:
+    # [FUNCTION DOC]
+    # Calls xp.unique with indices, inverse and counts requested, reshapes the
+    #   (flattened) inverse indices to x's shape, and returns a UniqueAllResult.
     kwargs = _unique_kwargs(xp)
     values, indices, inverse_indices, counts = xp.unique(
         x,
@@ -228,6 +324,9 @@ def unique_all(x: Array, /, xp: Namespace) -> UniqueAllResult:
 
 
 def unique_counts(x: Array, /, xp: Namespace) -> UniqueCountsResult:
+    # [FUNCTION DOC]
+    # Calls xp.unique requesting only counts and returns UniqueCountsResult(values,
+    #   counts).
     kwargs = _unique_kwargs(xp)
     res = xp.unique(
         x, return_counts=True, return_index=False, return_inverse=False, **kwargs
@@ -237,6 +336,9 @@ def unique_counts(x: Array, /, xp: Namespace) -> UniqueCountsResult:
 
 
 def unique_inverse(x: Array, /, xp: Namespace) -> UniqueInverseResult:
+    # [FUNCTION DOC]
+    # Calls xp.unique requesting only the inverse, reshapes inverse indices to x's shape
+    #   and returns UniqueInverseResult.
     kwargs = _unique_kwargs(xp)
     values, inverse_indices = xp.unique(
         x,
@@ -252,6 +354,9 @@ def unique_inverse(x: Array, /, xp: Namespace) -> UniqueInverseResult:
 
 
 def unique_values(x: Array, /, xp: Namespace) -> Array:
+    # [FUNCTION DOC]
+    # Returns the sorted unique values of x (flattened) via xp.unique with no extra
+    #   outputs.
     kwargs = _unique_kwargs(xp)
     return xp.unique(
         x,
@@ -275,6 +380,9 @@ def std(
     keepdims: bool = False,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Standard deviation with the Array API keyword correction mapped to NumPy's ddof;
+    #   axis, keepdims and extra kwargs forwarded to xp.std.
     return xp.std(x, axis=axis, ddof=correction, keepdims=keepdims, **kwargs)
 
 
@@ -288,6 +396,8 @@ def var(
     keepdims: bool = False,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Variance with correction mapped to ddof; otherwise forwards to xp.var.
     return xp.var(x, axis=axis, ddof=correction, keepdims=keepdims, **kwargs)
 
 
@@ -305,6 +415,14 @@ def cumulative_sum(
     include_initial: bool = False,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API cumulative_sum built on xp.cumsum.
+    # Behavior: if axis is None, require x.ndim <= 1 and use axis 0; compute the
+    #   cumulative sum with dtype; if include_initial, prepend along axis a slab of
+    #   zeros (shape of x with size 1 on axis, result dtype, same device).
+    # Exceptions: ValueError when axis is None and x has more than one dimension.
+    # KNOWN ISSUE: for a 0-d x, axis defaults to 0 and include_initial would index an
+    #   empty shape list (IndexError); the TODO notes the standard is unclear.
     wrapped_xp = array_namespace(x)
 
     # TODO: The standard is not clear about what should happen when x.ndim == 0.
@@ -343,6 +461,10 @@ def cumulative_prod(
     include_initial: bool = False,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Same as cumulative_sum but using xp.cumprod and prepending ones when
+    #   include_initial is True. Exceptions: ValueError when axis is None and x.ndim >
+    #   1.
     wrapped_xp = array_namespace(x)
 
     if axis is None:
@@ -382,7 +504,26 @@ def clip(
     # TODO: np.clip has other ufunc kwargs
     out: Array | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API clip: result has x's dtype (no type promotion) and broadcast shape of x,
+    #   min and max.
+    # Behavior: compute shapes of min/max (scalars count as shape ()), broadcast with
+    #   x's shape; for integral x drop Python-int bounds that lie outside the dtype's
+    #   range; allocate out (if not given) with x's dtype on x's device and copy x into
+    #   it; for each provided bound convert it to x's dtype on the device, broadcast it,
+    #   and overwrite elements where out is beyond the bound or the bound is NaN.
+    # Inputs: x; min, max - scalar, array or None; xp; out - optional preallocated
+    #   output.
+    # Outputs: out indexed with an empty tuple (a scalar for 0-d results).
+    # Side effects: writes into out when provided. Bounds that overflow when cast to x's
+    #   dtype behave as NumPy's cast does (documented as unspecified).
+    # KNOWN ISSUE: the assert on out is a type-narrowing workaround only; NumPy integer
+    #   scalars (e.g. np.int64) are not treated as scalars by _isscalar and their out-
+    #   of-range check is skipped.
     def _isscalar(a: object) -> TypeIs[float | None]:
+        # [FUNCTION DOC]
+        # HELPER: True if a is a Python int/float (including subclasses such as bool and
+        #   numpy float64) or None.
         return isinstance(a, int | float) or a is None
 
     min_shape = () if _isscalar(min) else min.shape
@@ -441,6 +582,8 @@ def clip(
 
 # Unlike transpose(), the axes argument to permute_dims() is required.
 def permute_dims(x: Array, /, axes: tuple[int, ...], xp: Namespace) -> Array:
+    # [FUNCTION DOC]
+    # Returns xp.transpose of x with the required axes permutation.
     return xp.transpose(x, axes)
 
 
@@ -454,6 +597,14 @@ def reshape(
     copy: bool | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API reshape with a copy keyword.
+    # Behavior: copy True copies x first then reshapes; copy False creates a view and
+    #   assigns the new shape in place, raising if a copy would be needed; None
+    #   delegates to xp.reshape with extra kwargs.
+    # Exceptions: errors from the backend when the shape is incompatible (copy False
+    #   raises AttributeError/ValueError when a view is impossible).
+    # KNOWN ISSUE: with copy=False any extra kwargs (e.g. order) are silently ignored.
     if copy is True:
         x = x.copy()
     elif copy is False:
@@ -475,6 +626,13 @@ def argsort(
     stable: bool = True,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array API argsort with descending and stable flags.
+    # Behavior: when stable, set kind to "stable" in kwargs; ascending is a direct
+    #   xp.argsort. For descending, argsort the array flipped along axis, flip the
+    #   result back, and map each index i to (n-1-i) so equal elements keep their
+    #   original relative order.
+    # Side effects: mutates the local kwargs dict only.
     # Note: this keyword argument is different, and the default is different.
     # We set it in kwargs like this because numpy.sort uses kind='quicksort'
     # as the default whereas cupy.sort uses kind=None.
@@ -507,6 +665,9 @@ def sort(
     stable: bool = True,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Sorts along axis (stable by default via kind "stable"); for descending simply
+    #   flips the ascending result (stability of ties is irrelevant for values).
     # Note: this keyword argument is different, and the default is different.
     # We set it in kwargs like this because numpy.sort uses kind='quicksort'
     # as the default whereas cupy.sort uses kind=None.
@@ -520,6 +681,9 @@ def sort(
 
 # nonzero should error for zero-dimensional arrays
 def nonzero(x: Array, /, xp: Namespace, **kwargs: object) -> tuple[Array, ...]:
+    # [FUNCTION DOC]
+    # Forwards to xp.nonzero but raises ValueError for 0-d inputs as the standard
+    #   requires.
     if x.ndim == 0:
         raise ValueError("nonzero() does not support zero-dimensional arrays")
     return xp.nonzero(x, **kwargs)
@@ -529,11 +693,15 @@ def nonzero(x: Array, /, xp: Namespace, **kwargs: object) -> tuple[Array, ...]:
 
 
 def matmul(x1: Array, x2: Array, /, xp: Namespace, **kwargs: object) -> Array:
+    # [FUNCTION DOC]
+    # Thin forward to xp.matmul.
     return xp.matmul(x1, x2, **kwargs)
 
 
 # Unlike transpose, matrix_transpose only transposes the last two axes.
 def matrix_transpose(x: Array, /, xp: Namespace) -> Array:
+    # [FUNCTION DOC]
+    # Swaps the last two axes; raises ValueError if x has fewer than 2 dimensions.
     if x.ndim < 2:
         raise ValueError("x must be at least 2-dimensional for matrix_transpose")
     return xp.swapaxes(x, -1, -2)
@@ -548,10 +716,19 @@ def tensordot(
     axes: int | tuple[Sequence[int], Sequence[int]] = 2,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Forwards to xp.tensordot with the axes keyword (default 2).
     return xp.tensordot(x1, x2, axes=axes, **kwargs)
 
 
 def vecdot(x1: Array, x2: Array, /, xp: Namespace, *, axis: int = -1) -> Array:
+    # [FUNCTION DOC]
+    # Conjugated vector dot product along axis with broadcasting.
+    # Behavior: check equal sizes along axis; move axis to the end in both inputs;
+    #   broadcast them (broadcast_tensors for torch-like, else broadcast_arrays);
+    #   compute conj(x1) as row vectors times x2 as column vectors with matmul and drop
+    #   the two singleton dims.
+    # Exceptions: ValueError on size mismatch along axis.
     if x1.shape[axis] != x2.shape[axis]:
         raise ValueError("x1 and x2 must have the same size along the given axis")
 
@@ -578,6 +755,15 @@ def isdtype(
     *,
     _tuple: bool = True,  # Disallow nested tuples
 ) -> bool:
+    # [FUNCTION DOC]
+    # Array API isdtype: tests whether dtype belongs to kind.
+    # Behavior: a tuple kind returns True if any element matches (nested tuples are not
+    #   expanded, compared by equality); string kinds map to xp.bool_ equality or
+    #   issubdtype against signedinteger, unsignedinteger, integer, floating,
+    #   complexfloating or number; any other kind is compared with ==.
+    # Inputs: dtype; kind - dtype, kind string or tuple; xp; _tuple - private recursion
+    #   guard.
+    # Exceptions: ValueError for an unrecognized kind string.
     """
     Returns a boolean indicating whether a provided dtype is of a specified data type ``kind``.
 
@@ -620,6 +806,9 @@ def isdtype(
 
 # unstack is a new function in the 2023.12 array API standard
 def unstack(x: Array, /, xp: Namespace, *, axis: int = 0) -> tuple[Array, ...]:
+    # [FUNCTION DOC]
+    # Splits x along axis into a tuple of arrays by moving axis to the front and
+    #   iterating. Raises ValueError for 0-d input.
     if x.ndim == 0:
         raise ValueError("Input array must be at least 1-d.")
     return tuple(xp.moveaxis(x, axis, 0))
@@ -629,6 +818,12 @@ def unstack(x: Array, /, xp: Namespace, *, axis: int = 0) -> tuple[Array, ...]:
 
 
 def sign(x: Array, /, xp: Namespace, **kwargs: object) -> Array:
+    # [FUNCTION DOC]
+    # Array API sign: for complex dtypes computes x divided by its absolute value and
+    #   sets entries where x is 0 to 0; otherwise uses xp.sign. For CuPy with real
+    #   floats, NaN entries are set back to NaN.
+    # Outputs: result indexed with an empty tuple (scalar for 0-d).
+    # Side effects: none on x (writes into the freshly computed output).
     if isdtype(x.dtype, "complex floating", xp=xp):
         out = (x / xp.abs(x, **kwargs))[...]
         # sign(0) = 0 but the above formula would give nan
@@ -643,6 +838,9 @@ def sign(x: Array, /, xp: Namespace, **kwargs: object) -> Array:
 
 
 def finfo(type_: DType | Array, /, xp: Namespace) -> Any:
+    # [FUNCTION DOC]
+    # Calls xp.finfo on type_; if that raises ValueError/TypeError (an array was passed)
+    #   retries with type_.dtype.
     # It is surprisingly difficult to recognize a dtype apart from an array.
     # np.int64 is not the same as np.asarray(1).dtype!
     try:
@@ -652,6 +850,8 @@ def finfo(type_: DType | Array, /, xp: Namespace) -> Any:
 
 
 def iinfo(type_: DType | Array, /, xp: Namespace) -> Any:
+    # [FUNCTION DOC]
+    # Calls xp.iinfo on type_, falling back to type_.dtype on ValueError/TypeError.
     try:
         return xp.iinfo(type_)
     except (ValueError, TypeError):
@@ -699,4 +899,6 @@ __all__ = [
 ]
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module-level dir() hook returning __all__.
     return __all__

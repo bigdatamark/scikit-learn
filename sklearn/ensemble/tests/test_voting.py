@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for VotingClassifier and VotingRegressor: constructor validation, hard vs soft
+# voting, weights, tie-breaking, transform shapes, set_params with "drop", sample_weight
+# forwarding, verbose output, feature names out, and metadata routing. Side effects at
+# import: loads iris (keeping features 1 and 2) into X, y, a standardized copy X_scaled,
+# and diabetes into X_r, y_r.
 """Testing for the VotingClassifier and VotingRegressor"""
 
 import re
@@ -69,12 +75,20 @@ X_r, y_r = datasets.load_diabetes(return_X_y=True)
     ],
 )
 def test_voting_classifier_estimator_init(params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError for invalid estimators (empty list, bare estimator,
+    # tuple with non-string name) and for a weights list whose length differs from
+    # estimators.
     ensemble = VotingClassifier(**params)
     with pytest.raises(ValueError, match=err_msg):
         ensemble.fit(X, y)
 
 
 def test_predictproba_hardvoting():
+    # [FUNCTION DOC]
+    # Verifies that with voting="hard", accessing predict_proba raises AttributeError
+    # whose __cause__ is an AttributeError saying it is unavailable for hard voting, and
+    # hasattr is False both before and after fit.
     eclf = VotingClassifier(
         estimators=[("lr1", LogisticRegression()), ("lr2", LogisticRegression())],
         voting="hard",
@@ -93,6 +107,10 @@ def test_predictproba_hardvoting():
 
 
 def test_notfitted():
+    # [FUNCTION DOC]
+    # Verifies predict, predict_proba and transform on an unfitted VotingClassifier and
+    # predict and transform on an unfitted VotingRegressor raise NotFittedError naming
+    # the class.
     eclf = VotingClassifier(
         estimators=[("lr1", LogisticRegression()), ("lr2", LogisticRegression())],
         voting="soft",
@@ -115,6 +133,9 @@ def test_notfitted():
 
 
 def test_majority_label_iris(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies hard voting of LogisticRegression, RandomForest and GaussianNB reaches
+    # mean cross-validated accuracy of at least 0.9 on the 2-feature iris data.
     """Check classification by majority label on dataset iris."""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -128,6 +149,9 @@ def test_majority_label_iris(global_random_seed):
 
 
 def test_tie_situation():
+    # [FUNCTION DOC]
+    # Verifies tie-breaking: on sample 52 LR predicts 2 and RF predicts 1, and the
+    # equally weighted hard-voting ensemble picks the smaller label 1.
     """Check voting classifier selects smaller class label in tie situation."""
     clf1 = LogisticRegression(random_state=123)
     clf2 = RandomForestClassifier(random_state=123)
@@ -138,6 +162,9 @@ def test_tie_situation():
 
 
 def test_weights_iris(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies weighted soft voting (weights 1, 2, 10) reaches mean cross-validated
+    # accuracy of at least 0.9 on scaled iris.
     """Check classification by average probabilities on dataset iris."""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -152,6 +179,11 @@ def test_weights_iris(global_random_seed):
 
 
 def test_weights_regressor():
+    # [FUNCTION DOC]
+    # Verifies VotingRegressor's prediction equals the weighted average (weights 1, 2,
+    # 10) of the three Dummy regressors' predictions, and that weights=None matches
+    # equal weights. Uses an unseeded train_test_split (result independent of the
+    # split).
     """Check weighted average regression prediction on diabetes dataset."""
     reg1 = DummyRegressor(strategy="mean")
     reg2 = DummyRegressor(strategy="median")
@@ -188,6 +220,9 @@ def test_weights_regressor():
 
 
 def test_predict_on_toy_problem(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on a separable 6-point toy set that the three base classifiers and both
+    # hard and soft equal-weight ensembles all predict the true labels.
     """Manually check predicted class labels for toy dataset."""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -219,6 +254,11 @@ def test_predict_on_toy_problem(global_random_seed):
 
 
 def test_predict_proba_on_toy_problem():
+    # [FUNCTION DOC]
+    # Verifies soft-voting predict_proba with weights (2, 1, 1) equals the weighted mean
+    # of hardcoded per-classifier probabilities for four entries (to 1 decimal), and
+    # that predict_proba on a hard-voting ensemble raises AttributeError chained to the
+    # inner "not available when voting='hard'" AttributeError.
     """Calculate predicted probabilities on toy dataset."""
     clf1 = LogisticRegression(random_state=123)
     clf2 = RandomForestClassifier(random_state=123)
@@ -271,6 +311,11 @@ def test_predict_proba_on_toy_problem():
 
 
 def test_multilabel():
+    # [FUNCTION DOC]
+    # Intended to check that multilabel targets are rejected with hard voting.
+    # KNOWN ISSUE: it only returns early on NotImplementedError and asserts nothing, so
+    # it passes whether or not fit raises (and passes if a different error type is not
+    # raised).
     """Check if error is raised for multilabel classification."""
     X, y = make_multilabel_classification(
         n_classes=2, n_labels=1, allow_unlabeled=False, random_state=123
@@ -286,6 +331,9 @@ def test_multilabel():
 
 
 def test_gridsearch():
+    # [FUNCTION DOC]
+    # Smoke test: GridSearchCV over nested lr__C, voting and weights runs on scaled
+    # iris.
     """Check GridSearch support."""
     clf1 = LogisticRegression(random_state=1)
     clf2 = RandomForestClassifier(random_state=1, n_estimators=3)
@@ -305,6 +353,9 @@ def test_gridsearch():
 
 
 def test_parallel_fit(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that fitting with n_jobs=1 and n_jobs=2 gives identical predictions and
+    # probabilities.
     """Check parallel backend of VotingClassifier on toy dataset."""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -324,6 +375,14 @@ def test_parallel_fit(global_random_seed):
 
 
 def test_sample_weight(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that unit sample weights give the same results as no weights; that a
+    # single-LR ensemble with random weights matches LR fit with those weights; and that
+    # a base estimator without sample_weight support (KNN) makes fit raise TypeError
+    # naming it.
+    # KNOWN ISSUE: the last block claims to check that _fit_single_estimator re-raises
+    # unrelated errors, but it calls ClassifierErrorFit.fit directly instead of going
+    # through VotingClassifier, so the ensemble code path is not exercised.
     """Tests sample_weight parameter of VotingClassifier"""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = GradientBoostingClassifier(n_estimators=10, random_state=global_random_seed)
@@ -360,7 +419,12 @@ def test_sample_weight(global_random_seed):
     # check that _fit_single_estimator will raise the right error
     # it should raise the original error if this is not linked to sample_weight
     class ClassifierErrorFit(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: classifier whose fit always raises a TypeError unrelated to
+        # sample_weight.
         def fit(self, X_scaled, y, sample_weight):
+            # [FUNCTION DOC]
+            # HELPER: always raises TypeError("Error unrelated to sample_weight.").
             raise TypeError("Error unrelated to sample_weight.")
 
     clf = ClassifierErrorFit()
@@ -369,12 +433,20 @@ def test_sample_weight(global_random_seed):
 
 
 def test_sample_weight_kwargs():
+    # [FUNCTION DOC]
+    # Verifies VotingClassifier passes sample_weight to sub-estimators as a keyword
+    # argument (the mock's fit asserts it arrives in **kwargs).
     """Check that VotingClassifier passes sample_weight as kwargs"""
 
     class MockClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: classifier whose fit only asserts sample_weight was given by keyword.
         """Mock Classifier to check that sample_weight is received as kwargs"""
 
         def fit(self, X, y, *args, **sample_weight):
+            # [FUNCTION DOC]
+            # HELPER: asserts "sample_weight" is among keyword args; does not fit
+            # anything, returns None.
             assert "sample_weight" in sample_weight
 
     clf = MockClassifier()
@@ -385,6 +457,10 @@ def test_sample_weight_kwargs():
 
 
 def test_voting_classifier_set_params(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that replacing an estimator by name via set_params(nb=clf2) yields the
+    # same predictions and probabilities as constructing with it directly, and that the
+    # estimators list holds the expected params.
     # check equivalence in the output when setting underlying estimators
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(
@@ -409,6 +485,12 @@ def test_voting_classifier_set_params(global_random_seed):
 
 
 def test_set_estimator_drop():
+    # [FUNCTION DOC]
+    # Verifies dropping an estimator with set_params(rf="drop"): predictions equal an
+    # ensemble giving it weight 0 (hard and soft), estimators_ excludes it, get_params
+    # reports "drop", dropping all raises ValueError, and transform with
+    # flatten_transform=False returns only non-dropped estimators' probabilities (soft)
+    # or labels (hard).
     # VotingClassifier set_params should be able to set estimators as drop
     # Test predict
     clf1 = LogisticRegression(random_state=123)
@@ -474,6 +556,9 @@ def test_set_estimator_drop():
 
 
 def test_estimator_weights_format(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies weights given as a list and as a numpy array produce the same
+    # probabilities.
     # Test estimator weights inputs as list and array
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -491,6 +576,10 @@ def test_estimator_weights_format(global_random_seed):
 
 
 def test_transform(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies soft-voting transform shapes: (n_samples, n_classifiers*n_classes) when
+    # flattened (default and explicit), (n_classifiers, n_samples, n_classes) when not,
+    # and that the unflattened output reshaped equals the flattened one.
     """Check transform method of VotingClassifier on toy dataset."""
     clf1 = LogisticRegression(random_state=global_random_seed)
     clf2 = RandomForestClassifier(n_estimators=10, random_state=global_random_seed)
@@ -547,6 +636,9 @@ def test_transform(global_random_seed):
     ],
 )
 def test_none_estimator_with_weights(X, y, voter):
+    # [FUNCTION DOC]
+    # Non-regression for #13777: after setting lr to "drop", fitting with sample_weight
+    # still works and predictions have the shape of y (classifier and regressor).
     # check that an estimator can be set to 'drop' and passing some weight
     # regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/13777
@@ -579,6 +671,9 @@ def test_none_estimator_with_weights(X, y, voter):
     ids=["VotingRegressor", "VotingClassifier"],
 )
 def test_n_features_in(est):
+    # [FUNCTION DOC]
+    # Verifies n_features_in_ is absent before fit and equals 2 after fitting on 2
+    # features.
     est = clone(est)
     X = [[1, 2], [3, 4], [5, 6]]
     y = [0, 1, 2]
@@ -608,6 +703,9 @@ def test_n_features_in(est):
     ],
 )
 def test_voting_verbose(estimator, capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose=True prints "[Voting] ... (i of 2) Processing <name>, total=..."
+    # for each estimator in order, captured from stdout via capsys.
     X = np.array([[-1.1, -1.5], [-1.2, -1.4], [-3.4, -2.2], [1.1, 1.2]])
     y = np.array([1, 1, 2, 2])
 
@@ -620,6 +718,9 @@ def test_voting_verbose(estimator, capsys):
 
 
 def test_get_features_names_out_regressor():
+    # [FUNCTION DOC]
+    # Verifies VotingRegressor.get_feature_names_out returns "votingregressor_<name>"
+    # for each non-dropped estimator.
     """Check get_feature_names_out output for regressor."""
 
     X = [[1, 2], [3, 4], [5, 6]]
@@ -657,6 +758,10 @@ def test_get_features_names_out_regressor():
     ],
 )
 def test_get_features_names_out_classifier(kwargs, expected_names):
+    # [FUNCTION DOC]
+    # Verifies VotingClassifier feature names: per-class names "<name><class_idx>" for
+    # soft voting with flatten_transform, per-estimator names for hard voting; count
+    # matches transform output width.
     """Check get_feature_names_out for classifier for different settings."""
     X = [[1, 2], [3, 4], [5, 6], [1, 1.2]]
     y = [0, 1, 2, 0]
@@ -677,6 +782,9 @@ def test_get_features_names_out_classifier(kwargs, expected_names):
 
 
 def test_get_features_names_out_classifier_error():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out raises ValueError when voting="soft" and
+    # flatten_transform=False.
     """Check that error is raised when voting="soft" and flatten_transform=False."""
     X = [[1, 2], [3, 4], [5, 6]]
     y = [0, 1, 2]
@@ -708,6 +816,12 @@ def test_get_features_names_out_classifier_error():
     [(VotingClassifier, ConsumingClassifier), (VotingRegressor, ConsumingRegressor)],
 )
 def test_routing_passed_metadata_not_supported(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies that passing extra metadata to fit with metadata routing disabled raises
+    # ValueError "is only supported if enable_metadata_routing=True".
+    # KNOWN ISSUE: estimators is given as a flat list ["clf", Child()] instead of a list
+    # of (name, estimator) tuples; the test relies on the metadata check firing before
+    # estimators validation.
     """Test that the right error message is raised when metadata is passed while
     not supported when `enable_metadata_routing=False`."""
 
@@ -726,6 +840,9 @@ def test_routing_passed_metadata_not_supported(Estimator, Child):
 )
 @config_context(enable_metadata_routing=True)
 def test_get_metadata_routing_without_fit(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies get_metadata_routing can be called on an unfitted Voting* estimator with
+    # routing enabled without raising.
     # Test that metadata_routing() doesn't raise when called before fit.
     est = Estimator([("sub_est", Child())])
     est.get_metadata_routing()
@@ -738,6 +855,10 @@ def test_get_metadata_routing_without_fit(Estimator, Child):
 @pytest.mark.parametrize("prop", ["sample_weight", "metadata"])
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_for_voting_estimators(Estimator, Child, prop):
+    # [FUNCTION DOC]
+    # Verifies that with routing enabled and both sub-estimators requesting prop
+    # (sample_weight or metadata), fit forwards the value to each sub-estimator's fit,
+    # checked through each child's recording registry.
     """Test that metadata is routed correctly for Voting*."""
     X = np.array([[0, 1], [2, 2], [4, 6]])
     y = [1, 2, 3]
@@ -776,6 +897,10 @@ def test_metadata_routing_for_voting_estimators(Estimator, Child, prop):
 )
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_error_for_voting_estimators(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies that passing sample_weight and metadata when the child has not declared
+    # its request raises ValueError listing them as not explicitly requested for
+    # <Child>.fit.
     """Test that the right error is raised when metadata is not requested."""
     X = np.array([[0, 1], [2, 2], [4, 6]])
     y = [1, 2, 3]

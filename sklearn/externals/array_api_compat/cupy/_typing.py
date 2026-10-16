@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# CuPy-specific typing aliases: Array is cupy.ndarray, Device is cupy.cuda.Device, and
+# DType is cupy.dtype at runtime (a parametrized dtype union under TYPE_CHECKING).
+# Imports cupy at import time.
 from __future__ import annotations
 
 __all__ = ["Array", "DType", "Device"]

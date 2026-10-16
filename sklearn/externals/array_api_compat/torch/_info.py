@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Array-API inspection namespace for PyTorch: defines the __array_namespace_info__ class
+#   returned by the torch compat namespace. Import side effect: imports torch.
 """
 Array API Inspection namespace
 
@@ -12,6 +15,12 @@ import torch
 from functools import cache
 
 class __array_namespace_info__:
+    # [CLASS DOC]
+    # Stateless inspection object (reported as living in module 'torch') exposing
+    #   capabilities, default device, default dtypes, supported dtypes and devices for
+    #   PyTorch.
+    # KNOWN ISSUE: the class docstring example shows numpy dtypes, but the methods
+    #   return torch dtypes.
     """
     Get the array API inspection namespace for PyTorch.
 
@@ -46,6 +55,9 @@ class __array_namespace_info__:
     __module__ = 'torch'
 
     def capabilities(self):
+        # [FUNCTION DOC]
+        # Returns a fresh dict: boolean indexing True, data-dependent shapes True, max
+        #   dimensions 64. No inputs, no side effects.
         """
         Return a dictionary of array API library capabilities.
 
@@ -90,6 +102,9 @@ class __array_namespace_info__:
         }
 
     def default_device(self):
+        # [FUNCTION DOC]
+        # Returns torch.device("cpu") unconditionally (the static default, not the
+        #   runtime current device).
         """
         The default device used for new PyTorch arrays.
 
@@ -124,6 +139,12 @@ class __array_namespace_info__:
         return torch.device("cpu")
 
     def default_dtypes(self, *, device=None):
+        # [FUNCTION DOC]
+        # Returns the default dtypes dict. Real floating is torch.get_default_dtype();
+        #   complex is complex64 if that is float32, else complex128; integral and
+        #   indexing are int64.
+        # Inputs: device - ignored. Side effects: none (reads torch global default
+        #   dtype).
         """
         The default data types used for new PyTorch arrays.
 
@@ -172,6 +193,14 @@ class __array_namespace_info__:
 
 
     def _dtypes(self, kind):
+        # [FUNCTION DOC]
+        # HELPER: Maps a kind to a name->torch dtype dict without device filtering. kind
+        #   None gives all ten standard dtypes (uint16/32/64 omitted); string kinds
+        #   "bool", "signed integer", "unsigned integer" (uint8 only), "integral", "real
+        #   floating", "complex floating", "numeric" give the corresponding subsets; a
+        #   tuple gives the union obtained by calling the public dtypes for each
+        #   element.
+        # Outputs: new dict. Exceptions: ValueError for any other kind.
         bool = torch.bool
         int8 = torch.int8
         int16 = torch.int16
@@ -251,6 +280,17 @@ class __array_namespace_info__:
 
     @cache
     def dtypes(self, *, device=None, kind=None):
+        # [FUNCTION DOC]
+        # Returns the supported dtypes of the given kind, keeping only those for which
+        #   an empty tensor can actually be allocated on device (any exception drops the
+        #   dtype).
+        # Inputs: device - optional torch device (None = default); kind - see _dtypes.
+        # Outputs: dict name->torch dtype. Exceptions: ValueError from _dtypes.
+        # Side effects: allocates tiny tensors; results are memoised by functools.cache.
+        # KNOWN ISSUE: the cache is keyed on self and returns the same mutable dict to
+        #   every caller, so a caller mutating the result corrupts later calls; the
+        #   cache also keeps instances alive. The docstring lists uint16-uint64 for
+        #   'unsigned integer' but only uint8 is returned.
         """
         The array API data types supported by PyTorch.
 
@@ -315,6 +355,17 @@ class __array_namespace_info__:
 
     @cache
     def devices(self):
+        # [FUNCTION DOC]
+        # Discovers available devices. Provokes a RuntimeError from torch.device with a
+        #   bogus name and parses the "Expected one of ..." message to list device type
+        #   names; then for each type tries to allocate an empty tensor at indices 0, 1,
+        #   2, ... until allocation fails or a device repeats, collecting the resulting
+        #   devices.
+        # Outputs: tuple of torch.device. Side effects: allocations on each device;
+        #   result cached by functools.cache.
+        # KNOWN ISSUE: docstring says list but a tuple is returned; relies on the
+        #   wording of a torch error message, so a change in that message would raise
+        #   IndexError.
         """
         The devices supported by PyTorch.
 

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Array-API compatible torch.linalg namespace. Clones torch.linalg, adds outer, matmul,
+#   matrix_transpose and tensordot from the main namespace, and overrides cross, vecdot,
+#   solve, trace and vector_norm to fix dtype promotion, broadcasting and argument
+#   naming differences from the array API standard.
+# Side effects: importing torch and the sibling _aliases module.
 from __future__ import annotations
 
 import torch
@@ -21,6 +27,17 @@ from ..common._typing import JustInt, JustFloat
 # torch.cross also does not support broadcasting when it would add new
 # dimensions https://github.com/pytorch/pytorch/issues/39656
 def cross(x1: Array, x2: Array, /, *, axis: int = -1) -> Array:
+    # [FUNCTION DOC]
+    # Array-API cross product along axis (default -1, unlike torch's first-size-3 axis
+    #   default). Applies array-API type promotion, validates axis, broadcasts the
+    #   inputs to a common shape, then calls torch.linalg.cross with dim=axis.
+    # Inputs: x1, x2 - tensors whose size along axis is 3; axis - int.
+    # Outputs: tensor of the broadcast shape.
+    # Exceptions: ValueError if axis is outside [-min(ndim), max(ndim)) or if either
+    #   size along axis is not 3.
+    # KNOWN ISSUE: the bounds check is done before broadcasting using min/max of ndims,
+    #   so a negative axis valid only for the higher-dimensional input is rejected, and
+    #   the size check indexes each input with the un-broadcast axis.
     x1, x2 = _fix_promotion(x1, x2, only_scalar=False)
     if not (-min(x1.ndim, x2.ndim) <= axis < max(x1.ndim, x2.ndim)):
         raise ValueError(f"axis {axis} out of bounds for cross product of arrays with shapes {x1.shape} and {x2.shape}")
@@ -30,6 +47,16 @@ def cross(x1: Array, x2: Array, /, *, axis: int = -1) -> Array:
     return torch.linalg.cross(x1, x2, dim=axis)
 
 def vecdot(x1: Array, x2: Array, /, *, axis: int = -1, **kwargs: object) -> Array:
+    # [FUNCTION DOC]
+    # Array-API vector dot product (conjugating x1 for complex) along axis. Applies type
+    #   promotion and requires equal sizes along axis. For integer dtypes (unsupported
+    #   by torch.linalg.vecdot) it moves axis to the end, broadcasts, and computes a
+    #   batched row-by-column matrix product, returning the scalar per batch; otherwise
+    #   forwards to torch.linalg.vecdot with dim=axis.
+    # Inputs: x1, x2 - tensors; axis - int (default -1); kwargs - forwarded to torch.
+    # Outputs: tensor with axis removed and remaining dims broadcast.
+    # Exceptions: ValueError if sizes along axis differ; RuntimeError if kwargs are
+    #   given with integral dtypes.
     from ._aliases import isdtype
 
     x1, x2 = _fix_promotion(x1, x2, only_scalar=False)
@@ -52,6 +79,14 @@ def vecdot(x1: Array, x2: Array, /, *, axis: int = -1, **kwargs: object) -> Arra
     return torch.linalg.vecdot(x1, x2, dim=axis, **kwargs)
 
 def solve(x1: Array, x2: Array, /, **kwargs: object) -> Array:
+    # [FUNCTION DOC]
+    # Array-API linear solve of x1 @ result = x2. Applies type promotion, then, to
+    #   defeat torch's NumPy-1 style vector-rhs heuristic, prepends a length-1 axis to
+    #   x2 when x2 is not 1-D and has shape equal to x1.shape without its last dim.
+    #   Forwards to torch.linalg.solve.
+    # Inputs: x1 - (..., M, M) tensor; x2 - (..., M) or (..., M, K) tensor; kwargs
+    #   forwarded.
+    # Outputs: solution tensor. Exceptions: from torch (e.g. singular matrix).
     x1, x2 = _fix_promotion(x1, x2, only_scalar=False)
     # Torch tries to emulate NumPy 1 solve behavior by using batched 1-D solve
     # whenever
@@ -73,6 +108,13 @@ def solve(x1: Array, x2: Array, /, **kwargs: object) -> Array:
 
 # torch.trace doesn't support the offset argument and doesn't support stacking
 def trace(x: Array, /, *, offset: int = 0, dtype: DType | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Sum of diagonals over the last two axes, supporting offset and stacked inputs:
+    #   takes torch.diagonal on the last two dims then reduces with the wrapped sum
+    #   (which upcasts ints per the standard).
+    # Inputs: x - (..., M, N) tensor; offset - diagonal offset; dtype - optional result
+    #   dtype.
+    # Outputs: tensor of shape x.shape[:-2].
     # Use our wrapped sum to make sure it does upcasting correctly
     return sum(torch.diagonal(x, offset=offset, dim1=-2, dim2=-1), axis=-1, dtype=dtype)
 
@@ -86,6 +128,15 @@ def vector_norm(
     ord: JustInt | JustFloat = 2,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Array-API vector norm. When axis is an empty tuple (torch would treat it like
+    #   None) the result is elementwise: abs(x), or x != 0 when ord is 0, written into
+    #   kwargs['out'] if provided, else a new zeros_like tensor (real dtype for complex
+    #   input). Otherwise forwards to torch.linalg.vector_norm with keepdim=keepdims.
+    # Inputs: x - tensor; axis - None, int, or tuple; keepdims - bool; ord - int or
+    #   +/-inf (default 2); kwargs forwarded (out honored in the empty-axis path).
+    # Outputs: tensor of norms. Side effects: mutates the provided out tensor in the
+    #   empty-axis path.
     # torch.vector_norm incorrectly treats axis=() the same as axis=None
     if axis == ():
         out = kwargs.get('out')
@@ -111,4 +162,6 @@ __all__ += ['outer', 'matmul', 'matrix_transpose', 'tensordot',
             'cross', 'vecdot', 'solve', 'trace', 'vector_norm']
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module-level dir() hook returning __all__.
     return __all__

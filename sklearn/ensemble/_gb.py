@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Classic (exact, non-histogram) gradient boosting: GradientBoostingClassifier
+# and GradientBoostingRegressor built on DecisionTreeRegressor stages. Contains
+# the stage fitting with Friedman-style leaf line search, optional stochastic
+# subsampling with OOB tracking, validation-based early stopping, warm start,
+# verbose reporting, prediction, apply and partial dependence. At import time it
+# copies the _LOSSES registry and adds quantile (PinballLoss) and huber losses.
 """Gradient Boosted Regression Trees.
 
 This module contains methods for fitting gradient boosted regression trees for
@@ -71,6 +78,13 @@ _LOSSES.update(
 
 
 def _safe_divide(numerator, denominator):
+    # [FUNCTION DOC]
+    # HELPER: Returns numerator / denominator as a Python float, or 0.0 when the
+    # absolute denominator is below 1e-150 (e.g. zero hessian with saturated
+    # probabilities). Emits RuntimeWarning if the result is infinite.
+    # Exceptions: ZeroDivisionError cannot occur given the threshold.
+    # KNOWN ISSUE: the division (and its comment) is duplicated; the second
+    # computation is redundant.
     """Prevents overflow and division by zero."""
     # This is used for classifiers where the denominator might become zero exactly.
     # For instance for log loss, HalfBinomialLoss, if proba=0 or proba=1 exactly, then
@@ -92,6 +106,12 @@ def _safe_divide(numerator, denominator):
 
 
 def _init_raw_predictions(X, estimator, loss, use_predict_proba):
+    # [FUNCTION DOC]
+    # HELPER: Computes initial raw predictions from a fitted init estimator. With
+    # use_predict_proba, takes predict_proba (positive-class column for non
+    # multiclass losses), clips to [eps, 1 - eps] as float64; otherwise uses
+    # predict as float64. Applies the loss link and returns a 2d array
+    # (n_samples, K), reshaping 1d results to one column.
     """Return the initial raw predictions.
 
     Parameters
@@ -145,6 +165,21 @@ def _update_terminal_regions(
     learning_rate=0.1,
     k=0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Line search step for one tree (output column k). Applies the tree to X
+    # to get each sample's leaf. For losses other than HalfSquaredError, masks out
+    # out-of-bag samples, then for every leaf computes the update over its in-bag
+    # samples with a loss-specific closure (Newton step for binomial, multinomial
+    # with (K-1)/K factor, exponential; intercept-only fit of residuals otherwise)
+    # and writes it into tree.value. Finally adds learning_rate times the leaf value
+    # to raw_prediction column k for all samples (in-bag and OOB).
+    # Inputs: loss, tree (low-level Tree), X, y (encoded 1d), neg_gradient (1d),
+    # raw_prediction (n_samples, K), sample_weight, sample_mask (bool),
+    # learning_rate, k.
+    # Side effects: mutates tree.value and raw_prediction in place.
+    # KNOWN ISSUE: the compute_update closures read sw from the enclosing scope,
+    # relying on it being assigned in the leaf loop before each call (late binding);
+    # the function silently depends on that ordering.
     """Update the leaf values to be predicted by the tree and raw_prediction.
 
     The current raw predictions of the model (of this stage) are updated.
@@ -198,6 +233,11 @@ def _update_terminal_regions(
         if isinstance(loss, HalfBinomialLoss):
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
+                # [FUNCTION DOC]
+                # HELPER: Binomial Newton step for a leaf: weighted mean of negative gradient
+                # divided (safely) by weighted mean of prob * (1 - prob), where prob is
+                # recovered as y minus negative gradient. Uses sw from the enclosing scope.
+                # Outputs: float leaf value.
                 # Make a single Newton-Raphson step, see "Additive Logistic Regression:
                 # A Statistical View of Boosting" FHT00 and note that we use a slightly
                 # different version (factor 2) of "F" with proba=expit(raw_prediction).
@@ -215,6 +255,11 @@ def _update_terminal_regions(
         elif isinstance(loss, HalfMultinomialLoss):
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
+                # [FUNCTION DOC]
+                # HELPER: Multinomial Newton step for class k: weighted mean of negative
+                # gradient times (K-1)/K divided (safely) by weighted mean of the diagonal
+                # hessian prob * (1 - prob). Uses sw from the enclosing scope.
+                # Outputs: float leaf value.
                 # we take advantage that: y - prob = neg_gradient
                 neg_g = neg_gradient.take(indices, axis=0)
                 prob = y_ - neg_g
@@ -234,6 +279,11 @@ def _update_terminal_regions(
         elif isinstance(loss, ExponentialLoss):
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
+                # [FUNCTION DOC]
+                # HELPER: Exponential-loss Newton step: weighted mean of negative gradient over
+                # weighted mean of the hessian, obtained by flipping the sign of the negative
+                # gradient for samples with y == 0. Uses sw from the enclosing scope.
+                # Outputs: float leaf value.
                 neg_g = neg_gradient.take(indices, axis=0)
                 # numerator = negative gradient = y * exp(-raw) - (1-y) * exp(raw)
                 numerator = np.average(neg_g, weights=sw)
@@ -248,6 +298,11 @@ def _update_terminal_regions(
         else:
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
+                # [FUNCTION DOC]
+                # HELPER: Generic update: loss.fit_intercept_only on residuals y minus current
+                # raw prediction column k for the leaf samples, weighted by sw from the
+                # enclosing scope (e.g. median for absolute error, quantile for pinball).
+                # Outputs: float (or 0-d array) leaf value.
                 return loss.fit_intercept_only(
                     y_true=y_ - raw_prediction[indices, k],
                     sample_weight=sw,
@@ -272,6 +327,12 @@ def _update_terminal_regions(
 
 
 def set_huber_delta(loss, y_true, raw_prediction, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Sets loss.closs.delta to the weighted percentile (at 100 *
+    # loss.quantile) of absolute residuals between y_true and the squeezed raw
+    # predictions. Side effects: mutates the Huber loss object.
+    # KNOWN ISSUE: docstring mentions self.closs and self.quantile although this is
+    # a module function operating on the loss argument.
     """Calculate and set self.closs.delta based on self.quantile."""
     abserr = np.abs(y_true - raw_prediction.squeeze())
     # sample_weight is always an ndarray, never None.
@@ -280,6 +341,9 @@ def set_huber_delta(loss, y_true, raw_prediction, sample_weight=None):
 
 
 class VerboseReporter:
+    # [CLASS DOC]
+    # Prints a progress table (iteration, train loss, OOB improvement when
+    # subsampling, remaining time) during fitting.
     """Reports verbose output to stdout.
 
     Parameters
@@ -291,9 +355,15 @@ class VerboseReporter:
     """
 
     def __init__(self, verbose):
+        # [FUNCTION DOC]
+        # Stores the verbosity level.
         self.verbose = verbose
 
     def init(self, est, begin_at_stage=0):
+        # [FUNCTION DOC]
+        # Builds the header and row format (adds the OOB column if est.subsample < 1),
+        # prints the header, and resets verbose_mod to 1, start_time and
+        # begin_at_stage. Side effects: stdout output, sets attributes.
         """Initialize reporter
 
         Parameters
@@ -324,6 +394,11 @@ class VerboseReporter:
         self.begin_at_stage = begin_at_stage
 
     def update(self, j, est):
+        # [FUNCTION DOC]
+        # For iteration j, if the relative iteration count is a multiple of
+        # verbose_mod, prints train score, OOB improvement and estimated remaining time
+        # (minutes above 60 s). With verbose == 1, multiplies verbose_mod by 10 when
+        # the count reaches ten times the current step, so output becomes logarithmic.
         """Update reporter with new iteration.
 
         Parameters
@@ -359,6 +434,12 @@ class VerboseReporter:
 
 
 class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base implementing fit, staged prediction, apply, feature
+    # importances and partial dependence for classic gradient boosting. Fitted
+    # state: estimators_ (n_estimators, n_trees_per_iteration_) object array of
+    # DecisionTreeRegressor, init_, train_score_, oob arrays, _loss, _rng,
+    # max_features_, n_estimators_.
     """Abstract base class for Gradient Boosting."""
 
     _parameter_constraints: dict = {
@@ -405,6 +486,8 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         tol=1e-4,
         criterion="deprecated",
     ):
+        # [FUNCTION DOC]
+        # Abstract constructor storing all hyperparameters unchanged.
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.loss = loss
@@ -429,10 +512,14 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
 
     @abstractmethod
     def _encode_y(self, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Abstract: validate/encode targets and set n_trees_per_iteration_.
         """Called by fit to validate and encode y."""
 
     @abstractmethod
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # Abstract: return the BaseLoss instance for self.loss.
         """Get loss object from sklearn._loss.loss."""
 
     def _fit_stage(
@@ -447,6 +534,17 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         X_csc=None,
         X_csr=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Fits one boosting stage i. For Huber loss, updates delta first.
+        # Computes the negative gradient of the loss at current raw predictions
+        # (unweighted). For each output k: for multiclass uses the one-vs-rest
+        # indicator of class k as y; fits a squared-error DecisionTreeRegressor on the
+        # k-th negative gradient (CSC X if sparse) with sample weights multiplied by
+        # the in-bag mask when subsampling; runs _update_terminal_regions (CSR X if
+        # sparse) to set leaf values and update raw predictions; stores the tree in
+        # estimators_[i, k].
+        # Outputs: raw_predictions (same array, updated in place).
+        # Side effects: mutates raw_predictions, estimators_, loss delta.
         """Fit another stage of ``n_trees_per_iteration_`` trees."""
         original_y = y
 
@@ -522,6 +620,12 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return raw_predictions
 
     def _set_max_features(self):
+        # [FUNCTION DOC]
+        # HELPER: Resolves max_features into the integer max_features_: "sqrt"/"log2"
+        # of n_features (at least 1), None -> n_features, int as is, float fraction
+        # times n_features (at least 1).
+        # KNOWN ISSUE: the "auto" branch is dead code; "auto" is not an accepted value
+        # under the current parameter constraints.
         """Set self.max_features_."""
         if isinstance(self.max_features, str):
             if self.max_features == "auto":
@@ -543,6 +647,11 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         self.max_features_ = max_features
 
     def _init_state(self):
+        # [FUNCTION DOC]
+        # HELPER: Sets init_ (user init, or DummyClassifier prior, DummyRegressor
+        # median for absolute/huber, alpha-quantile for quantile, mean otherwise),
+        # allocates estimators_ and train_score_ of length n_estimators, and OOB arrays
+        # plus oob_score_ = NaN when subsample < 1.
         """Initialize model state and allocate model state data structures."""
 
         self.init_ = self.init
@@ -567,6 +676,9 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
             self.oob_score_ = np.nan
 
     def _clear_state(self):
+        # [FUNCTION DOC]
+        # HELPER: Resets estimators_ to an empty (0, 0) array and deletes train_score_,
+        # oob arrays, oob_score_, init_ and _rng if present.
         """Clear the state of the gradient boosting model."""
         if hasattr(self, "estimators_"):
             self.estimators_ = np.empty((0, 0), dtype=object)
@@ -584,6 +696,13 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
             del self._rng
 
     def _resize_state(self):
+        # [FUNCTION DOC]
+        # HELPER: For warm start, grows estimators_, train_score_ and OOB arrays to the
+        # new n_estimators (creating OOB arrays if subsampling is newly enabled).
+        # Exceptions: ValueError if n_estimators is smaller than fitted stages.
+        # KNOWN ISSUE: the error message formats self.estimators_[0] (a row of trees)
+        # instead of the number of fitted stages; the branch is also unreachable from
+        # fit, which checks this condition first.
         """Add additional ``n_estimators`` entries to all attributes."""
         # self.n_estimators is the number of additional est to fit
         total_n_estimators = self.n_estimators
@@ -613,9 +732,13 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
                 self.oob_score_ = np.nan
 
     def _is_fitted(self):
+        # [FUNCTION DOC]
+        # HELPER: True if estimators_ exists and is non-empty.
         return len(getattr(self, "estimators_", [])) > 0
 
     def _check_initialized(self):
+        # [FUNCTION DOC]
+        # HELPER: Raises NotFittedError via check_is_fitted if not fitted.
         """Check that the estimator is initialized, raising an error if not."""
         check_is_fitted(self)
 
@@ -624,6 +747,24 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None, monitor=None):
+        # [FUNCTION DOC]
+        # Clears state unless warm_start; warns FutureWarning if criterion is not
+        # "deprecated". Validates X (float32, sparse csr/csc/coo allowed) and y,
+        # builds sample weights (ones by default), encodes y, resolves max_features_
+        # and the loss. If n_iter_no_change is set, splits a validation set
+        # (stratified for classifiers, random_state) and errors if a class disappears
+        # from the training part. On first fit: init state, fit init_ (or zeros for
+        # "zero"), converting sample_weight TypeErrors/pipeline ValueErrors into a
+        # clear ValueError, compute initial raw predictions and create _rng. On warm
+        # start: check n_estimators >= fitted stages, compute raw predictions of the
+        # current model and resize state. Calls _fit_stages, then truncates arrays when
+        # fewer stages were fit (early stopping or monitor) and sets n_estimators_.
+        # Inputs: X, y, sample_weight optional, monitor optional callable(i, est,
+        # locals) returning True to stop.
+        # Outputs: self.
+        # Exceptions: ValueError for missing classes after split, init estimator
+        # without sample_weight support, and n_estimators too small on warm start.
+        # Side effects: sets fitted attributes; consumes random_state; warnings.
         """Fit the gradient boosting model.
 
         Parameters
@@ -841,6 +982,22 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         begin_at_stage=0,
         monitor=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Runs boosting iterations from begin_at_stage to n_estimators. When
+        # subsample < 1, draws an in-bag mask of max(1, subsample * n) samples per
+        # stage, records the initial OOB loss at stage 0, and after fitting stores
+        # in-bag train loss, OOB loss and OOB improvement; otherwise stores full train
+        # loss. Losses for squared error and binomial are doubled for backward
+        # compatibility. Calls verbose reporter and monitor (stops if it returns
+        # True). With n_iter_no_change, evaluates validation loss via a staged
+        # prediction generator and stops unless it improves by more than tol on at
+        # least one of the last n_iter_no_change recorded losses (circular buffer).
+        # Outputs: number of stages fitted (i + 1).
+        # Side effects: fills estimators_, train_score_, oob arrays; consumes rng.
+        # KNOWN ISSUE: oob_score_ is set to the last slot of oob_scores_ (still zero
+        # until the final stage) rather than the current stage. When warm starting
+        # with subsampling newly enabled, stage begin_at_stage uses oob_scores_[i-1]
+        # (zero) as previous loss, giving a meaningless OOB improvement.
         """Iteratively fits the stages.
 
         For each stage it computes the progress (OOB, train score)
@@ -961,10 +1118,16 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return i + 1
 
     def _make_estimator(self, append=True):
+        # [FUNCTION DOC]
+        # Not used by gradient boosting; always raises NotImplementedError.
         # we don't need _make_estimator
         raise NotImplementedError()
 
     def _raw_predict_init(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X through the first tree, and returns zeros
+        # for init "zero" or the init estimator's linked predictions,
+        # shape (n_samples, K) float64.
         """Check input and compute raw predictions of the init estimator."""
         self._check_initialized()
         X = self.estimators_[0, 0]._validate_X_predict(X, check_input=True)
@@ -979,6 +1142,9 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return raw_predictions
 
     def _raw_predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Initial raw predictions plus learning_rate times the sum of all tree
+        # outputs (Cython predict_stages). Outputs: (n_samples, K) float64.
         """Return the sum of the trees raw predictions (+ init estimator)."""
         check_is_fitted(self)
         raw_predictions = self._raw_predict_init(X)
@@ -986,6 +1152,9 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return raw_predictions
 
     def _staged_raw_predict(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # Generator: optionally validates X (float32, C order, CSR), then after adding
+        # each stage's trees yields a copy of the raw predictions (n_samples, K).
         """Compute raw predictions of ``X`` for each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1020,6 +1189,10 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
 
     @property
     def feature_importances_(self):
+        # [FUNCTION DOC]
+        # Property: averages unnormalized impurity-based importances over all trees
+        # with more than one node and normalizes them to sum to 1; returns zeros if
+        # every tree is a single leaf. Raises NotFittedError if unfitted.
         """The impurity-based feature importances.
 
         The higher, the more important the feature.
@@ -1060,6 +1233,11 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return avg_feature_importances / np.sum(avg_feature_importances)
 
     def _compute_partial_dependence_recursion(self, grid, target_features):
+        # [FUNCTION DOC]
+        # Recursion-method partial dependence: sums each tree's weighted traversal
+        # contribution into row k of a (K, n_grid) float64 array and multiplies by
+        # learning_rate. Init predictions are not included; warns UserWarning when a
+        # custom init estimator is set.
         """Fast partial dependence computation.
 
         Parameters
@@ -1102,6 +1280,9 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return averaged_predictions
 
     def apply(self, X):
+        # [FUNCTION DOC]
+        # Validates X through the first tree and returns a float array
+        # (n_samples, n_stages, K) with the leaf index reached in each tree.
         """Apply trees in the ensemble to X, return leaf indices.
 
         .. versionadded:: 0.17
@@ -1137,12 +1318,17 @@ class BaseGradientBoosting(BaseEnsemble, metaclass=ABCMeta):
         return leaves
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags declaring sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
+    # [CLASS DOC]
+    # Classifier variant with log_loss (binomial or multinomial) or exponential
+    # loss; one tree per stage for binary problems, one per class otherwise.
     """Gradient Boosting for classification.
 
     This algorithm builds an additive model in a forward stage-wise fashion; it
@@ -1505,6 +1691,8 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         tol=1e-4,
         ccp_alpha=0.0,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to the base constructor.
         super().__init__(
             loss=loss,
             learning_rate=learning_rate,
@@ -1529,6 +1717,12 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         )
 
     def _encode_y(self, y, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Checks classification targets, label-encodes y into 0..n_classes-1
+        # (float), sets classes_, n_classes_ and n_trees_per_iteration_ (1 if at most 2
+        # classes). Counts classes with non-zero total weight.
+        # Exceptions: ValueError if fewer than 2 classes remain (with or without
+        # weights).
         # encode classes into 0 ... n_classes - 1 and sets attributes classes_
         # and n_trees_per_iteration_
         check_classification_targets(y)
@@ -1559,6 +1753,10 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         return encoded_y
 
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: HalfBinomialLoss for 2 classes or HalfMultinomialLoss otherwise for
+        # log_loss; ExponentialLoss for exponential.
+        # Exceptions: ValueError for exponential loss with more than 2 classes.
         if self.loss == "log_loss":
             if self.n_classes_ == 2:
                 return HalfBinomialLoss(sample_weight=sample_weight)
@@ -1577,6 +1775,8 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
                 return ExponentialLoss(sample_weight=sample_weight)
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns raw predictions, raveled to (n_samples,) for binary.
         """Compute the decision function of ``X``.
 
         Parameters
@@ -1604,6 +1804,8 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         return raw_predictions
 
     def staged_decision_function(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding raw predictions (n_samples, K) per stage (not raveled).
         """Compute decision function of ``X`` for each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1628,6 +1830,10 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         yield from self._staged_raw_predict(X)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Binary: class 1 where decision >= 0; multiclass: argmax. Returns labels.
+        # KNOWN ISSUE: the binary threshold uses >= 0 whereas the histogram estimator
+        # uses > 0, so ties are resolved differently between the two implementations.
         """Predict class for X.
 
         Parameters
@@ -1650,6 +1856,8 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         return self.classes_[encoded_classes]
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding predicted labels after each stage, same rule as predict.
         """Predict class at each stage for X.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1677,6 +1885,9 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
                 yield self.classes_.take(encoded_classes, axis=0)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the loss's probabilities for the decision values,
+        # (n_samples, n_classes).
         """Predict class probabilities for X.
 
         Parameters
@@ -1701,6 +1912,8 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         return self._loss.predict_proba(raw_predictions)
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Natural log of predict_proba (may give -inf for zero probabilities).
         """Predict class log-probabilities for X.
 
         Parameters
@@ -1725,6 +1938,11 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
         return np.log(proba)
 
     def staged_predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding class probabilities per stage; AttributeError from the loss
+        # is re-raised with a message that the loss does not support predict_proba.
+        # KNOWN ISSUE: docstring gives yielded shape (n_samples,) but arrays are
+        # (n_samples, n_classes).
         """Predict class probabilities at each stage for X.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1754,6 +1972,10 @@ class GradientBoostingClassifier(ClassifierMixin, BaseGradientBoosting):
 
 
 class GradientBoostingRegressor(RegressorMixin, BaseGradientBoosting):
+    # [CLASS DOC]
+    # Regressor variant supporting squared_error, absolute_error, huber and
+    # quantile losses (alpha is the quantile for huber/quantile). Raw predictions
+    # are returned directly (identity link).
     """Gradient Boosting for regression.
 
     This estimator builds an additive model in a forward stage-wise fashion; it
@@ -2111,6 +2333,8 @@ class GradientBoostingRegressor(RegressorMixin, BaseGradientBoosting):
         tol=1e-4,
         ccp_alpha=0.0,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters (including alpha) to the base constructor.
         super().__init__(
             loss=loss,
             learning_rate=learning_rate,
@@ -2136,18 +2360,25 @@ class GradientBoostingRegressor(RegressorMixin, BaseGradientBoosting):
         )
 
     def _encode_y(self, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets n_trees_per_iteration_ = 1 and casts y to float64.
         # Just convert y to the expected dtype
         self.n_trees_per_iteration_ = 1
         y = y.astype(np.float64, copy=False)
         return y
 
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Instantiates the loss from the module _LOSSES registry, passing
+        # quantile=alpha for quantile and huber losses.
         if self.loss in ("quantile", "huber"):
             return _LOSSES[self.loss](sample_weight=sample_weight, quantile=self.alpha)
         else:
             return _LOSSES[self.loss](sample_weight=sample_weight)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns raveled raw predictions (n_samples,).
         """Predict regression target for X.
 
         Parameters
@@ -2169,6 +2400,8 @@ class GradientBoostingRegressor(RegressorMixin, BaseGradientBoosting):
         return self._raw_predict(X).ravel()
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding raveled raw predictions after each stage.
         """Predict regression target at each stage for X.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -2190,6 +2423,10 @@ class GradientBoostingRegressor(RegressorMixin, BaseGradientBoosting):
             yield raw_predictions.ravel()
 
     def apply(self, X):
+        # [FUNCTION DOC]
+        # Calls the base apply and reshapes to (n_samples, n_stages).
+        # KNOWN ISSUE: uses X.shape, so a plain list input (accepted by the base apply)
+        # raises AttributeError here.
         """Apply trees in the ensemble to X, return leaf indices.
 
         .. versionadded:: 0.17

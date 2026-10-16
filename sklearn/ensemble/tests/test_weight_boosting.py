@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Tests for AdaBoostClassifier and AdaBoostRegressor
+# (sklearn.ensemble._weight_boosting): toy and real-dataset accuracy, staged methods,
+# grid search over base-estimator params, pickling, feature importances, sample_weight
+# validation and effect, sparse input handling, n-dimensional X, and several non-
+# regression cases. Side effects at import: builds module-level toy data (X, y_class
+# with mixed str/int labels, y_regr, test points T with expected labels), loads iris and
+# diabetes and shuffles them in place with a shared RandomState(0).
+# KNOWN ISSUE: the module-level perm permutation is computed but never used (shuffle is
+# used instead); it only advances the shared RNG.
 """Testing for the boost module (sklearn.ensemble.boost)."""
 
 import re
@@ -52,6 +62,9 @@ diabetes.data, diabetes.target = shuffle(
 
 
 def test_oneclass_adaboost_proba():
+    # [FUNCTION DOC]
+    # Non-regression for #7501: fitting on a target with a single class gives
+    # predict_proba of shape (n_samples, 1) filled with ones.
     # Test predict_proba robustness for one class label input.
     # In response to issue #7501
     # https://github.com/scikit-learn/scikit-learn/issues/7501
@@ -61,6 +74,10 @@ def test_oneclass_adaboost_proba():
 
 
 def test_classification_toy():
+    # [FUNCTION DOC]
+    # Verifies on the toy data with mixed string/int labels that predictions on T match
+    # the expected labels, classes_ equals the sorted unique labels, predict_proba has
+    # shape (n_test, 2) and the binary decision_function is 1-D.
     # Check classification on a toy dataset.
     clf = AdaBoostClassifier(random_state=0)
     clf.fit(X, y_class)
@@ -71,6 +88,9 @@ def test_classification_toy():
 
 
 def test_regression_toy():
+    # [FUNCTION DOC]
+    # Verifies AdaBoostRegressor predicts the toy regression targets on T exactly.
+    # KNOWN ISSUE: inline comment says "classification" but this is the regression test.
     # Check classification on a toy dataset.
     clf = AdaBoostRegressor(random_state=0)
     clf.fit(X, y_regr)
@@ -78,6 +98,11 @@ def test_regression_toy():
 
 
 def test_iris():
+    # [FUNCTION DOC]
+    # Verifies on shuffled iris: classes_ matches the unique targets, predict_proba and
+    # decision_function have one column per class, training accuracy exceeds 0.9, more
+    # than one estimator was fitted, and every estimator got a distinct random_state
+    # (#7408).
     # Check consistency on dataset iris.
     classes = np.unique(iris.target)
 
@@ -101,6 +126,9 @@ def test_iris():
 
 @pytest.mark.parametrize("loss", ["linear", "square", "exponential"])
 def test_diabetes(loss):
+    # [FUNCTION DOC]
+    # Verifies, for each loss (linear, square, exponential), training R^2 on diabetes
+    # above 0.55, more than one estimator, and distinct per-estimator random states.
     # Check consistency on dataset diabetes.
     reg = AdaBoostRegressor(loss=loss, random_state=0)
     reg.fit(diabetes.data, diabetes.target)
@@ -114,6 +142,11 @@ def test_diabetes(loss):
 
 
 def test_staged_predict():
+    # [FUNCTION DOC]
+    # Verifies that with random integer sample weights, staged_predict,
+    # staged_predict_proba and staged_score of a 10-estimator classifier on iris yield
+    # 10 stages whose last equals predict / predict_proba / score; same check for the
+    # regressor on diabetes (predict and score only).
     # Check staged predictions.
     rng = np.random.RandomState(0)
     iris_weights = rng.randint(10, size=iris.target.shape)
@@ -159,6 +192,9 @@ def test_staged_predict():
 
 
 def test_gridsearch():
+    # [FUNCTION DOC]
+    # Smoke test: GridSearchCV over n_estimators and the nested estimator__max_depth
+    # runs for both the AdaBoost classifier (iris) and regressor (diabetes).
     # Check that base trees can be grid-searched.
     # AdaBoost classification
     boost = AdaBoostClassifier(estimator=DecisionTreeClassifier())
@@ -177,6 +213,9 @@ def test_gridsearch():
 
 
 def test_pickle():
+    # [FUNCTION DOC]
+    # Verifies that pickling and unpickling a fitted classifier and regressor preserves
+    # the class and the exact training score.
     # Check pickability.
     import pickle
 
@@ -204,6 +243,10 @@ def test_pickle():
 
 
 def test_importances():
+    # [FUNCTION DOC]
+    # Verifies on an unshuffled make_classification dataset with 3 informative features
+    # first that feature_importances_ has 10 entries and every informative feature is at
+    # least as important as every noise feature.
     # Check variable importances.
     X, y = datasets.make_classification(
         n_samples=2000,
@@ -225,6 +268,9 @@ def test_importances():
 
 
 def test_adaboost_classifier_sample_weight_error():
+    # [FUNCTION DOC]
+    # Verifies that a sample_weight of wrong length raises ValueError with the message
+    # "sample_weight.shape == (1,), expected (6,)".
     # Test that it gives proper exception on incorrect sample weight.
     clf = AdaBoostClassifier()
     msg = re.escape("sample_weight.shape == (1,), expected (6,)")
@@ -233,6 +279,11 @@ def test_adaboost_classifier_sample_weight_error():
 
 
 def test_estimator():
+    # [FUNCTION DOC]
+    # Smoke-tests various base estimators (RandomForest and SVC for the classifier,
+    # RandomForest and SVR for the regressor) and verifies that when the first weak
+    # learner is no better than random (identical inputs, four classes) fit raises
+    # ValueError "worse than random".
     # Test different estimators.
     from sklearn.ensemble import RandomForestClassifier
 
@@ -261,6 +312,9 @@ def test_estimator():
 
 
 def test_sample_weights_infinite():
+    # [FUNCTION DOC]
+    # Verifies that a huge learning_rate (23) makes sample weights overflow and fit
+    # emits a UserWarning "Sample weights have reached infinite values".
     msg = "Sample weights have reached infinite values"
     clf = AdaBoostClassifier(n_estimators=30, learning_rate=23.0)
     with pytest.warns(UserWarning, match=msg):
@@ -281,12 +335,24 @@ def test_sample_weights_infinite():
     ),
 )
 def test_sparse_classification(sparse_container, expected_internal_type):
+    # [FUNCTION DOC]
+    # Verifies sparse/dense equivalence for the classifier on a small binary problem:
+    # for each sparse container, a classifier with a LogisticRegression subclass base
+    # estimator gives the same predict, decision_function, predict_log_proba,
+    # predict_proba, score and every staged_* output as one fitted on dense data. Also
+    # checks the base estimators received data of expected_internal_type (CSC stays CSC,
+    # other formats converted to CSR).
     # Check classification with sparse input.
 
     class CustomProbabilisticClassifier(LogisticRegression):
+        # [CLASS DOC]
+        # HELPER: LogisticRegression subclass recording the type of X it was fit on.
         """LogisticRegression variant that records the nature of the training set."""
 
         def fit(self, X, y, sample_weight=None):
+            # [FUNCTION DOC]
+            # HELPER: Fits the parent LogisticRegression with the given sample_weight,
+            # stores type(X) in data_type_ and returns self.
             """Modification on fit caries data type for later verification."""
             super().fit(X, y, sample_weight=sample_weight)
             self.data_type_ = type(X)
@@ -384,12 +450,21 @@ def test_sparse_classification(sparse_container, expected_internal_type):
     ),
 )
 def test_sparse_regression(sparse_container, expected_internal_type):
+    # [FUNCTION DOC]
+    # Verifies sparse/dense equivalence for the regressor with an SVR subclass base
+    # estimator: predict and staged_predict match, and base estimators received the
+    # expected sparse type (CSC kept, others converted to CSR).
     # Check regression with sparse input.
 
     class CustomSVR(SVR):
+        # [CLASS DOC]
+        # HELPER: SVR subclass recording the type of X it was fit on.
         """SVR variant that records the nature of the training set."""
 
         def fit(self, X, y, sample_weight=None):
+            # [FUNCTION DOC]
+            # HELPER: Fits the parent SVR with sample_weight, stores type(X) in
+            # data_type_, returns self.
             """Modification on fit caries data type for later verification."""
             super().fit(X, y, sample_weight=sample_weight)
             self.data_type_ = type(X)
@@ -431,6 +506,10 @@ def test_sparse_regression(sparse_container, expected_internal_type):
 
 
 def test_sample_weight_adaboost_regressor():
+    # [FUNCTION DOC]
+    # Verifies AdaBoostRegressor works with a base estimator whose fit takes no
+    # sample_weight (the regressor resamples by weight internally) and that
+    # estimator_weights_ and estimator_errors_ have equal length.
     """
     AdaBoostRegressor should work without sample_weights in the base estimator
     The random weighted sampling is done internally in the _boost method in
@@ -438,10 +517,17 @@ def test_sample_weight_adaboost_regressor():
     """
 
     class DummyEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: minimal estimator with fit ignoring its data and predict returning
+        # zeros.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: no-op; accepts X, y and returns None (no sample_weight parameter).
             pass
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: returns a zero vector with one entry per row of X.
             return np.zeros(X.shape[0])
 
     boost = AdaBoostRegressor(DummyEstimator(), n_estimators=3)
@@ -450,6 +536,9 @@ def test_sample_weight_adaboost_regressor():
 
 
 def test_multidimensional_X():
+    # [FUNCTION DOC]
+    # Smoke test: AdaBoost classifier and regressor with Dummy base estimators accept a
+    # 3-D X of shape (51, 3, 3) in fit, predict and (classifier) predict_proba.
     """
     Check that the AdaBoost estimators can work with n-dimensional
     data matrix
@@ -471,6 +560,10 @@ def test_multidimensional_X():
 
 
 def test_adaboostclassifier_without_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies that a base classifier whose fit lacks sample_weight
+    # (NoSampleWeightWrapper) makes AdaBoostClassifier.fit raise ValueError "<name>
+    # doesn't support sample_weight".
     X, y = iris.data, iris.target
     estimator = NoSampleWeightWrapper(DummyClassifier())
     clf = AdaBoostClassifier(estimator=estimator)
@@ -480,6 +573,12 @@ def test_adaboostclassifier_without_sample_weight():
 
 
 def test_adaboostregressor_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies that sample_weight affects the weak learner error: on a near-linear
+    # dataset with one huge outlier, a single-learner regressor trained with the outlier
+    # scores worse (on non-outlier data) than one trained without it and one trained
+    # with the outlier given zero weight, and the latter two score approximately the
+    # same.
     # check that giving weight will have an influence on the error computed
     # for a weak learner
     rng = np.random.RandomState(42)
@@ -518,6 +617,8 @@ def test_adaboostregressor_sample_weight():
 
 
 def test_adaboost_consistent_predict():
+    # [FUNCTION DOC]
+    # Non-regression for #14084: on digits, the argmax of predict_proba equals predict.
     # check that predict_proba and predict give consistent results
     # regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/14084
@@ -540,6 +641,10 @@ def test_adaboost_consistent_predict():
     ],
 )
 def test_adaboost_negative_weight_error(model, X, y):
+    # [FUNCTION DOC]
+    # Verifies that a negative sample weight makes fit raise ValueError "Negative values
+    # in data passed to `sample_weight`" for both classifier (iris) and regressor
+    # (diabetes).
     sample_weight = np.ones_like(y)
     sample_weight[-1] = -10
 
@@ -549,6 +654,9 @@ def test_adaboost_negative_weight_error(model, X, y):
 
 
 def test_adaboost_numerically_stable_feature_importance_with_small_weights():
+    # [FUNCTION DOC]
+    # Non-regression for #20320: with all sample weights 1e-263, fitting 20 depth-10
+    # trees gives feature_importances_ with no NaN.
     """Check that we don't create NaN feature importance with numerically
     instable inputs.
 
@@ -566,6 +674,11 @@ def test_adaboost_numerically_stable_feature_importance_with_small_weights():
 
 
 def test_adaboost_decision_function(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression for #26520: on a 3-class problem, the decision function (and every
+    # staged decision function) sums to zero across classes per sample; with a single
+    # learner it only takes the values 1 and -1/(n_classes-1). With 5 learners only the
+    # zero-sum property is checked.
     """Check that the decision function respects the symmetric constraint for weak
     learners.
 

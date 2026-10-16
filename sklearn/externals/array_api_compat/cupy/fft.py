@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Array-API-compatible cupy.fft namespace: star-imports cupy.fft, computes the list of
+# its public names by exec-ing a star import into a scratch dict (cupy.fft has no
+# __all__), then overrides the transform functions with common._fft wrappers bound to
+# cupy. __all__ is that list plus common._fft.__all__ (may contain duplicates).
+# Side effects: imports cupy; uses exec at import time.
 from cupy.fft import *  # noqa: F403
 
 # cupy.fft doesn't have __all__. If it is added, replace this with
@@ -32,5 +38,7 @@ ifftshift = get_xp(cp)(_fft.ifftshift)
 __all__ = fft_all + _fft.__all__
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__
 

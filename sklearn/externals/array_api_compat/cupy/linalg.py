@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Array-API-compatible cupy.linalg namespace: star-imports cupy.linalg (plus lstsq and,
+# on CuPy 14, annotations), collects its public names via exec of a star import, then
+# overrides/adds the common._linalg wrappers bound to cupy and the matmul,
+# matrix_transpose, tensordot, vecdot aliases. vector_norm uses CuPy's native version
+# when available. __all__ is the deduplicated, sorted union of CuPy's names and
+# common._linalg.__all__.
+# Side effects: imports cupy; uses exec at import time.
 from cupy.linalg import * # noqa: F403
 
 # https://github.com/cupy/cupy/issues/9749
@@ -59,4 +67,6 @@ __all__ = linalg_all + _linalg.__all__
 __all__ = sorted(set(__all__))
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__
