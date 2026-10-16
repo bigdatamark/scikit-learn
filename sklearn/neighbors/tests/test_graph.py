@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for KNeighborsTransformer and RadiusNeighborsTransformer from _graph.py: output
+# shapes, CSR format, per-row sorting, explicit storage of self-distances, and output
+# feature names.
 import numpy as np
 import pytest
 
@@ -8,6 +12,13 @@ from sklearn.utils._testing import assert_array_equal
 
 
 def test_transformer_result():
+    # [FUNCTION DOC]
+    # For both modes, checks that KNeighborsTransformer outputs CSR graphs of the right
+    # shape with n_neighbors (plus one in distance mode) entries per row, sorted by
+    # data,
+    # for fit_transform and transform on new data; and that RadiusNeighborsTransformer
+    # outputs correctly shaped sorted CSR graphs whose entry count differs from the k-NN
+    # count.
     # Test the number of neighbors returned
     n_neighbors = 5
     n_samples_fit = 20
@@ -53,6 +64,11 @@ def test_transformer_result():
 
 
 def _has_explicit_diagonal(X):
+    # [FUNCTION DOC]
+    # HELPER: Returns True when the number of explicitly stored diagonal entries equals
+    # the
+    # number of rows (converts to COO and counts entries with row equal to column).
+    # Inputs: X - sparse matrix. Outputs: bool.
     """Return True if the diagonal is explicitly stored"""
     X = X.tocoo()
     explicit = X.row[X.row == X.col]
@@ -60,6 +76,10 @@ def _has_explicit_diagonal(X):
 
 
 def test_explicit_diagonal():
+    # [FUNCTION DOC]
+    # Checks that in distance mode the training graph (via fit_transform and transform)
+    # stores each sample's zero self-distance explicitly as the first entry of its row,
+    # while transforming new data does not produce a full explicit diagonal.
     # Test that the diagonal is explicitly stored in the sparse graph
     n_neighbors = 5
     n_samples_fit, n_samples_transform, n_features = 20, 18, 10
@@ -83,6 +103,9 @@ def test_explicit_diagonal():
 
 @pytest.mark.parametrize("Klass", (KNeighborsTransformer, RadiusNeighborsTransformer))
 def test_graph_feature_names_out(Klass):
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns the lowercase class name followed by an index
+    # for each of the n_samples_fit_ output columns.
     """Check `get_feature_names_out` for transformers defined in `_graph.py`."""
 
     n_samples_fit = 20
