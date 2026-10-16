@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Builds 100 noisy points along 3*sin(x) for x in
+# [-6, 4*pi - 6) (global seed 0), fits a 10-component EM GaussianMixture and two
+# Dirichlet-process BayesianGaussianMixtures (concentration 0.01 with random init,
+# and 100 with kmeans init), plots each with ellipses, and plots 2000 samples drawn
+# from each Bayesian model, in a 5x1 grid.
+# Side effects: global numpy seed; creates a figure.
 """
 =================================
 Gaussian Mixture Model Sine Curve
@@ -55,6 +62,14 @@ color_iter = itertools.cycle(["navy", "c", "cornflowerblue", "gold", "darkorange
 
 
 def plot_results(X, Y, means, covariances, index, title):
+    # [FUNCTION DOC]
+    # HELPER: Same as in plot_gmm.py but for subplot 1+index of a 5x1 grid and x limits
+    # [-6, 4*pi - 6], y limits [-5, 5]: scatters points of each non-empty component and
+    # draws its covariance ellipse.
+    # Inputs: X - (n, 2); Y - labels; means, covariances - full 2x2 per component;
+    # index - 0..2; title - str. Outputs: None. Advances global color_iter.
+    # KNOWN ISSUE: eigenvector taken as w[0] (row) instead of w[:, 0], possibly
+    # mirroring orientation.
     splot = plt.subplot(5, 1, 1 + index)
     for i, (mean, covar, color) in enumerate(zip(means, covariances, color_iter)):
         v, w = linalg.eigh(covar)
@@ -83,6 +98,12 @@ def plot_results(X, Y, means, covariances, index, title):
 
 
 def plot_samples(X, Y, n_components, index, title):
+    # [FUNCTION DOC]
+    # HELPER: In subplot 4+index of a 5x1 grid, scatters sampled points grouped by
+    # their component label for labels 0..n_components-1 that occur, with the same
+    # fixed limits.
+    # Inputs: X - samples (n, 2); Y - component labels; n_components - int;
+    # index - 0 or 1; title - str. Outputs: None. Advances global color_iter.
     plt.subplot(5, 1, 4 + index)
     for i, color in zip(range(n_components), color_iter):
         # as the DP will not use every component it has access to

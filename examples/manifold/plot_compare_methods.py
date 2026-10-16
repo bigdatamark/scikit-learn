@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery example script (runs top to bottom at import, no public API). Generates
+# a 1500-point S-curve (random_state=0), shows it in 3D, then embeds it into 2D with
+# four LocallyLinearEmbedding variants (standard, ltsa, hessian, modified), Isomap
+# (p=1), metric / non-metric MDS (50 iterations, classical_mds init) and
+# ClassicalMDS, SpectralEmbedding and TSNE (random init, 250 iterations), plotting
+# each embedding coloured by the S-curve position.
+# Side effects: creates and shows many matplotlib figures; computation is
+# deterministic thanks to fixed random_state values.
 """
 =========================================
 Comparison of Manifold Learning methods
@@ -46,6 +55,13 @@ S_points, S_color = datasets.make_s_curve(n_samples, random_state=0)
 
 
 def plot_3d(points, points_color, title):
+    # [FUNCTION DOC]
+    # HELPER: Draws a 3D scatter plot of points coloured by points_color in a new
+    # 6x6 figure with a horizontal colorbar, fixed view angle (azim -60, elev 9) and
+    # unit tick spacing on all three axes, then shows it.
+    # Inputs: points - array (n_samples, 3); points_color - array (n_samples,) of
+    # scalar colours; title - figure suptitle string.
+    # Outputs: None. Side effects: creates and shows a matplotlib figure.
     x, y, z = points.T
 
     fig, ax = plt.subplots(
@@ -66,6 +82,11 @@ def plot_3d(points, points_color, title):
 
 
 def plot_2d(points, points_color, title):
+    # [FUNCTION DOC]
+    # HELPER: Creates a small 3x3 figure titled title, draws a 2D scatter of points via
+    # add_2d_scatter and shows it.
+    # Inputs: points - array (n_samples, 2); points_color - array (n_samples,);
+    # title - suptitle string. Outputs: None. Side effects: shows a figure.
     fig, ax = plt.subplots(figsize=(3, 3), facecolor="white", constrained_layout=True)
     fig.suptitle(title, size=16)
     add_2d_scatter(ax, points, points_color)
@@ -73,6 +94,12 @@ def plot_2d(points, points_color, title):
 
 
 def add_2d_scatter(ax, points, points_color, title=None):
+    # [FUNCTION DOC]
+    # HELPER: Draws a 2D scatter of points onto an existing axes, sets its title and
+    # hides tick labels on both axes.
+    # Inputs: ax - matplotlib Axes; points - array (n_samples, 2); points_color -
+    # array (n_samples,); title - optional axes title (None leaves it empty).
+    # Outputs: None. Side effects: mutates ax.
     x, y = points.T
     ax.scatter(x, y, c=points_color, s=50, alpha=0.8)
     ax.set_title(title)

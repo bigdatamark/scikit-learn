@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery example script. Generates 500 points from a general 2D Gaussian and 500
+# from a spherical one, grid-searches GaussianMixture over n_components 1..6 and
+# the four covariance types using negative BIC (gmm_bic_score) as score, tabulates
+# and bar-plots BIC per configuration with seaborn, and plots the best model's
+# clusters with covariance ellipses.
+# Side effects: global numpy seed; requires pandas and seaborn; creates figures.
+# KNOWN ISSUE: color_iter has only 2 colours, so zip silently drops components
+# beyond the second if the selected model has more; the ellipse orientation uses
+# w[0] (a row) rather than the first eigenvector column, and the code assumes full
+# 2x2 covariances_ (it would break if a non-full type were selected).
 """
 ================================
 Gaussian Mixture Model Selection
@@ -73,6 +84,10 @@ from sklearn.model_selection import GridSearchCV
 
 
 def gmm_bic_score(estimator, X):
+    # [FUNCTION DOC]
+    # HELPER: Scoring callable for GridSearchCV returning the negated BIC of the
+    # fitted estimator on X, so that higher is better.
+    # Inputs: estimator - fitted GaussianMixture; X - data. Outputs: float.
     """Callable to pass to GridSearchCV that will use the BIC score."""
     # Make it negative since GridSearchCV expects a score to maximize
     return -estimator.bic(X)

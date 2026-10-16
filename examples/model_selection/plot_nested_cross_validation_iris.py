@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. For 30 trials with different KFold seeds, compares the
+# best_score_ of a GridSearchCV over SVC C/gamma using the outer CV directly
+# (non-nested) with the mean of cross_val_score of a GridSearchCV using an inner CV
+# (nested), prints mean/std of the difference and plots both series and their
+# differences.
+# Side effects: prints; creates a figure. Inner and outer CV share the same seed
+# per trial, as written.
 """
 =========================================
 Nested versus non-nested cross-validation

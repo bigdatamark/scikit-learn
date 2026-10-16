@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Demonstrates class_likelihood_ratios: computes LR+ on an
+# imbalanced (10% positive) problem, cross-validates LR+/LR- for LogisticRegression,
+# stratified and most_frequent dummies and a small-sample case, then fits a base
+# model on a balanced population and evaluates it (bootstrap means/std) on
+# populations with prevalence from 0.2 to 0.9, comparing with the base model's CV
+# band, plus decision boundary plots per prevalence.
+# Side effects: prints; creates figures.
 """
 =============================================================
 Class Likelihood Ratios to measure classification performance
@@ -80,12 +88,22 @@ import pandas as pd
 
 
 def scoring(estimator, X, y):
+    # [FUNCTION DOC]
+    # HELPER: Multi-metric scorer: predicts on X and returns a dict with
+    # positive_likelihood_ratio and negative_likelihood_ratio (undefined values
+    # replaced by 1.0).
+    # Inputs: estimator - fitted classifier; X, y - data. Outputs: dict of floats.
     y_pred = estimator.predict(X)
     pos_lr, neg_lr = class_likelihood_ratios(y, y_pred, replace_undefined_by=1.0)
     return {"positive_likelihood_ratio": pos_lr, "negative_likelihood_ratio": neg_lr}
 
 
 def extract_score(cv_results):
+    # [FUNCTION DOC]
+    # HELPER: Builds a DataFrame with columns positive/negative from the cross_validate
+    # results test_positive_likelihood_ratio / test_negative_likelihood_ratio and
+    # returns their mean and std rows.
+    # Inputs: cv_results - dict from cross_validate with scoring. Outputs: 2x2 DataFrame.
     lr = pd.DataFrame(
         {
             "positive": cv_results["test_positive_likelihood_ratio"],
@@ -231,6 +249,12 @@ for ax, (n, weight) in zip(axs.ravel(), enumerate(weights)):
 
 
 def scoring_on_bootstrap(estimator, X, y, rng, n_bootstrap=100):
+    # [FUNCTION DOC]
+    # HELPER: Repeats n_bootstrap times: draw a bootstrap sample (with replacement, same
+    # size) of X/y using rng and evaluate scoring on it; collects results per metric.
+    # Inputs: estimator - fitted classifier; X, y - arrays; rng - numpy Generator
+    # (consumed); n_bootstrap - int, default 100.
+    # Outputs: DataFrame with one row per bootstrap and one column per metric.
     results_for_prevalence = defaultdict(list)
     for _ in range(n_bootstrap):
         bootstrap_indices = rng.choice(

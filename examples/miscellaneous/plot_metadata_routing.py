@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery example / tutorial script on implementing metadata routing. Enables the
+# global enable_metadata_routing config, defines toy consumers (ExampleClassifier,
+# ExampleTransformer, ExampleRegressor), routers (MetaClassifier, SimplePipeline,
+# MetaRegressor) and router-consumers (RouterConsumerClassifier,
+# WeightedMetaRegressor), and exercises them with random X (100x4), binary y,
+# groups and two weight vectors, printing routing trees, received metadata and the
+# TypeError / ValueError messages raised for unknown, unrequested or wrongly
+# aliased metadata, plus the FutureWarning-style messages for WARN requests.
+# Side effects: mutates global sklearn config (enabled, then disabled at the end);
+# prints extensively.
 """
 =====================================================
 Developing Estimators Compliant with Metadata Routing
@@ -71,6 +82,12 @@ set_config(enable_metadata_routing=True)
 # %%
 # This utility function is a dummy to check if a metadata is passed:
 def check_metadata(obj, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Prints, for each keyword argument, either its length or that it is None,
+    # tagged with the class name of obj. Used to show which metadata reached a method.
+    # Inputs: obj - any object (only its class name is used); kwargs - metadata
+    # name -> sized value or None. Outputs: None. Side effects: prints to stdout.
+    # Exceptions: TypeError if a non-None value has no len().
     for key, value in kwargs.items():
         if value is not None:
             print(
@@ -83,6 +100,10 @@ def check_metadata(obj, **kwargs):
 # %%
 # A utility function to nicely print the routing information of an object:
 def print_routing(obj):
+    # [FUNCTION DOC]
+    # HELPER: Pretty-prints the serialized metadata routing of obj (result of
+    # get_metadata_routing() then the private _serialize()).
+    # Inputs: obj - an estimator or router. Outputs: None. Side effects: prints.
     pprint(obj.get_metadata_routing()._serialize())
 
 
@@ -96,13 +117,24 @@ def print_routing(obj):
 
 
 class ExampleClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Toy consumer classifier: fit consumes sample_weight, predict consumes groups;
+    # BaseEstimator auto-generates set_fit_request / set_predict_request /
+    # set_score_request from these signatures.
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Reports whether sample_weight was received, sets classes_ to [0, 1] regardless
+        # of y and returns self. Inputs: X, y ignored; sample_weight - optional array.
+        # Side effects: prints; sets self.classes_.
         check_metadata(self, sample_weight=sample_weight)
         # all classifiers need to expose a classes_ attribute once they're fit.
         self.classes_ = np.array([0, 1])
         return self
 
     def predict(self, X, groups=None):
+        # [FUNCTION DOC]
+        # Reports whether groups was received and returns an array of ones of length
+        # len(X) (float). Inputs: X - array-like; groups - optional array.
         check_metadata(self, groups=groups)
         # return a constant value of 1, not a very smart classifier!
         return np.ones(len(X))
@@ -177,10 +209,18 @@ print_routing(est)
 
 
 class MetaClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Pure router meta-classifier: routes fit, predict and score metadata to a clone
+    # of estimator without consuming any itself.
     def __init__(self, estimator):
+        # [FUNCTION DOC]
+        # Stores the wrapped (unfitted) estimator unchanged.
         self.estimator = estimator
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter owned by self that maps caller fit/predict/score to the
+        # same callee methods of estimator. Outputs: MetadataRouter.
         # This method defines the routing for this meta-estimator.
         # In order to do so, a `MetadataRouter` instance is created, and the
         # routing is added to it.
@@ -194,6 +234,11 @@ class MetaClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return router
 
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Validates and routes fit_params via process_routing (raises TypeError for
+        # metadata not requested/known, ValueError for unset requests), fits a clone of
+        # estimator with the routed fit params and copies its classes_.
+        # Outputs: self. Side effects: sets estimator_ and classes_.
         # Get information on all the metadata that should be routed from here to
         # consuming methods.
         routed_params = process_routing(self, "fit", **fit_params)
@@ -207,6 +252,9 @@ class MetaClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X, **predict_params):
+        # [FUNCTION DOC]
+        # Checks fitted state (NotFittedError otherwise), routes predict_params through
+        # process_routing and returns estimator_.predict on X with routed params.
         check_is_fitted(self)
         # As in `fit`, we get information on all the metadata that should be routed
         # and pass the metadata that is stored in
@@ -347,10 +395,18 @@ meta_meta_est = MetaClassifier(estimator=meta_est).fit(
 
 
 class RouterConsumerClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-classifier that both consumes sample_weight in fit (self request) and routes
+    # metadata for fit/predict/score to a clone of estimator.
     def __init__(self, estimator):
+        # [FUNCTION DOC]
+        # Stores the wrapped estimator unchanged.
         self.estimator = estimator
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter with self's own request (add_self_request) plus a
+        # fit/predict/score one-to-one mapping to estimator. Outputs: MetadataRouter.
         router = (
             MetadataRouter(owner=self)
             # defining metadata routing request values for usage in the meta-estimator
@@ -370,6 +426,15 @@ class RouterConsumerClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimato
     # an explicit argument in the method's signature. All other metadata which
     # are only routed, will be passed as `**fit_params`:
     def fit(self, X, y, sample_weight, **fit_params):
+        # [FUNCTION DOC]
+        # Raises ValueError if estimator is None. Reports sample_weight, adds it to
+        # fit_params when not None, routes everything through process_routing, fits a
+        # clone of estimator with routed fit params and copies classes_.
+        # Inputs: sample_weight - required positional/keyword argument (may be None);
+        # fit_params - other metadata to route. Outputs: self.
+        # Side effects: prints; sets estimator_ and classes_.
+        # KNOWN ISSUE: sample_weight has no default, so calling fit(X, y) without it raises
+        # TypeError although the value is otherwise optional.
         if self.estimator is None:
             raise ValueError("estimator cannot be None!")
 
@@ -386,6 +451,8 @@ class RouterConsumerClassifier(MetaEstimatorMixin, ClassifierMixin, BaseEstimato
         return self
 
     def predict(self, X, **predict_params):
+        # [FUNCTION DOC]
+        # Checks fitted state, routes predict_params and delegates to estimator_.predict.
         check_is_fitted(self)
         routed_params = process_routing(self, "predict", **predict_params)
         return self.estimator_.predict(X, **routed_params["estimator"]["predict"])
@@ -469,11 +536,20 @@ print_routing(meta_est)
 
 
 class SimplePipeline(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Two-step pipeline-like router: a transformer followed by a classifier, routing
+    # metadata to transformer fit/transform and classifier fit/predict.
     def __init__(self, transformer, classifier):
+        # [FUNCTION DOC]
+        # Stores transformer and classifier unchanged.
         self.transformer = transformer
         self.classifier = classifier
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a router mapping fit -> transformer.fit and transformer.transform,
+        # predict -> transformer.transform, and fit/predict -> classifier fit/predict.
+        # Outputs: MetadataRouter.
         router = (
             MetadataRouter(owner=self)
             # We add the routing for the transformer.
@@ -498,6 +574,10 @@ class SimplePipeline(ClassifierMixin, BaseEstimator):
         return router
 
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Routes fit_params, fits a clone of transformer and transforms X with routed
+        # transform params, then fits a clone of classifier on the transformed data.
+        # Outputs: self. Side effects: sets transformer_ and classifier_.
         routed_params = process_routing(self, "fit", **fit_params)
 
         self.transformer_ = clone(self.transformer).fit(
@@ -513,6 +593,11 @@ class SimplePipeline(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X, **predict_params):
+        # [FUNCTION DOC]
+        # Routes predict_params, transforms X with transformer_ and returns
+        # classifier_.predict on the result.
+        # KNOWN ISSUE: no check_is_fitted call, so calling before fit raises
+        # AttributeError instead of NotFittedError.
         routed_params = process_routing(self, "predict", **predict_params)
 
         X_transformed = self.transformer_.transform(
@@ -543,15 +628,25 @@ class SimplePipeline(ClassifierMixin, BaseEstimator):
 
 
 class ExampleTransformer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Toy identity transformer consuming sample_weight in fit and groups in transform.
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Reports sample_weight and returns self without learning anything.
         check_metadata(self, sample_weight=sample_weight)
         return self
 
     def transform(self, X, groups=None):
+        # [FUNCTION DOC]
+        # Reports groups and returns X unchanged.
         check_metadata(self, groups=groups)
         return X
 
     def fit_transform(self, X, y, sample_weight=None, groups=None):
+        # [FUNCTION DOC]
+        # Calls fit with sample_weight then transform with groups so that both metadata
+        # are forwarded (the TransformerMixin default would not pass groups).
+        # Outputs: X unchanged.
         return self.fit(X, y, sample_weight).transform(X, groups)
 
 
@@ -597,16 +692,26 @@ pipe.fit(X, y, sample_weight=my_weights, groups=my_groups).predict(
 
 
 class MetaRegressor(MetaEstimatorMixin, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Router-only meta-regressor routing fit metadata to a clone of estimator.
     def __init__(self, estimator):
+        # [FUNCTION DOC]
+        # Stores the wrapped estimator.
         self.estimator = estimator
 
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Routes fit_params via process_routing and fits a clone of estimator with them.
+        # Side effects: sets estimator_.
+        # KNOWN ISSUE: returns None instead of self, breaking method chaining.
         routed_params = process_routing(self, "fit", **fit_params)
         self.estimator_ = clone(self.estimator).fit(
             X, y, **routed_params["estimator"]["fit"]
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a router mapping fit -> estimator.fit only. Outputs: MetadataRouter.
         router = MetadataRouter(owner=self).add(
             estimator=self.estimator,
             method_mapping=MethodMapping().add(caller="fit", callee="fit"),
@@ -628,14 +733,25 @@ reg.fit(X, y, sample_weight=my_weights)
 
 
 class WeightedMetaRegressor(MetaEstimatorMixin, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-regressor that now also consumes sample_weight in fit; the class attribute
+    # __metadata_request__fit sets its default request to WARN so that passing
+    # sample_weight without an explicit request emits a warning instead of an error.
     # show warning to remind user to explicitly set the value with
     # `.set_{method}_request(sample_weight={boolean})`
     __metadata_request__fit = {"sample_weight": metadata_routing.WARN}
 
     def __init__(self, estimator):
+        # [FUNCTION DOC]
+        # Stores the wrapped estimator.
         self.estimator = estimator
 
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Routes sample_weight plus fit_params via process_routing (which emits the WARN
+        # warning when the self request is unset), reports sample_weight, and fits a clone
+        # of estimator with the routed params. Side effects: prints; sets estimator_.
+        # KNOWN ISSUE: returns None instead of self.
         routed_params = process_routing(
             self, "fit", sample_weight=sample_weight, **fit_params
         )
@@ -645,6 +761,9 @@ class WeightedMetaRegressor(MetaEstimatorMixin, RegressorMixin, BaseEstimator):
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a router with the self request plus fit -> estimator.fit.
+        # Outputs: MetadataRouter.
         router = (
             MetadataRouter(owner=self)
             .add_self_request(self)
@@ -675,13 +794,20 @@ for w in record:
 
 
 class ExampleRegressor(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Toy regressor whose sample_weight request in fit defaults to WARN, illustrating
+    # a consumer that newly starts consuming a metadata.
     __metadata_request__fit = {"sample_weight": metadata_routing.WARN}
 
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Reports sample_weight and returns self.
         check_metadata(self, sample_weight=sample_weight)
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns a float array of zeros of length len(X).
         return np.zeros(shape=(len(X)))
 
 

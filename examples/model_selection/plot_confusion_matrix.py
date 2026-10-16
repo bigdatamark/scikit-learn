@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Fits a strongly regularised LogisticRegression (C=0.01)
+# on an iris train split (random_state=0) and plots/prints the test confusion
+# matrix raw and row-normalised ("true") via ConfusionMatrixDisplay.from_estimator.
+# Then, on a 100-sample binary make_classification problem, computes TN/FP/FN/TP
+# counts for every threshold of predict_proba with confusion_matrix_at_thresholds
+# and plots them against the threshold.
+# Side effects: changes global numpy print precision to 2; prints; creates figures.
 """
 ==============================================================
 Evaluate the performance of a classifier with Confusion Matrix

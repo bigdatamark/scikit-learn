@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Runs HalvingRandomSearchCV (factor 2) over RandomForest
+# hyperparameters on 400 synthetic samples and plots each candidate's mean test
+# score across iterations, labelling each iteration with resources and number of
+# candidates. Side effects: creates a figure.
 """
 Successive Halving Iterations
 =============================

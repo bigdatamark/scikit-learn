@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Generates 100 points with x = 0..99 and y = uniform
+# integer noise in [-50, 50) plus 50*log1p(x), fits IsotonicRegression
+# (out_of_bounds="clip") and LinearRegression, and plots the data, both fits and
+# vertical segments between each observation and its isotonic fit; a second panel
+# plots the isotonic prediction on [-10, 110] together with the learned threshold
+# points (X_thresholds_, y_thresholds_).
+# Side effects: creates and shows a figure.
 """
 ===================
 Isotonic Regression

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Samples 900 points from three 2D Gaussians (200/500/200
+# points, seed 2) and, for a Dirichlet-distribution and a Dirichlet-process
+# BayesianGaussianMixture (6 components, random init), refits the same estimator
+# object for three weight_concentration_prior values, plotting the scatter with
+# fitted covariance ellipses (alpha = component weight) and a bar chart of the
+# component weights per value.
+# Side effects: mutates the estimators' weight_concentration_prior; creates figures.
 """
 ========================================================================
 Concentration Prior Type Analysis of Variation Bayesian Gaussian Mixture
@@ -41,6 +49,16 @@ from sklearn.mixture import BayesianGaussianMixture
 
 
 def plot_ellipses(ax, weights, means, covars):
+    # [FUNCTION DOC]
+    # HELPER: For each mixture component, eigendecomposes its 2x2 covariance, derives
+    # an orientation angle in degrees from an eigenvector and axis lengths
+    # 2*sqrt(2)*sqrt(eigenvalue), and adds a filled Ellipse at the mean with opacity
+    # equal to the component weight.
+    # Inputs: ax - Axes; weights - (n_components,); means - (n_components, 2);
+    # covars - (n_components, 2, 2) full covariances. Outputs: None. Mutates ax.
+    # KNOWN ISSUE: uses eig_vecs[0] (first row) instead of eig_vecs[:, 0] (first
+    # eigenvector column), so ellipses may be drawn mirrored relative to the true
+    # principal axes.
     for n in range(means.shape[0]):
         eig_vals, eig_vecs = np.linalg.eigh(covars[n])
         unit_eig_vec = eig_vecs[0] / np.linalg.norm(eig_vecs[0])
@@ -59,6 +77,13 @@ def plot_ellipses(ax, weights, means, covars):
 
 
 def plot_results(ax1, ax2, estimator, X, y, title, plot_title=False):
+    # [FUNCTION DOC]
+    # HELPER: Draws data coloured by true label plus fitted ellipses on ax1 (fixed
+    # limits x [-2, 2], y [-3, 3]) and a bar chart of estimator.weights_ with
+    # percentage labels on ax2; adds y labels when plot_title is True.
+    # Inputs: ax1, ax2 - Axes; estimator - fitted BayesianGaussianMixture with full
+    # covariances; X - (n, 2); y - int labels in 0..2; title - str; plot_title - bool.
+    # Outputs: None. Relies on module globals colors and n_components.
     ax1.set_title(title)
     ax1.scatter(X[:, 0], X[:, 1], s=5, marker="o", color=colors[y], alpha=0.8)
     ax1.set_xlim(-2.0, 2.0)

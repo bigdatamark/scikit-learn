@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Adds 800 noise features to iris (string class labels),
+# fits LogisticRegression on a stratified half and computes multiclass ROC
+# analyses: one-vs-rest for virginica, micro-averaged OvR (via raveled one-hot and
+# roc_auc_score), macro-averaged OvR by interpolating per-class TPRs on a
+# 1000-point FPR grid, a combined OvR plot, and one-vs-one curves per class pair
+# (averaging both directions) with macro OvO AUC compared to roc_auc_score.
+# Side effects: prints AUCs; creates figures.
 """
 ==================================================
 Multiclass Receiver Operating Characteristic (ROC)

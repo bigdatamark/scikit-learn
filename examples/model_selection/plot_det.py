@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On a 1000-sample 2-feature classification problem
+# (60/40 split), fits a scaled LinearSVC, a small RandomForest and a
+# DummyClassifier baseline and draws their ROC and DET curves side by side (baseline
+# in black dashed). Side effects: creates a figure. DummyClassifier is imported
+# twice (harmless).
 """
 ====================================
 Detection error tradeoff (DET) curve

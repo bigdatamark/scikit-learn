@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Takes the first StratifiedKFold (4 splits) fold of iris
+# as train/test, fits GaussianMixture models with spherical, diag, tied and full
+# covariance (3 components, means initialised to per-class training means,
+# max_iter=20, seed 0), and for each plots covariance ellipses on the first two
+# features, the data, test points as crosses, and train/test accuracy (component
+# index compared with class label).
+# Side effects: sets means_init on the estimators; creates a figure.
+# KNOWN ISSUE: the dot scatter uses all of iris.data (train and test), not only
+# the training data as the description says.
 """
 ===============
 GMM covariances
@@ -42,6 +52,17 @@ colors = ["navy", "turquoise", "darkorange"]
 
 
 def make_ellipses(gmm, ax):
+    # [FUNCTION DOC]
+    # HELPER: For each of the three components, extracts the 2x2 covariance of the
+    # first two features according to gmm.covariance_type (full: slice; tied: shared
+    # matrix; diag: diagonal from first two variances; spherical: identity times the
+    # variance, full feature size), eigendecomposes it and adds an ellipse at the
+    # component mean (axes 2*sqrt(2)*sqrt(eigenvalues)), then sets equal aspect.
+    # Inputs: gmm - fitted GaussianMixture with 3 components; ax - Axes.
+    # Outputs: None. Relies on global colors (length 3).
+    # KNOWN ISSUE: w[0] (a row) is used as the eigenvector instead of w[:, 0], so the
+    # orientation may be mirrored; an unknown covariance_type would leave covariances
+    # unbound (NameError).
     for n, color in enumerate(colors):
         if gmm.covariance_type == "full":
             covariances = gmm.covariances_[n][:2, :2]

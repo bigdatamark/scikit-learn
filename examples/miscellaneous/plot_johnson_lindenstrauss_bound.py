@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Plots johnson_lindenstrauss_min_dim as a function of the
+# number of samples (for 5 eps values) and as a function of eps (for 5 sample
+# counts). Then takes the first 300 rows of 20 newsgroups TF-IDF data (or digits if
+# "--use-digits-dataset" is in sys.argv), projects them with SparseRandomProjection
+# to 300, 1000 and 10000 components, and for each plots a hexbin of original vs
+# projected pairwise squared distances (excluding zero-distance pairs) and a
+# histogram of their ratios, printing timing, random matrix size and ratio mean/std.
+# Side effects: reads sys.argv, downloads datasets, prints, creates figures.
+# SparseRandomProjection has no random_state, so outputs vary between runs.
 r"""
 =====================================================================
 The Johnson-Lindenstrauss bound for embedding with random projections

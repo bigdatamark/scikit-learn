@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery example script. Builds five 2D datasets of 255 inliers (one blob, two
+# equal blobs, two blobs of unequal spread, scaled/shifted moons, uniform square)
+# and appends 45 uniform outliers in [-6, 6]^2 to each (15% contamination). For
+# each dataset and each detector (EllipticEnvelope, OneClassSVM, Nystroem +
+# SGDOneClassSVM pipeline, IsolationForest, LocalOutlierFactor) it fits, predicts
+# inlier/outlier labels, draws the decision contour at level 0 on a 150x150 grid in
+# [-7, 7]^2 (except for LOF, which has no predict in outlier-detection mode),
+# colours points by prediction and annotates the fit time.
+# Side effects: sets the global matplotlib rcParam contour.negative_linestyle to
+# "solid"; creates and shows one figure.
+# KNOWN ISSUE: every non-LOF estimator is fitted twice (once timed, then again via
+# fit(X).predict(X)), and LOF is fitted again by fit_predict, so the displayed time
+# covers only the first fit.
 """
 ============================================================================
 Comparing anomaly detection algorithms for outlier detection on toy datasets

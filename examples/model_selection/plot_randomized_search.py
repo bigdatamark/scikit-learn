@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. On a 3-class digits subset, tunes an elastic-net
+# SGDClassifier (modified_huber loss) scored by roc_auc_ovr using GridSearchCV
+# (60 candidates), RandomizedSearchCV (30 candidates from uniform/loguniform
+# distributions) and HalvingRandomSearchCV (60 initial candidates, min 100
+# resources), timing each and reporting the top candidates; ConvergenceWarnings
+# are silenced locally.
+# Side effects: prints. The SGDClassifier has no random_state, so scores vary.
 """
 =========================================================================
 Comparing randomized search and grid search for hyperparameter estimation
@@ -73,6 +81,11 @@ import pandas as pd
 
 
 def report(results, n_top=3):
+    # [FUNCTION DOC]
+    # HELPER: Converts cv_results to a DataFrame, keeps only the last iteration when an
+    # "iter" column exists (successive halving), and prints rank, mean/std test score
+    # and params of the n_top best rows by mean_test_score.
+    # Inputs: results - cv_results_ dict; n_top - int, default 3. Outputs: None.
     """Report the top parameters for each search strategy."""
     results = pd.DataFrame(results)
     if "iter" in results:

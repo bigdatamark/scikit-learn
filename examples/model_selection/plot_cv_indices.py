@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Builds 100 samples with imbalanced classes (10/30/60%)
+# and 10 groups of Dirichlet-multinomial sizes, plots the class/group layout, and
+# visualises train/test assignment per split for KFold, StratifiedKFold,
+# GroupKFold, StratifiedGroupKFold, ShuffleSplit, GroupShuffleSplit,
+# StratifiedShuffleSplit and TimeSeriesSplit (4 splits each).
+# Side effects: creates many figures. n_points is defined but unused.
 """
 Visualizing cross-validation behavior in scikit-learn
 =====================================================
@@ -62,6 +69,11 @@ groups = np.repeat(np.arange(10), rng.multinomial(100, group_prior))
 
 
 def visualize_groups(classes, groups, name):
+    # [FUNCTION DOC]
+    # HELPER: Plots two horizontal colour bands over sample index: group ids (y=0.5)
+    # and class labels (y=3.5).
+    # Inputs: classes - (n,) labels; groups - (n,) group ids; name - unused.
+    # Outputs: None. Side effects: creates a figure.
     # Visualize dataset groups
     fig, ax = plt.subplots()
     ax.scatter(
@@ -101,6 +113,15 @@ visualize_groups(y, groups, "no groups")
 
 
 def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
+    # [FUNCTION DOC]
+    # HELPER: For each split of cv (passing groups only if the class name contains
+    # "Group"), marks test indices 1, train indices 0 and unused indices NaN, and plots
+    # them as a coloured row; then adds rows for classes and groups, and labels axes.
+    # Inputs: cv - CV splitter instance; X - (n, ...) data; y - labels; group - group
+    # ids; ax - Axes; n_splits - int used for tick labels/limits; lw - line width.
+    # Outputs: the Axes.
+    # KNOWN ISSUE: uses the loop variable ii after the loop, so a splitter yielding no
+    # splits raises NameError; x limit is hardcoded to 100 rather than len(X).
     """Create a sample plot for indices of a cross-validation object."""
     use_groups = "Group" in type(cv).__name__
     groups = group if use_groups else None

@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Loads the first six classes of the digits dataset, shows
+# 100 sample images, then fits 15 embedding methods (random projection, truncated
+# SVD, LDA, Isomap, four LLE variants, metric / non-metric / classical MDS, random
+# trees + SVD, spectral embedding, t-SNE, NCA) to project X to 2D, timing each
+# fit_transform, and plots every projection with digit markers and thumbnail images.
+# For LDA a copy of X gets 0.01 added to its diagonal entries (flat stride trick) to
+# make it invertible. Supervised methods use y; others ignore it.
+# Side effects: prints progress, creates and shows figures; uses fixed seeds where
+# supported (MDS instances have no random_state, so those results vary per run).
 """
 =============================================================================
 Manifold learning on handwritten digits: Locally Linear Embedding, Isomap...
@@ -45,6 +55,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 def plot_embedding(X, title):
+    # [FUNCTION DOC]
+    # HELPER: Plots a 2D embedding of the digits. Rescales X to [0, 1] per column with
+    # MinMaxScaler, scatters each class with its digit glyph as marker (Dark2 colours),
+    # then walks the samples in order and adds a thumbnail image (from the global
+    # digits.images) for each point whose squared distance to all already annotated
+    # points is at least 4e-3 (seeded with a dummy point at (1, 1)).
+    # Inputs: X - array (n_samples, 2) projection aligned with the global y and digits;
+    # title - axes title. Outputs: None.
+    # Side effects: creates a new figure; relies on module globals digits and y.
     _, ax = plt.subplots()
     X = MinMaxScaler().fit_transform(X)
 

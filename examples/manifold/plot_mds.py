@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery example script. Builds 20 random integer 2D points (seed 3), centres
+# them by subtracting the global mean (a scalar, not per-column), computes their
+# Euclidean distance matrix and adds a symmetric non-negative noise matrix with zero
+# diagonal. Fits metric MDS, non-metric MDS (precomputed dissimilarities,
+# classical_mds init) and ClassicalMDS, rescales the non-metric solution to the
+# spread of the true data, rotates true/MDS/NMDS solutions onto their PCA axes and
+# flips axis signs to positively correlate with the truth, then plots all point
+# sets plus lines between every true pair shaded by inverse distance.
+# Side effects: creates and shows a figure.
+# KNOWN ISSUE: start_idx and end_idx (from X_mds.nonzero()) are computed but never
+# used. Centering with X_true.mean() uses the overall mean rather than column means.
 """
 =========================
 Multi-dimensional scaling

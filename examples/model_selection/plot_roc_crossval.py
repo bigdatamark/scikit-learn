@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery example script. Uses iris classes 0/1 with 800 added noise features,
+# cross-validates LogisticRegression with 6-fold StratifiedKFold (keeping fold
+# estimators and indices), plots per-fold ROC curves with
+# RocCurveDisplay.from_cv_results, then the mean ROC from TPRs interpolated on 100
+# FPR points (forced to start at 0 and end at 1), its AUC +/- std of fold AUCs, and
+# a +/- 1 std band. Side effects: creates a figure.
+# KNOWN ISSUE: the classifier is first fitted on the full data, which is useless
+# because cross_validate clones it.
 """
 =============================================================
 Receiver Operating Characteristic (ROC) with cross validation

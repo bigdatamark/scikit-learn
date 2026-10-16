@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Samples 30 sorted points of cos(1.5*pi*x) plus noise
+# (global numpy seed 0), fits polynomial regressions of degree 1, 4 and 15
+# (LinearRegression with tol = machine epsilon), and plots each model against the
+# true function with its 10-fold CV MSE (unshuffled folds over sorted x, so each
+# fold is a contiguous x interval).
+# Side effects: sets the global numpy seed; creates a figure.
 """
 ============================
 Underfitting vs. Overfitting
@@ -34,6 +41,8 @@ from sklearn.preprocessing import PolynomialFeatures
 
 
 def true_fun(X):
+    # [FUNCTION DOC]
+    # HELPER: Returns cos(1.5*pi*X) elementwise. Inputs: X - array. Outputs: array.
     return np.cos(1.5 * np.pi * X)
 
 

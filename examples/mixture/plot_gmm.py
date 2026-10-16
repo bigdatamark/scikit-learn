@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Draws 1000 points from two 2D Gaussians (global numpy
+# seed 0), fits a 5-component GaussianMixture (EM) and a 5-component
+# BayesianGaussianMixture (variational, default Dirichlet process prior), and plots
+# predicted clusters with covariance ellipses in two stacked panels.
+# Side effects: sets the global numpy random seed; creates a figure.
 """
 =================================
 Gaussian Mixture Model Ellipsoids
@@ -40,6 +46,18 @@ color_iter = itertools.cycle(["navy", "c", "cornflowerblue", "gold", "darkorange
 
 
 def plot_results(X, Y_, means, covariances, index, title):
+    # [FUNCTION DOC]
+    # HELPER: In subplot 1+index of a 2x1 grid, for each component that has at least
+    # one assigned sample, scatters its points and adds a semi-transparent ellipse
+    # (axes 2*sqrt(2)*sqrt(eigenvalues), angle from arctan of an eigenvector slope).
+    # Fixed limits x [-9, 5], y [-3, 6].
+    # Inputs: X - (n, 2); Y_ - predicted labels; means, covariances - per component
+    # (full 2x2); index - 0 or 1; title - str. Outputs: None.
+    # Side effects: draws on the current figure; advances the module-level color_iter
+    # cycle, so colours depend on previous calls.
+    # KNOWN ISSUE: uses w[0] (first row of the eigenvector matrix) instead of the
+    # first eigenvector column, which can mirror the ellipse orientation; arctan of
+    # u[1]/u[0] divides by zero if u[0] == 0.
     splot = plt.subplot(2, 1, 1 + index)
     for i, (mean, covar, color) in enumerate(zip(means, covariances, color_iter)):
         v, w = linalg.eigh(covar)

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Loads two 20 newsgroups categories (headers/footers/
+# quotes removed), runs a 40-iteration RandomizedSearchCV over TfidfVectorizer
+# (max_df, min_df, ngram_range, norm) and ComplementNB alpha, prints best params,
+# CV and test accuracy, and builds plotly scatter (score time vs score) and
+# parallel-coordinates plots of cv_results with prefixes stripped.
+# Side effects: downloads data; requires plotly; prints.
 """
 ==========================================================
 Sample pipeline for text feature extraction and evaluation
@@ -149,6 +156,9 @@ import pandas as pd
 
 
 def shorten_param(param_name):
+    # [FUNCTION DOC]
+    # HELPER: Returns the part of a parameter name after the last "__", or the name
+    # unchanged when it has no "__". Inputs: param_name - str. Outputs: str.
     """Remove components' prefixes in param_name."""
     if "__" in param_name:
         return param_name.rsplit("__", 1)[1]

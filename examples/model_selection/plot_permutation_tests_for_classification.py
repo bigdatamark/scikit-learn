@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Runs permutation_test_score (1000 permutations, 2-fold
+# stratified CV, linear SVC) on iris and on 20 random features with the iris
+# labels, and plots each null distribution histogram with the observed score and
+# p-value. Side effects: creates figures; label permutations are unseeded.
 """
 =================================================================
 Test with permutations the significance of a classification score

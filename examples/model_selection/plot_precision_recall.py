@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Adds 800 noise features to iris. Binary part (classes 0
+# and 1): fits a scaled LinearSVC and draws PR curves via from_estimator,
+# from_predictions and from_cv_results. Multilabel part: binarises the three
+# classes, fits OneVsRest LinearSVC, computes per-class and micro-averaged PR curves
+# and average precision, and plots them together with iso-F1 curves.
+# Side effects: shared RandomState(0) is consumed by several calls, so results
+# depend on call order; creates figures.
 """
 ================
 Precision-Recall

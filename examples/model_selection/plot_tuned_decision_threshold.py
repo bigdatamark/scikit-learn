@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. On the Pima diabetes data (OpenML 37) compares a scaled
+# LogisticRegression with its TunedThresholdClassifierCV version (optimising
+# balanced accuracy) using 5x10 repeated stratified CV, showing train/test accuracy
+# and balanced accuracy, boxplots of coefficients from both (identical underlying
+# models) and the KDE of tuned thresholds across folds.
+# Side effects: downloads data; creates figures.
 """
 ======================================================
 Post-hoc tuning the cut-off point of decision function

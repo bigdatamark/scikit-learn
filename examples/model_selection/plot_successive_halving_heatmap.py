@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Compares HalvingGridSearchCV (factor 2) and GridSearchCV
+# over SVC gamma (1e-1..1e-7) x C (1..1e5) on 1000 synthetic samples, timing both,
+# and shows mean test score heatmaps side by side, annotated with the last
+# iteration reached by each candidate for successive halving.
+# Side effects: creates a figure.
 """
 Comparison between grid search and successive halving
 =====================================================
@@ -54,6 +60,16 @@ gs_time = time() - tic
 
 
 def make_heatmap(ax, gs, is_sh=False, make_cbar=False):
+    # [FUNCTION DOC]
+    # HELPER: Pivots gs.cv_results_ into a gamma x C matrix of mean_test_score (for
+    # successive halving, the value from the highest iteration per candidate), shows it
+    # with imshow, labels ticks with the global Cs and gammas, optionally writes the max
+    # iteration in each cell, and optionally adds a colorbar to the global fig.
+    # Inputs: ax - Axes; gs - fitted search; is_sh - bool; make_cbar - bool.
+    # Outputs: None. Relies on module globals Cs, gammas and fig.
+    # KNOWN ISSUE: the pivot sorts gamma ascending (1e-7 first) while y tick labels
+    # are taken from gammas in descending order, so gamma labels are reversed relative
+    # to the plotted rows.
     """Helper to make a heatmap."""
     results = pd.DataFrame(gs.cv_results_)
     results[["param_C", "param_gamma"]] = results[["param_C", "param_gamma"]].astype(

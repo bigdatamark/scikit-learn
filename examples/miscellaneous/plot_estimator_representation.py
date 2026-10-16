@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Prints the compact text repr of a LogisticRegression with
+# a non-default parameter and builds (without fitting) a pipeline of a
+# ColumnTransformer (median-impute + scale numeric columns, constant-impute +
+# one-hot categorical columns) and LogisticRegression, whose HTML repr is rendered
+# by the gallery as the last expression of the cell.
+# Side effects: prints to stdout only.
 """
 ===========================================
 Displaying estimators and complex pipelines

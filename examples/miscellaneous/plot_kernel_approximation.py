@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery example script. Uses the first 9 digit classes scaled to [0, 1] and
+# mean-centred, splitting the first half for training and the second for testing.
+# Fits an RBF SVC and a LinearSVC as references, then for n_components in
+# 30, 60, ..., 270 fits LinearSVC pipelines on RBFSampler (random Fourier) and
+# Nystroem feature maps, recording test accuracy and fit time, and plots accuracy
+# and training time curves. Finally projects training data onto 8 PCA components
+# and draws each classifier's decision regions on a grid spanned by the first two
+# principal directions.
+# Side effects: updates global rcParams font.size to 14; creates figures.
+# KNOWN ISSUE: the decision-surface titles claim n_components=100 although the
+# pipelines keep the last value from the loop (270), and the classifiers are
+# iterated as (kernel, nystroem, fourier) while titles are ordered (rbf, Fourier,
+# Nystroem), so the 2nd and 3rd titles are swapped.
 """
 ==================================================
 Explicit feature map approximation for RBF kernels

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Loads Olivetti faces (64x64 flattened), trains on people
+# with id < 30 and picks 5 random test faces (with replacement, so duplicates are
+# possible) from the others. Each image is split into upper half (input) and lower
+# half (multi-output target); ExtraTrees, KNN, LinearRegression and RidgeCV are
+# fitted and the predicted lower halves are concatenated with true upper halves and
+# displayed next to the true faces.
+# Side effects: downloads the dataset on first run; creates a figure.
 """
 ==============================================
 Face completion with a multi-output estimators

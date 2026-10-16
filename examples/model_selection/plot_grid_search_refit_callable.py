@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Grid-searches a PCA + LogisticRegression pipeline on
+# digits over n_components with 30 ShuffleSplit splits, using best_low_complexity
+# as refit callable (one-standard-error rule), then tabulates results with polars,
+# plots per-split and mean train/test scores against n_components with the best
+# score, threshold and selected model, and prints a summary.
+# Side effects: requires polars; prints; creates a figure.
+# KNOWN ISSUE: "Best possible accuracy" prints np.max(test_scores) after
+# test_scores was reassigned to the per-split score matrix, so it is the best
+# single-split score, not the best mean score.
 """
 ==================================================
 Balance model complexity and cross-validated score
@@ -58,6 +68,11 @@ from sklearn.pipeline import Pipeline
 
 
 def lower_bound(cv_results):
+    # [FUNCTION DOC]
+    # HELPER: Returns mean_test_score minus std_test_score of the candidate with the
+    # highest mean_test_score.
+    # Inputs: cv_results - dict with mean_test_score and std_test_score arrays.
+    # Outputs: float.
     """
     Calculate the lower bound within 1 standard deviation
     of the best `mean_test_scores`.
@@ -82,6 +97,11 @@ def lower_bound(cv_results):
 
 
 def best_low_complexity(cv_results):
+    # [FUNCTION DOC]
+    # HELPER: Refit callable: among candidates whose mean_test_score is at least
+    # lower_bound(cv_results), returns the index of the one with the smallest
+    # param_reduce_dim__n_components (first one on ties).
+    # Inputs: cv_results - dict from GridSearchCV. Outputs: int index.
     """
     Balance model complexity with cross-validated score.
 

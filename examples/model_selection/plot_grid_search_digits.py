@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Flattens digits into 64 features, frames "is it an 8"
+# as binary classification, splits 50/50, and runs GridSearchCV over RBF and linear
+# SVC params scoring precision and recall with refit=refit_strategy (custom
+# selection of the best index), then prints a classification report on the test
+# half. Side effects: prints extensively.
 """
 ============================================================
 Custom refit strategy of a grid search with cross-validation
@@ -75,6 +81,12 @@ import pandas as pd
 
 
 def print_dataframe(filtered_cv_results):
+    # [FUNCTION DOC]
+    # HELPER: Prints one line per candidate with mean/std test precision, mean/std test
+    # recall and params, followed by an empty line.
+    # Inputs: filtered_cv_results - DataFrame or dict containing mean_test_precision,
+    # std_test_precision, mean_test_recall, std_test_recall and params.
+    # Outputs: None. Side effects: prints.
     """Pretty print for filtered dataframe"""
     for mean_precision, std_precision, mean_recall, std_recall, params in zip(
         filtered_cv_results["mean_test_precision"],
@@ -92,6 +104,17 @@ def print_dataframe(filtered_cv_results):
 
 
 def refit_strategy(cv_results):
+    # [FUNCTION DOC]
+    # HELPER: Refit callable for GridSearchCV. Keeps candidates with mean test
+    # precision > 0.98, then those whose mean test recall exceeds (best recall - std of
+    # recall across the remaining candidates), and returns the index (DataFrame index =
+    # cv_results position) with the smallest mean_score_time.
+    # Inputs: cv_results - dict from GridSearchCV. Outputs: int index.
+    # Side effects: prints intermediate tables.
+    # KNOWN ISSUE: the "one standard deviation" is the spread of mean recalls across
+    # candidates, not the per-candidate std; if only one candidate passes the precision
+    # filter the std is NaN, the recall filter keeps nothing and idxmin raises
+    # ValueError (as it also does when no candidate exceeds 0.98 precision).
     """Define the strategy to select the best estimator.
 
     The strategy defined here is to filter-out all results below a precision threshold

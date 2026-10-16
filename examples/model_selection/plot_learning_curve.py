@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On digits, plots learning curves (train and test
+# accuracy, 5 train sizes, 50 ShuffleSplit splits) for GaussianNB and an RBF SVC
+# with LearningCurveDisplay, then uses learning_curve with return_times to plot fit
+# and score time versus training size and test accuracy versus fit time.
+# Side effects: uses 4 parallel jobs; creates figures.
 """
 =========================================================
 Plotting Learning Curves and Checking Models' Scalability

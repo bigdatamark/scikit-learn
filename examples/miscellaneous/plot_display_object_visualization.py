@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Downloads OpenML dataset 1464 (blood transfusion), does a
+# stratified train/test split (no random_state, so results vary per run), fits a
+# StandardScaler + LogisticRegression pipeline and builds ConfusionMatrixDisplay,
+# RocCurveDisplay and PrecisionRecallDisplay objects directly from precomputed
+# confusion_matrix, roc_curve and precision_recall_curve outputs (positive label =
+# clf.classes_[1]), then re-plots the ROC and PR displays side by side.
+# Side effects: network download / cache of the dataset; creates figures.
 """
 ===================================
 Visualizations with Display Objects

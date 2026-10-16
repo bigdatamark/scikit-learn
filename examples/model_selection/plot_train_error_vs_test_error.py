@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Generates a 500-feature regression problem with 50
+# informative features, trains on 150 samples and tests on 300 (no shuffling), plots
+# a ValidationCurveDisplay of positive ElasticNet (l1_ratio 0.9) R^2 over 60 alphas,
+# marks the alpha with best mean CV score, refits with it, prints test R^2 and
+# stem-plots true vs estimated coefficients.
+# Side effects: prints; creates figures.
 """
 =========================================================
 Effect of model regularization on training and test error

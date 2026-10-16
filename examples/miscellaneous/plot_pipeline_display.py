@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Builds (without fitting) several Pipelines - scaler +
+# logistic regression, scaler + polynomial features + LR, PCA + SVC, a
+# ColumnTransformer of imputer/scaler and imputer/one-hot branches + LR, and a
+# GridSearchCV over a RandomForest pipeline - and shows them as text or HTML
+# diagram by toggling set_config(display=...).
+# Side effects: mutates the global display config (ends set to "diagram").
+# KNOWN ISSUE: the grid includes classifier__max_features="auto", which is no
+# longer a valid RandomForestClassifier value; it would fail if grid_search were
+# fitted (it is only displayed here).
 """
 =================================================================
 Displaying Pipelines

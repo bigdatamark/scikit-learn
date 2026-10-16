@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Draws 300 points from a Gaussian shifted to (20, 20) and
+# 300 from a linearly stretched Gaussian (global numpy seed 0), fits a 2-component
+# full GaussianMixture and plots the negative log-likelihood (-score_samples) on a
+# 50x50 grid as log-scaled contours with the training points.
+# Side effects: sets the global numpy seed; creates a figure.
 """
 =========================================
 Density Estimation for a Gaussian mixture

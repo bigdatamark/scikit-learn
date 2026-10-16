@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Turns wine into a binary task (class 2 vs rest), splits
+# with random_state=42, fits an SVC and a 10-tree RandomForest, plots the SVC ROC
+# with RocCurveDisplay.from_estimator, then plots the forest ROC and re-uses the
+# stored SVC display (no recomputation) on the same axes.
+# Side effects: creates figures.
 """
 ================================
 ROC Curve with Visualization API

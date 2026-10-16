@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery example script. Part 1: German credit (OpenML 31) with "bad" as positive
+# class; defines precision/recall/FPR/TPR scorers and a cost-matrix gain (FP costs 1,
+# FN costs 5), fits a categorical-aware HistGradientBoostingClassifier, plots PR and
+# ROC curves with the default 0.5 cut-off, then tunes the threshold with
+# TunedThresholdClassifierCV (internal CV, then cv="prefit" without refit, then a
+# single 75/25 split) and compares curves and business gain. Part 2: credit card
+# fraud (OpenML 1597) with an amount-dependent business_metric routed through
+# metadata routing; compares always-accept/always-reject dummies, a grid-searched
+# LogisticRegression with default threshold, a tuned threshold, and a
+# FixedThresholdClassifier wrapping the frozen model.
+# Side effects: sets global transform_output="pandas" (never reset) and toggles
+# enable_metadata_routing; downloads data; prints; creates figures; refits the
+# global model and tuned_model in place.
 """
 ==============================================================
 Post-tuning the decision threshold for cost-sensitive learning
@@ -106,6 +120,11 @@ from sklearn.metrics import confusion_matrix
 
 
 def fpr_score(y, y_pred, neg_label, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: False positive rate: builds the 2x2 confusion matrix with label order
+    # [neg_label, pos_label] and returns FP / (TN + FP), i.e. 1 - specificity.
+    # Inputs: y, y_pred - label arrays; neg_label, pos_label - class labels.
+    # Outputs: float. Division by zero (nan with warning) if there are no negatives.
     cm = confusion_matrix(y, y_pred, labels=[neg_label, pos_label])
     tn, fp, _, _ = cm.ravel()
     tnr = tn / (tn + fp)
@@ -165,6 +184,11 @@ import numpy as np
 
 
 def credit_gain_score(y, y_pred, neg_label, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: Business gain from the confusion matrix (rows true, columns predicted,
+    # order [neg, pos]) weighted by a gain matrix giving -1 per false positive and -5
+    # per false negative, correct predictions 0. Outputs: int/float sum (<= 0).
+    # Inputs: y, y_pred - labels; neg_label, pos_label - class labels.
     cm = confusion_matrix(y, y_pred, labels=[neg_label, pos_label])
 
     gain_matrix = np.array(
@@ -289,6 +313,14 @@ print(f"{tuned_model.best_threshold_=:0.2f}")
 
 
 def plot_roc_pr_curves(vanilla_model, tuned_model, *, title):
+    # [FUNCTION DOC]
+    # HELPER: Draws a 1x3 figure: PR curves and ROC curves on the test set for the
+    # vanilla and tuned models, each with a marker at its operating point (threshold =
+    # best_threshold_ if present, else 0.5), and the tuned model's CV objective score
+    # versus threshold with the optimum marked.
+    # Inputs: vanilla_model - fitted classifier; tuned_model - fitted
+    # TunedThresholdClassifierCV with store_cv_results=True; title - keyword-only str.
+    # Outputs: None. Relies on globals X_test, y_test, pos_label and scoring.
     fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(21, 6))
 
     linestyles = ("dashed", "dotted")
@@ -509,6 +541,12 @@ _ = amount_fraud.plot.hist(
 
 
 def business_metric(y_true, y_pred, amount):
+    # [FUNCTION DOC]
+    # HELPER: Fraud-detection gain: +50 per correctly refused fraud, minus the amount of
+    # each accepted fraud, -5 per refused legitimate transaction, plus 2% of the amount
+    # of each accepted legitimate transaction; summed over all samples.
+    # Inputs: y_true, y_pred - 0/1 arrays (1 = fraud); amount - array of transaction
+    # amounts aligned with the samples (passed as routed metadata). Outputs: float.
     mask_true_positive = (y_true == 1) & (y_pred == 1)
     mask_true_negative = (y_true == 0) & (y_pred == 0)
     mask_false_positive = (y_true == 0) & (y_pred == 1)

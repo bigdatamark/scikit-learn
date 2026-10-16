@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery example script. Generates 4000 points in 4 blobs (features swapped), and
+# for each init_params method (kmeans, random_from_data, k-means++, random) times
+# the initialisation alone (GaussianMixture with max_iter=0), then fits a full GMM
+# from those initial means (max_iter=2000, tol 1e-9), plotting predicted clusters,
+# initial centres as diamonds, the iteration count and init time relative to kmeans.
+# Side effects: creates a figure; may emit ConvergenceWarning from max_iter=0.
+# KNOWN ISSUE: x_squared_norms and n_samples are computed but unused; n_components
+# is defined but the value 4 is hardcoded in the estimators.
 """
 ==========================
 GMM Initialization Methods
@@ -56,6 +65,11 @@ x_squared_norms = row_norms(X, squared=True)
 
 
 def get_initial_means(X, init_params, r):
+    # [FUNCTION DOC]
+    # HELPER: Runs GaussianMixture(n_components=4, max_iter=0) with the given
+    # init_params and random state so only initialisation happens, and returns means_.
+    # Inputs: X - (n, 2); init_params - str init method; r - RandomState (consumed).
+    # Outputs: array (4, n_features) of initial means.
     # Run a GaussianMixture with max_iter=0 to output the initialization means
     gmm = GaussianMixture(
         n_components=4, init_params=init_params, tol=1e-9, max_iter=0, random_state=r

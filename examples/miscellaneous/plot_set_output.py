@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script demonstrating set_output. On iris it configures
+# StandardScaler and a scaler + SelectPercentile + LogisticRegression pipeline to
+# output pandas DataFrames, showing feature_names_in_ and how replacing a step via
+# set_params loses (or keeps) the per-estimator output configuration. On Titanic
+# (OpenML, unseeded split) it sets the global transform_output="pandas", fits a
+# ColumnTransformer + feature selection + LR pipeline, plots its coefficients by
+# feature name, resets the global config, and shows config_context for a
+# temporarily pandas output.
+# Side effects: downloads data, mutates and restores global sklearn config.
 """
 ================================
 Introducing the `set_output` API

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. For three datasets - two concentric circles (150 noisy
+# points), an S-curve (150 points, plotted using its x and z coordinates) and a 12x12
+# uniform grid (int(sqrt(150)) per side, so 144 points) - plots the original data and
+# the TSNE embeddings for perplexities 5, 30, 50 and 100 (random init, seed 0,
+# 300-400 iterations) in a 3x5 grid, printing the time of each fit.
+# Side effects: prints timings, creates and shows a figure.
 """
 =============================================================================
 t-SNE: The effect of various perplexity values on the shape

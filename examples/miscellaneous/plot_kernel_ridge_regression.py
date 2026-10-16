@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery example script. Generates 10000 points x in [0, 5) with target sin(x)
+# and strong uniform noise added to every fifth target. Grid-searches SVR (C, gamma)
+# and KernelRidge (alpha, gamma) on the first 100 samples, prints best params,
+# scores, fit and predict times on 100000 grid points and the SVR support-vector
+# ratio, and plots both fits with the support vectors. Then times fit/predict of
+# fixed KRR and SVR models on growing training sizes (log scale) and draws test-MSE
+# learning curves for both with LearningCurveDisplay.
+# Side effects: prints and creates figures; seeded with RandomState(42).
 """
 =============================================
 Comparison of kernel ridge regression and SVR

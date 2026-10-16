@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Gets 10-fold cross_val_predict predictions of
+# LinearRegression on the diabetes data and shows them with PredictionErrorDisplay
+# as actual-vs-predicted and residual-vs-predicted plots (100-point subsample,
+# random_state=0). Side effects: creates a figure.
 """
 ====================================
 Plotting Cross-Validated Predictions

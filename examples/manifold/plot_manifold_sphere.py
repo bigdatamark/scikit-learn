@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Samples 1000 random points on a unit sphere (azimuth in
+# [0, 2*pi - 0.55) to cut a slice, polar angle in [0, pi)), drops points within
+# pi/8 of either pole, and embeds the remaining points into 2D with four LLE
+# variants, Isomap, metric / non-metric MDS, ClassicalMDS, SpectralEmbedding and
+# TSNE, printing the fit time of each and plotting all results in a 3x5 grid
+# coloured by azimuth.
+# Side effects: prints timings, creates and shows one large figure.
+# KNOWN ISSUE: the suptitle hardcodes 1000 points instead of n_samples, and the
+# actual number plotted is smaller because the poles are removed.
 """
 =============================================
 Manifold Learning methods on a severed sphere

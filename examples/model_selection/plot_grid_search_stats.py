@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery example script. On 100 noisy moons samples, grid-searches SVC kernels
+# (linear, poly degree 2/3, rbf) with 10x10 RepeatedStratifiedKFold scoring ROC AUC,
+# shows per-fold score correlation between models, then compares the two best
+# models with a Nadeau-Bengio corrected paired t-test (versus uncorrected), a
+# Bayesian posterior (Student t) with probability of being better, ROPE
+# [-0.01, 0.01] and credible intervals, and finally all pairs with
+# Bonferroni-corrected frequentist tests and Bayesian probabilities.
+# Side effects: requires seaborn and pandas; prints; creates figures.
 """
 ==================================================
 Statistical comparison of models using grid search
@@ -170,6 +179,11 @@ from scipy.stats import t
 
 
 def corrected_std(differences, n_train, n_test):
+    # [FUNCTION DOC]
+    # HELPER: Nadeau and Bengio corrected std: sample variance (ddof=1) of the
+    # differences times (1/kr + n_test/n_train), where kr = number of differences;
+    # returns its square root.
+    # Inputs: differences - 1D array; n_train, n_test - ints. Outputs: float.
     """Corrects standard deviation using Nadeau and Bengio's approach.
 
     Parameters
@@ -195,6 +209,13 @@ def corrected_std(differences, n_train, n_test):
 
 
 def compute_corrected_ttest(differences, df, n_train, n_test):
+    # [FUNCTION DOC]
+    # HELPER: t statistic = mean(differences) / corrected_std; p-value = survival
+    # function of Student t with df degrees of freedom at |t|.
+    # Inputs: differences - 1D array; df - int; n_train, n_test - ints.
+    # Outputs: (t_stat, p_val) floats.
+    # KNOWN ISSUE: the docstring says right-tailed, but using |t| makes it a one-sided
+    # test on the magnitude regardless of sign, i.e. half of a two-sided p-value.
     """Computes right-tailed paired t-test with corrected variance.
 
     Parameters

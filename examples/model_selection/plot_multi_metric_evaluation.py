@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Grid-searches DecisionTreeClassifier min_samples_split
+# (2..402 step 20) on make_hastie_10_2 with two scorers (AUC, Accuracy), refitting
+# on AUC, and plots mean +/- std train and test curves for both scorers with a
+# marker and annotation at each scorer's best value.
+# Side effects: creates a figure.
 """
 ============================================================================
 Demonstration of multi-metric evaluation on cross_val_score and GridSearchCV

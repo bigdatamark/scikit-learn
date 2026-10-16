@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Generates a 1500-point swiss roll and a swiss roll with
+# a hole (random_state=0), plots each in 3D, and compares 2D embeddings from
+# locally_linear_embedding (12 neighbours) and TSNE (perplexity 40) side by side.
+# The reconstruction errors returned by LLE (sr_err, sh_err) are not used.
+# Side effects: creates figures; no I/O.
 """
 ===================================
 Swiss Roll And Swiss-Hole Reduction

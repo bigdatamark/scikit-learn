@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Generates two random 2-class multilabel datasets (with
+# and without unlabeled samples, random_state=1), reduces them to 2D with CCA
+# (supervised) or PCA (unsupervised), fits a one-vs-rest linear SVC and plots
+# samples circled by their labels together with each class's separating line in a
+# 2x2 grid. Side effects: creates and shows a figure.
 """
 =========================
 Multilabel classification
@@ -43,6 +49,12 @@ from sklearn.svm import SVC
 
 
 def plot_hyperplane(clf, min_x, max_x, linestyle, label):
+    # [FUNCTION DOC]
+    # HELPER: Draws the line w0*x + w1*y + b = 0 of a fitted linear binary classifier
+    # on the current axes, over x from min_x - 5 to max_x + 5.
+    # Inputs: clf - fitted estimator with coef_ (1, 2) and intercept_; min_x, max_x -
+    # floats; linestyle - matplotlib format string; label - legend label.
+    # Outputs: None. Exceptions: division by zero (inf/nan) if w1 == 0.
     # get the separating hyperplane
     w = clf.coef_[0]
     a = -w[0] / w[1]
@@ -52,6 +64,17 @@ def plot_hyperplane(clf, min_x, max_x, linestyle, label):
 
 
 def plot_subfigure(X, Y, subplot, title, transform):
+    # [FUNCTION DOC]
+    # HELPER: Projects X to 2D with "pca" or "cca", fits OneVsRestClassifier(SVC
+    # linear) on the projection, and in subplot index `subplot` of a 2x2 grid draws all
+    # points in gray, rings for class 1 and class 2 members, and both class boundaries.
+    # Axis limits extend by half the max coordinate on each side; legend and axis
+    # labels only on subplot 2.
+    # Inputs: X - (n_samples, n_features); Y - binary indicator (n_samples, 2);
+    # subplot - int 1..4; title - str; transform - "pca" or "cca".
+    # Outputs: None. Exceptions: bare ValueError (no message) for any other transform.
+    # KNOWN ISSUE: limits computed as min - 0.5*max assume positive coordinates; with
+    # negative max values the range shrinks instead of expanding.
     if transform == "pca":
         X = PCA(n_components=2).fit_transform(X)
     elif transform == "cca":

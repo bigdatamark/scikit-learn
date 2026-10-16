@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example script. Benchmarks LocalOutlierFactor and IsolationForest on
+# four datasets (KDDCup99 SA subset, forest cover types 2 vs 4, Ames housing with
+# price/sqft outside [40, 70] as anomalies above 70, cardiotocography class 3),
+# storing ground truth and anomaly scores (negative_outlier_factor_ or
+# decision_function) per dataset/model, then plots ROC curves per dataset (pos_label
+# 0, i.e. lower scores = anomalies) and studies LOF sensitivity to n_neighbors and
+# to the choice of scaler on forestcover and cardiotocography.
+# Side effects: downloads several datasets, prints durations and dataset stats,
+# mutates fetched DataFrames, creates figures.
 """
 ==========================================
 Evaluation of outlier detection estimators
@@ -50,6 +60,16 @@ from sklearn.preprocessing import (
 
 
 def make_estimator(name, categorical_columns=None, iforest_kw=None, lof_kw=None):
+    # [FUNCTION DOC]
+    # HELPER: Builds an unfitted pipeline for "LOF" or (any other name) "IForest".
+    # LOF: LocalOutlierFactor(**lof_kw) preceded by RobustScaler, or by a
+    # ColumnTransformer one-hot-encoding categorical_columns and robust-scaling the rest.
+    # IForest: IsolationForest(**iforest_kw) preceded by nothing, or by a
+    # ColumnTransformer ordinal-encoding categorical columns (unknown -> -1) and
+    # passing the rest through.
+    # Inputs: name - "LOF" or "IForest"; categorical_columns - list of column names or
+    # None; iforest_kw, lof_kw - optional dicts of estimator params.
+    # Outputs: sklearn Pipeline (a None step is allowed as passthrough).
     """Create an outlier detection estimator based on its name."""
     if name == "LOF":
         outlier_detector = LocalOutlierFactor(**(lof_kw or {}))
@@ -85,6 +105,14 @@ from time import perf_counter
 
 
 def fit_predict(estimator, X):
+    # [FUNCTION DOC]
+    # HELPER: Fits the pipeline on X and returns anomaly scores: the
+    # negative_outlier_factor_ of the last step for LocalOutlierFactor, otherwise the
+    # decision_function on X. Higher scores mean more normal.
+    # Inputs: estimator - Pipeline ending in LOF or IsolationForest; X - training data.
+    # Outputs: array (n_samples,). Side effects: fits estimator; prints duration.
+    # KNOWN ISSUE: the printed label uses the global variable model_name rather than a
+    # parameter, so it is only correct when called from the module-level loops.
     tic = perf_counter()
     if estimator[-1].__class__.__name__ == "LocalOutlierFactor":
         estimator.fit(X)
