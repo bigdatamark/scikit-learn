@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.datasets._base: data home management, load_files, bundled CSV/gzip
+# loaders, toy dataset loaders and their as_frame dtypes, sample images, Bunch
+# pickling/dir behavior, the load_boston ImportError, _fetch_remote retries, URL-to-path
+# derivation, and fetch_file (download, caching, SHA256 checks, local_filename
+# validation). Network access is replaced by mocks of urlretrieve serving files from a
+# temporary directory.
 import hashlib
 import io
 import os
@@ -43,22 +50,35 @@ from sklearn.utils import Bunch
 
 
 class _DummyPath:
+    # [CLASS DOC]
+    # HELPER: Minimal os.PathLike implementation used to check that functions accept
+    # generic path-like objects.
     """Minimal class that implements the os.PathLike interface."""
 
     def __init__(self, path):
+        # [FUNCTION DOC]
+        # HELPER: Stores the wrapped path string in self.path.
         self.path = path
 
     def __fspath__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the stored path string (os.PathLike protocol).
         return self.path
 
 
 def _remove_dir(path):
+    # [FUNCTION DOC]
+    # HELPER: Recursively deletes path if it is an existing directory; otherwise does
+    # nothing.
     if os.path.isdir(path):
         shutil.rmtree(path)
 
 
 @pytest.fixture(scope="module")
 def data_home(tmpdir_factory):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture yielding a fresh temporary directory path (str) to
+    # use as data_home, removed after the module's tests.
     tmp_file = str(tmpdir_factory.mktemp("scikit_learn_data_home_test"))
     yield tmp_file
     _remove_dir(tmp_file)
@@ -66,6 +86,9 @@ def data_home(tmpdir_factory):
 
 @pytest.fixture(scope="module")
 def load_files_root(tmpdir_factory):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture yielding a temporary root directory (str) for
+    # load_files tests, removed afterwards.
     tmp_file = str(tmpdir_factory.mktemp("scikit_learn_load_files_test"))
     yield tmp_file
     _remove_dir(tmp_file)
@@ -73,6 +96,9 @@ def load_files_root(tmpdir_factory):
 
 @pytest.fixture
 def test_category_dir_1(load_files_root):
+    # [FUNCTION DOC]
+    # HELPER: Fixture creating a category subdirectory under load_files_root containing
+    # one file with content "Hello World!\n"; yields its path and removes it afterwards.
     test_category_dir1 = tempfile.mkdtemp(dir=load_files_root)
     sample_file = tempfile.NamedTemporaryFile(dir=test_category_dir1, delete=False)
     sample_file.write(b"Hello World!\n")
@@ -83,6 +109,9 @@ def test_category_dir_1(load_files_root):
 
 @pytest.fixture
 def test_category_dir_2(load_files_root):
+    # [FUNCTION DOC]
+    # HELPER: Fixture creating an empty category subdirectory under load_files_root;
+    # yields its path and removes it afterwards.
     test_category_dir2 = tempfile.mkdtemp(dir=load_files_root)
     yield str(test_category_dir2)
     _remove_dir(test_category_dir2)
@@ -91,6 +120,12 @@ def test_category_dir_2(load_files_root):
 @pytest.mark.thread_unsafe
 @pytest.mark.parametrize("path_container", [None, Path, _DummyPath])
 def test_data_home(path_container, data_home):
+    # [FUNCTION DOC]
+    # Verifies get_data_home returns an existing folder for str, Path and _DummyPath
+    # inputs, clear_data_home deletes it, and get_data_home recreates it. Marked thread-
+    # unsafe.
+    # KNOWN ISSUE: the assertion comparing data_home with itself is a tautology and
+    # checks nothing.
     # get_data_home will point to a pre-existing folder
     if path_container is not None:
         data_home = path_container(data_home)
@@ -110,6 +145,9 @@ def test_data_home(path_container, data_home):
 
 
 def test_default_empty_load_files(load_files_root):
+    # [FUNCTION DOC]
+    # Verifies load_files on an empty root returns no filenames, no target names and
+    # DESCR None.
     res = load_files(load_files_root)
     assert len(res.filenames) == 0
     assert len(res.target_names) == 0
@@ -117,6 +155,9 @@ def test_default_empty_load_files(load_files_root):
 
 
 def test_default_load_files(test_category_dir_1, test_category_dir_2, load_files_root):
+    # [FUNCTION DOC]
+    # Verifies load_files with one populated and one empty category: one file, two
+    # target names, DESCR None and the raw bytes content.
     res = load_files(load_files_root)
     assert len(res.filenames) == 1
     assert len(res.target_names) == 2
@@ -127,6 +168,9 @@ def test_default_load_files(test_category_dir_1, test_category_dir_2, load_files
 def test_load_files_w_categories_desc_and_encoding(
     test_category_dir_1, test_category_dir_2, load_files_root
 ):
+    # [FUNCTION DOC]
+    # Verifies load_files restricted to one category with a description and utf-8
+    # encoding returns one decoded str document and DESCR "test".
     category = os.path.abspath(test_category_dir_1).split(os.sep).pop()
     res = load_files(
         load_files_root, description="test", categories=[category], encoding="utf-8"
@@ -141,6 +185,8 @@ def test_load_files_w_categories_desc_and_encoding(
 def test_load_files_wo_load_content(
     test_category_dir_1, test_category_dir_2, load_files_root
 ):
+    # [FUNCTION DOC]
+    # Verifies load_content=False returns filenames and target names but no data key.
     res = load_files(load_files_root, load_content=False)
     assert len(res.filenames) == 1
     assert len(res.target_names) == 2
@@ -150,6 +196,9 @@ def test_load_files_wo_load_content(
 
 @pytest.mark.parametrize("allowed_extensions", ([".txt"], [".txt", ".json"]))
 def test_load_files_allowed_extensions(tmp_path, allowed_extensions):
+    # [FUNCTION DOC]
+    # Verifies allowed_extensions filters files by suffix: the returned filenames equal
+    # exactly the created files whose suffix is allowed.
     """Check the behaviour of `allowed_extension` in `load_files`."""
     d = tmp_path / "sub"
     d.mkdir()
@@ -174,6 +223,9 @@ def test_load_files_allowed_extensions(tmp_path, allowed_extensions):
 def test_load_csv_data(
     filename, expected_n_samples, expected_n_features, expected_target_names
 ):
+    # [FUNCTION DOC]
+    # Verifies load_csv_data on bundled CSVs returns data/target with the expected
+    # sample and feature counts and target names.
     actual_data, actual_target, actual_target_names = load_csv_data(filename)
     assert actual_data.shape[0] == expected_n_samples
     assert actual_data.shape[1] == expected_n_features
@@ -182,6 +234,9 @@ def test_load_csv_data(
 
 
 def test_load_csv_data_with_descr():
+    # [FUNCTION DOC]
+    # Verifies load_csv_data returns 3 items without descr_file_name and 4 with it,
+    # identical arrays otherwise, and that the description starts with the iris header.
     data_file_name = "iris.csv"
     descr_file_name = "iris.rst"
 
@@ -208,11 +263,17 @@ def test_load_csv_data_with_descr():
     ],
 )
 def test_load_gzip_compressed_csv_data(filename, kwargs, expected_shape):
+    # [FUNCTION DOC]
+    # Verifies load_gzip_compressed_csv_data returns arrays of the expected shapes for
+    # bundled gzip CSV files, with optional loadtxt kwargs.
     actual_data = load_gzip_compressed_csv_data(filename, **kwargs)
     assert actual_data.shape == tuple(expected_shape)
 
 
 def test_load_gzip_compressed_csv_data_with_descr():
+    # [FUNCTION DOC]
+    # Verifies that passing descr_file_name returns (data, descr) with the same data and
+    # the diabetes header.
     data_file_name = "diabetes_target.csv.gz"
     descr_file_name = "diabetes.rst"
 
@@ -227,6 +288,10 @@ def test_load_gzip_compressed_csv_data_with_descr():
 
 
 def test_load_sample_images():
+    # [FUNCTION DOC]
+    # Verifies load_sample_images returns two images and filenames with known first-
+    # pixel RGB values and a DESCR; emits a warning instead of failing when PIL is
+    # missing.
     try:
         res = load_sample_images()
         assert len(res.images) == 2
@@ -243,6 +308,9 @@ def test_load_sample_images():
 
 
 def test_load_sample_image():
+    # [FUNCTION DOC]
+    # Verifies load_sample_image("china.jpg") returns a uint8 array of shape (427, 640,
+    # 3); warns instead when PIL is missing.
     try:
         china = load_sample_image("china.jpg")
         assert china.dtype == "uint8"
@@ -252,6 +320,9 @@ def test_load_sample_image():
 
 
 def test_load_diabetes_raw():
+    # [FUNCTION DOC]
+    # Verifies load_diabetes(scaled=False) shapes and that standardizing the raw data
+    # and dividing by sqrt(442) reproduces the default scaled data (atol 1e-4).
     """Test to check that we load a scaled version by default but that we can
     get an unscaled version when setting `scaled=False`."""
     diabetes_raw = load_diabetes(scaled=False)
@@ -287,6 +358,10 @@ def test_load_diabetes_raw():
     ],
 )
 def test_loader(loader_func, data_shape, target_shape, n_target, has_descr, filenames):
+    # [FUNCTION DOC]
+    # Verifies each toy loader returns a Bunch with expected data/target shapes,
+    # feature_names length, target_names count, DESCR, and that declared filename keys
+    # exist as files inside data_module resources.
     bunch = loader_func()
 
     assert isinstance(bunch, Bunch)
@@ -321,6 +396,9 @@ def test_loader(loader_func, data_shape, target_shape, n_target, has_descr, file
     ],
 )
 def test_toy_dataset_frame_dtype(loader_func, data_dtype, target_dtype):
+    # [FUNCTION DOC]
+    # Verifies as_frame output of each toy loader via check_as_frame with expected data
+    # and target dtypes.
     default_result = loader_func()
     check_as_frame(
         default_result,
@@ -331,6 +409,9 @@ def test_toy_dataset_frame_dtype(loader_func, data_dtype, target_dtype):
 
 
 def test_loads_dumps_bunch():
+    # [FUNCTION DOC]
+    # Verifies that after pickling round-trip, attribute assignment on a Bunch is
+    # reflected in item access.
     bunch = Bunch(x="x")
     bunch_from_pkl = loads(dumps(bunch))
     bunch_from_pkl.x = "y"
@@ -338,6 +419,10 @@ def test_loads_dumps_bunch():
 
 
 def test_bunch_pickle_generated_with_0_16_and_read_with_0_17():
+    # [FUNCTION DOC]
+    # Non-regression test: a Bunch whose __dict__ holds a stale value (as in 0.16
+    # pickles) is unpickled with the item value winning, and later attribute assignment
+    # updates item access.
     bunch = Bunch(key="original")
     # This reproduces a problem when Bunch pickles have been created
     # with scikit-learn 0.16 and are read with 0.17. Basically there
@@ -359,12 +444,18 @@ def test_bunch_pickle_generated_with_0_16_and_read_with_0_17():
 
 
 def test_bunch_dir():
+    # [FUNCTION DOC]
+    # Verifies dir() of a Bunch lists its keys (e.g. "data"), for autocompletion.
     # check that dir (important for autocomplete) shows attributes
     data = load_iris()
     assert "data" in dir(data)
 
 
 def test_load_boston_error():
+    # [FUNCTION DOC]
+    # Verifies importing load_boston raises ImportError with the ethical-problem
+    # message, while importing another missing name raises the standard ImportError
+    # message.
     """Check that we raise the ethical warning when trying to import `load_boston`."""
     msg = "The Boston housing prices dataset has an ethical problem"
     with pytest.raises(ImportError, match=msg):
@@ -377,6 +468,10 @@ def test_load_boston_error():
 
 
 def test_fetch_remote_raise_warnings_with_invalid_url(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies _fetch_remote retries on HTTP 404: urlretrieve is mocked to always raise,
+    # 4 calls are made for n_retries=3, three "Retry downloading" warnings are emitted,
+    # and the HTTPError propagates.
     """Check retry mechanism in _fetch_remote."""
 
     url = "https://scikit-learn.org/this_file_does_not_exist.tar.gz"
@@ -400,6 +495,11 @@ def test_fetch_remote_raise_warnings_with_invalid_url(monkeypatch):
 
 
 def test_derive_folder_and_filename_from_url():
+    # [FUNCTION DOC]
+    # Verifies _derive_folder_and_filename_from_url sanitization on many URLs: host as
+    # folder, path segments joined with underscores and stripped of punctuation, non-
+    # ASCII spaces turned into dashes, query/anchor removal, default "downloaded_file"
+    # name, and ValueError for an invalid URL.
     folder, filename = _derive_folder_and_filename_from_url(
         "https://example.com/file.tar.gz"
     )
@@ -471,7 +571,15 @@ def test_derive_folder_and_filename_from_url():
 
 
 def _mock_urlretrieve(server_side):
+    # [FUNCTION DOC]
+    # HELPER: Builds a Mock urlretrieve that serves files from server_side: maps the URL
+    # path to a file under that directory, copies it to the local path, or raises
+    # HTTPError 404 if missing.
+    # Inputs: server_side - directory path. Outputs: Mock with that side effect.
     def _urlretrieve_mock(url, local_path):
+        # [FUNCTION DOC]
+        # HELPER: Side effect copying the file matching url's path from the server root
+        # to local_path, raising HTTPError 404 when it does not exist.
         server_root = Path(server_side)
         file_path = urlparse(url).path.strip("/")
         if not (server_root / file_path).exists():
@@ -482,6 +590,10 @@ def _mock_urlretrieve(server_side):
 
 
 def test_fetch_file_using_data_home(monkeypatch, tmpdir):
+    # [FUNCTION DOC]
+    # Verifies fetch_file without folder stores files under data_home/<host>/<path
+    # folders>, returns correct paths and contents, retries with a warning and raises
+    # HTTPError for a missing remote file, and leaves no partial file behind.
     tmpdir = Path(tmpdir)
     server_side = tmpdir / "server_side"
     server_side.mkdir()
@@ -534,6 +646,9 @@ def test_fetch_file_using_data_home(monkeypatch, tmpdir):
 
 
 def test_fetch_file_without_sha256(monkeypatch, tmpdir):
+    # [FUNCTION DOC]
+    # Verifies fetch_file downloads once, skips re-download when the local file exists,
+    # and re-downloads after the file is deleted (counted via the mock).
     server_side = tmpdir.mkdir("server_side")
     data_file = Path(server_side / "data.jsonl")
     server_data = '{"a": 1, "b": 2}\n'
@@ -574,6 +689,11 @@ def test_fetch_file_without_sha256(monkeypatch, tmpdir):
 
 
 def test_fetch_file_with_sha256(monkeypatch, tmpdir):
+    # [FUNCTION DOC]
+    # Verifies SHA256 handling: no re-download when the checksum matches, warning and
+    # re-download when the local file is corrupted, silent re-download after deletion,
+    # no check when sha256 is omitted, and OSError (after a warning) when the remote
+    # file never matches the expected checksum.
     server_side = tmpdir.mkdir("server_side")
     data_file = Path(server_side / "data.jsonl")
     server_data = '{"a": 1, "b": 2}\n'
@@ -675,6 +795,10 @@ def test_fetch_file_with_sha256(monkeypatch, tmpdir):
     ],
 )
 def test_fetch_file_rejects_path_as_local_filename(monkeypatch, tmpdir, local_filename):
+    # [FUNCTION DOC]
+    # Non-regression test: path-like local_filename values (with separators, absolute,
+    # dot entries, empty) raise ValueError before any download, and nothing besides the
+    # folder is created on disk.
     # Non-regression test: a path-like `local_filename` must be rejected instead
     # of silently writing outside of `folder`.
     client_side = Path(tmpdir.mkdir("client_side"))
@@ -708,6 +832,9 @@ def test_fetch_file_rejects_path_as_local_filename(monkeypatch, tmpdir, local_fi
     ],
 )
 def test_fetch_file_accepts_plain_local_filename(monkeypatch, tmpdir, local_filename):
+    # [FUNCTION DOC]
+    # Verifies plain file names (including leading dot and double dots inside) are
+    # accepted as local_filename and the file is saved under that name.
     server_side = tmpdir.mkdir("server_side")
     server_data = '{"a": 1, "b": 2}\n'
     Path(server_side / "data.jsonl").write_text(server_data, encoding="utf-8")
