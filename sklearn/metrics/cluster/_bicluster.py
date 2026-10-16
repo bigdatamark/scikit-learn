@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Bicluster comparison metric. Provides consensus_score, which matches two sets of
+# biclusters (each given as row and column boolean indicator matrices) with an optimal
+# one-to-one assignment and averages their pairwise similarity.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -11,6 +15,16 @@ __all__ = ["consensus_score"]
 
 
 def _check_rows_and_columns(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Validates and unpacks two bicluster specifications.
+    # Inputs: a, b - tuples (rows, cols); rows is (n_biclusters, n_rows) and cols is
+    # (n_biclusters, n_cols) indicator arrays; within each tuple the number of
+    # biclusters must match.
+    # Outputs: four arrays a_rows, a_cols, b_rows, b_cols, converted with check_array
+    # (1d allowed).
+    # Exceptions: ValueError from check_consistent_length/check_array on inconsistent
+    # lengths or invalid content.
+    # Side effects: none.
     """Unpacks the row and column arrays and checks their shape."""
     check_consistent_length(*a)
     check_consistent_length(*b)
@@ -21,6 +35,16 @@ def _check_rows_and_columns(a, b):
 
 
 def _jaccard(a_rows, a_cols, b_rows, b_cols):
+    # [FUNCTION DOC]
+    # HELPER: Jaccard coefficient between two biclusters treated as sets of matrix
+    # cells. The intersection size is (number of shared rows) times (number of shared
+    # columns); each bicluster's size is its row count times its column count; the
+    # result is the intersection divided by the union (sum of sizes minus intersection).
+    # Inputs: four 1d indicator vectors (boolean or 0/1) for rows/cols of each
+    # bicluster.
+    # Outputs: float in [0, 1] (numpy scalar).
+    # Exceptions: none raised; if both biclusters are empty the division is 0/0 and
+    # yields nan with a numpy RuntimeWarning.
     """Jaccard coefficient on the elements of the two biclusters."""
     intersection = (a_rows * b_rows).sum() * (a_cols * b_cols).sum()
 
@@ -31,6 +55,15 @@ def _jaccard(a_rows, a_cols, b_rows, b_cols):
 
 
 def _pairwise_similarity(a, b, similarity):
+    # [FUNCTION DOC]
+    # HELPER: Builds the (n_a, n_b) matrix where entry i, j is similarity applied to
+    # bicluster i of a and bicluster j of b.
+    # Inputs: a, b - (rows, cols) tuples; similarity - callable taking (a_rows, a_cols,
+    # b_rows, b_cols) 1d vectors and returning a scalar.
+    # Outputs: float ndarray of shape (n_a, n_b).
+    # Exceptions: propagated from _check_rows_and_columns.
+    # KNOWN ISSUE: the docstring says each entry is the Jaccard coefficient, but any
+    # supplied similarity callable is used.
     """Computes pairwise similarity matrix.
 
     result[i, j] is the Jaccard coefficient of a's bicluster i and b's
@@ -58,6 +91,15 @@ def _pairwise_similarity(a, b, similarity):
     prefer_skip_nested_validation=True,
 )
 def consensus_score(a, b, *, similarity="jaccard"):
+    # [FUNCTION DOC]
+    # Computes the pairwise similarity matrix (Jaccard when similarity is "jaccard"),
+    # solves a linear sum assignment on one minus the matrix to maximize total
+    # similarity, then divides the summed matched similarities by the larger of the two
+    # bicluster counts, so unmatched biclusters count as zero.
+    # Inputs/outputs: see docstring; returns a Python float.
+    # Exceptions: InvalidParameterError from validate_params for non-tuple a/b or an
+    # invalid similarity; ValueError from input validation.
+    # Side effects: none.
     """The similarity of two sets of biclusters.
 
     Similarity between individual biclusters is computed. Then the best

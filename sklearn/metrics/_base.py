@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# HELPER: Common private helpers shared by sklearn.metrics to extend binary metrics to
+#   multilabel and multiclass problems: per-label averaging of a binary metric
+#   (_average_binary_score) and Hand and Till one-vs-one averaging
+#   (_average_multiclass_ovo_score).
 """
 Common code for all metrics.
 
@@ -21,6 +26,28 @@ from sklearn.utils.multiclass import type_of_target
 
 
 def _average_binary_score(binary_metric, y_true, y_score, average, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Applies binary_metric per label (or per sample) and aggregates according
+    #   to average.
+    # Steps: validate average and the target type; if y_true is binary, return
+    #   binary_metric on the inputs directly (average ignored). Otherwise validate
+    #   lengths and arrays, then: for "micro" flatten y_true and y_score (repeating
+    #   sample_weight once per label) and treat the result as a single label; for
+    #   "weighted" compute per-label weights as the (sample-weighted) count of positives
+    #   and return 0 if they sum to 0; for "samples" iterate over rows instead of
+    #   columns and use sample_weight as averaging weights rather than metric weights.
+    #   Compute binary_metric for each column (or row), set scores with zero averaging
+    #   weight to 0 (so NaNs do not propagate) and return their weighted mean.
+    # Inputs: binary_metric - callable(y_true, y_score, sample_weight=...) returning a
+    #   float; y_true - binary vector or (n_samples, n_labels) indicator matrix; y_score
+    #   - scores of the same shape; average - None, "micro", "macro", "weighted" or
+    #   "samples" (no default); sample_weight - optional (n_samples,) weights.
+    # Outputs: float for an averaged score, otherwise an array of per-label scores (in
+    #   the input's array namespace/device). Returns the integer 0 for "weighted" with
+    #   no positives.
+    # Exceptions: ValueError for an unknown average or a target type other than binary
+    #   or multilabel-indicator; errors from check_consistent_length/check_array.
+    # Side effects: none.
     """Average a binary metric for multilabel classification.
 
     Parameters
@@ -140,6 +167,24 @@ def _average_binary_score(binary_metric, y_true, y_score, average, sample_weight
 
 
 def _average_multiclass_ovo_score(binary_metric, y_true, y_score, average="macro"):
+    # [FUNCTION DOC]
+    # HELPER: Hand and Till (2001) one-vs-one averaging. For every unordered pair of
+    #   classes (a, b) among the sorted unique labels of y_true, restricts to samples
+    #   whose true label is a or b, computes binary_metric with a as positive class
+    #   using score column a, and with b as positive using column b, and stores the mean
+    #   of the two. Returns the mean of the pair scores, weighted by the fraction of
+    #   samples belonging to each pair when average="weighted" (any other value behaves
+    #   as "macro").
+    # Inputs: binary_metric - callable(y_true_bool, y_score_1d) returning a float;
+    #   y_true - (n_samples,) labels; y_score - (n_samples, n_classes) array; average -
+    #   "macro" (default) or "weighted".
+    # Outputs: float (numpy scalar) average score.
+    # Exceptions: ValueError from check_consistent_length on length mismatch; IndexError
+    #   if labels are not valid column indices.
+    # Side effects: none.
+    # KNOWN ISSUE: class labels are used directly as column indices into y_score, so the
+    #   labels must already be encoded as 0..n_classes-1 by the caller; also unknown
+    #   average values are not rejected and silently fall back to macro.
     """Average one-versus-one scores for multiclass classification.
 
     Uses the binary metric for one-vs-one multiclass classification,

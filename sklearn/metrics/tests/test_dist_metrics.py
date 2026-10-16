@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tests for sklearn.metrics.DistanceMetric (and its DistanceMetric32/DistanceMetric64
+#   specializations), mostly by comparing pairwise distances against
+#   scipy.spatial.distance.cdist.
+# Module-level fixtures: a seeded RandomState(0) generates X64 (20x4) and Y64 (25x4)
+#   uniform data, float32 copies, memmap-backed copies, boolean (0/1 float) versions
+#   thresholded at 0.3 and 0.7, and a random SPD-like matrix VI for mahalanobis.
+# METRICS_DEFAULT_PARAMS lists (metric name, dict of parameter name -> tuple of
+#   candidate values) used to build parameter grids.
+# Side effects at import: creates memmap-backed temporary data via
+#   create_memmap_backed_data.
 import copy
 import itertools
 import pickle
@@ -23,6 +34,12 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 def dist_func(x1, x2, p):
+    # [FUNCTION DOC]
+    # HELPER: Python reference "minkowski-like" distance used as a pyfunc metric.
+    # Inputs: x1, x2 - 1-D numeric arrays of equal length; p - positive exponent.
+    # Outputs: float, the sum of (x1 - x2) raised to p, then raised to 1/p.
+    # KNOWN ISSUE: no absolute value is taken on the differences, so it only equals a
+    #   Minkowski distance for even p (used here only with p=2).
     return np.sum((x1 - x2) ** p) ** (1.0 / p)
 
 
@@ -67,6 +84,11 @@ METRICS_DEFAULT_PARAMS = [
 @pytest.mark.parametrize("X, Y", [(X64, Y64), (X32, Y32), (X_mmap, Y_mmap)])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_cdist(metric_param_grid, X, Y, csr_container):
+    # [FUNCTION DOC]
+    # Verifies DistanceMetric.pairwise(X, Y) matches scipy cdist for every metric and
+    #   every combination of its parameter grid, for float64, float32 and memmap inputs.
+    # Each of the four dense/CSR combinations of (X, Y) is checked for C-contiguous
+    #   output and closeness; rtol is relaxed to 1e-6 for mahalanobis on float32.
     metric, param_grid = metric_param_grid
     keys = param_grid.keys()
     X_csr, Y_csr = csr_container(X), csr_container(Y)
@@ -110,6 +132,11 @@ def test_cdist(metric_param_grid, X, Y, csr_container):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_cdist_bool_metric(metric, X_bool, Y_bool, csr_container):
+    # [FUNCTION DOC]
+    # Verifies boolean metrics (BOOL_METRICS) on 0/1 data match scipy cdist for all
+    #   dense/CSR combinations of X and Y, with C-contiguous output.
+    # Deprecation warnings from scipy for DEPRECATED_METRICS are ignored when computing
+    #   the reference.
     if metric in DEPRECATED_METRICS:
         with ignore_warnings(category=DeprecationWarning):
             # Some metrics can be deprecated depending on the scipy version.
@@ -151,6 +178,12 @@ def test_cdist_bool_metric(metric, X_bool, Y_bool, csr_container):
 @pytest.mark.parametrize("X", [X64, X32, X_mmap])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pdist(metric_param_grid, X, csr_container):
+    # [FUNCTION DOC]
+    # Verifies DistanceMetric.pairwise(X) (single argument) and pairwise(X_csr) /
+    #   pairwise(X_csr, X_csr) match scipy cdist(X, X) over every metric parameter grid.
+    # KNOWN ISSUE: the contiguity assertions after the CSR calls check the earlier dense
+    #   result D_sklearn instead of D_sklearn_csr, so CSR output contiguity is not
+    #   actually tested.
     metric, param_grid = metric_param_grid
     keys = param_grid.keys()
     X_csr = csr_container(X)
@@ -185,6 +218,10 @@ def test_pdist(metric_param_grid, X, csr_container):
     "metric_param_grid", METRICS_DEFAULT_PARAMS, ids=lambda params: params[0]
 )
 def test_distance_metrics_dtype_consistency(metric_param_grid):
+    # [FUNCTION DOC]
+    # Verifies float32 and float64 metric instances give results with the matching
+    #   output dtype and agree within rtol=1e-5, for both pairwise(X) and pairwise(X,
+    #   Y).
     # DistanceMetric must return similar distances for both float32 and float64
     # input data.
     metric, param_grid = metric_param_grid
@@ -219,6 +256,9 @@ def test_distance_metrics_dtype_consistency(metric_param_grid):
 @pytest.mark.parametrize("X_bool", [X_bool, X_bool_mmap])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pdist_bool_metrics(metric, X_bool, csr_container):
+    # [FUNCTION DOC]
+    # Verifies boolean metrics computed with pairwise(X) on dense and CSR 0/1 data match
+    #   scipy cdist(X, X).
     if metric in DEPRECATED_METRICS:
         with ignore_warnings(category=DeprecationWarning):
             # Some metrics can be deprecated depending on the scipy version.
@@ -244,6 +284,10 @@ def test_pdist_bool_metrics(metric, X_bool, csr_container):
 )
 @pytest.mark.parametrize("X", [X64, X32])
 def test_pickle(writable_kwargs, metric_param_grid, X):
+    # [FUNCTION DOC]
+    # Verifies a DistanceMetric survives a pickle round trip with identical pairwise
+    #   results, for each parameter combination; array-valued parameters are deep-copied
+    #   and set writable or read-only according to writable_kwargs.
     metric, param_grid = metric_param_grid
     keys = param_grid.keys()
     for vals in itertools.product(*param_grid.values()):
@@ -263,6 +307,9 @@ def test_pickle(writable_kwargs, metric_param_grid, X):
 @pytest.mark.parametrize("metric", BOOL_METRICS)
 @pytest.mark.parametrize("X_bool", [X_bool, X_bool_mmap])
 def test_pickle_bool_metrics(metric, X_bool):
+    # [FUNCTION DOC]
+    # Verifies boolean metrics survive a pickle round trip with identical pairwise
+    #   results on dense and memmap 0/1 data.
     dm = DistanceMetric.get_metric(metric)
     D1 = dm.pairwise(X_bool)
     dm2 = pickle.loads(pickle.dumps(dm))
@@ -273,6 +320,10 @@ def test_pickle_bool_metrics(metric, X_bool):
 @pytest.mark.parametrize("X, Y", [(X64, Y64), (X32, Y32), (X_mmap, Y_mmap)])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_haversine_metric(X, Y, csr_container):
+    # [FUNCTION DOC]
+    # Verifies the haversine metric on the first two feature columns against a slow
+    #   pure-Python reference, for all dense/CSR combinations, and that dist_to_rdist
+    #   yields the squared sine of half the reference distance.
     # The Haversine DistanceMetric only works on 2 features.
     X = np.asarray(X[:, :2])
     Y = np.asarray(Y[:, :2])
@@ -282,6 +333,11 @@ def test_haversine_metric(X, Y, csr_container):
     # Haversine is not supported by scipy.special.distance.{cdist,pdist}
     # So we reimplement it to have a reference.
     def haversine_slow(x1, x2):
+        # [FUNCTION DOC]
+        # HELPER: Reference haversine distance between two 2-element points (latitude,
+        #   longitude in radians).
+        # Outputs: float, twice the arcsine of the square root of the haversine formula
+        #   term.
         return 2 * np.arcsin(
             np.sqrt(
                 np.sin(0.5 * (x1[0] - x2[0])) ** 2
@@ -317,6 +373,9 @@ def test_haversine_metric(X, Y, csr_container):
 
 
 def test_pyfunc_metric():
+    # [FUNCTION DOC]
+    # Verifies a pyfunc metric built from dist_func with p=2 matches the built-in
+    #   euclidean metric, both before and after pickling each metric.
     X = np.random.random((10, 3))
 
     euclidean = DistanceMetric.get_metric("euclidean")
@@ -338,9 +397,17 @@ def test_pyfunc_metric():
 
 
 def test_input_data_size():
+    # [FUNCTION DOC]
+    # Regression test for #6288: verifies that a pyfunc metric receives full rows
+    #   (asserting 3 features inside the callable) and its squared-euclidean output
+    #   equals the squared euclidean metric.
     # Regression test for #6288
     # Previously, a metric requiring a particular input dimension would fail
     def custom_metric(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Custom metric that asserts the input row has length 3 and returns the
+        #   squared euclidean distance.
+        # Exceptions: AssertionError if a row does not have exactly 3 entries.
         assert x.shape[0] == 3
         return np.sum((x - y) ** 2)
 
@@ -353,6 +420,9 @@ def test_input_data_size():
 
 
 def test_readonly_kwargs():
+    # [FUNCTION DOC]
+    # Non-regression test for #21685: verifies get_metric accepts read-only arrays for
+    #   seuclidean V and mahalanobis VI without raising.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/21685
 
@@ -386,11 +456,18 @@ def test_readonly_kwargs():
     ],
 )
 def test_minkowski_metric_validate_weights_values(w, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies invalid Minkowski weights w (negative, NaN, sparse, non-numeric, empty)
+    #   raise the expected error type and message at get_metric time.
     with pytest.raises(err_type, match=err_msg):
         DistanceMetric.get_metric("minkowski", p=3, w=w)
 
 
 def test_minkowski_metric_validate_weights_size():
+    # [FUNCTION DOC]
+    # Verifies a Minkowski metric whose weight vector has one more entry than the number
+    #   of features raises a ValueError with an explicit size-mismatch message when
+    #   pairwise is called.
     w2 = rng.random_sample(d + 1)
     dm = DistanceMetric.get_metric("minkowski", p=3, w=w2)
     msg = (
@@ -405,6 +482,11 @@ def test_minkowski_metric_validate_weights_size():
 @pytest.mark.parametrize("metric, metric_kwargs", METRICS_DEFAULT_PARAMS)
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 def test_get_metric_dtype(metric, metric_kwargs, dtype):
+    # [FUNCTION DOC]
+    # Verifies DistanceMetric.get_metric with an explicit dtype returns the same
+    #   concrete class as the dtype-specialized
+    #   DistanceMetric32/DistanceMetric64.get_metric, using the first value of each
+    #   parameter grid.
     specialized_cls = {
         np.float32: DistanceMetric32,
         np.float64: DistanceMetric64,
@@ -419,6 +501,8 @@ def test_get_metric_dtype(metric, metric_kwargs, dtype):
 
 
 def test_get_metric_bad_dtype():
+    # [FUNCTION DOC]
+    # Verifies get_metric raises ValueError for an unsupported dtype (int32).
     dtype = np.int32
     msg = r"Unexpected dtype .* provided. Please select a dtype from"
     with pytest.raises(ValueError, match=msg):
@@ -426,6 +510,9 @@ def test_get_metric_bad_dtype():
 
 
 def test_minkowski_metric_validate_bad_p_parameter():
+    # [FUNCTION DOC]
+    # Verifies get_metric("minkowski", p=0) raises ValueError stating p must be greater
+    #   than 0.
     msg = "p must be greater than 0"
     with pytest.raises(ValueError, match=msg):
         DistanceMetric.get_metric("minkowski", p=0)

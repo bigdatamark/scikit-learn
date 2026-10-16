@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for t-SNE (sklearn.manifold.TSNE and the private helpers in _t_sne,
+#   _barnes_hut_tsne and _utils): the gradient descent stopping rules, perplexity binary
+#   search, joint probabilities, KL divergence and its gradient (exact and Barnes-Hut),
+#   trustworthiness, input validation for precomputed/sparse distances, parameter
+#   effects (early_exaggeration, max_iter, min_grad_norm, n_iter_without_progress,
+#   n_jobs), metrics, verbose output and dtype handling. Module level builds X_2d_grid,
+#   a 10x10 uniform grid in the unit square used by test_uniform_grid.
 import re
 import sys
 from io import StringIO
@@ -50,16 +58,36 @@ X_2d_grid = np.hstack(
 
 
 def test_gradient_descent_stops(capsys):
+    # [FUNCTION DOC]
+    # Exercises the three stopping criteria of _gradient_descent with zero learning rate
+    #   and verbose=2, inspecting returned error/iteration and captured stdout: gradient
+    #   norm below min_grad_norm stops at iteration 0 ("gradient norm"); a flat
+    #   objective stops after n_iter_without_progress=10 iterations at it 11 ("did not
+    #   make any progress"); and max_iter=11 stops at iteration 10 ("Iteration 10").
     # Test stopping conditions of gradient descent.
     class ObjectiveSmallGradient:
+        # [CLASS DOC]
+        # HELPER: Callable objective whose error decreases by 0.1 per call starting at
+        #   1.0 and whose gradient is always the tiny constant 1e-5.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: Sets the call counter it to -1 so the first call reports iteration
+            #   0.
             self.it = -1
 
         def __call__(self, _, compute_error=True):
+            # [FUNCTION DOC]
+            # HELPER: Increments the counter and returns the error (10 - it) / 10 and a
+            #   gradient array holding 1e-5. Inputs: parameters (ignored), compute_error
+            #   (ignored).
+            # Side effects: mutates self.it.
             self.it += 1
             return (10 - self.it) / 10.0, np.array([1e-5])
 
     def flat_function(_, compute_error=True):
+        # [FUNCTION DOC]
+        # HELPER: Objective with constant error 0.0 and gradient of ones, so no progress
+        #   is ever made. Inputs are ignored.
         return 0.0, np.ones(1)
 
     # Gradient norm
@@ -115,6 +143,10 @@ def test_gradient_descent_stops(capsys):
 
 
 def test_binary_search():
+    # [FUNCTION DOC]
+    # Verifies _binary_search_perplexity on 50 random 5-D points: the mean over rows of
+    #   the exponential of the entropy of each conditional distribution equals the
+    #   desired perplexity 25 to 3 decimals.
     # Test if the binary search finds Gaussians with desired perplexity.
     random_state = check_random_state(0)
     data = random_state.randn(50, 5)
@@ -129,6 +161,10 @@ def test_binary_search():
 
 
 def test_binary_search_underflow():
+    # [FUNCTION DOC]
+    # Regression for #19471: for a single float32 row of 90 large values (offset 100),
+    #   the base-2 perplexity of the resulting distribution (excluding the first entry)
+    #   equals 30 to 3 decimals, i.e. no underflow.
     # Test if the binary search finds Gaussians with desired perplexity.
     # A more challenging case than the one above, producing numeric
     # underflow in float precision (see issue #19471 and PR #19472).
@@ -141,6 +177,14 @@ def test_binary_search_underflow():
 
 
 def test_binary_search_neighbors():
+    # [FUNCTION DOC]
+    # Verifies the nearest-neighbor variant: running the search on the k-NN distance
+    #   rows with all n-1 neighbors reproduces the dense conditional probabilities
+    #   restricted to those neighbors (4 decimals); with fewer neighbors (150 to 199)
+    #   the largest 10k probabilities match the dense ones to 2 decimals.
+    # KNOWN ISSUE: inside the loop the assertion comparing P1_nn and P2 is
+    #   loop-invariant (it re-checks the full-neighbor result instead of P2k), so it
+    #   adds nothing.
     # Binary perplexity search approximation.
     # Should be approximately equal to the slow method when we use
     # all points as neighbors.
@@ -185,6 +229,10 @@ def test_binary_search_neighbors():
 
 
 def test_binary_perplexity_stability():
+    # [FUNCTION DOC]
+    # Regression for an uninitialized P array: 100 repeated runs of
+    #   _binary_search_perplexity and _joint_probabilities_nn on the same 10-NN
+    #   distances must give results equal (4 decimals) to the first run.
     # Binary perplexity search should be stable.
     # The binary_search_perplexity had a bug wherein the P array
     # was uninitialized, leading to sporadically failing tests.
@@ -212,6 +260,10 @@ def test_binary_perplexity_stability():
 
 
 def test_gradient():
+    # [FUNCTION DOC]
+    # Uses scipy check_grad to verify the analytic gradient of _kl_divergence matches
+    #   finite differences (to 5 decimals) for 50 random 2-D embeddings with joint
+    #   probabilities from a random symmetric non-negative matrix with zero diagonal.
     # Test gradient of Kullback-Leibler divergence.
     random_state = check_random_state(0)
 
@@ -228,15 +280,23 @@ def test_gradient():
     P = _joint_probabilities(distances, desired_perplexity=25.0, verbose=0)
 
     def fun(params):
+        # [FUNCTION DOC]
+        # HELPER: Returns the KL divergence value for flattened embedding params.
         return _kl_divergence(params, P, alpha, n_samples, n_components)[0]
 
     def grad(params):
+        # [FUNCTION DOC]
+        # HELPER: Returns the flattened KL divergence gradient for embedding params.
         return _kl_divergence(params, P, alpha, n_samples, n_components)[1]
 
     assert_almost_equal(check_grad(fun, grad, X_embedded.ravel()), 0.0, decimal=5)
 
 
 def test_trustworthiness():
+    # [FUNCTION DOC]
+    # Verifies trustworthiness is 1 for an affine transform of the data, below 0.6 for a
+    #   random shuffle of 1-D points, and exactly 0.2 for a specific 5-point permutation
+    #   with 1 neighbor.
     # Test trustworthiness score.
     random_state = check_random_state(0)
 
@@ -257,6 +317,9 @@ def test_trustworthiness():
 
 
 def test_trustworthiness_n_neighbors_error():
+    # [FUNCTION DOC]
+    # Non-regression for #18567: n_neighbors=5 with 7 samples raises ValueError (must be
+    #   less than n_samples / 2), while n_neighbors=3 returns a score in [0, 1].
     """Raise an error when n_neighbors >= n_samples / 2.
 
     Non-regression test for #18567.
@@ -275,6 +338,9 @@ def test_trustworthiness_n_neighbors_error():
 @pytest.mark.parametrize("method", ["exact", "barnes_hut"])
 @pytest.mark.parametrize("init", ("random", "pca"))
 def test_preserve_trustworthiness_approximately(method, init):
+    # [FUNCTION DOC]
+    # For exact and barnes_hut methods and random/pca init, a 2-D embedding of 50 random
+    #   2-D points must have 1-neighbor trustworthiness above 0.85.
     # Nearest neighbors should be preserved approximately.
     random_state = check_random_state(0)
     n_components = 2
@@ -293,6 +359,9 @@ def test_preserve_trustworthiness_approximately(method, init):
 
 
 def test_optimization_minimizes_kl_divergence():
+    # [FUNCTION DOC]
+    # Verifies kl_divergence_ is non-increasing as max_iter grows from 250 to 300 to 350
+    #   with otherwise identical settings on blob data.
     """t-SNE should give a lower KL divergence with more iterations."""
     random_state = check_random_state(0)
     X, _ = make_blobs(n_features=3, random_state=random_state)
@@ -316,6 +385,10 @@ def test_optimization_minimizes_kl_divergence():
 @pytest.mark.parametrize("init", ["random", "pca"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_fit_transform_csr_matrix(method, init, csr_container):
+    # [FUNCTION DOC]
+    # Fits TSNE on a 50x3 random matrix with ~25 zeros converted to CSR, for each
+    #   method, init and CSR container, and checks 1-neighbor trustworthiness is close
+    #   to 1 (rtol 0.11).
     # TODO: compare results on dense and sparse data as proposed in:
     # https://github.com/scikit-learn/scikit-learn/pull/23585#discussion_r968388186
     # X can be a sparse matrix.
@@ -337,6 +410,11 @@ def test_fit_transform_csr_matrix(method, init, csr_container):
 
 
 def test_preserve_trustworthiness_approximately_with_precomputed_distances():
+    # [FUNCTION DOC]
+    # For 3 seeds, fits TSNE with metric="precomputed" on a distance matrix of 80 random
+    #   2-D points and checks precomputed trustworthiness above 0.95.
+    # KNOWN ISSUE: the second positional argument of squareform is force, not a metric,
+    #   so "sqeuclidean" has no effect and D holds plain Euclidean distances.
     # Nearest neighbors should be preserved approximately.
     random_state = check_random_state(0)
     for i in range(3):
@@ -359,6 +437,9 @@ def test_preserve_trustworthiness_approximately_with_precomputed_distances():
 
 
 def test_trustworthiness_not_euclidean_metric():
+    # [FUNCTION DOC]
+    # Verifies trustworthiness with metric="cosine" equals trustworthiness computed from
+    #   the precomputed cosine distance matrix.
     # Test trustworthiness with a metric different from 'euclidean' and
     # 'precomputed'
     random_state = check_random_state(0)
@@ -384,6 +465,10 @@ def test_trustworthiness_not_euclidean_metric():
     ],
 )
 def test_bad_precomputed_distances(method, D, retype, message_regex):
+    # [FUNCTION DOC]
+    # Verifies metric="precomputed" raises ValueError for a non-square matrix ("square
+    #   distance matrix") and for a matrix with negative entries ("positive"), for exact
+    #   (dense) and barnes_hut (dense and CSR) methods.
     tsne = TSNE(
         metric="precomputed",
         method=method,
@@ -397,6 +482,9 @@ def test_bad_precomputed_distances(method, D, retype, message_regex):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_exact_no_precomputed_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies method="exact" with a sparse precomputed distance matrix raises TypeError
+    #   mentioning "sparse".
     tsne = TSNE(
         metric="precomputed",
         method="exact",
@@ -410,6 +498,9 @@ def test_exact_no_precomputed_sparse(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_high_perplexity_precomputed_sparse_distances(csr_container):
+    # [FUNCTION DOC]
+    # Verifies a sparse precomputed graph with only 1 stored neighbor per sample raises
+    #   ValueError requiring 3 neighbors per sample (the count implied by perplexity=1).
     # Perplexity should be less than 50
     dist = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
     bad_dist = csr_container(dist)
@@ -425,6 +516,10 @@ def test_high_perplexity_precomputed_sparse_distances(csr_container):
 )
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + LIL_CONTAINERS)
 def test_sparse_precomputed_distance(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies a full kneighbors_graph (100 neighbors including self) equals the dense
+    #   distance matrix and that TSNE on it (CSR or LIL) gives the same embedding as on
+    #   the dense matrix. Unsorted-input EfficiencyWarning is filtered.
     """Make sure that TSNE works identically for sparse and dense matrix"""
     random_state = check_random_state(0)
     X = random_state.randn(100, 2)
@@ -444,8 +539,13 @@ def test_sparse_precomputed_distance(sparse_container):
 
 
 def test_non_positive_computed_distances():
+    # [FUNCTION DOC]
+    # Verifies a callable metric returning negative distances triggers ValueError "All
+    #   distances ... metric given" in exact mode.
     # Computed distance matrices must be positive.
     def metric(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Dummy metric that always returns -1.
         return -1
 
     # Negative computed distances should be caught even if result is squared
@@ -456,6 +556,9 @@ def test_non_positive_computed_distances():
 
 
 def test_init_ndarray():
+    # [FUNCTION DOC]
+    # Verifies an all-zeros ndarray init on constant data yields an all-zeros embedding
+    #   (no gradient), i.e. the given init is used as is.
     # Initialize TSNE with ndarray and test fit
     tsne = TSNE(init=np.zeros((100, 2)), learning_rate="auto")
     X_embedded = tsne.fit_transform(np.ones((100, 5)))
@@ -463,6 +566,9 @@ def test_init_ndarray():
 
 
 def test_init_ndarray_precomputed():
+    # [FUNCTION DOC]
+    # Smoke test that fitting with an ndarray init and metric="precomputed" works (no
+    #   FutureWarning expected from _fit, though not explicitly asserted).
     # Initialize TSNE with ndarray and metric 'precomputed'
     # Make sure no FutureWarning is thrown from _fit
     tsne = TSNE(
@@ -474,6 +580,8 @@ def test_init_ndarray_precomputed():
 
 
 def test_pca_initialization_not_compatible_with_precomputed_kernel():
+    # [FUNCTION DOC]
+    # Verifies init="pca" with metric="precomputed" raises ValueError.
     # Precomputed distance matrices cannot use PCA initialization.
     tsne = TSNE(metric="precomputed", init="pca", perplexity=1)
     with pytest.raises(
@@ -484,6 +592,8 @@ def test_pca_initialization_not_compatible_with_precomputed_kernel():
 
 
 def test_n_components_range():
+    # [FUNCTION DOC]
+    # Verifies barnes_hut with n_components=4 raises ValueError about 'n_components'.
     # barnes_hut method should only be used with n_components <= 3
     tsne = TSNE(n_components=4, method="barnes_hut", perplexity=1)
     with pytest.raises(ValueError, match="'n_components' should be .*"):
@@ -491,6 +601,9 @@ def test_n_components_range():
 
 
 def test_early_exaggeration_used():
+    # [FUNCTION DOC]
+    # For both methods, embeddings with early_exaggeration 1 and 10 (same seed, pca
+    #   init) must differ.
     # check that the ``early_exaggeration`` parameter has an effect
     random_state = check_random_state(0)
     n_components = 2
@@ -524,6 +637,9 @@ def test_early_exaggeration_used():
 
 
 def test_max_iter_used():
+    # [FUNCTION DOC]
+    # For both methods and max_iter 251 and 500, checks n_iter_ equals max_iter - 1 (the
+    #   final iteration index).
     # check that the ``max_iter`` parameter has an effect
     random_state = check_random_state(0)
     n_components = 2
@@ -548,6 +664,9 @@ def test_max_iter_used():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_answer_gradient_two_points(csr_container):
+    # [FUNCTION DOC]
+    # Checks the Barnes-Hut gradient for 2 points against reference values from the
+    #   original implementation (via _run_answer_test).
     # Test the tree with only a single set of children.
     #
     # These tests & answers have been checked against the reference
@@ -565,6 +684,9 @@ def test_answer_gradient_two_points(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_answer_gradient_four_points(csr_container):
+    # [FUNCTION DOC]
+    # Checks the Barnes-Hut gradient for 4 points (multi-level tree) against reference
+    #   values.
     # Four points tests the tree with multiple levels of children.
     #
     # These tests & answers have been checked against the reference
@@ -592,6 +714,12 @@ def test_answer_gradient_four_points(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_skip_num_points_gradient(csr_container):
+    # [FUNCTION DOC]
+    # Intends to check that skip_num_points=2 zeroes the gradient of the first two
+    #   points, using the four-point data.
+    # KNOWN ISSUE: _run_answer_test ignores its skip_num_points argument (always passes
+    #   0 to gradient) and compares only to 4 decimals while the gradients are of order
+    #   1e-5, so this test cannot detect whether skipping works.
     # Test the kwargs option skip_num_points.
     #
     # Skip num points should make it such that the Barnes_hut gradient
@@ -632,6 +760,17 @@ def _run_answer_test(
     perplexity=0.1,
     skip_num_points=0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Computes joint probabilities from the Euclidean distances of pos_input
+    #   with the given perplexity, converts them to a CSR matrix, runs the Cython
+    #   Barnes-Hut gradient for embedding pos_output (theta 0.5, 2 components, verbose
+    #   1) and asserts the result equals grad_output to 4 decimals.
+    # Inputs: pos_input, pos_output - (n, 2) arrays; neighbors - neighbor index array;
+    #   grad_output - expected gradient; csr_container - sparse constructor; verbose
+    #   (False), perplexity (0.1), skip_num_points (0).
+    # Exceptions: AssertionError on mismatch.
+    # KNOWN ISSUE: the neighbors argument is overwritten by the CSR indices and
+    #   skip_num_points is never forwarded (0 is hard-coded).
     distances = pairwise_distances(pos_input).astype(np.float32)
     args = distances, perplexity, verbose
     pos_output = pos_output.astype(np.float32)
@@ -653,6 +792,9 @@ def _run_answer_test(
 
 @pytest.mark.thread_unsafe  # manually captured stdout
 def test_verbose():
+    # [FUNCTION DOC]
+    # Redirects sys.stdout to a StringIO, fits TSNE with verbose=2, restores stdout, and
+    #   checks expected progress messages are printed. Marked thread_unsafe.
     # Verbose options write to stdout.
     random_state = check_random_state(0)
     tsne = TSNE(verbose=2, perplexity=4)
@@ -675,6 +817,8 @@ def test_verbose():
 
 
 def test_chebyshev_metric():
+    # [FUNCTION DOC]
+    # Smoke test (#3526): a metric that cannot be squared (chebyshev) is accepted.
     # t-SNE should allow metrics that cannot be squared (issue #3526).
     random_state = check_random_state(0)
     tsne = TSNE(metric="chebyshev", perplexity=4)
@@ -683,6 +827,8 @@ def test_chebyshev_metric():
 
 
 def test_reduction_to_one_component():
+    # [FUNCTION DOC]
+    # Verifies n_components=1 (#4154) produces a finite embedding_.
     # t-SNE should allow reduction to one component (issue #4154).
     random_state = check_random_state(0)
     tsne = TSNE(n_components=1, perplexity=4)
@@ -694,6 +840,9 @@ def test_reduction_to_one_component():
 @pytest.mark.parametrize("method", ["barnes_hut", "exact"])
 @pytest.mark.parametrize("dt", [np.float32, np.float64])
 def test_64bit(method, dt):
+    # [FUNCTION DOC]
+    # Verifies the embedding dtype is float32 for both float32 and float64 input and
+    #   both methods, since the Cython code is single precision.
     # Ensure 64bit arrays are handled correctly.
     random_state = check_random_state(0)
 
@@ -718,6 +867,9 @@ def test_64bit(method, dt):
 
 @pytest.mark.parametrize("method", ["barnes_hut", "exact"])
 def test_kl_divergence_not_nan(method):
+    # [FUNCTION DOC]
+    # Verifies kl_divergence_ is not NaN when max_iter (503) is not a multiple of the
+    #   error check interval, i.e. the error is computed at the final iteration.
     # Ensure kl_divergence_ is computed at last iteration
     # even though max_iter % n_iter_check != 0, i.e. 1003 % 50 != 0
     random_state = check_random_state(0)
@@ -739,6 +891,11 @@ def test_kl_divergence_not_nan(method):
 
 
 def test_barnes_hut_angle():
+    # [FUNCTION DOC]
+    # For 2 and 3 components, verifies that with angle=0 the Barnes-Hut joint
+    #   probabilities (from a full k-NN graph) equal the exact ones (5 decimals) and the
+    #   KL divergences agree to 3 decimals.
+    # KNOWN ISSUE: the exact and Barnes-Hut gradients are computed but never compared.
     # When Barnes-Hut's angle=0 this corresponds to the exact method.
     angle = 0.0
     perplexity = 10
@@ -782,6 +939,11 @@ def test_barnes_hut_angle():
 
 @skip_if_32bit
 def test_n_iter_without_progress(capsys):
+    # [FUNCTION DOC]
+    # Skipped on 32-bit. With n_iter_without_progress=-1, an extremely large learning
+    #   rate, _N_ITER_CHECK forced to 1 and no exploration phase, verbose output must
+    #   report that no progress was made "during the last -1 episodes", for both
+    #   methods.
     # Use a dummy negative n_iter_without_progress and check output on stdout
     random_state = check_random_state(0)
     X = random_state.randn(100, 10)
@@ -807,6 +969,10 @@ def test_n_iter_without_progress(capsys):
 
 
 def test_min_grad_norm(capsys):
+    # [FUNCTION DOC]
+    # Parses the "gradient norm" values from verbose exact-mode output (up to the
+    #   "Finished" line) and checks at most one of them is at or below
+    #   min_grad_norm=0.002, since the optimizer stops as soon as this happens.
     # Make sure that the parameter min_grad_norm is used correctly
     random_state = check_random_state(0)
     X = random_state.randn(100, 2)
@@ -842,6 +1008,11 @@ def test_min_grad_norm(capsys):
 
 
 def test_accessible_kl_divergence(capsys):
+    # [FUNCTION DOC]
+    # Parses the error of the last "Iteration" line in verbose output and checks it
+    #   equals kl_divergence_ to 5 decimals.
+    # KNOWN ISSUE: if no Iteration line carries an error, error is unbound or stays an
+    #   empty string and the test fails with an unrelated exception.
     # Ensures that the accessible kl_divergence matches the computed value
     random_state = check_random_state(0)
     X = random_state.randn(50, 2)
@@ -867,6 +1038,11 @@ def test_accessible_kl_divergence(capsys):
 
 @pytest.mark.parametrize("method", ["barnes_hut", "exact"])
 def test_uniform_grid(method):
+    # [FUNCTION DOC]
+    # For each method and 3 seeds, embeds X_2d_grid with perplexity 50 and checks with
+    #   assert_uniform_grid that the result is roughly uniform; on failure it retries
+    #   once starting from the obtained embedding (tsne.init set to Y) to tolerate bad
+    #   local minima.
     """Make sure that TSNE can approximately recover a uniform 2D grid
 
     Due to ties in distances between point in X_2d_grid, this test is platform
@@ -906,6 +1082,12 @@ def test_uniform_grid(method):
 
 
 def assert_uniform_grid(Y, try_name=None):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that the nearest-neighbor distances within embedding Y are all
+    #   above 0.1 and that their min and max are within factors 0.5 and 2 of their mean.
+    # Inputs: Y - (n, d) embedding; try_name - label used as assertion message (default
+    #   None).
+    # Exceptions: AssertionError when the spacing is not uniform enough.
     # Ensure that the resulting embedding leads to approximately
     # uniformly spaced points: the distance to the closest neighbors
     # should be non-zero and approximately constant.
@@ -921,6 +1103,10 @@ def assert_uniform_grid(Y, try_name=None):
 
 
 def test_bh_match_exact():
+    # [FUNCTION DOC]
+    # With angle=0, perplexity 29.5 on 30 samples (all points neighbors) and no
+    #   exploration phase, exact and barnes_hut must run the same number of iterations
+    #   and produce the same embedding (rtol 1e-4).
     # check that the ``barnes_hut`` method match the exact one when
     # ``angle = 0`` and ``perplexity > n_samples / 3``
     random_state = check_random_state(0)
@@ -949,6 +1135,11 @@ def test_bh_match_exact():
 
 
 def test_gradient_bh_multithread_match_sequential():
+    # [FUNCTION DOC]
+    # Intends to check that _kl_divergence_bh gives the same KL value and gradient with
+    #   2 and 4 threads as with 1 thread (angle 3).
+    # KNOWN ISSUE: the gradient assertion compares grad_multithread with itself, so only
+    #   the KL value is effectively checked.
     # check that the bh gradient with different num_threads gives the same
     # results
 
@@ -1005,6 +1196,10 @@ def test_gradient_bh_multithread_match_sequential():
 )
 @pytest.mark.parametrize("method", ["barnes_hut", "exact"])
 def test_tsne_with_different_distance_metrics(metric, dist_func, method):
+    # [FUNCTION DOC]
+    # For manhattan and cosine metrics and both methods, verifies TSNE with the named
+    #   metric equals TSNE on the corresponding precomputed distance matrix; barnes_hut
+    #   with manhattan is xfailed due to slightly different distance computations.
     """Make sure that TSNE works for different distance metrics"""
 
     if method == "barnes_hut" and metric == "manhattan":
@@ -1051,6 +1246,8 @@ def test_tsne_with_different_distance_metrics(metric, dist_func, method):
 
 @pytest.mark.parametrize("method", ["exact", "barnes_hut"])
 def test_tsne_n_jobs(method):
+    # [FUNCTION DOC]
+    # Verifies n_jobs=1 and n_jobs=2 give the same embedding for each method.
     """Make sure that the n_jobs parameter doesn't impact the output"""
     random_state = check_random_state(0)
     n_features = 10
@@ -1080,6 +1277,10 @@ def test_tsne_n_jobs(method):
 
 
 def test_tsne_with_mahalanobis_distance():
+    # [FUNCTION DOC]
+    # Verifies metric="mahalanobis" without parameters raises ValueError requiring V or
+    #   VI, and with metric_params V set to the data covariance gives the same embedding
+    #   as the precomputed Mahalanobis distance matrix.
     """Make sure that method_parameters works with mahalanobis distance."""
     random_state = check_random_state(0)
     n_samples, n_features = 300, 10
@@ -1111,6 +1312,9 @@ def test_tsne_with_mahalanobis_distance():
 
 @pytest.mark.parametrize("perplexity", (20, 30))
 def test_tsne_perplexity_validation(perplexity):
+    # [FUNCTION DOC]
+    # Verifies perplexity 20 or 30 on 20 samples raises ValueError "perplexity (...)
+    #   must be less than n_samples (20)".
     """Make sure that perplexity > n_samples results in a ValueError"""
 
     random_state = check_random_state(0)
@@ -1127,6 +1331,9 @@ def test_tsne_perplexity_validation(perplexity):
 
 
 def test_tsne_works_with_pandas_output():
+    # [FUNCTION DOC]
+    # Non-regression for gh-25365: fit_transform works under transform_output="pandas"
+    #   (skipped without pandas).
     """Make sure that TSNE works when the output is set to "pandas".
 
     Non-regression test for gh-25365.

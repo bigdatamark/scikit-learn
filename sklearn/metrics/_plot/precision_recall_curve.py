@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Defines PrecisionRecallDisplay, the matplotlib visualization of one or several
+# precision-recall curves for binary classifiers, with optional average precision (AP)
+# in the legend, prevalence-based chance-level lines and despined axes. Supports a
+# single curve (from_estimator / from_predictions) or one curve per CV fold
+# (from_cv_results). No import-time side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +24,10 @@ from sklearn.utils._response import _get_response_values_binary
 
 
 class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
+    # [CLASS DOC]
+    # Stores precomputed precision/recall values (single arrays or per-curve lists) and
+    # draws them as step curves (recall on x, precision on y). Attributes set by plot:
+    # line_ (Line2D or list), chance_level_ (Line2D, list, or None), ax_, figure_.
     """Precision Recall visualization.
 
     It is recommended to use
@@ -176,6 +186,16 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         prevalence_pos_label=None,
         estimator_name="deprecated",
     ):
+        # [FUNCTION DOC]
+        # Stores inputs; resolves the deprecated estimator_name alias into name.
+        # Inputs: precision, recall - ndarray or list of ndarrays; average_precision -
+        #   float,
+        # list or None; name - str, list or None; pos_label - optional label;
+        #   prevalence_pos_label
+        # - float, list of floats or None (needed for the chance line); estimator_name -
+        # deprecated alias of name.
+        # Exceptions: ValueError if both estimator_name and name are given.
+        # Side effects: FutureWarning when estimator_name is used; sets attributes.
         self.precision = precision
         self.recall = recall
         self.average_precision = average_precision
@@ -184,6 +204,19 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         self.prevalence_pos_label = prevalence_pos_label
 
     def _validate_plot_params(self, *, ax, name):
+        # [FUNCTION DOC]
+        # HELPER: Runs the mixin validation (matplotlib check, axes creation, default
+        #   name
+        # from self.name), wraps precision, recall, average_precision,
+        #   prevalence_pos_label and
+        # name into lists (None kept) and checks that all provided lists (name only if
+        #   its
+        # length is not 1) have the same length.
+        # Inputs: ax; name.
+        # Outputs: tuple (precision, recall, average_precision, name,
+        #   prevalence_pos_label).
+        # Exceptions: ImportError; ValueError on length mismatch.
+        # Side effects: sets self.ax_ and self.figure_.
         self.ax_, self.figure_, name = super()._validate_plot_params(ax=ax, name=name)
 
         precision = _convert_to_list_leaving_none(self.precision)
@@ -216,6 +249,37 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         despine=False,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Validates parameters, computes legend metric info ('AP'; mean +/- std when one
+        # curve_kwargs dict is shared by several curves), builds per-curve kwargs
+        #   (default
+        # drawstyle steps-post; multi-curve defaults alpha 0.5, dashed, blue; deprecated
+        #   kwargs
+        # accepted with FutureWarning, removal in 1.11), draws each (recall, precision)
+        #   curve,
+        # collapses line_ to one artist when single, labels axes (with positive label),
+        #   sets
+        # limits [-0.01, 1.01] and equal aspect. If plot_chance_level, draws one
+        #   horizontal
+        # line per curve at its prevalence (black dashed, alpha 0.3 when several curves,
+        # overridable by chance_level_kw); unless a label was given, the first line gets
+        #   'Chance
+        # level (AP = p)' or mean +/- std across curves. Optionally despines; adds a
+        #   lower-left
+        # legend if the first curve or chance_level_kw has a label.
+        # Inputs: ax; name; curve_kwargs - dict, list or None; plot_chance_level bool;
+        # chance_level_kw dict or None; despine bool; kwargs - deprecated line
+        #   properties.
+        # Outputs: self.
+        # Exceptions: ValueError if plot_chance_level and prevalence_pos_label is None,
+        #   if both
+        # curve_kwargs and kwargs are given, or on length/name mismatches.
+        # Side effects: draws; sets ax_, figure_, line_, chance_level_; may warn.
+        # KNOWN ISSUE: when the chance line gets its automatic label but the curves have
+        #   no
+        # label, the legend condition only checks chance_level_kw for a label, so no
+        #   legend is
+        # drawn even though the chance line is labeled.
         """Plot visualization.
 
         Parameters
@@ -421,6 +485,16 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         despine=False,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Gets binary scores and resolved pos_label from the estimator (name defaults to
+        # the class name) and delegates to from_predictions with all other arguments.
+        # Inputs: estimator - fitted binary classifier; X, y; sample_weight;
+        # drop_intermediate (default False); response_method; pos_label; name; ax;
+        # curve_kwargs; plot_chance_level; chance_level_kw; despine; kwargs
+        #   (deprecated).
+        # Outputs: PrecisionRecallDisplay.
+        # Exceptions: ImportError; ValueError from response validation.
+        # Side effects: calls estimator prediction methods; plots.
         """Plot precision-recall curve given an estimator and some data.
 
         For general information regarding `scikit-learn` visualization tools, see
@@ -578,6 +652,26 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         y_pred="deprecated",
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Converts y_true to an array, resolves the deprecated y_pred alias, validates
+        #   binary
+        # target/lengths/pos_label (name defaults to 'Classifier'), computes the PR
+        #   curve with
+        # precision_recall_curve and AP with average_precision_score (both weighted),
+        #   computes
+        # the prevalence as the fraction of samples equal to pos_label, builds the
+        #   display and
+        # plots it.
+        # Inputs: y_true, y_score (n_samples,); remaining as in from_estimator plus
+        #   y_pred.
+        # Outputs: PrecisionRecallDisplay.
+        # Exceptions: ValueError for non-binary targets, mismatched lengths, invalid
+        #   pos_label,
+        # or both y_score and y_pred given.
+        # Side effects: may emit FutureWarning; plots.
+        # KNOWN ISSUE: the prevalence used for the chance line ignores sample_weight
+        #   while AP
+        # uses it.
         """Plot precision-recall curve given binary class predictions.
 
         For general information regarding `scikit-learn` visualization tools, see
@@ -752,6 +846,30 @@ class PrecisionRecallDisplay(_BinaryClassifierCurveDisplayMixin):
         chance_level_kwargs=None,
         despine=False,
     ):
+        # [FUNCTION DOC]
+        # Validates cv_results/X/y, then for each fold indexes y, X and sample_weight by
+        #   the
+        # test indices, gets binary scores from the fold estimator, computes the PR
+        #   curve, AP
+        # and the (unweighted) prevalence of the resolved positive label, and
+        #   accumulates
+        # per-fold lists; builds a multi-curve display and plots it.
+        # Inputs: cv_results - from cross_validate with return_estimator and
+        #   return_indices;
+        # X, y; sample_weight; drop_intermediate (default True); response_method;
+        #   pos_label;
+        # name; ax; curve_kwargs; plot_chance_level; chance_level_kwargs; despine.
+        # Outputs: PrecisionRecallDisplay with list-valued attributes.
+        # Exceptions: ValueError for missing keys, wrong sample count, non-binary y,
+        #   response
+        # errors.
+        # Side effects: calls prediction methods of each fold estimator; plots.
+        # KNOWN ISSUE: drop_intermediate defaults to True here but False in
+        #   from_estimator and
+        # from_predictions; parameter chance_level_kwargs is named differently from
+        # chance_level_kw; the stored pos_label is that of the last fold; the prevalence
+        #   uses
+        # y_true.shape, which fails if y is a plain list.
         """Plot multi-fold precision-recall curves given cross-validation results.
 
         .. versionadded:: 1.9

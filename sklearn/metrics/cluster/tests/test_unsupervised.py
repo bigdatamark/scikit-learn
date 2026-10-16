@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the unsupervised clustering metrics in sklearn.metrics.cluster:
+#   silhouette_score, silhouette_samples, calinski_harabasz_score and
+#   davies_bouldin_score, plus the private _silhouette_reduce helper. Uses iris and
+#   small hand-built datasets.
 import warnings
 
 import numpy as np
@@ -29,6 +34,12 @@ from sklearn.utils.fixes import (
 )
 @pytest.mark.parametrize("sample_size", [None, "half"])
 def test_silhouette(sparse_container, sample_size):
+    # [FUNCTION DOC]
+    # Verifies on iris (dense and every sparse container, full data or a half-size
+    #   random subsample) that silhouette_score with the true labels is positive and
+    #   that the precomputed-distance and euclidean metric paths agree.
+    # Inputs: sparse_container - None or a sparse matrix constructor; sample_size - None
+    #   or "half" (converted to n_samples // 2).
     # Tests the Silhouette Coefficient.
     dataset = datasets.load_iris()
     X, y = dataset.data, dataset.target
@@ -50,6 +61,10 @@ def test_silhouette(sparse_container, sample_size):
 
 
 def test_cluster_size_1():
+    # [FUNCTION DOC]
+    # Verifies edge-case conventions: a singleton cluster gets per-sample score 0 and a
+    #   cluster made of identical points gets score 1; also checks the overall score is
+    #   not NaN.
     # Assert Silhouette Coefficient == 0 when there is 1 sample in a cluster
     # (cluster 0). We also test the case where there are identical samples
     # as the only members of a cluster (cluster 2). To our knowledge, this case
@@ -73,6 +88,13 @@ def test_cluster_size_1():
 
 
 def test_silhouette_paper_example():
+    # [FUNCTION DOC]
+    # Intends to check per-sample and mean silhouette values against Table 1 / Figures
+    #   2-3 of Rousseeuw (1987) using a precomputed 12x12 symmetric distance matrix
+    #   built from the lower triangle.
+    # KNOWN ISSUE: the pytest.approx calls are not wrapped in assert (and arguments are
+    #   swapped), so nothing is actually checked; the test only verifies the calls do
+    #   not raise.
     # Explicitly check per-sample results against Rousseeuw (1987)
     # Data from Table 1
     lower = [
@@ -215,6 +237,10 @@ def test_silhouette_paper_example():
 
 
 def test_correct_labelsize():
+    # [FUNCTION DOC]
+    # Verifies silhouette_score raises ValueError with the "Number of labels is ..."
+    #   message when every sample has its own label and when all samples share one
+    #   label.
     # Assert 1 < n_labels < n_samples
     dataset = datasets.load_iris()
     X = dataset.data
@@ -239,6 +265,9 @@ def test_correct_labelsize():
 
 
 def test_non_encoded_labels():
+    # [FUNCTION DOC]
+    # Verifies scores do not depend on label encoding: affinely re-mapped labels give
+    #   identical silhouette_score and silhouette_samples.
     dataset = datasets.load_iris()
     X = dataset.data
     labels = dataset.target
@@ -249,6 +278,9 @@ def test_non_encoded_labels():
 
 
 def test_non_numpy_labels():
+    # [FUNCTION DOC]
+    # Verifies silhouette_score accepts plain Python lists for X and labels and returns
+    #   the same value as for arrays.
     dataset = datasets.load_iris()
     X = dataset.data
     y = dataset.target
@@ -257,6 +289,10 @@ def test_non_numpy_labels():
 
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 def test_silhouette_nonzero_diag(dtype):
+    # [FUNCTION DOC]
+    # Non-regression for #12178: with a precomputed distance matrix, a diagonal entry of
+    #   10*eps is tolerated while 1000*eps raises ValueError ("contains non-zero").
+    #   Parametrized over float32/float64.
     # Make sure silhouette_samples requires diagonal to be zero.
     # Non-regression test for #12178
 
@@ -281,6 +317,9 @@ def test_silhouette_nonzero_diag(dtype):
     CSC_CONTAINERS + CSR_CONTAINERS + DOK_CONTAINERS + LIL_CONTAINERS,
 )
 def test_silhouette_samples_precomputed_sparse(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies silhouette_samples with metric="precomputed" gives the same result for a
+    #   sparse distance matrix (any sparse format) as for the dense one.
     """Check that silhouette_samples works for sparse matrices correctly."""
     X = np.array([[0.2, 0.1, 0.1, 0.2, 0.1, 1.6, 0.2, 0.1]], dtype=np.float32).T
     y = [0, 0, 0, 0, 1, 1, 1, 1]
@@ -297,6 +336,12 @@ def test_silhouette_samples_precomputed_sparse(sparse_container):
     CSC_CONTAINERS + CSR_CONTAINERS + DOK_CONTAINERS + LIL_CONTAINERS,
 )
 def test_silhouette_samples_euclidean_sparse(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies silhouette_samples with the default euclidean metric gives matching
+    #   results for sparse and dense inputs.
+    # KNOWN ISSUE: the input passed is a pairwise distance matrix but it is treated as
+    #   feature data here, so this only checks sparse/dense consistency, not a
+    #   meaningful clustering.
     """Check that silhouette_samples works for sparse matrices correctly."""
     X = np.array([[0.2, 0.1, 0.1, 0.2, 0.1, 1.6, 0.2, 0.1]], dtype=np.float32).T
     y = [0, 0, 0, 0, 1, 1, 1, 1]
@@ -312,6 +357,9 @@ def test_silhouette_samples_euclidean_sparse(sparse_container):
     "sparse_container", CSC_CONTAINERS + DOK_CONTAINERS + LIL_CONTAINERS
 )
 def test_silhouette_reduce(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies _silhouette_reduce raises TypeError asking for CSR when given a CSC, DOK
+    #   or LIL distance chunk.
     """Check for non-CSR input to private method `_silhouette_reduce`."""
     X = np.array([[0.2, 0.1, 0.1, 0.2, 0.1, 1.6, 0.2, 0.1]], dtype=np.float32).T
     pdist_dense = pairwise_distances(X)
@@ -326,6 +374,11 @@ def test_silhouette_reduce(sparse_container):
 
 
 def assert_raises_on_only_one_label(func):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that func (a metric taking X, labels) raises ValueError matching
+    #   "Number of labels is" for 10 random 2-D samples all assigned label 0.
+    # Inputs: func - callable metric. Outputs: none. Side effects: uses a seeded
+    #   RandomState.
     """Assert message when there is only one label"""
     rng = np.random.RandomState(seed=0)
     with pytest.raises(ValueError, match="Number of labels is"):
@@ -333,6 +386,11 @@ def assert_raises_on_only_one_label(func):
 
 
 def assert_raises_on_all_points_same_cluster(func):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that func raises ValueError matching "Number of labels is" when
+    #   each of 10 random samples has a distinct label.
+    # KNOWN ISSUE: the function name says "all points same cluster" but the labels put
+    #   every point in a different cluster (the docstring is correct).
     """Assert message when all point are in different clusters"""
     rng = np.random.RandomState(seed=0)
     with pytest.raises(ValueError, match="Number of labels is"):
@@ -340,6 +398,12 @@ def assert_raises_on_all_points_same_cluster(func):
 
 
 def test_calinski_harabasz_score():
+    # [FUNCTION DOC]
+    # Verifies calinski_harabasz_score: errors on 1 or n_samples labels, returns 1.0
+    #   when all samples are identical, 0.0 when cluster means coincide, and (intended)
+    #   a known value on a 4-cluster list input.
+    # KNOWN ISSUE: the general-case pytest.approx call is not asserted, so that value is
+    #   never checked.
     assert_raises_on_only_one_label(calinski_harabasz_score)
 
     assert_raises_on_all_points_same_cluster(calinski_harabasz_score)
@@ -362,6 +426,12 @@ def test_calinski_harabasz_score():
 
 
 def test_davies_bouldin_score():
+    # [FUNCTION DOC]
+    # Verifies davies_bouldin_score: label-count errors, 0 for identical samples and for
+    #   coinciding cluster means, no RuntimeWarning (divide by zero) on a general case,
+    #   and intended known values for general and singleton-cluster cases.
+    # KNOWN ISSUE: the two general-case pytest.approx calls are not asserted, so those
+    #   values are never checked.
     assert_raises_on_only_one_label(davies_bouldin_score)
     assert_raises_on_all_points_same_cluster(davies_bouldin_score)
 
@@ -397,6 +467,10 @@ def test_davies_bouldin_score():
 
 
 def test_silhouette_score_integer_precomputed():
+    # [FUNCTION DOC]
+    # Non-regression for #22107: silhouette_score accepts an integer precomputed
+    #   distance matrix (expected 1/6) and still raises ValueError for a non-zero
+    #   integer diagonal.
     """Check that silhouette_score works for precomputed metrics that are integers.
 
     Non-regression test for #22107.

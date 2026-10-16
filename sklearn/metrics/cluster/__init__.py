@@ -1,3 +1,10 @@
+# [PACKAGE DOC]
+# Public namespace for clustering evaluation metrics. Re-exports the bicluster consensus
+# score, the supervised (label-comparison) metrics from _supervised and the unsupervised
+# (geometry-based) metrics from _unsupervised, and lists them in __all__.
+# Side effects: importing loads those three submodules (numpy/scipy); no global state is
+# changed. The deprecated entropy function is still exported (marked for removal in
+# 1.10).
 """Evaluation metrics for cluster analysis results.
 
 - Supervised evaluation uses a ground truth class values for each sample.

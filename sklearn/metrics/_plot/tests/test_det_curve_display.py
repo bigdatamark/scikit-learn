@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for DetCurveDisplay: agreement of plotted rates with det_curve across
+# constructors and options, default naming, and the deprecated y_pred parameter.
+# Uses the pyplot fixture (matplotlib, figures closed after each test) and the first two
+# iris classes as a binary problem.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -20,6 +25,15 @@ def test_det_curve_display(
     drop_intermediate,
     with_strings,
 ):
+    # [FUNCTION DOC]
+    # Verifies, for both constructors, both response methods, with/without sample
+    # weights, drop_intermediate on/off and integer vs string labels (pos_label 'c'),
+    #   that
+    # the display's fpr/fnr match det_curve on the same scores (atol 1e-7), that
+    # estimator_name and the line label equal the given name, that the line alpha kwarg
+    #   is
+    # applied, that ax_/figure_/line_ have the expected matplotlib types and that axis
+    # labels include the expected positive label.
     X, y = load_iris(return_X_y=True)
     # Binarize the data with only the two first classes
     X, y = X[y < 2], y[y < 2]
@@ -96,6 +110,9 @@ def test_det_curve_display_default_name(
     constructor_name,
     expected_clf_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies that without a name, from_estimator uses the estimator class name and
+    # from_predictions uses 'Classifier', both as estimator_name and as line label.
     # Check the default name display in the figure when `name` is not provided
     X, y = load_iris(return_X_y=True)
     # Binarize the data with only the two first classes
@@ -115,6 +132,10 @@ def test_det_curve_display_default_name(
 
 # TODO(1.10): remove
 def test_y_score_and_y_pred_specified_error(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that passing both y_score and y_pred to from_predictions raises
+    # ValueError and that passing only y_pred emits a FutureWarning about its
+    #   deprecation.
     """1. Check that an error is raised when both y_score and y_pred are specified.
     2. Check that a warning is raised when y_pred is specified.
     """

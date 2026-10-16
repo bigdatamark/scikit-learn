@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for PredictionErrorDisplay: parameter validation, unfitted estimator
+# error, default rendering for both kinds, subsampling, custom axes and custom styling.
+# Loads the diabetes dataset at import time into module-level X, y.
 import pytest
 from numpy.testing import assert_allclose
 
@@ -11,6 +15,10 @@ X, y = load_diabetes(return_X_y=True)
 
 @pytest.fixture
 def regressor_fitted():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning a Ridge regressor fitted on the module-level diabetes
+    #   data.
+    # Outputs: fitted Ridge instance.
     return Ridge().fit(X, y)
 
 
@@ -47,6 +55,10 @@ def regressor_fitted():
 def test_prediction_error_display_raise_error(
     pyplot, class_method, regressor, params, err_type, err_msg
 ):
+    # [FUNCTION DOC]
+    # Verifies that both constructors raise ValueError with the expected messages for a
+    # negative int subsample, a float subsample outside (0, 1) (20.0 and -20.0) and an
+    # unknown kind.
     """Check that we raise the proper error when making the parameters
     # validation."""
     with pytest.raises(err_type, match=err_msg):
@@ -58,6 +70,9 @@ def test_prediction_error_display_raise_error(
 
 
 def test_from_estimator_not_fitted(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that from_estimator with an unfitted Ridge raises NotFittedError (from
+    # predict).
     """Check that we raise a `NotFittedError` when the passed regressor is not
     fit."""
     regressor = Ridge()
@@ -68,6 +83,11 @@ def test_from_estimator_not_fitted(pyplot):
 @pytest.mark.parametrize("class_method", ["from_estimator", "from_predictions"])
 @pytest.mark.parametrize("kind", ["actual_vs_predicted", "residual_vs_predicted"])
 def test_prediction_error_display(pyplot, regressor_fitted, class_method, kind):
+    # [FUNCTION DOC]
+    # Verifies for both constructors and both kinds the axis labels, that the reference
+    # line exists (and is the identity line for actual_vs_predicted, x data equal y
+    #   data),
+    # and that no legend is created.
     """Check the default behaviour of the display."""
     if class_method == "from_estimator":
         display = PredictionErrorDisplay.from_estimator(
@@ -100,6 +120,9 @@ def test_prediction_error_display(pyplot, regressor_fitted, class_method, kind):
 def test_plot_prediction_error_subsample(
     pyplot, regressor_fitted, class_method, subsample, expected_size
 ):
+    # [FUNCTION DOC]
+    # Verifies that the number of scatter points equals the int subsample, the truncated
+    # fraction for a float subsample, or all samples when subsample is None.
     """Check the behaviour of `subsample`."""
     if class_method == "from_estimator":
         display = PredictionErrorDisplay.from_estimator(
@@ -115,6 +138,8 @@ def test_plot_prediction_error_subsample(
 
 @pytest.mark.parametrize("class_method", ["from_estimator", "from_predictions"])
 def test_plot_prediction_error_ax(pyplot, regressor_fitted, class_method):
+    # [FUNCTION DOC]
+    # Verifies that a user-provided Axes is used and stored as ax_.
     """Check that we can pass an axis to the display."""
     _, ax = pyplot.subplots()
     if class_method == "from_estimator":
@@ -138,6 +163,12 @@ def test_plot_prediction_error_ax(pyplot, regressor_fitted, class_method):
 def test_prediction_error_custom_artist(
     pyplot, regressor_fitted, class_method, scatter_kwargs, line_kwargs
 ):
+    # [FUNCTION DOC]
+    # Verifies, for actual_vs_predicted, that line_kwargs (full names or aliases c/ls)
+    # override the line color/linestyle, defaults being black dashed alpha 0.7, and that
+    # scatter_kwargs (color or c alias, alpha 0.9) produce blue face and edge colors
+    #   with
+    # alpha 0.9, default scatter alpha being 0.8.
     """Check that we can tune the style of the line and the scatter."""
     extra_params = {
         "kind": "actual_vs_predicted",

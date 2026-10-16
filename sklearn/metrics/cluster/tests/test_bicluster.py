@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Tests for the bicluster consensus score and its private Jaccard helper.
 """Testing for bicluster metrics module"""
 
 import numpy as np
@@ -8,6 +10,10 @@ from sklearn.utils._testing import assert_almost_equal
 
 
 def test_jaccard():
+    # [FUNCTION DOC]
+    # Checks _jaccard on hand-built row/column indicator vectors: identical biclusters
+    # give 1, a 2x2 inside a 4x4 gives 0.25, partial overlap gives 1/7, disjoint gives
+    # 0.
     a1 = np.array([True, True, False, False])
     a2 = np.array([True, True, True, True])
     a3 = np.array([False, True, True, False])
@@ -20,6 +26,9 @@ def test_jaccard():
 
 
 def test_consensus_score():
+    # [FUNCTION DOC]
+    # Checks consensus_score is 1 when the two sets contain the same biclusters (in any
+    # order) and 0 when every matched pair has disjoint cells.
     a = [[True, True, False, False], [False, False, True, True]]
     b = a[::-1]
 
@@ -35,6 +44,9 @@ def test_consensus_score():
 
 
 def test_consensus_score_issue2445():
+    # [FUNCTION DOC]
+    # Regression test for issue 2445: with 3 biclusters in a and 2 of them in b, the
+    # score must be 2/3, i.e. normalized by the larger set size.
     """Different number of biclusters in A and B"""
     a_rows = np.array(
         [

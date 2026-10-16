@@ -1,3 +1,18 @@
+# [PACKAGE DOC]
+# Public entry point of sklearn.metrics. Re-exports, and lists in __all__, the public
+#   metric API gathered from private submodules: classification metrics
+#   (_classification: accuracy, balanced accuracy, Brier/log loss and their D2 variants,
+#   confusion matrices, classification_report, precision/recall/F-scores, Jaccard, MCC,
+#   Cohen's kappa, hinge, Hamming and zero-one loss, class likelihood ratios), ranking
+#   and curve metrics (_ranking: ROC/PR/DET curves, AUC variants, DCG/NDCG, top-k
+#   accuracy, label ranking), regression metrics (_regression), the scorer API (_scorer:
+#   check_scoring, get_scorer, get_scorer_names, make_scorer), clustering metrics
+#   (cluster subpackage), pairwise distances and kernels (pairwise), DistanceMetric, and
+#   the plotting Display classes (ConfusionMatrixDisplay, DetCurveDisplay,
+#   PrecisionRecallDisplay, PredictionErrorDisplay, RocCurveDisplay).
+# Side effects: importing it imports all those submodules (including compiled distance
+#   metric extensions and the cluster subpackage); no global state is modified
+#   otherwise.
 """Score functions, performance metrics, pairwise metrics and distance computations."""
 
 # Authors: The scikit-learn developers
