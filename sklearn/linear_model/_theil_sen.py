@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Theil-Sen robust multivariate linear regression. Fits ordinary least squares on
+# many subsets of the samples and returns the spatial (L1) median of the resulting
+# coefficient vectors. Contents: Weiszfeld spatial-median helpers, breakdown point
+# approximation, batched LAPACK least squares helper and TheilSenRegressor.
 """
 A Theil-Sen Estimator for Multiple Linear Regression Model
 """
@@ -27,6 +32,21 @@ _EPSILON = np.finfo(np.double).eps
 
 
 def _modified_weiszfeld_step(X, x_old):
+    # [FUNCTION DOC]
+    # HELPER: One iteration of the modified Weiszfeld algorithm for the spatial median.
+    # Computes the Euclidean distance of each row of X to x_old, drops rows closer
+    # than machine epsilon (and records whether x_old coincides with a sample). The
+    # candidate is the distance-weighted mean of the remaining rows (weights 1/dist).
+    # The result blends the candidate and x_old: if x_old is not a sample it is the
+    # candidate; otherwise the factors are max(0, 1 - 1/r) and min(1, 1/r) where r is
+    # the norm of the sum of unit vectors from x_old to the remaining samples.
+    # If r is below epsilon the candidate becomes the scalar 1.0 and r is set to 1.
+    # Inputs: X - ndarray (n_samples, n_features); x_old - ndarray (n_features,).
+    # Outputs: ndarray (n_features,), the new iterate.
+    # KNOWN ISSUE: in the degenerate branch new_direction is the scalar 1.0, so the
+    # returned point is not a meaningful location (it is only reached when x_old is a
+    # sample, where its coefficient becomes 0, so the result is x_old; if x_old is not a
+    # sample it returns a vector of ones).
     """Modified Weiszfeld step.
 
     This function defines one iteration step in order to approximate the
@@ -78,6 +98,20 @@ def _modified_weiszfeld_step(X, x_old):
 
 
 def _spatial_median(X, max_iter=300, tol=1.0e-3):
+    # [FUNCTION DOC]
+    # HELPER: Iterates _modified_weiszfeld_step starting from the column mean until the
+    # squared change between iterates is below tol squared or max_iter is reached.
+    # If X has a single column, returns the ordinary median directly.
+    # Inputs: X - ndarray (n_points, n_dims); max_iter - int, default 300;
+    # tol - float, default 1e-3 (compared against the squared step norm after squaring).
+    # Outputs: tuple (n_iter, spatial_median); n_iter is the zero-based index of the
+    # last iteration (1 in the single-column case); spatial_median is (n_dims,).
+    # Side effects: ConvergenceWarning when the loop exhausts max_iter.
+    # KNOWN ISSUE: the docstring lists the returns as (spatial_median, n_iter) but the
+    # code returns (n_iter, spatial_median). n_iter is the loop index, so it is one less
+    # than the number of iterations performed. With max_iter=0 (allowed by
+    # TheilSenRegressor constraints) the loop never runs and n_iter and spatial_median
+    # are undefined, raising UnboundLocalError.
     """Spatial median (L1 median).
 
     The spatial median is member of a class of so-called M-estimators which
@@ -134,6 +168,11 @@ def _spatial_median(X, max_iter=300, tol=1.0e-3):
 
 
 def _breakdown_point(n_samples, n_subsamples):
+    # [FUNCTION DOC]
+    # HELPER: Approximates the breakdown point as
+    # 1 - (0.5^(1/n_subsamples) * (n_samples - n_subsamples + 1) + n_subsamples - 1)
+    # divided by n_samples.
+    # Inputs: n_samples, n_subsamples - positive ints. Outputs: float.
     """Approximation of the breakdown point.
 
     Parameters
@@ -161,6 +200,17 @@ def _breakdown_point(n_samples, n_subsamples):
 
 
 def _lstsq(X, y, indices, fit_intercept):
+    # [FUNCTION DOC]
+    # HELPER: Solves one least squares problem per row of indices using the LAPACK
+    # gelss routine. A design buffer of shape (n_subsamples, n_features [+1]) has a
+    # leading column of ones when fit_intercept is true; for each subset its other
+    # columns are filled with the selected rows of X, and a zero-padded target buffer
+    # (length max(n_subsamples, n_dims)) is filled with y[subset]. The first n_dims
+    # entries of the gelss solution are stored.
+    # Inputs: X - ndarray (n_samples, n_features); y - ndarray (n_samples,);
+    # indices - 2D int array (n_subsets, n_subsamples); fit_intercept - bool.
+    # Outputs: float ndarray (n_subsets, n_features + intercept), intercept first.
+    # Side effects: none outside local buffers (buffers are reused across subsets).
     """Least Squares Estimator for TheilSenRegressor class.
 
     This function calculates the least squares method on a subset of rows of X
@@ -205,6 +255,11 @@ def _lstsq(X, y, indices, fit_intercept):
 
 
 class TheilSenRegressor(RegressorMixin, LinearModel):
+    # [CLASS DOC]
+    # Estimator implementing Theil-Sen regression. Hyperparameters are validated by
+    # _parameter_constraints (max_subpopulation is a Real >= 1, max_iter >= 0, tol >= 0).
+    # Fitted attributes: coef_, intercept_, breakdown_, n_iter_, n_subpopulation_ and
+    # the standard n_features_in_ / feature_names_in_. Prediction comes from LinearModel.
     """Theil-Sen Estimator: robust multivariate regression model.
 
     The algorithm calculates least square solutions on subsets with size
@@ -342,6 +397,9 @@ class TheilSenRegressor(RegressorMixin, LinearModel):
         n_jobs=None,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters unchanged (sklearn convention: no validation here).
+        # Inputs: see class docstring. Side effects: sets the attributes of the same names.
         self.fit_intercept = fit_intercept
         self.max_subpopulation = max_subpopulation
         self.n_subsamples = n_subsamples
@@ -352,6 +410,19 @@ class TheilSenRegressor(RegressorMixin, LinearModel):
         self.verbose = verbose
 
     def _check_subparams(self, n_samples, n_features):
+        # [FUNCTION DOC]
+        # HELPER: Resolves the effective subset size and number of subsets.
+        # n_dim is n_features plus 1 if fit_intercept. If n_subsamples is given it must be
+        # <= n_samples; when n_samples >= n_features it must be >= n_dim, otherwise (fewer
+        # samples than features) it must equal n_samples. If None it defaults to
+        # min(n_dim, n_samples). n_subpopulation is min(max_subpopulation, round(binomial
+        # coefficient n_samples choose n_subsamples), at least 1) cast to int.
+        # Inputs: n_samples, n_features - ints.
+        # Outputs: tuple (n_subsamples, n_subpopulation).
+        # Exceptions: ValueError on any of the violated constraints above.
+        # KNOWN ISSUE: the n_samples >= n_features test ignores the intercept column, so
+        # with n_samples == n_features and fit_intercept the defaults give n_subsamples =
+        # n_samples < n_dim (underdetermined subproblems) without an error.
         n_subsamples = self.n_subsamples
 
         if self.fit_intercept:
@@ -390,6 +461,23 @@ class TheilSenRegressor(RegressorMixin, LinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits the model. Validates X, y (numeric y), resolves subset parameters, stores
+        # breakdown_ and n_subpopulation_, optionally prints diagnostics. If the total
+        # number of combinations is at most max_subpopulation, enumerates all
+        # n_subsamples-combinations of sample indices; otherwise draws n_subpopulation_
+        # random subsets without replacement (subsets may repeat). Splits the subsets into
+        # effective n_jobs chunks, runs _lstsq on each in parallel, stacks the solutions
+        # and takes their spatial median. The first coordinate is intercept_ when
+        # fit_intercept, else intercept_ is 0.0 and all coordinates are coef_.
+        # Inputs: X - array-like (n_samples, n_features); y - array-like (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError from validation or _check_subparams.
+        # Side effects: sets n_features_in_, n_subpopulation_, breakdown_, n_iter_,
+        # intercept_, coef_; consumes random_state; prints when verbose; may warn
+        # ConvergenceWarning.
+        # KNOWN ISSUE: enumerating all combinations materializes a Python list of tuples,
+        # which can be large near the max_subpopulation threshold.
         """Fit linear model.
 
         Parameters

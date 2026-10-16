@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Computes partial dependence (average and/or individual conditional expectation curves)
+# of a fitted regressor or classifier over a grid of values for one or two target
+# features, either by brute force (repeated predictions on modified copies of X) or by
+# the tree "recursion" shortcut available on some tree ensembles. Exposes
+# partial_dependence; the private helpers build the grid and run each method.
 """Partial dependence plots for regression and classification models."""
 
 # Authors: The scikit-learn developers
@@ -41,6 +47,24 @@ __all__ = [
 
 
 def _grid_from_X(X, percentiles, is_categorical, grid_resolution, custom_values):
+    # [FUNCTION DOC]
+    # HELPER: Builds the evaluation grid for the target features. Steps: validate
+    # percentiles (2 values in [0, 1], strictly increasing) and grid_resolution (> 1);
+    # convert custom values to 1-D arrays (object dtype if any value is a string). For
+    # each target column: use custom values if given; otherwise compute the sorted
+    # unique values, and use them if the feature is categorical or has fewer uniques
+    # than grid_resolution; else use grid_resolution evenly spaced points between the
+    # two empirical percentiles (mquantiles). Return the cartesian product of all axes.
+    # Inputs: X - array-like (n_samples, n_target_features); percentiles - 2-sequence of
+    # float; is_categorical - list of bool per column; grid_resolution - int;
+    # custom_values - dict column position to array-like.
+    # Outputs: tuple (grid ndarray (n_points, n_target_features), list of 1-D axis
+    # arrays).
+    # Exceptions: ValueError for invalid percentiles or grid_resolution, non 1-D custom
+    # values, unsortable mixed-type columns, or percentiles that coincide.
+    # KNOWN ISSUE: the docstring claims n_points <= grid_resolution **
+    # n_target_features, which does not hold when custom_values are longer than
+    # grid_resolution.
     """Generate a grid of points based on the percentiles of X.
 
     The grid is a cartesian product between the columns of ``values``. The
@@ -96,6 +120,9 @@ def _grid_from_X(X, percentiles, is_categorical, grid_resolution, custom_values)
         raise ValueError("'grid_resolution' must be strictly greater than 1.")
 
     def _convert_custom_values(values):
+        # [FUNCTION DOC]
+        # HELPER: Converts a custom grid to an ndarray, forcing object dtype when any
+        # element is a string. Inputs: values - iterable. Outputs: ndarray.
         # Convert custom types such that object types are always used for string arrays
         dtype = object if any(isinstance(v, str) for v in values) else None
         return np.asarray(values, dtype=dtype)
@@ -161,6 +188,12 @@ def _grid_from_X(X, percentiles, is_categorical, grid_resolution, custom_values)
 
 
 def _partial_dependence_recursion(est, grid, features):
+    # [FUNCTION DOC]
+    # HELPER: Delegates to the estimator's _compute_partial_dependence_recursion on the
+    # grid and target feature indices, reshaping a 1-D result to (1, n_points).
+    # Inputs: est - supported fitted tree-based estimator; grid - (n_points,
+    # n_target_features); features - int array of column indices.
+    # Outputs: ndarray (n_targets, n_points) of averaged decision-function values.
     """Calculate partial dependence via the recursion method.
 
     The recursion method is in particular enabled for tree-based estimators.
@@ -221,6 +254,23 @@ def _partial_dependence_recursion(est, grid, features):
 def _partial_dependence_brute(
     est, grid, features, X, response_method, sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Brute-force partial dependence. For "auto", uses predict for regressors
+    # and predict_proba falling back to decision_function for classifiers. Copies X
+    # once; for each grid point, overwrites the target columns of the copy with the grid
+    # values, gets responses via _get_response_values (positive class column for
+    # binary), stores them and their sample_weight-weighted mean over samples.
+    # Predictions are stacked and transposed to (n_targets, n_samples, n_points) or
+    # (n_samples, n_points) for single output; averages to (n_targets, n_points).
+    # Inputs: est - fitted estimator; grid - (n_points, n_target_features); features -
+    # int column indices; X - array-like or DataFrame; response_method - str or list;
+    # sample_weight - (n_samples,) or None.
+    # Outputs: tuple (averaged_predictions, predictions).
+    # Side effects: none on X (works on a copy).
+    # KNOWN ISSUE: the binary classification branch tests predictions.shape[0] == 2, but
+    # _get_response_values already returns only the positive class, so predictions have
+    # shape (n_samples, n_points); the branch is reached only when X has exactly 2
+    # samples, and then wrongly keeps only the second sample's curve.
     """Calculate partial dependence via the brute force method.
 
     The brute method explicitly averages the predictions of an estimator over a
@@ -382,6 +432,36 @@ def partial_dependence(
     method="auto",
     kind="average",
 ):
+    # [FUNCTION DOC]
+    # Computes partial dependence of the estimator on the given features. Steps: check
+    # fitted and that it is a classifier or regressor (multiclass-multioutput rejected);
+    # convert non-array inputs with check_array (object dtype); validate response_method
+    # for regressors; force "brute" when kind is not "average"; resolve method "auto"
+    # (brute with sample_weight, recursion for GradientBoosting with init None,
+    # HistGradientBoosting, DecisionTreeRegressor, RandomForestRegressor, else brute);
+    # for recursion require a supported estimator and decision_function response. Then
+    # validate sample_weight, reject negative int features, resolve feature indices and
+    # names, determine which target features are categorical (boolean mask, indices or
+    # names), reject non-categorical integer-typed columns, build the grid with
+    # _grid_from_X and run the chosen method, reshaping averages to (n_outputs,
+    # len(axis_0), len(axis_1), ...) and individual predictions to (n_outputs,
+    # n_samples, len(axis_0), ...).
+    # Inputs: estimator; X - array-like, DataFrame or sparse (n_samples, n_features);
+    # features - int, str or sequence of them; sample_weight; categorical_features;
+    # feature_names; response_method; percentiles (default (0.05, 0.95));
+    # grid_resolution (default 100); custom_values - dict keyed like features; method;
+    # kind.
+    # Outputs: Bunch with grid_values (list of axes) and "average" and/or "individual".
+    # Exceptions: NotFittedError; ValueError for each invalid combination listed above,
+    # integer columns, empty or malformed categorical_features, unknown feature names.
+    # KNOWN ISSUE: a single feature given as a numpy integer passes validation but is
+    # not wrapped into a list (only Python int/str are), so the subsequent zip over
+    # features fails.
+    # KNOWN ISSUE: the supported-classes error message lists
+    # HistGradientBoostingRegressor twice.
+    # KNOWN ISSUE: custom_values are looked up by the exact keys used in features, so
+    # specifying features by index and custom_values by name (or vice versa) silently
+    # ignores the custom grid.
     """Partial dependence of ``features``.
 
     Partial dependence of a feature (or a set of features) corresponds to

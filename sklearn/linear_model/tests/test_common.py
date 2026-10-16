@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Cross-estimator tests for linear models: the balance property (mean prediction equals
+# mean target with intercept and canonical link), coef_ shape contracts for regressors
+# and classifiers, and dense-versus-sparse equivalence inside a scaling pipeline.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import inspect
@@ -98,6 +102,14 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 )
 @pytest.mark.parametrize("with_sample_weight", [False, True])
 def test_balance_property(model, with_sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies the balance property: weighted mean of predictions (or of predicted
+    # positive-class probability for classifiers) equals the weighted mean of y on the
+    # training set. Clones the model, skips if sample weights are requested but fit does
+    # not accept them, picks a relative tolerance (looser for SGD and saga), generates a
+    # low-rank X and Poisson targets with a log-linear mean (3 targets for multi-task
+    # models; binarized for classifiers), forces fit_intercept=True, fits and compares.
+    # Inputs: model instance, with_sample_weight bool, global_random_seed fixture.
     # Test that sum(y_predicted) == sum(y_observed) on the training set.
     # This must hold for all linear models with deviance of an exponential disperson
     # family as loss and the corresponding canonical link if fit_intercept=True.
@@ -198,6 +210,11 @@ def test_balance_property(model, with_sample_weight, global_random_seed):
 )
 @pytest.mark.parametrize("ndim", [1, 2])
 def test_linear_model_regressor_coef_shape(Regressor, ndim):
+    # [FUNCTION DOC]
+    # Verifies regressors expose coef_ of shape (n_features,) whether y is 1-D or a
+    #   single
+    # column 2-D array. Target is min-max scaled plus one (positive, for GLMs).
+    # LinearRegression is xfailed as it does not follow the contract.
     """Check the consistency of linear models `coef` shape."""
     if Regressor is LinearRegression:
         pytest.xfail("LinearRegression does not follow `coef_` shape contract!")
@@ -235,6 +252,10 @@ def test_linear_model_regressor_coef_shape(Regressor, ndim):
 )
 @pytest.mark.parametrize("n_classes", [2, 3])
 def test_linear_model_classifier_coef_shape(Classifier, params, n_classes):
+    # [FUNCTION DOC]
+    # Verifies classifiers expose coef_ of shape (1, n_features) for binary problems and
+    # (n_classes, n_features) for multiclass. RidgeClassifier and RidgeClassifierCV are
+    # xfailed.
     if Classifier in (RidgeClassifier, RidgeClassifierCV):
         pytest.xfail(f"{Classifier} does not follow `coef_` shape contract!")
 
@@ -265,6 +286,15 @@ def test_linear_model_classifier_coef_shape(Classifier, params, n_classes):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_model_pipeline_same_dense_and_sparse(LinearModel, params, csr_container):
+    # [FUNCTION DOC]
+    # Verifies that a pipeline StandardScaler(with_mean=False) plus linear model gives
+    #   the
+    # same coef_ (atol 1e-15), predictions and intercept_ on dense and CSR input. Data
+    #   is
+    # 100x2 Gaussian with values below 0.1 zeroed; y is uniform, replaced by its sign
+    # for classifiers.
+    # KNOWN ISSUE: y is uniform on [0, 1), so its sign is all ones (barring an exact
+    # zero) and classifiers are fit on a single class.
     """Test that sparse and dense linear models give same results.
 
     Models use a preprocessing pipeline with a StandardScaler.

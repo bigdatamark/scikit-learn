@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Provides LinearModelLoss, which turns a pointwise BaseLoss (from sklearn._loss) into
+# the objective of a linear model (weighted average loss of X @ coef + intercept plus
+# an L2 penalty) together with its gradient, full hessian and hessian-vector product,
+# for use by scipy / Newton solvers (e.g. in LogisticRegression and GLMs). Also
+# provides sandwich_dot used to build hessians.
 """
 Loss functions for linear models with raw_prediction = X @ coef
 """
@@ -18,6 +24,15 @@ from sklearn.utils.extmath import safe_sparse_dot, squared_norm
 
 
 def sandwich_dot(X, W):
+    # [FUNCTION DOC]
+    # HELPER: Computes the matrix X transposed times diag(W) times X.
+    # For sparse X, multiplies X on the left by a sparse diagonal matrix built from W,
+    # then by X transposed with a dense result (aligned to the sparse array API).
+    # For dense X, scales each row of X by its weight and multiplies by X transposed
+    # (BLAS GEMM).
+    # Inputs: X - dense or sparse (n_samples, n_features); W - 1-D (n_samples,).
+    # Outputs: dense ndarray (n_features, n_features).
+    # Side effects: none.
     """Compute the sandwich product X.T @ diag(W) @ X."""
     # TODO: This "sandwich product" is the main computational bottleneck for solvers
     # that use the full hessian matrix. Here, thread parallelism would pay-off the
@@ -45,6 +60,11 @@ def sandwich_dot(X, W):
 
 
 class LinearModelLoss:
+    # [CLASS DOC]
+    # Objective wrapper for linear models; holds a base_loss and the fit_intercept flag.
+    # Coefficient layout conventions (intercept last; multiclass coef either 2-D
+    # (n_classes, n_dof) or raveled in Fortran order so classes are contiguous) are given
+    # in the class docstring and used by every method.
     """General class for loss functions with raw_prediction = X @ coef + intercept.
 
     Note that raw_prediction is also known as linear predictor.
@@ -113,10 +133,19 @@ class LinearModelLoss:
     """
 
     def __init__(self, base_loss, fit_intercept):
+        # [FUNCTION DOC]
+        # Stores base_loss (BaseLoss instance) and fit_intercept (bool). No validation.
         self.base_loss = base_loss
         self.fit_intercept = fit_intercept
 
     def init_zero_coef(self, X, dtype=None):
+        # [FUNCTION DOC]
+        # Allocates an all-zero coefficient array with n_dof = n_features (+1 with intercept).
+        # Inputs: X - only its number of columns is used; dtype - array dtype, default None.
+        # Outputs: ndarray (n_classes, n_dof) in Fortran order for multiclass losses, else
+        # (n_dof,).
+        # KNOWN ISSUE: the docstring says dtype=None means "same dtype as X", but the code
+        # passes dtype straight to np.zeros, so None yields float64 regardless of X.
         """Allocate coef of correct shape with zeros.
 
         Parameters:
@@ -145,6 +174,13 @@ class LinearModelLoss:
         return coef
 
     def weight_intercept(self, coef):
+        # [FUNCTION DOC]
+        # Splits coef into weights (without intercept) and intercept.
+        # Non-multiclass: intercept is the last entry when fit_intercept, otherwise 0.0 and
+        # weights is coef itself. Multiclass: a 1-D coef is reshaped (Fortran order) to
+        # (n_classes, n_dof); intercept is the last column or 0.0.
+        # Inputs: coef in any of the documented layouts.
+        # Outputs: (weights, intercept); weights are views of coef, not copies.
         """Helper function to get coefficients and intercept.
 
         Parameters
@@ -184,6 +220,14 @@ class LinearModelLoss:
         return weights, intercept
 
     def weight_intercept_raw(self, coef, X):
+        # [FUNCTION DOC]
+        # Splits coef via weight_intercept and computes the raw (linear) predictions
+        # X times weights (transposed for multiclass) plus intercept. weights and intercept
+        # are converted to X's array namespace/device/dtype for the product only.
+        # Inputs: coef; X (n_samples, n_features), dense, sparse or array-API array.
+        # Outputs: (weights, intercept, raw_prediction) where weights/intercept are the
+        # original numpy objects and raw_prediction is (n_samples,) or (n_samples, n_classes)
+        # in X's namespace.
         """Helper function to get coefficients, intercept and raw_prediction.
 
         Parameters
@@ -224,6 +268,9 @@ class LinearModelLoss:
         return weights, intercept, raw_prediction
 
     def l2_penalty(self, weights, l2_reg_strength):
+        # [FUNCTION DOC]
+        # Returns 0.5 * l2_reg_strength * squared Frobenius / Euclidean norm of weights as a
+        # Python float. Inputs: weights 1-D or 2-D array; l2_reg_strength float.
         """Compute L2 penalty term l2_reg_strength/2 *||w||_2^2."""
         norm2_w = weights @ weights if weights.ndim == 1 else squared_norm(weights)
         return float(0.5 * l2_reg_strength * norm2_w)
@@ -238,6 +285,13 @@ class LinearModelLoss:
         n_threads=1,
         raw_prediction=None,
     ):
+        # [FUNCTION DOC]
+        # Computes the objective: sum of pointwise (weighted) losses divided by the weight
+        # sum (n_samples if unweighted) plus the L2 penalty when l2_reg_strength > 0.
+        # Uses raw_prediction if given, otherwise computes it from coef and X.
+        # Inputs: coef; X; y (n_samples,); sample_weight or None; l2_reg_strength float;
+        # n_threads int; raw_prediction optional precomputed linear predictor.
+        # Outputs: float loss.
         """Compute the loss as weighted average over point-wise losses.
 
         Parameters
@@ -298,6 +352,16 @@ class LinearModelLoss:
         n_threads=1,
         raw_prediction=None,
     ):
+        # [FUNCTION DOC]
+        # Computes the objective (as in loss) and its gradient with respect to coef in one
+        # pass. Pointwise gradients are divided by the weight sum. Non-multiclass: feature
+        # part is X transposed times pointwise gradient plus l2_reg_strength * weights,
+        # intercept part is the sum of pointwise gradients. Multiclass: same per class
+        # (pointwise gradient transposed times X), assembled into an (n_classes, n_dof)
+        # Fortran array and raveled if coef was 1-D. Results are moved back to numpy/CPU.
+        # Inputs: same as loss.
+        # Outputs: (loss float, gradient ndarray with coef's shape).
+        # Side effects: none on inputs (pointwise gradient array is a fresh temporary).
         """Computes the sum of loss and gradient w.r.t. coef.
 
         Parameters
@@ -388,6 +452,10 @@ class LinearModelLoss:
         n_threads=1,
         raw_prediction=None,
     ):
+        # [FUNCTION DOC]
+        # Same gradient as loss_gradient but without computing the loss value, and without
+        # the array-API conversions (assumes numpy inputs).
+        # Inputs: same as loss. Outputs: gradient ndarray with coef's shape.
         """Computes the gradient w.r.t. coef.
 
         Parameters
@@ -463,6 +531,32 @@ class LinearModelLoss:
         hessian_out=None,
         raw_prediction=None,
     ):
+        # [FUNCTION DOC]
+        # Computes the gradient and the full 2-D hessian of the objective.
+        # Validates or allocates the output buffers (gradient must match coef.shape, F-ordered
+        # for multiclass; hessian must be (coef.size, coef.size), contiguous for multiclass).
+        # Non-multiclass: pointwise gradient and hessian are divided by the weight sum; the
+        # hessian warning flag is set if more than 25% (weighted) of pointwise hessians are
+        # non-positive, and absolute values are used. Gradient is computed as in
+        # loss_gradient; if the warning is set the function returns early without filling the
+        # hessian. Otherwise the feature block is sandwich_dot(X, h), the L2 strength is added
+        # to the feature diagonal (through a flat strided view), and with intercept the last
+        # row/column are X transposed times h and the corner is the sum of h.
+        # Multiclass (multinomial assumed): uses predicted probabilities; for each class pair
+        # (k, l) builds the block X' diag(h_kl) X with h_kk = p_k(1-p_k)*sw and
+        # h_kl = -p_k p_l * sw, written with stride n_classes so classes are interleaved per
+        # feature, plus intercept rows/columns; mirrors the upper class triangle to the lower;
+        # adds L2 to the feature diagonal. Warning flag is always False.
+        # Inputs: as loss, plus gradient_out / hessian_out optional preallocated arrays.
+        # Outputs: (gradient, hessian 2-D (n, n), hessian_warning bool).
+        # Exceptions: ValueError for wrongly shaped or non-contiguous output buffers.
+        # Side effects: writes into gradient_out / hessian_out when provided.
+        # KNOWN ISSUE: the docstring gives the multiclass hessian shape as
+        # (n_classes, n_dof, n_dof, n_classes) but the returned array is always 2-D.
+        # KNOWN ISSUE: on the early return with hessian_warning True, the returned hessian is
+        # uninitialised memory (np.empty) or the untouched hessian_out.
+        # KNOWN ISSUE: the hessian_out shape error message formats the expected shape as a
+        # nested tuple string.
         """Computes gradient and hessian w.r.t. coef.
 
         Parameters
@@ -711,6 +805,17 @@ class LinearModelLoss:
     def gradient_hessian_product(
         self, coef, X, y, sample_weight=None, l2_reg_strength=0.0, n_threads=1
     ):
+        # [FUNCTION DOC]
+        # Computes the gradient and returns a closure hessp(s) computing the hessian-vector
+        # product without forming the hessian. Gradient is computed as in loss_gradient.
+        # Non-multiclass: precomputes h (pointwise hessian / weight sum), hX (rows of X
+        # scaled by h), sum of h and column sums of hX for the intercept.
+        # Multiclass: precomputes the probabilities; gradient raveled in Fortran order when
+        # coef is 1-D.
+        # Inputs: coef, X, y, sample_weight, l2_reg_strength, n_threads (as in loss).
+        # Outputs: (gradient with coef's shape, hessp callable).
+        # Side effects: the closure captures X, proba/hX and other arrays (memory held while
+        # the closure lives).
         """Computes gradient and hessp (hessian product function) w.r.t. coef.
 
         Parameters
@@ -782,6 +887,12 @@ class LinearModelLoss:
             # res[:n_features] = X' @ hX @ s[:n_features] + sum(h) * s[-1]
             # res[-1] = 1' @ hX @ s[:n_features] + sum(h) * s[-1]
             def hessp(s):
+                # [FUNCTION DOC]
+                # HELPER: Non-multiclass hessian-vector product. Feature part: X transposed times
+                # (hX times the feature part of s) plus l2_reg_strength times that part; with
+                # intercept adds s_last times column sums of hX, and the last entry is column sums of
+                # hX dotted with the feature part plus sum(h) times s_last.
+                # Inputs: s - 1-D vector of length n_dof. Outputs: new vector of the same shape.
                 ret = np.empty_like(s)
                 if sparse.issparse(X):
                     ret[:n_features] = X.T @ (hX @ s[:n_features])
@@ -834,6 +945,16 @@ class LinearModelLoss:
             #
             # See also https://github.com/scikit-learn/scikit-learn/pull/3646#discussion_r17461411
             def hessp(s):
+                # [FUNCTION DOC]
+                # HELPER: Multinomial hessian-vector product. Reshapes s to (n_classes, n_dof)
+                # (Fortran order), splits the intercept column, computes for each sample
+                # t = X s' + s_intercept, subtracts the probability-weighted row mean of t, multiplies
+                # by the probabilities and the sample weights, then returns per class
+                # (t' X) / weight_sum + l2_reg_strength * s and the intercept part as column sums of t
+                # divided by the weight sum.
+                # Inputs: s - flattened (n_classes * n_dof,) or 2-D vector.
+                # Outputs: product with the same layout as coef (raveled in Fortran order when coef
+                # was 1-D).
                 s = s.reshape((n_classes, -1), order="F")  # shape = (n_classes, n_dof)
                 if self.fit_intercept:
                     s_intercept = s[:, -1]

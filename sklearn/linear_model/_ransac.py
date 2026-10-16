@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Implements RANSACRegressor, a meta-estimator that robustly fits a base regressor by
+# repeatedly fitting it on random minimal subsets and keeping the model with the
+# largest consensus (inlier) set, plus the helper computing the adaptive number of
+# trials. Defines the module constant _EPSILON (machine spacing of 1.0) used to avoid
+# log(0).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -45,6 +51,17 @@ _EPSILON = np.spacing(1)
 
 
 def _dynamic_max_trials(n_inliers, n_samples, min_samples, probability):
+    # [FUNCTION DOC]
+    # HELPER: Computes how many random draws are needed so that, with confidence
+    # probability, at least one draw of min_samples points contains only inliers.
+    # Uses trials = ceil(log(1 - probability) / log(1 - w ** min_samples)) where w is
+    # n_inliers / n_samples; both log arguments are floored at _EPSILON.
+    # Inputs: n_inliers, n_samples, min_samples - ints (min_samples may be a float from
+    # the fractional path); probability - float in [0, 1].
+    # Outputs: number of trials as a non-negative float (not an int despite the docstring);
+    # 0 when 1 - probability equals 1 (probability 0), infinity when the inlier subset
+    # probability rounds to 0.
+    # Side effects: none.
     """Determine number trials such that at least one outlier-free subset is
     sampled for the given inlier/outlier ratio.
 
@@ -84,6 +101,12 @@ class RANSACRegressor(
     MultiOutputMixin,
     BaseEstimator,
 ):
+    # [CLASS DOC]
+    # RANSAC meta-regressor. Wraps a base estimator (LinearRegression by default), fitted
+    # on random subsets; supports user validity callbacks for data and models, several
+    # stopping criteria (max_trials, max_skips, stop_n_inliers, stop_score,
+    # stop_probability) and metadata routing to the wrapped estimator for fit, score and
+    # predict.
     """RANSAC (RANdom SAmple Consensus) algorithm.
 
     RANSAC is an iterative algorithm for the robust estimation of parameters
@@ -301,6 +324,8 @@ class RANSACRegressor(
         loss="absolute_error",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyper-parameters unchanged on self; no validation (done in fit).
         self.estimator = estimator
         self.min_samples = min_samples
         self.residual_threshold = residual_threshold
@@ -319,6 +344,41 @@ class RANSACRegressor(
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Runs the RANSAC loop and refits the base estimator on the best inlier set.
+        # Steps: reject unexpected fit_params when routing is disabled; validate X (csr
+        # allowed, finiteness not checked) and y separately; clone estimator or create a
+        # LinearRegression. Resolve min_samples: None means n_features + 1 (only allowed for
+        # LinearRegression), a value in (0, 1) is a fraction of n_samples rounded up, otherwise
+        # the absolute count. residual_threshold defaults to the median absolute deviation of
+        # y. Choose the per-sample loss (absolute or squared error, summed across targets for
+        # 2-D y, or the user callable). Seed the estimator's random_state if it accepts one.
+        # Build routed parameters (sample_weight forwarded to estimator fit).
+        # Loop while n_trials_ < max_trials (max_trials shrinks dynamically): stop if total
+        # skips exceed max_skips; draw min_samples indices without replacement; skip if
+        # is_data_valid rejects; fit on the subset (with subset-sliced fit params); skip if
+        # is_model_valid rejects; predict on all X, compute losses, inliers are samples with
+        # loss <= threshold; skip if fewer inliers than the best so far; score the estimator on
+        # its inliers; skip if tie in inlier count but lower score; otherwise record as best,
+        # lower max_trials using _dynamic_max_trials, and stop early if stop_n_inliers or
+        # stop_score is reached. Finally refit the estimator on the best inliers.
+        # Inputs: X (n_samples, n_features); y (n_samples,) or (n_samples, n_targets);
+        # sample_weight (n_samples,) or None; **fit_params routed via metadata routing.
+        # Outputs: self.
+        # Exceptions: ValueError if min_samples is None with a non-LinearRegression estimator,
+        # if min_samples > n_samples, if sample_weight is given but the estimator's fit does
+        # not accept it, or if no consensus set was found (message differs depending on
+        # whether max_skips was exceeded).
+        # Side effects: sets estimator_, inlier_mask_, n_trials_, n_skips_no_inliers_,
+        # n_skips_invalid_data_, n_skips_invalid_model_; mutates the cloned estimator's
+        # random_state; consumes the random state; emits ConvergenceWarning if a consensus set
+        # was found but max_skips was exceeded.
+        # KNOWN ISSUE: the sample_weight error message says weights are "only used for the
+        # calibration itself", a leftover from calibration code that does not apply here.
+        # KNOWN ISSUE: the best inlier count starts at 1, so the first candidate with zero
+        # inliers is counted as a "no inliers" skip rather than accepted.
+        # KNOWN ISSUE: the fractional min_samples path yields a float (np.ceil), which is then
+        # used as a sample count.
         """Fit estimator using RANSAC algorithm.
 
         Parameters
@@ -603,6 +663,14 @@ class RANSACRegressor(
         return self
 
     def predict(self, X, **params):
+        # [FUNCTION DOC]
+        # Predicts with the final fitted estimator_.
+        # Checks fitted state, validates X (sparse allowed, finiteness not checked, feature
+        # count must match fit), rejects stray params when routing is disabled, and forwards
+        # routed predict params.
+        # Inputs: X (n_samples, n_features); **params for the sub-estimator's predict.
+        # Outputs: predictions of shape (n_samples,) or (n_samples, n_targets).
+        # Exceptions: NotFittedError if not fitted; validation errors.
         """Predict using the estimated model.
 
         This is a wrapper for `estimator_.predict(X)`.
@@ -649,6 +717,10 @@ class RANSACRegressor(
         return self.estimator_.predict(X, **predict_params)
 
     def score(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Returns estimator_.score on (X, y) after the same validation as predict and with
+        # routed score params. Inputs: X, y, **params. Outputs: float score (R^2 for
+        # regressors). Exceptions: NotFittedError, validation errors.
         """Return the score of the prediction.
 
         This is a wrapper for `estimator_.score(X, y)`.
@@ -695,6 +767,9 @@ class RANSACRegressor(
         return self.estimator_.score(X, y, **score_params)
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter mapping RANSAC's fit to the estimator's fit and score,
+        # score to score, and predict to predict. Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -719,6 +794,9 @@ class RANSACRegressor(
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns inherited tags with sparse input support set to True for the default
+        # LinearRegression, else copied from the wrapped estimator's tags.
         tags = super().__sklearn_tags__()
         if self.estimator is None:
             tags.input_tags.sparse = True  # default estimator is LinearRegression

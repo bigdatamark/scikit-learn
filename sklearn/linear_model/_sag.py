@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Python front end of the SAG/SAGA solvers used by Ridge and LogisticRegression.
+# Contents: get_auto_step_size (theoretical step size from a Lipschitz bound) and
+# sag_solver (input checks, warm-start state handling, dispatch to the Cython
+# sag64/sag32 kernels from _sag_fast).
+# Side effects at import: none beyond importing the compiled _sag_fast extension.
 """Solvers for Ridge and LogisticRegression using SAG algorithm"""
 
 # Authors: The scikit-learn developers
@@ -18,6 +24,22 @@ from sklearn.utils.validation import _check_sample_weight
 def get_auto_step_size(
     max_squared_sum, alpha_scaled, loss, fit_intercept, n_samples=None, is_saga=False
 ):
+    # [FUNCTION DOC]
+    # Computes the step size from a Lipschitz constant L of the per-sample loss.
+    # For loss 'log' or 'multinomial': L = 0.25 * (max_squared_sum + 1 if fit_intercept
+    # else 0) + alpha_scaled. For 'squared': L = max_squared_sum + intercept term +
+    # alpha_scaled. SAG returns 1 / L; SAGA returns 1 / (2L + mun) with
+    # mun = min(2 * n_samples * alpha_scaled, L).
+    # Inputs: max_squared_sum - float, max over samples of squared row norm;
+    # alpha_scaled - float, L2 strength divided by n_samples; loss - string;
+    # fit_intercept - bool; n_samples - int, required when is_saga is True (else unused);
+    # is_saga - bool, default False.
+    # Outputs: float step size.
+    # Exceptions: ValueError for any other loss string. TypeError if is_saga is True and
+    # n_samples is None.
+    # KNOWN ISSUE: docstring says step is 1 / (alpha_scaled + L + fit_intercept) where
+    # L is the max squared sum; code folds those into L and scales by 0.25 for log
+    # losses. Error message only mentions 'log' or 'squared' though 'multinomial' is valid.
     """Compute automatic step size for SAG solver.
 
     The step size is set to 1 / (alpha_scaled + L + fit_intercept) where L is
@@ -100,6 +122,31 @@ def sag_solver(
     warm_start_mem=None,
     is_saga=False,
 ):
+    # [FUNCTION DOC]
+    # Runs SAG or SAGA on (X, y) and returns coefficients plus reusable solver state.
+    # Steps: default warm_start_mem to an empty dict and max_iter None to 1000;
+    # optionally validate X (CSR or dense, float64/float32, C order) and y; scale alpha
+    # and beta by 1 / n_samples; n_classes is max(y)+1 for 'multinomial', else 1;
+    # validate sample_weight. Take each state item (coef, intercept_sum_gradient,
+    # gradient_memory, sum_gradient, seen, num_seen) from warm_start_mem or zero-init it.
+    # fit_intercept is inferred: true iff the coef array has n_features + 1 rows, the
+    # last row being the intercept. Build a SequentialDataset via make_dataset (which
+    # also gives intercept_decay, 0.01 for sparse), compute max_squared_sum if not given,
+    # compute the step size, then call sag64/sag32 by dtype; the kernel updates the
+    # coef, intercept, gradient and seen arrays in place.
+    # Inputs: see docstring; y must be in {0,1} for 'log', label-encoded for
+    # 'multinomial'; random_state drives sample shuffling in the dataset.
+    # Outputs: tuple (coef_, n_iter_, warm_start_mem). coef_ is shape (n_features,) or,
+    # for 'multinomial', (n_classes, n_features [+1 if intercept]); for non-multinomial
+    # it also includes the intercept as the last entry when fitted. warm_start_mem is a
+    # new dict with keys coef (intercept stacked as last row), sum_gradient,
+    # intercept_sum_gradient, gradient_memory, seen, num_seen.
+    # Exceptions: ZeroDivisionError when step_size * alpha_scaled equals 1; ValueError
+    # from input checks or unknown loss.
+    # Side effects: arrays supplied in warm_start_mem are mutated in place by the
+    # kernel; emits ConvergenceWarning when n_iter_ reaches max_iter; verbose printing.
+    # KNOWN ISSUE: docstring says coef_ has shape (n_features,), but the returned array
+    # contains the intercept as an extra trailing element when an intercept is fitted.
     """SAG solver for Ridge and LogisticRegression.
 
     SAG stands for Stochastic Average Gradient: the gradient of the loss is

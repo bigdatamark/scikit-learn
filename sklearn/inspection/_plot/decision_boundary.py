@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements DecisionBoundaryDisplay, which evaluates a fitted estimator's response on a
+# regular 2-D grid spanning two input features and draws it with matplotlib (contourf,
+# contour or pcolormesh), including per-class colouring for multiclass problems.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +26,14 @@ from sklearn.utils.validation import (
 
 
 def _check_boundary_response_method(estimator, response_method):
+    # [FUNCTION DOC]
+    # HELPER: Resolves which response method(s) to try. "auto" becomes "predict" for
+    # regressors and the ordered list decision_function, predict_proba, predict
+    # otherwise; any explicit value is returned unchanged.
+    # Inputs: estimator - fitted estimator; response_method - str.
+    # Outputs: str or list of str.
+    # Exceptions: ValueError if classes_ holds arrays (multi-label / multi-output
+    # classifiers).
     """Validate the response methods to be used with the fitted estimator.
 
     Parameters
@@ -56,6 +68,16 @@ def _check_boundary_response_method(estimator, response_method):
 
 
 def _select_colors(mpl, multiclass_colors, n_classes):
+    # [FUNCTION DOC]
+    # HELPER: Produces one RGBA colour per class. Default: the first n_classes Petroff
+    # accessible colours for up to 10 classes, else the "gist_rainbow" colormap. A
+    # colormap name is sampled at n_classes evenly spaced points; a list of colours is
+    # converted directly.
+    # Inputs: mpl - matplotlib module; multiclass_colors - None, colormap name or list
+    # of colours; n_classes - int.
+    # Outputs: ndarray (n_classes, 4).
+    # Exceptions: ValueError for unknown colormap, colormap with fewer than n_classes
+    # colours, wrong list length or invalid colours; TypeError for any other type.
     """Select colors for multiclass decision boundary display.
 
     Parameters
@@ -129,6 +151,12 @@ def _select_colors(mpl, multiclass_colors, n_classes):
 
 
 class DecisionBoundaryDisplay:
+    # [CLASS DOC]
+    # Stores a precomputed grid and response and plots it. Attributes set at
+    # construction: xx0, xx1 (meshgrid arrays), n_classes, response ((g, g) for
+    # binary/regression/predict, (g, g, n_classes) for multiclass probabilities or
+    # decision values), multiclass_colors, xlabel, ylabel. After plot: surface_ (artist
+    # or list of artists), ax_, figure_, and multiclass_colors_ in the multiclass case.
     """Decisions boundary visualization.
 
     It is recommended to use
@@ -288,6 +316,9 @@ class DecisionBoundaryDisplay:
         xlabel=None,
         ylabel=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the given grid, response and display options as attributes; no
+        # validation.
         self.xx0 = xx0
         self.xx1 = xx1
         self.n_classes = n_classes
@@ -297,6 +328,24 @@ class DecisionBoundaryDisplay:
         self.ylabel = ylabel
 
     def plot(self, plot_method="contourf", ax=None, xlabel=None, ylabel=None, **kwargs):
+        # [FUNCTION DOC]
+        # Draws the decision surface. Steps: validate plot_method and create an axis if
+        # none. Binary (n_classes 2): a single call of the plot function on the response
+        # with the user kwargs. Multiclass: drop "cmap"/"colors" kwargs with a warning,
+        # choose class colours, default zorder to -1. For 3-D responses, draw one masked
+        # surface per class (only where it is the argmax) using a white-to-class-colour
+        # colormap, plus black class boundaries for "contour". For 2-D (predicted
+        # labels), set default levels so every class boundary shows, and draw black
+        # contours or a ListedColormap fill. Finally set axis labels when given or when
+        # the axis has none.
+        # Inputs: plot_method - "contourf" (default), "contour" or "pcolormesh"; ax -
+        # matplotlib Axes or None; xlabel, ylabel - override labels; **kwargs -
+        # forwarded to the plot call.
+        # Outputs: self.
+        # Exceptions: ValueError for invalid plot_method or colour settings; ImportError
+        # without matplotlib.
+        # Side effects: draws on ax (may create a figure); sets surface_, ax_, figure_,
+        # multiclass_colors_; emits UserWarning for ignored cmap/colors.
         """Plot visualization.
 
         Parameters
@@ -484,6 +533,27 @@ class DecisionBoundaryDisplay:
         ax=None,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Builds the display from a fitted estimator and plots it. Steps: validate
+        # grid_resolution (> 1), eps (>= 0), plot_method and that X has exactly 2
+        # features; build a grid_resolution x grid_resolution meshgrid spanning each
+        # feature's range extended by eps (wrapped into a DataFrame with X's columns for
+        # pandas/polars input). Get responses with _get_response_values
+        # (pos_label=class_of_interest); encode predicted class labels to integers;
+        # infer n_classes (2 for class_of_interest, regressors, outlier detectors;
+        # len(classes_) for classifiers; number of unique labels_ for clusterers;
+        # otherwise from the target type of the response). Reshape the response to the
+        # grid (selecting the class_of_interest column for multiclass outputs), default
+        # labels to DataFrame column names or "", then construct and plot.
+        # Inputs: estimator - fitted; X - array-like or DataFrame with 2 columns;
+        # grid_resolution - int (default 100); eps - float (default 1.0); plot_method;
+        # response_method - "auto", "predict_proba", "decision_function" or "predict";
+        # class_of_interest - label or None; multiclass_colors; xlabel; ylabel; ax;
+        # **kwargs.
+        # Outputs: DecisionBoundaryDisplay after plot.
+        # Exceptions: NotFittedError; ValueError for invalid parameters, invalid
+        # class_of_interest, multi-output regressors, unsupported classifiers, or when
+        # n_classes cannot be inferred.
         """Plot decision boundary given an estimator.
 
         Read more in the :ref:`User Guide <visualizations>`.
