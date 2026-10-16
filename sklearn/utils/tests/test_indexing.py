@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.utils indexing helpers: _safe_indexing across containers (lists,
+# numpy, sparse, pandas, polars, pyarrow, Array API), _determine_key_type,
+# _get_column_indices, _safe_assign, plus resample and shuffle. Defines the module level
+# 3x3 toy array X_toy (values 0..8) shared by several tests.
 import warnings
 from copy import copy
 from unittest import SkipTest
@@ -38,6 +43,10 @@ X_toy = np.arange(9).reshape((3, 3))
 
 
 def test_polars_indexing():
+    # [FUNCTION DOC]
+    # Skipped without polars >= 0.18.2. On a 4x3 polars DataFrame, checks _safe_indexing
+    # with string, boolean and integer column keys (axis=1) and integer row keys
+    # (axis=0) matches native polars selection.
     """Check _safe_indexing for polars as expected."""
     pl = pytest.importorskip("polars", minversion="0.18.2")
     df = pl.DataFrame(
@@ -98,15 +107,23 @@ def test_polars_indexing():
     ],
 )
 def test_determine_key_type(key, dtype):
+    # [FUNCTION DOC]
+    # Parametrized over scalars, lists, tuples, slices and numpy arrays of ints, strings
+    # and bools; checks _determine_key_type returns "int", "str", "bool", or None for a
+    # full slice.
     assert _determine_key_type(key) == dtype
 
 
 def test_determine_key_type_error():
+    # [FUNCTION DOC]
+    # Checks a float key raises ValueError "No valid specification of the ...".
     with pytest.raises(ValueError, match="No valid specification of the"):
         _determine_key_type(1.0)
 
 
 def test_determine_key_type_slice_error():
+    # [FUNCTION DOC]
+    # Checks a slice key with accept_slice=False raises TypeError.
     with pytest.raises(TypeError, match="Only array-like or scalar are"):
         _determine_key_type(slice(0, 2, 1), accept_slice=False)
 
@@ -117,6 +134,10 @@ def test_determine_key_type_slice_error():
     yield_namespace_device_dtype_combinations(),
 )
 def test_determine_key_type_array_api(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Skipped without array_api_compat. Under array_api_dispatch, checks integer and
+    # bool namespace arrays give "int" and "bool", and that complex arrays (when the
+    # namespace supports them) raise ValueError.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     with sklearn.config_context(array_api_dispatch=True):
@@ -158,6 +179,10 @@ def test_determine_key_type_array_api(array_namespace, device_name, dtype_name):
 def test_safe_indexing_array_api_support(
     array_namespace, device_name, dtype_name, indexing_key, axis
 ):
+    # [FUNCTION DOC]
+    # For each namespace/device/dtype, key (scalars, list, numpy array, slice, bool
+    # masks including all-False) and axis, checks _safe_indexing on the namespace array
+    # keeps device and dtype and gives the same values as on the equivalent numpy array.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     array_to_index_np = np.arange(16).reshape(4, 4)
@@ -177,6 +202,10 @@ def test_safe_indexing_array_api_support(
 )
 @pytest.mark.parametrize("indices_type", ["list", "tuple", "array", "series", "slice"])
 def test_safe_indexing_2d_container_axis_0(array_type, indices_type):
+    # [FUNCTION DOC]
+    # Selects rows 1 and 2 of a 3x3 container of each type with list/tuple/array/series
+    # indices or slice(1, 3) and checks the result equals the expected rows in the same
+    # container type.
     indices = [1, 2]
     if indices_type == "slice" and isinstance(indices[1], int):
         indices[1] += 1
@@ -193,6 +222,9 @@ def test_safe_indexing_2d_container_axis_0(array_type, indices_type):
 )
 @pytest.mark.parametrize("indices_type", ["list", "tuple", "array", "series", "slice"])
 def test_safe_indexing_1d_container(array_type, indices_type):
+    # [FUNCTION DOC]
+    # Same as the 2D axis 0 test but for 1D containers (list, array, pandas/polars
+    # series, pyarrow array) of values 1..9; expects [2, 3].
     indices = [1, 2]
     if indices_type == "slice" and isinstance(indices[1], int):
         indices[1] += 1
@@ -208,6 +240,10 @@ def test_safe_indexing_1d_container(array_type, indices_type):
 @pytest.mark.parametrize("indices_type", ["list", "tuple", "array", "series", "slice"])
 @pytest.mark.parametrize("indices", [[1, 2], ["col_1", "col_2"]])
 def test_safe_indexing_2d_container_axis_1(array_type, indices_type, indices):
+    # [FUNCTION DOC]
+    # Selects columns 1 and 2 by integer or string keys (copied to avoid mutating the
+    # shared parameter, with the end incremented for slices) and checks the expected
+    # subset, or ValueError when string keys are used on numpy/sparse inputs.
     # validation of the indices
     # we make a copy because indices is mutable and shared between tests
     indices_converted = copy(indices)
@@ -245,6 +281,10 @@ def test_safe_indexing_2d_container_axis_1(array_type, indices_type, indices):
 def test_safe_indexing_2d_read_only_axis_1(
     array_read_only, indices_read_only, array_type, indices_type, axis, expected_array
 ):
+    # [FUNCTION DOC]
+    # Checks _safe_indexing works on read-only arrays and/or read-only index arrays for
+    # each container type and both axes.
+    # Note: the name says axis_1 but both axis 0 and 1 are parametrized.
     array = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     if array_read_only:
         array.setflags(write=False)
@@ -262,6 +302,9 @@ def test_safe_indexing_2d_read_only_axis_1(
 )
 @pytest.mark.parametrize("indices_type", ["list", "tuple", "array", "series"])
 def test_safe_indexing_1d_container_mask(array_type, indices_type):
+    # [FUNCTION DOC]
+    # Checks a boolean mask selecting positions 1 and 2 on 1D containers returns [2, 3]
+    # for each mask container type.
     indices = [False] + [True] * 2 + [False] * 6
     array = _convert_container([1, 2, 3, 4, 5, 6, 7, 8, 9], array_type)
     indices = _convert_container(indices, indices_type)
@@ -278,6 +321,9 @@ def test_safe_indexing_1d_container_mask(array_type, indices_type):
     [(0, [[4, 5, 6], [7, 8, 9]]), (1, [[2, 3], [5, 6], [8, 9]])],
 )
 def test_safe_indexing_2d_mask(array_type, indices_type, axis, expected_subset):
+    # [FUNCTION DOC]
+    # Checks boolean mask [False, True, True] selects the last two rows (axis 0) or
+    # columns (axis 1) of 2D containers.
     column_names = ["col_0", "col_1", "col_2"]
     array = _convert_container(
         [[1, 2, 3], [4, 5, 6], [7, 8, 9]], array_type, column_names
@@ -303,6 +349,9 @@ def test_safe_indexing_2d_mask(array_type, indices_type, axis, expected_subset):
     ],
 )
 def test_safe_indexing_2d_scalar_axis_0(array_type, expected_output_type):
+    # [FUNCTION DOC]
+    # Checks a scalar row index on 2D containers returns the row as the matching 1D type
+    # (list, array, sparse row, pandas/polars series, pyarrow array).
     array = _convert_container([[1, 2, 3], [4, 5, 6], [7, 8, 9]], array_type)
     indices = 2
     subset = _safe_indexing(array, indices, axis=0)
@@ -314,6 +363,8 @@ def test_safe_indexing_2d_scalar_axis_0(array_type, expected_output_type):
     "array_type", ["list", "array", "series", "polars_series", "pyarrow_array"]
 )
 def test_safe_indexing_1d_scalar(array_type):
+    # [FUNCTION DOC]
+    # Checks a scalar index on 1D containers returns the scalar element (3).
     array = _convert_container([1, 2, 3, 4, 5, 6, 7, 8, 9], array_type)
     indices = 2
     subset = _safe_indexing(array, indices, axis=0)
@@ -332,6 +383,10 @@ def test_safe_indexing_1d_scalar(array_type):
 )
 @pytest.mark.parametrize("indices", [2, "col_2"])
 def test_safe_indexing_2d_scalar_axis_1(array_type, expected_output_type, indices):
+    # [FUNCTION DOC]
+    # Checks a scalar column key (int or name) on 2D containers returns the column as a
+    # 1D type (sparse stays 2D, shape (3, 1)), or ValueError for string keys on
+    # numpy/sparse.
     column_names = ["col_0", "col_1", "col_2"]
     array = _convert_container(
         [[1, 2, 3], [4, 5, 6], [7, 8, 9]], array_type, column_names
@@ -355,12 +410,17 @@ def test_safe_indexing_2d_scalar_axis_1(array_type, expected_output_type, indice
 
 @pytest.mark.parametrize("array_type", ["list", "array", "sparse"])
 def test_safe_indexing_None_axis_0(array_type):
+    # [FUNCTION DOC]
+    # Checks a None key on axis 0 returns the data unchanged for list, array and sparse.
     X = _convert_container([[1, 2, 3], [4, 5, 6], [7, 8, 9]], array_type)
     X_subset = _safe_indexing(X, None, axis=0)
     assert_allclose_dense_sparse(X_subset, X)
 
 
 def test_safe_indexing_pandas_no_matching_cols_error():
+    # [FUNCTION DOC]
+    # Skipped without pandas. Checks a float column key on a DataFrame raises
+    # ValueError.
     pd = pytest.importorskip("pandas")
     err_msg = "No valid specification of the columns."
     X = pd.DataFrame(X_toy)
@@ -370,6 +430,8 @@ def test_safe_indexing_pandas_no_matching_cols_error():
 
 @pytest.mark.parametrize("axis", [None, 3])
 def test_safe_indexing_error_axis(axis):
+    # [FUNCTION DOC]
+    # Checks axis values None and 3 raise ValueError about the allowed axis values.
     with pytest.raises(ValueError, match="'axis' should be either 0"):
         _safe_indexing(X_toy, [0, 1], axis=axis)
 
@@ -378,6 +440,10 @@ def test_safe_indexing_error_axis(axis):
     "X_constructor", ["array", "series", "polars_series", "pyarrow_array"]
 )
 def test_safe_indexing_1d_array_error(X_constructor):
+    # [FUNCTION DOC]
+    # Builds a 1D numpy array, pandas/polars series or pyarrow array (skipping when the
+    # library is missing) and checks indexing with axis=1 raises ValueError requiring 2D
+    # input.
     # check that we are raising an error if the array-like passed is 1D and
     # we try to index on the 2nd dimension
     X = list(range(5))
@@ -399,6 +465,8 @@ def test_safe_indexing_1d_array_error(X_constructor):
 
 
 def test_safe_indexing_container_axis_0_unsupported_type():
+    # [FUNCTION DOC]
+    # Checks string keys with axis=0 on a nested list raise ValueError.
     indices = ["col_1", "col_2"]
     array = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
     err_msg = r"String indexing.*is not supported with 'axis=0'"
@@ -407,6 +475,10 @@ def test_safe_indexing_container_axis_0_unsupported_type():
 
 
 def test_safe_indexing_pandas_no_settingwithcopy_warning():
+    # [FUNCTION DOC]
+    # Skipped without pandas or with pandas >= 3. Checks that modifying a row subset
+    # from _safe_indexing raises no SettingWithCopyWarning (turned into an error) and
+    # leaves the original DataFrame unchanged.
     # Using safe_indexing with an array-like indexer gives a copy of the
     # DataFrame -> ensure it doesn't raise a warning if modified
     pd = pytest.importorskip("pandas")
@@ -433,6 +505,8 @@ def test_safe_indexing_pandas_no_settingwithcopy_warning():
 
 @pytest.mark.parametrize("indices", [0, [0, 1], slice(0, 2), np.array([0, 1])])
 def test_safe_indexing_list_axis_1_unsupported(indices):
+    # [FUNCTION DOC]
+    # Checks any key with axis=1 on a list-of-lists input raises ValueError.
     """Check that we raise a ValueError when axis=1 with input as list."""
     X = [[1, 2], [4, 5], [7, 8]]
     err_msg = "axis=1 is not supported for lists"
@@ -442,6 +516,12 @@ def test_safe_indexing_list_axis_1_unsupported(indices):
 
 @pytest.mark.parametrize("array_type", ["array", "sparse", "pandas"])
 def test_safe_assign(array_type):
+    # [FUNCTION DOC]
+    # For array, sparse and pandas containers built from a seeded 10x5 random array,
+    # checks _safe_assign writes values to selected rows, to selected columns, and with
+    # no indexers to the whole container, by reading back the assigned parts.
+    # Note: in the last case row_indexer is set to None but not passed (only the default
+    # is used).
     """Check that `_safe_assign` works as expected."""
     rng = np.random.RandomState(0)
     X_array = rng.randn(10, 5)
@@ -486,6 +566,9 @@ def test_safe_assign(array_type):
     ],
 )
 def test_get_column_indices_error(key, err_msg):
+    # [FUNCTION DOC]
+    # Skipped without pandas. Checks _get_column_indices raises ValueError for an out of
+    # range int, an unknown column name, and an unsupported key object.
     pd = pytest.importorskip("pandas")
     X_df = pd.DataFrame(X_toy, columns=["col_0", "col_1", "col_2"])
 
@@ -497,6 +580,9 @@ def test_get_column_indices_error(key, err_msg):
     "key", [["col1"], ["col2"], ["col1", "col2"], ["col1", "col3"], ["col2", "col3"]]
 )
 def test_get_column_indices_pandas_nonunique_columns_error(key):
+    # [FUNCTION DOC]
+    # Skipped without pandas. Checks selecting duplicated column names on a DataFrame
+    # with repeated names raises narwhals DuplicateError.
     pd = pytest.importorskip("pandas")
     toy = np.zeros((1, 5), dtype=int)
     columns = ["col1", "col1", "col2", "col3", "col2"]
@@ -511,6 +597,11 @@ def test_get_column_indices_pandas_nonunique_columns_error(key):
     "constructor_name", ["array", "sparse", "pandas", "pyarrow", "polars"]
 )
 def test_get_column_indices_dataframes(constructor_name):
+    # [FUNCTION DOC]
+    # For each container type, checks _get_column_indices on int and name slices/lists
+    # (including reverse order and empty list) returns expected positions, or ValueError
+    # for names on numpy/sparse; for dataframes also checks unknown names raise
+    # ValueError and a slice step of 2 raises NotImplementedError.
     """Check _get_column_indices for edge cases with 2d input X."""
     df = _convert_container(
         [[1, 2, 3], [4, 5, 6]], constructor_name, column_names=["a", "b", "c"]
@@ -546,6 +637,10 @@ def test_get_column_indices_dataframes(constructor_name):
 
 
 def test_resample():
+    # [FUNCTION DOC]
+    # Checks resample with no arrays returns None, raises ValueError for inconsistent
+    # lengths and n_samples > population without replacement, and allows n_samples
+    # larger than the input with replacement.
     # Border case not worth mentioning in doctests
     assert resample() is None
 
@@ -560,6 +655,10 @@ def test_resample():
 
 
 def test_resample_weighted():
+    # [FUNCTION DOC]
+    # Over 100 seeds, compares means of resampling repeated data versus resampling with
+    # integer sample_weight; checks reweighted means are non-negative (zero weight on
+    # -1) and a KS test cannot reject equal distributions (p > 0.05).
     # Check that sampling with replacement with integer weights yields the
     # samples from the same distribution as sampling uniformly with
     # repeated data points.
@@ -600,6 +699,9 @@ def test_resample_weighted():
 
 
 def test_resample_stratified():
+    # [FUNCTION DOC]
+    # With 90 percent positive labels, checks unstratified resampling of 10 samples
+    # gives all ones while stratify=y yields exactly 9 ones and 1 zero.
     # Make sure resample can stratify
     rng = np.random.RandomState(0)
     n_samples = 100
@@ -616,6 +718,10 @@ def test_resample_stratified():
 
 
 def test_resample_stratified_replace():
+    # [FUNCTION DOC]
+    # Checks stratified resampling with replace=True produces duplicates and with
+    # replace=False unique samples (50), and that with replacement n_samples=1000 is
+    # allowed and covers all 100 unique values.
     # Make sure stratified resampling supports the replace parameter
     rng = np.random.RandomState(0)
     n_samples = 100
@@ -641,6 +747,8 @@ def test_resample_stratified_replace():
 
 
 def test_resample_stratify_2dy():
+    # [FUNCTION DOC]
+    # Checks stratified resampling with a 2D y keeps y two-dimensional.
     # Make sure y can be 2d when stratifying
     rng = np.random.RandomState(0)
     n_samples = 100
@@ -651,6 +759,9 @@ def test_resample_stratify_2dy():
 
 
 def test_notimplementederror():
+    # [FUNCTION DOC]
+    # Checks resample with sample_weight raises NotImplementedError for replace=False
+    # and for stratify not None.
     with pytest.raises(
         NotImplementedError,
         match="Resampling with sample_weight is only implemented for replace=True.",
@@ -666,6 +777,8 @@ def test_notimplementederror():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_resample_stratify_sparse_error(csr_container):
+    # [FUNCTION DOC]
+    # Checks a sparse stratify argument raises TypeError "Sparse data was passed".
     # resample must be ndarray
     rng = np.random.RandomState(0)
     n_samples = 100
@@ -677,7 +790,15 @@ def test_resample_stratify_sparse_error(csr_container):
 
 
 def test_shuffle_on_ndim_equals_three():
+    # [FUNCTION DOC]
+    # Intended to check shuffle accepts a 3D array and preserves its elements.
+    # KNOWN ISSUE: shuffle returns a shuffled copy and its result is discarded, so A is
+    # unchanged and the set comparison is trivially true; only the "no error" part is
+    # actually tested.
     def to_tuple(A):  # to make the inner arrays hashable
+        # [FUNCTION DOC]
+        # HELPER: Converts a 3D nested array into nested tuples so rows are hashable.
+        # Inputs: A - 3D array-like. Outputs: tuple of tuples of tuples.
         return tuple(tuple(tuple(C) for C in B) for B in A)
 
     A = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])  # A.shape = (2,2,2)
@@ -688,6 +809,10 @@ def test_shuffle_on_ndim_equals_three():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_shuffle_dont_convert_to_array(csc_container):
+    # [FUNCTION DOC]
+    # Checks shuffle with random_state=0 permutes a list, object array, int list,
+    # MockDataFrame and CSC matrix consistently (reverse order) while preserving each
+    # input's type and dtype.
     # Check that shuffle does not try to convert to numpy arrays with float
     # dtypes can let any indexable datastructure pass-through.
     a = ["a", "b", "c"]
