@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for TruncatedSVD: solver agreement, fitted attributes, input validation,
+# sparse formats, inverse_transform, explained variance and singular values, and
+# equivalence with PCA on centered data.
 """Test truncated SVD transformer."""
 
 import numpy as np
@@ -13,6 +17,10 @@ SVD_SOLVERS = ["arpack", "randomized"]
 
 @pytest.fixture(scope="module")
 def X_sparse():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning a 60x55 CSR matrix of density 0.2 with
+    # values transformed as 1 + log(value), mimicking a small tf-idf matrix.
+    # Outputs: scipy sparse CSR array. Side effects: none beyond seeded randomness.
     # Make an X that looks somewhat like a small tf-idf matrix.
     rng = check_random_state(42)
     X = _sparse_random_array((60, 55), density=0.2, format="csr", rng=rng)
@@ -23,6 +31,11 @@ def X_sparse():
 @pytest.mark.parametrize("solver", ["randomized"])
 @pytest.mark.parametrize("kind", ("dense", "sparse"))
 def test_solvers(X_sparse, solver, kind):
+    # [FUNCTION DOC]
+    # Verifies that the randomized solver (high n_oversamples) matches arpack on the first
+    # 6 transformed columns and on absolute component values (tight tolerance for the
+    # first 9 components, looser absolute tolerance for the rest), for dense and sparse
+    # input.
     X = X_sparse if kind == "sparse" else X_sparse.toarray()
     svd_a = TruncatedSVD(30, algorithm="arpack")
     svd = TruncatedSVD(30, algorithm=solver, random_state=42, n_oversamples=100)
@@ -40,6 +53,9 @@ def test_solvers(X_sparse, solver, kind):
 
 @pytest.mark.parametrize("n_components", (10, 25, 41, 55))
 def test_attributes(n_components, X_sparse):
+    # [FUNCTION DOC]
+    # Verifies n_components is stored and components_ has shape
+    # (n_components, n_features), including n_components equal to n_features.
     n_features = X_sparse.shape[1]
     tsvd = TruncatedSVD(n_components).fit(X_sparse)
     assert tsvd.n_components == n_components
@@ -55,6 +71,9 @@ def test_attributes(n_components, X_sparse):
     ],
 )
 def test_too_many_components(X_sparse, algorithm, n_components):
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when n_components is not strictly below n_features
+    # for arpack, or exceeds n_features for randomized.
     tsvd = TruncatedSVD(n_components=n_components, algorithm=algorithm)
     with pytest.raises(ValueError):
         tsvd.fit(X_sparse)
@@ -62,6 +81,11 @@ def test_too_many_components(X_sparse, algorithm, n_components):
 
 @pytest.mark.parametrize("fmt", ("array", "csr", "csc", "coo", "lil"))
 def test_sparse_formats(fmt, X_sparse):
+    # [FUNCTION DOC]
+    # Verifies fit_transform and transform output shapes for dense array and several sparse
+    # formats.
+    # KNOWN ISSUE: the "dense" branch of the conditional is dead since "dense" is not a
+    # parametrized value; "array" goes through the toarray attribute instead.
     n_samples = X_sparse.shape[0]
     Xfmt = X_sparse.toarray() if fmt == "dense" else getattr(X_sparse, "to" + fmt)()
     tsvd = TruncatedSVD(n_components=11)
@@ -73,6 +97,9 @@ def test_sparse_formats(fmt, X_sparse):
 
 @pytest.mark.parametrize("algo", SVD_SOLVERS)
 def test_inverse_transform(algo, X_sparse):
+    # [FUNCTION DOC]
+    # Verifies that with 52 components, inverse_transform approximately reconstructs the
+    # input for both solvers (loose tolerances).
     # We need a lot of components for the reconstruction to be "almost
     # equal" in all positions. XXX Test means or sums instead?
     tsvd = TruncatedSVD(n_components=52, random_state=42, algorithm=algo)
@@ -82,6 +109,8 @@ def test_inverse_transform(algo, X_sparse):
 
 
 def test_integers(X_sparse):
+    # [FUNCTION DOC]
+    # Verifies integer-typed sparse input is accepted and yields the expected shape.
     n_samples = X_sparse.shape[0]
     Xint = X_sparse.astype(np.int64)
     tsvd = TruncatedSVD(n_components=6)
@@ -93,6 +122,9 @@ def test_integers(X_sparse):
 @pytest.mark.parametrize("n_components", [10, 20])
 @pytest.mark.parametrize("solver", SVD_SOLVERS)
 def test_explained_variance(X_sparse, kind, n_components, solver):
+    # [FUNCTION DOC]
+    # Verifies explained_variance_ratio_ is positive, sums below 1 and equals the variance
+    # of each transformed column divided by the total feature variance of the data.
     X = X_sparse if kind == "sparse" else X_sparse.toarray()
     svd = TruncatedSVD(n_components, algorithm=solver)
     X_tr = svd.fit_transform(X)
@@ -116,6 +148,9 @@ def test_explained_variance(X_sparse, kind, n_components, solver):
 @pytest.mark.parametrize("kind", ("dense", "sparse"))
 @pytest.mark.parametrize("solver", SVD_SOLVERS)
 def test_explained_variance_components_10_20(X_sparse, kind, solver):
+    # [FUNCTION DOC]
+    # Verifies the first 10 explained variance ratios are stable when fitting 20
+    # components and that 20 components explain strictly more variance.
     X = X_sparse if kind == "sparse" else X_sparse.toarray()
     svd_10 = TruncatedSVD(10, algorithm=solver, n_iter=10).fit(X)
     svd_20 = TruncatedSVD(20, algorithm=solver, n_iter=10).fit(X)
@@ -135,6 +170,9 @@ def test_explained_variance_components_10_20(X_sparse, kind, solver):
 
 @pytest.mark.parametrize("solver", SVD_SOLVERS)
 def test_singular_values_consistency(solver, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies singular_values_ agree with the Frobenius norm of the transformed data and
+    # with per-column 2-norms of the scores.
     # Check that the TruncatedSVD output has the correct singular values
     rng = np.random.RandomState(global_random_seed)
     n_samples, n_features = 100, 80
@@ -158,6 +196,9 @@ def test_singular_values_consistency(solver, global_random_seed):
 
 @pytest.mark.parametrize("solver", SVD_SOLVERS)
 def test_singular_values_expected(solver, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that data built from rescaled normalized scores with chosen norms
+    # (3.142, 2.718, 1.0) yields exactly those singular values on refit.
     # Set the singular values and see what we get back
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
@@ -178,6 +219,9 @@ def test_singular_values_expected(solver, global_random_seed):
 
 
 def test_truncated_svd_eq_pca(X_sparse):
+    # [FUNCTION DOC]
+    # Verifies that on centered data TruncatedSVD (arpack) matches PCA (arpack) in
+    # transforms and components, and PCA's mean_ is zero.
     # TruncatedSVD should be equal to PCA on centered data
 
     X_dense = X_sparse.toarray()
@@ -210,6 +254,9 @@ def test_truncated_svd_eq_pca(X_sparse):
 )
 @pytest.mark.parametrize("kind", ("dense", "sparse"))
 def test_fit_transform(X_sparse, algorithm, tol, kind, normalizer):
+    # [FUNCTION DOC]
+    # Verifies fit_transform(X) equals fit(X).transform(X) across algorithms, tolerances,
+    # power iteration normalizers and dense/sparse input.
     # fit_transform(X) should equal fit(X).transform(X)
     X = X_sparse if kind == "sparse" else X_sparse.toarray()
     svd = TruncatedSVD(
