@@ -138,7 +138,8 @@ def test_categorical_predictor(bins_go_left, expected_predictions):
     # set in the binned bitset, converted to a raw-category bitset, and predictions are
     # checked for binned input (predict_binned), raw category values (predict with a
     # manually built known-categories bitset), a missing-value bin (index 6, goes left
-    # because missing_go_to_left), and NaN / unknown category 17 in raw input (both left).
+    # because missing_go_to_left), and NaN / unknown category 17 in raw input (both
+    # left).
     # Test predictor outputs are correct with categorical features
 
     X_binned = np.array([[0, 1, 2, 3, 4, 5]], dtype=X_BINNED_DTYPE).T

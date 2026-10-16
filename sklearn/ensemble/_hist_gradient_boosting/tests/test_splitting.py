@@ -29,10 +29,10 @@ n_threads = _openmp_effective_n_threads()
 @pytest.mark.parametrize("n_bins", [3, 32, 256])
 def test_histogram_split(n_bins):
     # [FUNCTION DOC]
-    # Verifies, for every true_bin and both gradient signs, that with gradients flipped in
-    # sign for samples with bin <= true_bin, find_node_split returns bin_idx == true_bin on
-    # feature 0 with non-negative gain, left+right sample counts summing to n_samples, and
-    # left hessian sum equal to the left sample count (unit hessians).
+    # Verifies, for every true_bin and both gradient signs, that with gradients flipped
+    # in sign for samples with bin <= true_bin, find_node_split returns bin_idx ==
+    # true_bin on feature 0 with non-negative gain, left+right sample counts summing to
+    # n_samples, and left hessian sum equal to the left sample count (unit hessians).
     rng = np.random.RandomState(42)
     feature_idx = 0
     l2_regularization = 0
@@ -112,9 +112,9 @@ def test_gradient_and_hessian_sanity(constant_hessian):
     # [FUNCTION DOC]
     # Verifies, for a parent node and its two children (after split_indices), that split
     # info left+right gradient/hessian sums equal the true sums over the node's samples,
-    # and that per-feature histogram sums equal those totals for every feature (hessian sums
-    # expected 0 when hessians are constant, since they are not accumulated). Skipped on
-    # 32-bit platforms.
+    # and that per-feature histogram sums equal those totals for every feature (hessian
+    # sums expected 0 when hessians are constant, since they are not accumulated).
+    # Skipped on 32-bit platforms.
     # This test checks that the values of gradients and hessians are
     # consistent in different places:
     # - in split_info: si.sum_gradient_left + si.sum_gradient_right must be
@@ -702,8 +702,8 @@ def test_splitting_categorical_cat_smooth(
 
 def _assert_categories_equals_bitset(categories, bitset):
     # [FUNCTION DOC]
-    # HELPER: Asserts that an 8 x uint32 bitset has exactly the bits for the given category
-    # values set (bit cat % 32 of word cat // 32).
+    # HELPER: Asserts that an 8 x uint32 bitset has exactly the bits for the given
+    # category values set (bit cat % 32 of word cat // 32).
     # Inputs: categories - iterable of ints in [0, 255]; bitset - array of 8 uint32.
     # Exceptions: AssertionError on mismatch.
     # assert that the bitset exactly corresponds to the categories
@@ -838,10 +838,10 @@ def test_splitting_categorical_sanity(
     # [FUNCTION DOC]
     # Verifies categorical split search for parametrized cases (left category sets found
     # scanning in either direction, low-support categories forced right, missing values
-    # going left or right, split isolating the missing bin, many-category splits): checks
-    # is_categorical, positive gain, the left_cat_bitset content, missing_go_to_left when
-    # missing values exist, and that split_indices sends exactly samples whose category is
-    # in the expected left set to the left (order preserved).
+    # going left or right, split isolating the missing bin, many-category splits):
+    # checks is_categorical, positive gain, the left_cat_bitset content,
+    # missing_go_to_left when missing values exist, and that split_indices sends exactly
+    # samples whose category is in the expected left set to the left (order preserved).
     # Tests various combinations of categorical splits
 
     n_samples = len(X_binned)
@@ -918,8 +918,8 @@ def test_splitting_categorical_sanity(
 
 def test_split_interaction_constraints():
     # [FUNCTION DOC]
-    # Verifies allowed_features in find_node_split over 10 seeds: with gradients driven by
-    # feature 1, the unconstrained split uses feature 1 while restricting to features
+    # Verifies allowed_features in find_node_split over 10 seeds: with gradients driven
+    # by feature 1, the unconstrained split uses feature 1 while restricting to features
     # {0, 3} yields a split on one of them; across seeds both 0 and 3 are used.
     """Check that allowed_features are respected."""
     n_features = 4

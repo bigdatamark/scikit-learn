@@ -97,8 +97,8 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def _clone_final_estimator(self, default):
         # [FUNCTION DOC]
-        # HELPER: Sets self.final_estimator_ to a clone of final_estimator, or a clone of
-        # default when final_estimator is None.
+        # HELPER: Sets self.final_estimator_ to a clone of final_estimator, or a clone
+        # of default when final_estimator is None.
         # Side effects: sets final_estimator_.
         if self.final_estimator is not None:
             self.final_estimator_ = clone(self.final_estimator)
@@ -107,23 +107,24 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def _concatenate_predictions(self, X, predictions):
         # [FUNCTION DOC]
-        # HELPER: Builds the meta-feature matrix from a list of base predictions (one entry per
-        # non-dropped estimator, in order).
-        # Behavior: for each entry: a list of 2D arrays (multilabel predict_proba) contributes
-        # each array without its first column; a 1D array becomes a single column; with
-        # predict_proba in binary classification (2 classes) the first column is dropped;
-        # otherwise the 2D array is kept. Records the number of columns contributed by each
-        # block in _n_feature_outs (one entry per block, so a list entry yields several). If
-        # passthrough, appends X; with sparse X the result is a sparse hstack in X's format,
-        # otherwise a dense np.hstack.
-        # Inputs: X - original input (array or sparse); predictions - list of arrays/lists.
+        # HELPER: Builds the meta-feature matrix from a list of base predictions (one
+        # entry per non-dropped estimator, in order).
+        # Behavior: for each entry: a list of 2D arrays (multilabel predict_proba)
+        # contributes each array without its first column; a 1D array becomes a single
+        # column; with predict_proba in binary classification (2 classes) the first
+        # column is dropped; otherwise the 2D array is kept. Records the number of
+        # columns contributed by each block in _n_feature_outs (one entry per block, so
+        # a list entry yields several). If passthrough, appends X; with sparse X the
+        # result is a sparse hstack in X's format, otherwise a dense np.hstack.
+        # Inputs: X - original input (array or sparse); predictions - list of
+        # arrays/lists.
         # Outputs: ndarray or sparse matrix (n_samples, n_meta_features).
         # Side effects: sets self._n_feature_outs.
-        # KNOWN ISSUE: for list predictions _n_feature_outs gets one entry per target while
-        # get_feature_names_out zips it with estimator names, so names misalign for
-        # multilabel list outputs.
-        # KNOWN ISSUE: with passthrough and dense X but a sparse prediction block, np.hstack is
-        # used, which may fail; only X's sparsity is checked.
+        # KNOWN ISSUE: for list predictions _n_feature_outs gets one entry per target
+        # while get_feature_names_out zips it with estimator names, so names misalign
+        # for multilabel list outputs.
+        # KNOWN ISSUE: with passthrough and dense X but a sparse prediction block,
+        # np.hstack is used, which may fail; only X's sparsity is checked.
         """Concatenate the predictions of each first layer learner and
         possibly the input dataset `X`.
 
@@ -179,12 +180,13 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
     @staticmethod
     def _method_name(name, estimator, method):
         # [FUNCTION DOC]
-        # HELPER: Resolves the response method for one base estimator. Returns None for "drop";
-        # "auto" tries predict_proba, decision_function, then predict in order; otherwise uses
-        # the given method name.
+        # HELPER: Resolves the response method for one base estimator. Returns None for
+        # "drop"; "auto" tries predict_proba, decision_function, then predict in order;
+        # otherwise uses the given method name.
         # Inputs: name - str; estimator - estimator or "drop"; method - str.
         # Outputs: str method name or None.
-        # Exceptions: ValueError if the estimator implements none of the requested methods.
+        # Exceptions: ValueError if the estimator implements none of the requested
+        # methods.
         if estimator == "drop":
             return None
         if method == "auto":
@@ -207,26 +209,28 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
         # Fits the stack.
         # Behavior: validates estimators and final estimator (subclass hooks); resolves
         # per-estimator fit metadata (process_routing when routing is enabled, else only
-        # sample_weight is forwarded to every base estimator). If cv == "prefit", checks each
-        # non-dropped estimator is fitted and uses it directly; otherwise fits clones of every
-        # non-dropped estimator on the full data in parallel. Builds named_estimators_ (with
-        # "drop" placeholders) and copies feature_names_in_ from fitted estimators that have
-        # it. Resolves stack_method_. Obtains meta-features: prefit estimators' predictions on
-        # X, or cross_val_predict out-of-fold predictions using check_cv (a cv object whose
-        # random_state is None gets a fresh RandomState so every estimator sees the same
-        # folds via deepcopy). Filters stack_method_ to non-dropped estimators, concatenates
-        # predictions and fits final_estimator_ on them with fit_params.
+        # sample_weight is forwarded to every base estimator). If cv == "prefit", checks
+        # each non-dropped estimator is fitted and uses it directly; otherwise fits
+        # clones of every non-dropped estimator on the full data in parallel. Builds
+        # named_estimators_ (with "drop" placeholders) and copies feature_names_in_ from
+        # fitted estimators that have it. Resolves stack_method_. Obtains meta-features:
+        # prefit estimators' predictions on X, or cross_val_predict out-of-fold
+        # predictions using check_cv (a cv object whose random_state is None gets a
+        # fresh RandomState so every estimator sees the same folds via deepcopy).
+        # Filters stack_method_ to non-dropped estimators, concatenates predictions and
+        # fits final_estimator_ on them with fit_params.
         # Inputs: X - (n_samples, n_features) array or sparse; y - (n_samples,) (already
         # encoded by subclasses); fit_params - metadata such as sample_weight.
         # Outputs: self.
-        # Exceptions: ValueError from validation hooks or _method_name; NotFittedError for
-        # unfitted prefit estimators; parameter validation errors from _fit_context.
-        # Side effects: sets estimators_, named_estimators_, stack_method_, final_estimator_,
-        # _n_feature_outs, feature_names_in_; may mutate the random_state of the cv splitter
-        # object returned by check_cv (which can be the user's own object).
-        # KNOWN ISSUE: the final estimator receives the raw fit_params rather than parameters
-        # routed to it, so with metadata routing enabled it may receive metadata it did not
-        # request.
+        # Exceptions: ValueError from validation hooks or _method_name; NotFittedError
+        # for unfitted prefit estimators; parameter validation errors from _fit_context.
+        # Side effects: sets estimators_, named_estimators_, stack_method_,
+        # final_estimator_, _n_feature_outs, feature_names_in_; may mutate the
+        # random_state of the cv splitter object returned by check_cv (which can be the
+        # user's own object).
+        # KNOWN ISSUE: the final estimator receives the raw fit_params rather than
+        # parameters routed to it, so with metadata routing enabled it may receive
+        # metadata it did not request.
         """Fit the estimators.
 
         Parameters
@@ -350,7 +354,8 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
     @property
     def n_features_in_(self):
         # [FUNCTION DOC]
-        # Property: number of input features, taken from the first fitted base estimator.
+        # Property: number of input features, taken from the first fitted base
+        # estimator.
         # Exceptions: AttributeError (wrapping NotFittedError) when not fitted.
         """Number of features seen during :term:`fit`."""
         try:
@@ -363,12 +368,12 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def _transform(self, X):
         # [FUNCTION DOC]
-        # HELPER: Checks fitted state, computes each fitted base estimator's stack_method_
-        # output on X and concatenates them (plus X if passthrough) via
+        # HELPER: Checks fitted state, computes each fitted base estimator's
+        # stack_method_ output on X and concatenates them (plus X if passthrough) via
         # _concatenate_predictions.
         # Side effects: re-sets _n_feature_outs.
-        # KNOWN ISSUE: the "est != 'drop'" filter is dead, since estimators_ never contains
-        # "drop".
+        # KNOWN ISSUE: the "est != 'drop'" filter is dead, since estimators_ never
+        # contains "drop".
         """Concatenate and return the predictions of the estimators."""
         check_is_fitted(self)
         predictions = [
@@ -380,9 +385,10 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def get_feature_names_out(self, input_features=None):
         # [FUNCTION DOC]
-        # Returns output feature names: for each non-dropped estimator, "<classname>_<name>" if
-        # it contributes one column, else "<classname>_<name><i>" for each column; followed by
-        # validated input feature names when passthrough is True.
+        # Returns output feature names: for each non-dropped estimator,
+        # "<classname>_<name>" if it contributes one column, else
+        # "<classname>_<name><i>" for each column; followed by validated input feature
+        # names when passthrough is True.
         # Inputs: input_features - array-like of str or None.
         # Outputs: ndarray of str (object dtype).
         # Exceptions: NotFittedError if not fitted; ValueError for inconsistent
@@ -437,8 +443,8 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
     )
     def predict(self, X, **predict_params):
         # [FUNCTION DOC]
-        # Checks fitted state and returns final_estimator_.predict on transform(X), forwarding
-        # predict_params. Available only if the final estimator has predict.
+        # Checks fitted state and returns final_estimator_.predict on transform(X),
+        # forwarding predict_params. Available only if the final estimator has predict.
         """Predict target for X.
 
         Parameters
@@ -464,8 +470,8 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def _sk_visual_block_with_final_estimator(self, final_estimator):
         # [FUNCTION DOC]
-        # HELPER: Builds the HTML repr block: a parallel block of the base estimators followed
-        # serially by a parallel block labeled "final_estimator".
+        # HELPER: Builds the HTML repr block: a parallel block of the base estimators
+        # followed serially by a parallel block labeled "final_estimator".
         names, estimators = zip(*self.estimators)
         parallel = _VisualBlock("parallel", estimators, names=names, dash_wrapped=False)
 
@@ -478,8 +484,9 @@ class _BaseStacking(TransformerMixin, _BaseHeterogeneousEnsemble, metaclass=ABCM
 
     def get_metadata_routing(self):
         # [FUNCTION DOC]
-        # Returns a MetadataRouter routing caller fit to each base estimator's fit, and caller
-        # predict to predict of final_estimator_ (fitted) or final_estimator (unfitted).
+        # Returns a MetadataRouter routing caller fit to each base estimator's fit, and
+        # caller predict to predict of final_estimator_ (fitted) or final_estimator
+        # (unfitted).
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -729,8 +736,8 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
 
     def _validate_final_estimator(self):
         # [FUNCTION DOC]
-        # HELPER: Clones final_estimator (default LogisticRegression) into final_estimator_ and
-        # raises ValueError if it is not a classifier.
+        # HELPER: Clones final_estimator (default LogisticRegression) into
+        # final_estimator_ and raises ValueError if it is not a classifier.
         self._clone_final_estimator(default=LogisticRegression())
         if not is_classifier(self.final_estimator_):
             raise ValueError(
@@ -741,10 +748,11 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
 
     def _validate_estimators(self):
         # [FUNCTION DOC]
-        # HELPER: Lenient version of the parent check: estimators must be a non-empty list,
-        # names valid (_validate_names), and at least one entry not "drop"; estimator types are
-        # not checked. Returns (names, estimators) tuples.
-        # Exceptions: ValueError for empty list or all dropped; errors from _validate_names.
+        # HELPER: Lenient version of the parent check: estimators must be a non-empty
+        # list, names valid (_validate_names), and at least one entry not "drop";
+        # estimator types are not checked. Returns (names, estimators) tuples.
+        # Exceptions: ValueError for empty list or all dropped; errors from
+        # _validate_names.
         """Overload the method of `_BaseHeterogeneousEnsemble` to be more
         lenient towards the type of `estimators`.
 
@@ -769,10 +777,10 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
 
     def fit(self, X, y, **fit_params):
         # [FUNCTION DOC]
-        # Rejects unsupported metadata when routing is disabled (only sample_weight allowed),
-        # checks classification targets, label-encodes y (per column for multilabel-indicator,
-        # setting _label_encoder to a list and classes_ to a list of arrays), and delegates to
-        # _BaseStacking.fit with the encoded targets.
+        # Rejects unsupported metadata when routing is disabled (only sample_weight
+        # allowed), checks classification targets, label-encodes y (per column for
+        # multilabel-indicator, setting _label_encoder to a list and classes_ to a list
+        # of arrays), and delegates to _BaseStacking.fit with the encoded targets.
         # Outputs: self. Side effects: sets _label_encoder and classes_ plus base fit
         # attributes.
         # Exceptions: ValueError for invalid targets or unsupported params.
@@ -829,9 +837,9 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
     )
     def predict(self, X, **predict_params):
         # [FUNCTION DOC]
-        # Routes predict_params to the final estimator (process_routing or passed through
-        # directly), calls the base predict, and inverse-transforms the encoded predictions
-        # to original labels (per column for multilabel).
+        # Routes predict_params to the final estimator (process_routing or passed
+        # through directly), calls the base predict, and inverse-transforms the encoded
+        # predictions to original labels (per column for multilabel).
         # Outputs: ndarray (n_samples,) or (n_samples, n_outputs).
         """Predict target for X.
 
@@ -893,9 +901,9 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
         # [FUNCTION DOC]
         # Returns final_estimator_.predict_proba on the stacked features. For multilabel
         # targets the per-label list is converted to an (n_samples, n_labels) array.
-        # KNOWN ISSUE: the multilabel conversion keeps column 0 of each per-label probability
-        # array, i.e. the probability of the negative label, which appears inverted relative
-        # to the usual convention of reporting the positive class.
+        # KNOWN ISSUE: the multilabel conversion keeps column 0 of each per-label
+        # probability array, i.e. the probability of the negative label, which appears
+        # inverted relative to the usual convention of reporting the positive class.
         """Predict class probabilities for `X` using the final estimator.
 
         Parameters
@@ -925,8 +933,8 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
     )
     def decision_function(self, X):
         # [FUNCTION DOC]
-        # Returns final_estimator_.decision_function on the stacked features (after checking
-        # fitted state).
+        # Returns final_estimator_.decision_function on the stacked features (after
+        # checking fitted state).
         """Decision function for samples in `X` using the final estimator.
 
         Parameters
@@ -946,7 +954,8 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
 
     def transform(self, X):
         # [FUNCTION DOC]
-        # Returns the stacked base-estimator outputs (plus X if passthrough) via _transform.
+        # Returns the stacked base-estimator outputs (plus X if passthrough) via
+        # _transform.
         """Return class labels or probabilities for X for each estimator.
 
         Parameters
@@ -965,7 +974,8 @@ class StackingClassifier(ClassifierMixin, _BaseStacking):
 
     def _sk_visual_block_(self):
         # [FUNCTION DOC]
-        # HELPER: Builds the HTML repr using final_estimator or a default LogisticRegression.
+        # HELPER: Builds the HTML repr using final_estimator or a default
+        # LogisticRegression.
         # If final_estimator's default changes then this should be
         # updated.
         if self.final_estimator is None:
@@ -1144,8 +1154,8 @@ class StackingRegressor(RegressorMixin, _BaseStacking):
 
     def _validate_final_estimator(self):
         # [FUNCTION DOC]
-        # HELPER: Clones final_estimator (default RidgeCV) into final_estimator_ and raises
-        # ValueError if it is not a regressor.
+        # HELPER: Clones final_estimator (default RidgeCV) into final_estimator_ and
+        # raises ValueError if it is not a regressor.
         self._clone_final_estimator(default=RidgeCV())
         if not is_regressor(self.final_estimator_):
             raise ValueError(
@@ -1156,8 +1166,9 @@ class StackingRegressor(RegressorMixin, _BaseStacking):
 
     def fit(self, X, y, **fit_params):
         # [FUNCTION DOC]
-        # Rejects unsupported metadata when routing is disabled (only sample_weight allowed),
-        # ravels y to 1D (warning on column vectors) and delegates to _BaseStacking.fit.
+        # Rejects unsupported metadata when routing is disabled (only sample_weight
+        # allowed), ravels y to 1D (warning on column vectors) and delegates to
+        # _BaseStacking.fit.
         # Outputs: self.
         # KNOWN ISSUE: column_or_1d forbids multi-output y, although predict's docstring
         # mentions (n_samples, n_output) outputs.
@@ -1214,10 +1225,10 @@ class StackingRegressor(RegressorMixin, _BaseStacking):
 
     def fit_transform(self, X, y, **fit_params):
         # [FUNCTION DOC]
-        # Validates metadata like fit, then uses TransformerMixin.fit_transform (fit followed
-        # by transform on the same X). Note the returned values are predictions of the
-        # estimators refitted on full data, not the out-of-fold predictions used to train the
-        # final estimator.
+        # Validates metadata like fit, then uses TransformerMixin.fit_transform (fit
+        # followed by transform on the same X). Note the returned values are predictions
+        # of the estimators refitted on full data, not the out-of-fold predictions used
+        # to train the final estimator.
         """Fit the estimators and return the predictions for X for each estimator.
 
         Parameters
@@ -1253,8 +1264,8 @@ class StackingRegressor(RegressorMixin, _BaseStacking):
     )
     def predict(self, X, **predict_params):
         # [FUNCTION DOC]
-        # Routes predict_params to the final estimator (process_routing or passed through
-        # directly) and returns the base predict result.
+        # Routes predict_params to the final estimator (process_routing or passed
+        # through directly) and returns the base predict result.
         """Predict target for X.
 
         Parameters

@@ -103,9 +103,9 @@ def _make_dumb_dataset(n_samples):
 )
 def test_init_parameters_validation(GradientBoosting, X, y, params, err_msg):
     # [FUNCTION DOC]
-    # Verifies that invalid interaction_cst values (not a sequence of sets/lists, indices
-    # out of range, negative or non-integer) make fit raise ValueError with the expected
-    # message, for classifier and regressor.
+    # Verifies that invalid interaction_cst values (not a sequence of sets/lists,
+    # indices out of range, negative or non-integer) make fit raise ValueError with the
+    # expected message, for classifier and regressor.
     with pytest.raises(ValueError, match=err_msg):
         GradientBoosting(**params).fit(X, y)
 
@@ -126,8 +126,8 @@ def test_early_stopping_regression(
     scoring, validation_fraction, early_stopping, n_iter_no_change, tol
 ):
     # [FUNCTION DOC]
-    # Verifies that on a small regression problem, early stopping (with a scorer, default
-    # scorer or "loss", on a validation split or on training data) stops between
+    # Verifies that on a small regression problem, early stopping (with a scorer,
+    # default scorer or "loss", on a validation split or on training data) stops between
     # n_iter_no_change and max_iter iterations, and that without early stopping exactly
     # max_iter iterations run. verbose=1 is set for coverage only.
     max_iter = 200
@@ -244,8 +244,8 @@ def test_early_stopping_default(GradientBoosting, X, y):
 def test_should_stop(scores, n_iter_no_change, tol, stopping):
     # [FUNCTION DOC]
     # Verifies _should_stop on scores histories: no stop with fewer than
-    # n_iter_no_change + 1 scores or when a recent score improves on the reference by more
-    # than tol; stop when there is no improvement larger than tol.
+    # n_iter_no_change + 1 scores or when a recent score improves on the reference by
+    # more than tol; stop when there is no improvement larger than tol.
     gbdt = HistGradientBoostingClassifier(n_iter_no_change=n_iter_no_change, tol=tol)
     assert gbdt._should_stop(scores) == stopping
 
@@ -290,9 +290,9 @@ def test_gamma_y_positive(y):
 
 def test_gamma():
     # [FUNCTION DOC]
-    # Verifies that on a log-linear gamma-distributed target the gamma-loss model has lower
-    # mean gamma deviance than a squared-error model (predictions clipped below at min
-    # y_train) and than a mean DummyRegressor, on both train and test sets.
+    # Verifies that on a log-linear gamma-distributed target the gamma-loss model has
+    # lower mean gamma deviance than a squared-error model (predictions clipped below at
+    # min y_train) and than a mean DummyRegressor, on both train and test sets.
     # For a Gamma distributed target, we expect an HGBT trained with the Gamma deviance
     # (loss) to give better results than an HGBT with any other loss function, measured
     # in out-of-sample Gamma deviance as metric/score.
@@ -396,8 +396,8 @@ def test_poisson_y_positive(y):
 def test_poisson():
     # [FUNCTION DOC]
     # Verifies that on a log-linear Poisson target the poisson-loss model has lower mean
-    # Poisson deviance than a squared-error model (clipped to 1e-15) and a mean dummy, on
-    # train and test sets.
+    # Poisson deviance than a squared-error model (clipped to 1e-15) and a mean dummy,
+    # on train and test sets.
     # For Poisson distributed target, Poisson loss should give better results
     # than least squares measured in Poisson deviance as metric.
     rng = np.random.RandomState(42)
@@ -543,8 +543,8 @@ def test_missing_values_resilience(
 )
 def test_zero_division_hessians(data):
     # [FUNCTION DOC]
-    # Non-regression test (#14018): learning_rate=100 saturates probabilities giving zero
-    # hessians; fit must not fail with zero division, for binary and multiclass.
+    # Non-regression test (#14018): learning_rate=100 saturates probabilities giving
+    # zero hessians; fit must not fail with zero division, for binary and multiclass.
     # non regression test for issue #14018
     # make sure we avoid zero division errors when computing the leaves values.
 
@@ -593,10 +593,10 @@ def test_small_trainset():
 
 def test_missing_values_minmax_imputation():
     # [FUNCTION DOC]
-    # Verifies that native NaN handling is equivalent to Missing-In-Attributes imputation:
-    # a pipeline duplicating each feature with NaNs replaced by min - 1 and by max + 1 gives
-    # the same train/test scores and predictions as the native model on pre-binned
-    # regression data with several missingness patterns.
+    # Verifies that native NaN handling is equivalent to Missing-In-Attributes
+    # imputation: a pipeline duplicating each feature with NaNs replaced by min - 1 and
+    # by max + 1 gives the same train/test scores and predictions as the native model on
+    # pre-binned regression data with several missingness patterns.
     # Compare the built-in missing value handling of Histogram GBC with an
     # a-priori missing value imputation strategy that should yield the same
     # results in terms of decision function.
@@ -621,11 +621,13 @@ def test_missing_values_minmax_imputation():
 
     class MinMaxImputer(TransformerMixin, BaseEstimator):
         # [CLASS DOC]
-        # HELPER: Toy MIA transformer: for each feature, outputs one copy with NaNs set to the
-        # fitted minimum minus 1 and one copy with NaNs set to the fitted maximum plus 1.
+        # HELPER: Toy MIA transformer: for each feature, outputs one copy with NaNs set
+        # to the fitted minimum minus 1 and one copy with NaNs set to the fitted maximum
+        # plus 1.
         def fit(self, X, y=None):
             # [FUNCTION DOC]
-            # HELPER: Stores per-feature data_min_ and data_max_ (NaNs ignored, via MinMaxScaler).
+            # HELPER: Stores per-feature data_min_ and data_max_ (NaNs ignored, via
+            # MinMaxScaler).
             # Returns self.
             mm = MinMaxScaler().fit(X)
             self.data_min_ = mm.data_min_
@@ -634,8 +636,9 @@ def test_missing_values_minmax_imputation():
 
         def transform(self, X):
             # [FUNCTION DOC]
-            # HELPER: Returns an array of shape (n_samples, 2 * n_features): the min-imputed copy
-            # followed by the max-imputed copy. Input X is not modified.
+            # HELPER: Returns an array of shape (n_samples, 2 * n_features): the
+            # min-imputed copy followed by the max-imputed copy. Input X is not
+            # modified.
             X_min, X_max = X.copy(), X.copy()
 
             for feature_idx in range(X.shape[1]):
@@ -647,11 +650,11 @@ def test_missing_values_minmax_imputation():
 
     def make_missing_value_data(n_samples=int(1e4), seed=0):
         # [FUNCTION DOC]
-        # HELPER: Builds a 4-feature regression dataset, ordinal-binned into 42 bins, inserts
-        # NaNs completely at random (feature 0), for the lowest bin (feature 1), for the
-        # highest bin (feature 2), and where y is in its top 30% (feature 3, with y capped at
-        # its 70th percentile). Asserts each feature has a NaN and returns a train_test_split
-        # (X_train, X_test, y_train, y_test).
+        # HELPER: Builds a 4-feature regression dataset, ordinal-binned into 42 bins,
+        # inserts NaNs completely at random (feature 0), for the lowest bin (feature 1),
+        # for the highest bin (feature 2), and where y is in its top 30% (feature 3,
+        # with y capped at its 70th percentile). Asserts each feature has a NaN and
+        # returns a train_test_split (X_train, X_test, y_train, y_test).
         # Inputs: n_samples - int (default 10000); seed - int (default 0).
         rng = np.random.RandomState(seed)
         X, y = make_regression(n_samples=n_samples, n_features=4, random_state=rng)
@@ -718,8 +721,8 @@ def test_missing_values_minmax_imputation():
 
 def test_infinite_values():
     # [FUNCTION DOC]
-    # Verifies that a regressor fits and predicts [-inf, 0, 1, inf] -> [0, 0, 1, 1] within
-    # atol 1e-4.
+    # Verifies that a regressor fits and predicts [-inf, 0, 1, inf] -> [0, 0, 1, 1]
+    # within atol 1e-4.
     # Basic test for infinite values
 
     X = np.array([-np.inf, 0, 1, np.inf]).reshape(-1, 1)
@@ -749,8 +752,8 @@ def test_consistent_lengths():
 
 def test_infinite_values_missing_values():
     # [FUNCTION DOC]
-    # Verifies that a depth-2 single-iteration classifier perfectly separates +inf from the
-    # rest, and NaN from the rest, when both inf and NaN are present.
+    # Verifies that a depth-2 single-iteration classifier perfectly separates +inf from
+    # the rest, and NaN from the rest, when both inf and NaN are present.
     # High level test making sure that inf and nan values are properly handled
     # when both are present. This is similar to
     # test_split_on_nan_with_infinite_values() in test_grower.py, though we
@@ -800,8 +803,8 @@ def test_zero_sample_weights_regression():
 
 def test_zero_sample_weights_classification():
     # [FUNCTION DOC]
-    # Same as the regression variant for binary and 3-class classifiers: predicting [1, 0]
-    # yields class 1 when conflicting class-0 samples have zero weight.
+    # Same as the regression variant for binary and 3-class classifiers: predicting [1,
+    # 0] yields class 1 when conflicting class-0 samples have zero weight.
     # Make sure setting a SW to zero amounts to ignoring the corresponding
     # sample
 
@@ -887,8 +890,8 @@ def test_sample_weight_effect(problem, global_random_seed):
 def test_sum_hessians_are_sample_weight(Loss):
     # [FUNCTION DOC]
     # Verifies that for constant-hessian losses (squared and absolute error) with
-    # (possibly negative) sample weights, each histogram bin's sum_hessians equals the sum
-    # of sample weights of samples in that bin.
+    # (possibly negative) sample weights, each histogram bin's sum_hessians equals the
+    # sum of sample weights of samples in that bin.
     # For losses with constant hessians, the sum_hessians field of the
     # histograms must be equal to the sum of the sample weight of samples at
     # the corresponding bin.
@@ -945,8 +948,8 @@ def test_sum_hessians_are_sample_weight(Loss):
 
 def test_max_depth_max_leaf_nodes():
     # [FUNCTION DOC]
-    # Non-regression test (#16179): with max_depth=2 and max_leaf_nodes=3 both binding, the
-    # tree has depth 2 and exactly 3 leaves.
+    # Non-regression test (#16179): with max_depth=2 and max_leaf_nodes=3 both binding,
+    # the tree has depth 2 and exactly 3 leaves.
     # Non regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/16179
     # there was a bug when the max_depth and the max_leaf_nodes criteria were
@@ -987,8 +990,8 @@ def test_early_stopping_with_sample_weights(monkeypatch):
     # [FUNCTION DOC]
     # Verifies that with a string scorer, sample_weight is forwarded to the scorer and
     # _raw_predict is never called: check_scoring is monkeypatched to return a mock
-    # wrapping the real scorer; the scorer must be called 6 times for max_iter=2 (train and
-    # val for the baseline and each iteration), each with sample_weight.
+    # wrapping the real scorer; the scorer must be called 6 times for max_iter=2 (train
+    # and val for the baseline and each iteration), each with sample_weight.
     # Side effects: monkeypatches hgb_module.check_scoring for the duration of the test.
     """Check that sample weights is passed in to the scorer and _raw_predict is not
     called."""
@@ -997,8 +1000,8 @@ def test_early_stopping_with_sample_weights(monkeypatch):
 
     def mock_check_scoring(estimator, scoring):
         # [FUNCTION DOC]
-        # HELPER: Replacement for check_scoring: asserts the requested scoring name and returns
-        # the mock scorer.
+        # HELPER: Replacement for check_scoring: asserts the requested scoring name and
+        # returns the mock scorer.
         assert scoring == "neg_median_absolute_error"
         return mock_scorer
 
@@ -1028,8 +1031,8 @@ def test_early_stopping_with_sample_weights(monkeypatch):
 
 def test_raw_predict_is_called_with_custom_scorer():
     # [FUNCTION DOC]
-    # Verifies that with a callable scorer, _raw_predict and the scorer are both called 6
-    # times for max_iter=2 with early stopping.
+    # Verifies that with a callable scorer, _raw_predict and the scorer are both called
+    # 6 times for max_iter=2 with early stopping.
     """Custom scorer will still call _raw_predict."""
 
     mock_scorer = Mock(side_effect=get_scorer("neg_median_absolute_error"))
@@ -1057,8 +1060,8 @@ def test_raw_predict_is_called_with_custom_scorer():
 )
 def test_single_node_trees(Est):
     # [FUNCTION DOC]
-    # Verifies that a constant target yields single-node trees whose root value is 0, while
-    # predictions remain correct through the baseline prediction.
+    # Verifies that a constant target yields single-node trees whose root value is 0,
+    # while predictions remain correct through the baseline prediction.
     # Make sure it's still possible to build single-node trees. In that case
     # the value of the root is set to 0. That's a correct value: if the tree is
     # single-node that's because min_gain_to_split is not respected right from
@@ -1116,9 +1119,9 @@ def test_custom_loss(Est, loss, X, y):
 )
 def test_staged_predict(HistGradientBoosting, X, y):
     # [FUNCTION DOC]
-    # Verifies that staged_predict (and staged_predict_proba / staged_decision_function for
-    # classifiers) raises NotFittedError before fit, yields n_iter_ stages, and that stage
-    # i equals the output of a model trained from scratch with max_iter=i.
+    # Verifies that staged_predict (and staged_predict_proba / staged_decision_function
+    # for classifiers) raises NotFittedError before fit, yields n_iter_ stages, and that
+    # stage i equals the output of a model trained from scratch with max_iter=i.
     # Test whether staged predictor eventually gives
     # the same prediction.
     X_train, X_test, y_train, y_test = train_test_split(
@@ -1164,10 +1167,10 @@ def test_unknown_categories_nan(
     insert_missing, Est, bool_categorical_parameter, missing_value
 ):
     # [FUNCTION DOC]
-    # Verifies that categories unseen during fit and missing values (NaN or -1, optionally
-    # also injected in training) are handled identically at predict time (single unique
-    # prediction for both), for bool-mask and index categorical specs; also checks
-    # is_categorical_.
+    # Verifies that categories unseen during fit and missing values (NaN or -1,
+    # optionally also injected in training) are handled identically at predict time
+    # (single unique prediction for both), for bool-mask and index categorical specs;
+    # also checks is_categorical_.
     # Make sure no error is raised at predict if a category wasn't seen during
     # fit. We also make sure they're treated as nans.
 
@@ -1202,10 +1205,10 @@ def test_unknown_categories_nan(
 
 def test_categorical_encoding_strategies():
     # [FUNCTION DOC]
-    # Verifies that native categorical splits solve a parity-of-category problem with one
-    # depth-1 tree (cross-validated accuracy 1) for bool, index and (if pandas) name specs,
-    # that the left bitset is {0, 2, 4}, whereas ordinal encoding needs depth 5 and one-hot
-    # encoding needs depth 3 to reach accuracy 1 (lower depths score < 0.9).
+    # Verifies that native categorical splits solve a parity-of-category problem with
+    # one depth-1 tree (cross-validated accuracy 1) for bool, index and (if pandas) name
+    # specs, that the left bitset is {0, 2, 4}, whereas ordinal encoding needs depth 5
+    # and one-hot encoding needs depth 3 to reach accuracy 1 (lower depths score < 0.9).
     # Check native categorical handling vs different encoding strategies. We
     # make sure that native encoding needs only 1 split to achieve a perfect
     # prediction on a simple dataset. In contrast, OneHotEncoded data needs
@@ -1346,8 +1349,8 @@ def test_categorical_spec_errors(
 )
 def test_categorical_spec_errors_with_feature_names(Est):
     # [FUNCTION DOC]
-    # Verifies ValueErrors when categorical_features names an unknown column, and when names
-    # are used but the model is fitted on a plain array. Skipped without pandas.
+    # Verifies ValueErrors when categorical_features names an unknown column, and when
+    # names are used but the model is fitted on a plain array. Skipped without pandas.
     pd = pytest.importorskip("pandas")
     n_samples = 10
     X = pd.DataFrame(
@@ -1475,9 +1478,10 @@ def test_check_interaction_cst(interaction_cst, n_features, result):
 
 def test_interaction_cst_numerically():
     # [FUNCTION DOC]
-    # Verifies that with interaction_cst=[{0}, {1}] the model is additive: the second-order
-    # finite difference f(x+d,y+d)+f(x,y)-f(x+d,y)-f(x,y+d) is 0 (atol 1e-12), while the
-    # unconstrained model captures the interaction term (difference > 0.01).
+    # Verifies that with interaction_cst=[{0}, {1}] the model is additive: the
+    # second-order finite difference f(x+d,y+d)+f(x,y)-f(x+d,y)-f(x,y+d) is 0 (atol
+    # 1e-12), while the unconstrained model captures the interaction term (difference >
+    # 0.01).
     """Check that interaction constraints have no forbidden interactions."""
     rng = np.random.RandomState(42)
     n_samples = 2000
@@ -1536,8 +1540,8 @@ def test_interaction_cst_numerically():
 )
 def test_no_user_warning_with_scoring():
     # [FUNCTION DOC]
-    # Non-regression test (#22907): fitting on a DataFrame with a string scorer and early
-    # stopping emits no UserWarning (warnings turned into errors). Marked xfail on
+    # Non-regression test (#22907): fitting on a DataFrame with a string scorer and
+    # early stopping emits no UserWarning (warnings turned into errors). Marked xfail on
     # free-threaded Python 3.13.
     """Check that no UserWarning is raised when scoring is set.
 
@@ -1557,10 +1561,10 @@ def test_no_user_warning_with_scoring():
 
 def test_class_weights():
     # [FUNCTION DOC]
-    # Verifies class_weight equivalence with sample_weight: a dict class_weight matches the
-    # corresponding sample weights; class and sample weights multiply; and "balanced"
-    # matches sample weights n_samples / (n_classes * class_count) on an imbalanced subset.
-    # Compares decision_function outputs.
+    # Verifies class_weight equivalence with sample_weight: a dict class_weight matches
+    # the corresponding sample weights; class and sample weights multiply; and
+    # "balanced" matches sample weights n_samples / (n_classes * class_count) on an
+    # imbalanced subset. Compares decision_function outputs.
     """High level test to check class_weights."""
     n_samples = 255
     n_features = 2
@@ -1617,8 +1621,8 @@ def test_class_weights():
 
 def test_unknown_category_that_are_negative():
     # [FUNCTION DOC]
-    # Non-regression test (#24274): negative unseen categories at predict time are treated
-    # like missing values (same predictions as NaN).
+    # Non-regression test (#24274): negative unseen categories at predict time are
+    # treated like missing values (same predictions as NaN).
     """Check that unknown categories that are negative does not error.
 
     Non-regression test for #24274.
@@ -1754,9 +1758,9 @@ def test_dataframe_categorical_results_same_as_ndarray(
     dataframe_lib, HistGradientBoosting
 ):
     # [FUNCTION DOC]
-    # Verifies that categorical_features="from_dtype" on a pandas/polars categorical column
-    # gives the same categories (sorted), same tree sizes, scores and predictions as an
-    # integer-coded ndarray with an explicit mask.
+    # Verifies that categorical_features="from_dtype" on a pandas/polars categorical
+    # column gives the same categories (sorted), same tree sizes, scores and predictions
+    # as an integer-coded ndarray with an explicit mask.
     """Check that pandas categorical give the same results as ndarray."""
     pytest.importorskip(dataframe_lib)
 
@@ -1811,8 +1815,8 @@ def test_dataframe_categorical_results_same_as_ndarray(
 )
 def test_dataframe_categorical_errors(dataframe_lib, HistGradientBoosting):
     # [FUNCTION DOC]
-    # Verifies that a dataframe categorical column with cardinality above max_bins raises
-    # ValueError.
+    # Verifies that a dataframe categorical column with cardinality above max_bins
+    # raises ValueError.
     """Check error cases for pandas categorical feature."""
     pytest.importorskip(dataframe_lib)
     msg = "Categorical feature 'f_cat' is expected to have a cardinality <= 16"
@@ -1878,9 +1882,9 @@ def test_categorical_different_order_same_model(dataframe_lib):
 
 def get_different_bitness_node_ndarray(node_ndarray):
     # [FUNCTION DOC]
-    # HELPER: Returns a copy of a predictor node record array where the feature_idx field
-    # is cast to the integer width of the other platform (int32 on 64-bit, int64 on 32-bit),
-    # other fields unchanged.
+    # HELPER: Returns a copy of a predictor node record array where the feature_idx
+    # field is cast to the integer width of the other platform (int32 on 64-bit, int64
+    # on 32-bit), other fields unchanged.
     new_dtype_for_indexing_fields = np.int64 if _IS_32BIT else np.int32
 
     # field names in Node struct with np.intp types (see
@@ -1901,9 +1905,9 @@ def get_different_bitness_node_ndarray(node_ndarray):
 
 def reduce_predictor_with_different_bitness(predictor):
     # [FUNCTION DOC]
-    # HELPER: Custom pickle reducer for TreePredictor: calls the predictor's __reduce__ and
-    # replaces the nodes in a copied state with the other-bitness node array. Returns the
-    # (cls, args, state) tuple.
+    # HELPER: Custom pickle reducer for TreePredictor: calls the predictor's __reduce__
+    # and replaces the nodes in a copied state with the other-bitness node array.
+    # Returns the (cls, args, state) tuple.
     cls, args, state = predictor.__reduce__()
 
     new_state = state.copy()
@@ -1964,8 +1968,8 @@ def test_different_bitness_joblib_pickle():
 
     def joblib_dump_with_different_bitness():
         # [FUNCTION DOC]
-        # HELPER: Dumps the enclosing clf with joblib's NumpyPickler using the different-bitness
-        # reducer; returns the rewound BytesIO.
+        # HELPER: Dumps the enclosing clf with joblib's NumpyPickler using the
+        # different-bitness reducer; returns the rewound BytesIO.
         f = io.BytesIO()
         p = NumpyPickler(f)
         p.dispatch_table = copyreg.dispatch_table.copy()

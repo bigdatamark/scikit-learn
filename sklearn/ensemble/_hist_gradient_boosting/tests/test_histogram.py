@@ -24,9 +24,9 @@ from sklearn.ensemble._hist_gradient_boosting.histogram import (
 def test_build_histogram(build_func):
     # [FUNCTION DOC]
     # Verifies that build_func (naive or unrolled builder) produces the correct per-bin
-    # count, sum_gradients and sum_hessians for a tiny binned feature, both with 3 sample
-    # indices (below the unrolling threshold) and 5 indices (above it), by comparison
-    # with hand-computed values.
+    # count, sum_gradients and sum_hessians for a tiny binned feature, both with 3
+    # sample indices (below the unrolling threshold) and 5 indices (above it), by
+    # comparison with hand-computed values.
     binned_feature = np.array([0, 2, 0, 1, 2, 0, 2, 1], dtype=X_BINNED_DTYPE)
 
     # Small sample_indices (below unrolling threshold)
@@ -122,10 +122,10 @@ def test_histogram_sample_order_independence():
 @pytest.mark.parametrize("constant_hessian", [True, False])
 def test_unrolled_equivalent_to_naive(constant_hessian):
     # [FUNCTION DOC]
-    # Verifies that the root, root-no-hessian, no-hessian and unrolled builders all match
-    # _build_histogram_naive on counts and gradient sums, that hessian-aware variants
-    # match its hessian sums, and that no-hessian variants leave sum_hessians at zero.
-    # Parametrized over constant vs lognormal hessians.
+    # Verifies that the root, root-no-hessian, no-hessian and unrolled builders all
+    # match _build_histogram_naive on counts and gradient sums, that hessian-aware
+    # variants match its hessian sums, and that no-hessian variants leave sum_hessians
+    # at zero. Parametrized over constant vs lognormal hessians.
     # Make sure the different unrolled histogram computations give the same
     # results as the naive one.
     rng = np.random.RandomState(42)

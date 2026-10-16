@@ -43,8 +43,8 @@ def _make_training_data(n_bins=256, constant_hessian=True):
 
     def true_decision_function(input_features):
         # [FUNCTION DOC]
-        # HELPER: Ground-truth tree: returns -1 if feature 0 <= n_bins // 2, otherwise -1 if
-        # feature 1 <= n_bins // 3 else 1. Input: one row of 2 binned values.
+        # HELPER: Ground-truth tree: returns -1 if feature 0 <= n_bins // 2, otherwise
+        # -1 if feature 1 <= n_bins // 3 else 1. Input: one row of 2 binned values.
         """Ground truth decision function
 
         This is a very simple yet asymmetric decision tree. Therefore the
@@ -105,11 +105,11 @@ def _check_children_consistency(parent, left, right):
 def test_grow_tree(n_bins, constant_hessian, stopping_param, shrinkage):
     # [FUNCTION DOC]
     # Drives the grower manually with split_next: checks the root's best split is on
-    # feature 0 at bin n_bins // 2, the children split roughly 50/50, the left child is a
-    # finalized leaf when min_gain_to_split > 0, the right child splits on feature 1 at
-    # bin n_bins // 3 with expected size proportions, no node remains splittable, and after
-    # _apply_shrinkage leaf values equal +/- shrinkage. Parametrized over n_bins, hessian
-    # type, stopping criterion and shrinkage.
+    # feature 0 at bin n_bins // 2, the children split roughly 50/50, the left child is
+    # a finalized leaf when min_gain_to_split > 0, the right child splits on feature 1
+    # at bin n_bins // 3 with expected size proportions, no node remains splittable, and
+    # after _apply_shrinkage leaf values equal +/- shrinkage. Parametrized over n_bins,
+    # hessian type, stopping criterion and shrinkage.
     X_binned, all_gradients, all_hessians = _make_training_data(
         n_bins=n_bins, constant_hessian=constant_hessian
     )
@@ -447,8 +447,9 @@ def test_missing_value_predict_only():
 def test_split_on_nan_with_infinite_values():
     # [FUNCTION DOC]
     # Verifies that with a "split on nan" root (threshold +inf, bin threshold
-    # n_bins_non_missing - 1) a +inf sample goes left with the finite values while NaNs go
-    # right, for both predict and predict_binned (predictions equal negated gradients).
+    # n_bins_non_missing - 1) a +inf sample goes left with the finite values while NaNs
+    # go right, for both predict and predict_binned (predictions equal negated
+    # gradients).
     # Make sure the split on nan situations are respected even when there are
     # samples with +inf values (we set the threshold to +inf when we have a
     # split on nan so this test makes sure this does not introduce edge-case
@@ -501,9 +502,9 @@ def test_split_on_nan_with_infinite_values():
 def test_grow_tree_categories():
     # [FUNCTION DOC]
     # Verifies categorical split growth on a 2-category feature: 3 nodes, a categorical
-    # root with 23 samples, left child the larger one, binned bitset containing bin 1 and
-    # raw bitset containing category 9, missing_go_to_left set, and missing values (binned
-    # index 6 or raw NaN) predicted with the left leaf value -1.
+    # root with 23 samples, left child the larger one, binned bitset containing bin 1
+    # and raw bitset containing category 9, missing_go_to_left set, and missing values
+    # (binned index 6 or raw NaN) predicted with the left leaf value -1.
     # Check that the grower produces the right predictor tree when a split is
     # categorical
     X_binned = np.array([[0, 1] * 11 + [1]], dtype=X_BINNED_DTYPE).T
@@ -642,8 +643,8 @@ def test_grower_interaction_constraints():
     # Verifies interaction constraints over 20 random seeds: root children's
     # allowed_features equal the union of constraint sets containing the root feature,
     # each child's interaction_cst_indices is a subset of its parent's, every split
-    # feature lies in the root's constraint set, and across seeds all 6 features are used
-    # at the root at least once.
+    # feature lies in the root's constraint set, and across seeds all 6 features are
+    # used at the root at least once.
     """Check that grower respects interaction constraints."""
     n_features = 6
     interaction_cst = [{0, 1}, {1, 2}, {3, 4, 5}]
@@ -653,8 +654,8 @@ def test_grower_interaction_constraints():
 
     def get_all_children(node):
         # [FUNCTION DOC]
-        # HELPER: Recursively returns a list of all descendant nodes (pre-order, left before
-        # right) of a grower node; empty list for a leaf.
+        # HELPER: Recursively returns a list of all descendant nodes (pre-order, left
+        # before right) of a grower node; empty list for a leaf.
         res = []
         if node.is_leaf:
             return res

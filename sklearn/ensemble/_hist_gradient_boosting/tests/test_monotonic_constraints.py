@@ -45,9 +45,9 @@ def is_decreasing(a):
 
 def assert_leaves_values_monotonic(predictor, monotonic_cst):
     # [FUNCTION DOC]
-    # HELPER: Asserts the left-to-right ordering of leaf values of a TreePredictor matches
-    # monotonic_cst: neither increasing nor decreasing for NO_CST, non-decreasing for POS,
-    # non-increasing otherwise (NEG).
+    # HELPER: Asserts the left-to-right ordering of leaf values of a TreePredictor
+    # matches monotonic_cst: neither increasing nor decreasing for NO_CST,
+    # non-decreasing for POS, non-increasing otherwise (NEG).
     # Inputs: predictor - TreePredictor; monotonic_cst - MonotonicConstraint value.
     # Exceptions: AssertionError when the ordering is violated.
     # make sure leaves values (from left to right) are either all increasing
@@ -56,15 +56,17 @@ def assert_leaves_values_monotonic(predictor, monotonic_cst):
 
     def get_leaves_values():
         # [FUNCTION DOC]
-        # HELPER: Collects leaf values of the enclosing predictor's nodes in left-to-right
-        # order via a recursive depth-first traversal from the root; returns a list.
+        # HELPER: Collects leaf values of the enclosing predictor's nodes in
+        # left-to-right order via a recursive depth-first traversal from the root;
+        # returns a list.
         """get leaves values from left to right"""
         values = []
 
         def depth_first_collect_leaf_values(node_idx):
             # [FUNCTION DOC]
-            # HELPER: Recursive visitor: appends the node's value to the enclosing list if it is a
-            # leaf, otherwise recurses into the left then right child indices.
+            # HELPER: Recursive visitor: appends the node's value to the enclosing list
+            # if it is a leaf, otherwise recurses into the left then right child
+            # indices.
             # Side effects: mutates the closure list values.
             node = nodes[node_idx]
             if node["is_leaf"]:
@@ -92,9 +94,9 @@ def assert_leaves_values_monotonic(predictor, monotonic_cst):
 def assert_children_values_monotonic(predictor, monotonic_cst):
     # [FUNCTION DOC]
     # HELPER: For every internal node of a TreePredictor, classifies the split as "left
-    # lower" or "left greater" by comparing the two children's values (ties ignored), then
-    # asserts both kinds exist for NO_CST, only "left lower" for POS, only "left greater"
-    # for NEG.
+    # lower" or "left greater" by comparing the two children's values (ties ignored),
+    # then asserts both kinds exist for NO_CST, only "left lower" for POS, only "left
+    # greater" for NEG.
     # Exceptions: AssertionError on violation.
     # Make sure siblings values respect the monotonic constraints. Left should
     # be lower (resp greater) than right child if constraint is POS (resp.
@@ -149,9 +151,9 @@ def assert_children_values_bounded(grower, monotonic_cst):
 
     def recursively_check_children_node_values(node, right_sibling=None):
         # [FUNCTION DOC]
-        # HELPER: Recursive check starting at node; right_sibling (TreeNode or None) is passed
-        # only when node is a left child. Recurses into the left child (with the right child
-        # as sibling) and into the right child (no sibling).
+        # HELPER: Recursive check starting at node; right_sibling (TreeNode or None) is
+        # passed only when node is a left child. Recurses into the left child (with the
+        # right child as sibling) and into the right child (no sibling).
         if node.is_leaf:
             return
         if right_sibling is not None:
@@ -192,11 +194,11 @@ def assert_children_values_bounded(grower, monotonic_cst):
 )
 def test_nodes_values(monotonic_cst, seed):
     # [FUNCTION DOC]
-    # Verifies, on a single 1-feature tree grown with random gradients and each constraint
-    # type, that sibling ordering, midpoint bounding and leaf ordering properties hold.
-    # Leaf values are divided by shrinkage first (mutating finalized leaves) so leaves and
-    # internal nodes are compared on the same scale; the predictor is built with dummy
-    # binning thresholds since predict is not called.
+    # Verifies, on a single 1-feature tree grown with random gradients and each
+    # constraint type, that sibling ordering, midpoint bounding and leaf ordering
+    # properties hold. Leaf values are divided by shrinkage first (mutating finalized
+    # leaves) so leaves and internal nodes are compared on the same scale; the predictor
+    # is built with dummy binning thresholds since predict is not called.
     # Build a single tree with only one feature, and make sure the nodes
     # values respect the monotonic constraints.
 
@@ -255,11 +257,12 @@ def test_nodes_values(monotonic_cst, seed):
 @pytest.mark.parametrize("use_feature_names", (True, False))
 def test_predictions(global_random_seed, use_feature_names):
     # [FUNCTION DOC]
-    # Verifies that a regressor with POS constraint on f_0 and NEG on f_1 (given as a dict
-    # of feature names with pandas input, or as a list) plus three uncorrelated categorical
-    # features produces predictions that are monotonic in each constrained feature while
-    # others are held constant, and that follow the direction of a sine input's variations.
-    # Also checks constraint remapping in presence of categorical features (issue #28898).
+    # Verifies that a regressor with POS constraint on f_0 and NEG on f_1 (given as a
+    # dict of feature names with pandas input, or as a list) plus three uncorrelated
+    # categorical features produces predictions that are monotonic in each constrained
+    # feature while others are held constant, and that follow the direction of a sine
+    # input's variations. Also checks constraint remapping in presence of categorical
+    # features (issue #28898).
     # Train a model with a POS constraint on the first non-categorical feature
     # and a NEG constraint on the second non-categorical feature, and make sure
     # the constraints are respected by checking the predictions.
@@ -339,8 +342,8 @@ def test_predictions(global_random_seed, use_feature_names):
 
 def test_input_error():
     # [FUNCTION DOC]
-    # Verifies ValueErrors for monotonic_cst of wrong length, for values outside {-1,0,1},
-    # and for monotonic constraints with multiclass classification.
+    # Verifies ValueErrors for monotonic_cst of wrong length, for values outside
+    # {-1,0,1}, and for monotonic constraints with multiclass classification.
     X = [[1, 2], [2, 3], [3, 4]]
     y = [0, 1, 2]
 
@@ -411,9 +414,10 @@ def test_input_error_related_to_feature_names():
 def test_bounded_value_min_gain_to_split():
     # [FUNCTION DOC]
     # Verifies that the node value used in gain computation is bounded: with gradients
-    # [1, 1, 100, 1, 1] and min_gain_to_split=2000, the unbounded node value -104/5 gives
-    # no valid split (gain -1), while clipping the value to lower bound -10 increases the
-    # gain above min_gain_to_split. Uses HistogramBuilder and Splitter directly.
+    # [1, 1, 100, 1, 1] and min_gain_to_split=2000, the unbounded node value -104/5
+    # gives no valid split (gain -1), while clipping the value to lower bound -10
+    # increases the gain above min_gain_to_split. Uses HistogramBuilder and Splitter
+    # directly.
     # The purpose of this test is to show that when computing the gain at a
     # given split, the value of the current node should be properly bounded to
     # respect the monotonic constraints, because it strongly interacts with

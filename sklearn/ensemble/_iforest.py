@@ -42,12 +42,13 @@ def _parallel_compute_tree_depths(
     lock,
 ):
     # [FUNCTION DOC]
-    # HELPER: Accumulates, for one tree, each sample's isolation depth into a shared array.
-    # Behavior: restricts X to the tree's feature subset (if features is not None), finds
-    # each sample's leaf with tree.apply, and under the lock adds leaf depth plus the
-    # leaf's average path length correction minus 1 to depths.
-    # Inputs: tree - fitted ExtraTreeRegressor; X - (n_samples, n_features) array or CSR;
-    # features - index array or None; tree_decision_path_lengths - depth per node;
+    # HELPER: Accumulates, for one tree, each sample's isolation depth into a shared
+    # array.
+    # Behavior: restricts X to the tree's feature subset (if features is not None),
+    # finds each sample's leaf with tree.apply, and under the lock adds leaf depth plus
+    # the leaf's average path length correction minus 1 to depths.
+    # Inputs: tree - fitted ExtraTreeRegressor; X - (n_samples, n_features) array or
+    # CSR; features - index array or None; tree_decision_path_lengths - depth per node;
     # tree_avg_path_lengths - average path length per node; depths - float array
     # (n_samples,) accumulated in place; lock - threading.Lock.
     # Outputs: None.
@@ -70,10 +71,10 @@ def _parallel_compute_tree_depths(
 
 class IsolationForest(OutlierMixin, BaseBagging):
     # [CLASS DOC]
-    # Unsupervised anomaly detector built on BaseBagging with ExtraTreeRegressor base trees
-    # (max_features=1, random splitter) fit on random uniform pseudo-targets so splits are
-    # random. Tree depth is capped at ceil(log2(max_samples)). Scores are
-    # 2 ** (-mean_depth / c(max_samples)) negated, and the decision threshold offset_ is
+    # Unsupervised anomaly detector built on BaseBagging with ExtraTreeRegressor base
+    # trees (max_features=1, random splitter) fit on random uniform pseudo-targets so
+    # splits are random. Tree depth is capped at ceil(log2(max_samples)). Scores are 2
+    # ** (-mean_depth / c(max_samples)) negated, and the decision threshold offset_ is
     # -0.5 ("auto") or the contamination percentile of training scores.
     # Fitted attributes (beyond BaseBagging's): max_samples_, offset_,
     # _average_path_length_per_tree, _decision_path_lengths. NaN inputs are allowed.
@@ -307,8 +308,8 @@ class IsolationForest(OutlierMixin, BaseBagging):
 
     def _get_estimator(self):
         # [FUNCTION DOC]
-        # HELPER: Returns the base estimator template: ExtraTreeRegressor with max_features=1,
-        # splitter="random" and the forest's random_state.
+        # HELPER: Returns the base estimator template: ExtraTreeRegressor with
+        # max_features=1, splitter="random" and the forest's random_state.
         return ExtraTreeRegressor(
             # here max_features has no links with self.max_features
             max_features=1,
@@ -318,14 +319,14 @@ class IsolationForest(OutlierMixin, BaseBagging):
 
     def _set_oob_score(self, X, y):
         # [FUNCTION DOC]
-        # HELPER: Overrides BaseBagging hook; always raises NotImplementedError since OOB
-        # scoring is not supported.
+        # HELPER: Overrides BaseBagging hook; always raises NotImplementedError since
+        # OOB scoring is not supported.
         raise NotImplementedError("OOB score not supported by iforest")
 
     def _parallel_args(self):
         # [FUNCTION DOC]
-        # HELPER: Returns joblib Parallel kwargs {"prefer": "threads"} used during fit, since
-        # tree fitting releases the GIL.
+        # HELPER: Returns joblib Parallel kwargs {"prefer": "threads"} used during fit,
+        # since tree fitting releases the GIL.
         # ExtraTreeRegressor releases the GIL, so it's more efficient to use
         # a thread-based backend rather than a process-based backend so as
         # to avoid suffering from communication overhead and extra memory
@@ -336,24 +337,26 @@ class IsolationForest(OutlierMixin, BaseBagging):
     def fit(self, X, y=None, sample_weight=None):
         # [FUNCTION DOC]
         # Fits the forest.
-        # Behavior: validates X (float32, CSC sparse allowed, NaN/inf allowed), validates
-        # sample_weight, sorts sparse indices, draws a uniform random pseudo-target y of length
-        # n_samples from random_state, resolves max_samples ("auto" -> min(256, n), int larger
-        # than n -> n with a warning, float -> int(fraction * n)), sets max_depth to
-        # ceil(log2(max(max_samples, 2))) and calls BaseBagging._fit. Then precomputes for each
-        # tree the average path length per node (from n_node_samples) and node depths. Sets
-        # offset_ to -0.5 for contamination "auto", else to the contamination percentile of the
-        # training score_samples (X converted to CSR if sparse).
+        # Behavior: validates X (float32, CSC sparse allowed, NaN/inf allowed),
+        # validates sample_weight, sorts sparse indices, draws a uniform random
+        # pseudo-target y of length n_samples from random_state, resolves max_samples
+        # ("auto" -> min(256, n), int larger than n -> n with a warning, float ->
+        # int(fraction * n)), sets max_depth to ceil(log2(max(max_samples, 2))) and
+        # calls BaseBagging._fit. Then precomputes for each tree the average path length
+        # per node (from n_node_samples) and node depths. Sets offset_ to -0.5 for
+        # contamination "auto", else to the contamination percentile of the training
+        # score_samples (X converted to CSR if sparse).
         # Inputs: X - (n_samples, n_features) array-like or sparse; y - ignored;
         # sample_weight - (n_samples,) or None.
         # Outputs: self.
-        # Exceptions: parameter validation errors (InvalidParameterError) via _fit_context;
-        # ValueError from validate_data/_check_sample_weight.
-        # Side effects: sets estimators_, estimators_features_, max_samples_, offset_ and the
-        # private per-tree arrays; emits UserWarning when int max_samples > n_samples; consumes
-        # randomness from random_state.
-        # KNOWN ISSUE: a float max_samples small enough that fraction * n_samples < 1 yields
-        # max_samples 0, contradicting the comment that it lies in [1, n_samples].
+        # Exceptions: parameter validation errors (InvalidParameterError) via
+        # _fit_context; ValueError from validate_data/_check_sample_weight.
+        # Side effects: sets estimators_, estimators_features_, max_samples_, offset_
+        # and the private per-tree arrays; emits UserWarning when int max_samples >
+        # n_samples; consumes randomness from random_state.
+        # KNOWN ISSUE: a float max_samples small enough that fraction * n_samples < 1
+        # yields max_samples 0, contradicting the comment that it lies in [1,
+        # n_samples].
         """
         Fit estimator.
 
@@ -451,7 +454,8 @@ class IsolationForest(OutlierMixin, BaseBagging):
         # [FUNCTION DOC]
         # Returns an int array (n_samples,) with +1 for inliers and -1 where
         # decision_function(X) < 0.
-        # Exceptions: NotFittedError if not fitted; validation errors from score_samples.
+        # Exceptions: NotFittedError if not fitted; validation errors from
+        # score_samples.
         """
         Predict if a particular sample is an outlier or not.
 
@@ -495,7 +499,8 @@ class IsolationForest(OutlierMixin, BaseBagging):
         # [FUNCTION DOC]
         # Returns score_samples(X) minus offset_, so that negative values are outliers.
         # Output: float array (n_samples,).
-        # KNOWN ISSUE: the docstring calls the trees "base classifiers"; they are regressors.
+        # KNOWN ISSUE: the docstring calls the trees "base classifiers"; they are
+        # regressors.
         """
         Average anomaly score of X of the base classifiers.
 
@@ -548,12 +553,12 @@ class IsolationForest(OutlierMixin, BaseBagging):
 
     def score_samples(self, X):
         # [FUNCTION DOC]
-        # Validates X (float32, CSR sparse allowed, NaN allowed, reset=False so feature count
-        # and names are checked against fit) and returns _score_samples(X): float array
-        # (n_samples,), around -1 for anomalies and closer to 0 for inliers.
+        # Validates X (float32, CSR sparse allowed, NaN allowed, reset=False so feature
+        # count and names are checked against fit) and returns _score_samples(X): float
+        # array (n_samples,), around -1 for anomalies and closer to 0 for inliers.
         # Exceptions: ValueError on feature mismatch; NotFittedError if not fitted.
-        # KNOWN ISSUE: the docstring example calls model.score(X), which IsolationForest does
-        # not define; score_samples was meant.
+        # KNOWN ISSUE: the docstring example calls model.score(X), which IsolationForest
+        # does not define; score_samples was meant.
         """
         Opposite of the anomaly score defined in the original paper.
 
@@ -625,12 +630,12 @@ class IsolationForest(OutlierMixin, BaseBagging):
     def _compute_chunked_score_samples(self, X):
         # [FUNCTION DOC]
         # HELPER: Computes raw anomaly scores in row chunks to bound temporary memory.
-        # Behavior: decides whether feature subsetting is needed (_max_features differs from
-        # X's column count), computes chunk size from working_memory with 16 bytes per
-        # selected feature per row (at least one row), and fills a float array of scores by
-        # calling _compute_score_samples on each row slice.
-        # Inputs: X - validated array or CSR matrix. Outputs: float array (n_samples,) in
-        # (0, 1], higher = more anomalous.
+        # Behavior: decides whether feature subsetting is needed (_max_features differs
+        # from X's column count), computes chunk size from working_memory with 16 bytes
+        # per selected feature per row (at least one row), and fills a float array of
+        # scores by calling _compute_score_samples on each row slice.
+        # Inputs: X - validated array or CSR matrix. Outputs: float array (n_samples,)
+        # in (0, 1], higher = more anomalous.
         n_samples = _num_samples(X)
 
         if self._max_features == X.shape[1]:
@@ -664,14 +669,15 @@ class IsolationForest(OutlierMixin, BaseBagging):
 
     def _compute_score_samples(self, X, subsample_features):
         # [FUNCTION DOC]
-        # HELPER: Computes raw anomaly scores 2 ** (-E[h(x)] / c(max_samples)) for a chunk.
-        # Behavior: zero-initializes depths, then in a shared-memory joblib Parallel (default
-        # n_jobs, overridable via a parallel_backend context) runs
+        # HELPER: Computes raw anomaly scores 2 ** (-E[h(x)] / c(max_samples)) for a
+        # chunk.
+        # Behavior: zero-initializes depths, then in a shared-memory joblib Parallel
+        # (default n_jobs, overridable via a parallel_backend context) runs
         # _parallel_compute_tree_depths for every tree with its feature subset (when
         # subsample_features) and precomputed node arrays. Divides summed depths by
         # n_estimators times the average path length of _max_samples, using 1 where the
-        # denominator is 0 (single training sample case, giving score 0.5), and returns 2 to
-        # the negated ratio.
+        # denominator is 0 (single training sample case, giving score 0.5), and returns
+        # 2 to the negated ratio.
         # Inputs: X - array/CSR chunk; subsample_features - bool.
         # Outputs: float array (n_samples,).
         # Side effects: none on self; uses a thread lock.
@@ -744,9 +750,9 @@ class IsolationForest(OutlierMixin, BaseBagging):
 
 def _average_path_length(n_samples_leaf):
     # [FUNCTION DOC]
-    # HELPER: Computes c(n), the average path length of an unsuccessful BST search in a tree
-    # built on n samples, elementwise: 0 for n <= 1, 1 for n == 2, else
-    # 2 * (ln(n - 1) + Euler's gamma) - 2 * (n - 1) / n.
+    # HELPER: Computes c(n), the average path length of an unsuccessful BST search in a
+    # tree built on n samples, elementwise: 0 for n <= 1, 1 for n == 2, else 2 * (ln(n -
+    # 1) + Euler's gamma) - 2 * (n - 1) / n.
     # Inputs: n_samples_leaf - array-like of counts (any shape, validated with
     # check_array, not required to be 2D).
     # Outputs: float ndarray with the same shape as the input.

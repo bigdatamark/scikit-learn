@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Public dispatch layer for statistical functions (cov, nanmin, nanmax, nanmean,
+# nansum). Each function infers the array namespace, forwards to the backend's
+# native implementation when one with compatible semantics exists (numpy, cupy,
+# dask, jax, and torch where applicable), and otherwise falls back to the
+# backend-agnostic implementation in _agnostic._statistical.
 """Delegation layer for statistical functions."""
 
 from . import _agnostic
@@ -17,6 +23,22 @@ def cov(
     aweights: Array | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Computes a (batched) covariance matrix, choosing a native or generic backend.
+    # Steps: infer xp from m and the weights if not given; validate axis against
+    # max(m.ndim, 1); for inputs with ndim >= 2 move the observation axis to the last
+    # position; then if m.ndim <= 2 and correction is integer-valued: for torch call
+    # its cov with integer correction (weights converted with asarray); for numpy, cupy,
+    # jax, or dask without weights call the namespace cov with ddof equal to the integer
+    # correction. All other cases (batched input, fractional correction, torch-less
+    # backends, weighted dask) go to _agnostic._statistical.cov.
+    # Inputs: m - array (..., N, M); axis - int observation axis (default -1);
+    # correction - int/float ddof (default 1); fweights/aweights - optional 1-D
+    # weights; xp - optional namespace.
+    # Outputs: array of shape (..., N, N) (0-D for a single variable).
+    # Exceptions: IndexError if axis is out of bounds; backend errors propagate.
+    # Side effects: none directly; the non-positive-dof RuntimeWarning comes from the
+    # delegated implementation.
     """
     Estimate a covariance matrix (or a stack of covariance matrices).
 
@@ -226,6 +248,12 @@ def nanmin(
     axis: int | tuple[int, ...] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Minimum along axis ignoring NaNs. Infers xp if not given; uses the native nanmin
+    # for numpy, cupy, dask, jax, otherwise the agnostic implementation (torch included).
+    # Inputs: a - array; axis - int, tuple or None (flatten); xp - optional namespace.
+    # Outputs: reduced array. Exceptions: backend errors propagate. Side effects: none
+    # (native numpy may warn on all-NaN slices).
     """
     Return the minimum of the array elements along a given axis, ignoring NaNs.
 
@@ -277,6 +305,10 @@ def nanmax(
     axis: int | tuple[int, ...] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Maximum along axis ignoring NaNs; same dispatch rules as nanmin (native for
+    # numpy, cupy, dask, jax; agnostic fallback otherwise).
+    # Inputs/Outputs: as nanmin. Side effects: none beyond backend warnings.
     """
     Return the maximum of the array elements along a given axis, ignoring NaNs.
 
@@ -328,6 +360,10 @@ def nanmean(
     axis: int | tuple[int, ...] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Mean along axis ignoring NaNs. Native nanmean is used for numpy, cupy, dask, jax
+    # and torch; other namespaces use the agnostic implementation.
+    # Inputs/Outputs: as nanmin. Side effects: none beyond backend warnings.
     """
     Return the mean of the array elements along a given axis, ignoring NaNs.
 
@@ -380,6 +416,10 @@ def nansum(
     axis: int | tuple[int, ...] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Sum along axis ignoring NaNs (NaNs count as zero). Native nansum for numpy,
+    # cupy, dask, jax and torch; agnostic fallback otherwise.
+    # Inputs/Outputs: as nanmin. Side effects: none.
     """
     Return the sum of the array elements along a given axis, ignoring NaNs.
 

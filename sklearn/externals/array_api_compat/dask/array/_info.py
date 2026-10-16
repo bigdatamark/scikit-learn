@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Array API inspection namespace for Dask: defines the __array_namespace_info__ class
+# used by the wrapped dask.array namespace, and the Device alias ("cpu" or the
+# _DASK_DEVICE sentinel). Imports dask.array and NumPy dtypes at import time (bool_ is
+# imported as bool, shadowing the builtin in this module).
 """
 Array API Inspection namespace
 
@@ -53,6 +58,9 @@ Device: TypeAlias = Literal["cpu"] | _dask_device
 
 
 class __array_namespace_info__:
+    # [CLASS DOC]
+    # Stateless inspection object with capabilities, default_device, default_dtypes,
+    # dtypes and devices; __module__ is set to "dask.array" for display.
     """
     Get the array API inspection namespace for Dask.
 
@@ -87,6 +95,9 @@ class __array_namespace_info__:
     __module__ = "dask.array"
 
     def capabilities(self) -> Capabilities:
+        # [FUNCTION DOC]
+        # Returns a new dict: boolean indexing True, data-dependent shapes True, max
+        # dimensions 64 (shapes of data-dependent outputs contain NaN, as the docstring notes).
         """
         Return a dictionary of array API library capabilities.
 
@@ -142,6 +153,8 @@ class __array_namespace_info__:
         }
 
     def default_device(self) -> Device:
+        # [FUNCTION DOC]
+        # Always returns the string "cpu".
         """
         The default device used for new Dask arrays.
 
@@ -169,6 +182,10 @@ class __array_namespace_info__:
         return "cpu"
 
     def default_dtypes(self, /, *, device: Device | None = None) -> DefaultDTypes:
+        # [FUNCTION DOC]
+        # Returns a new dict of default dtypes: float64, complex128, intp for integral and
+        # indexing, after validating device with _check_device.
+        # Exceptions: ValueError for a device other than None, "cpu" or _DASK_DEVICE.
         """
         The default data types used for new Dask arrays.
 
@@ -250,6 +267,15 @@ class __array_namespace_info__:
     def dtypes(
         self, /, *, device: Device | None = None, kind: DTypeKind | None = None
     ) -> DTypesAny:
+        # [FUNCTION DOC]
+        # Returns a dict mapping array-API dtype names to numpy dtype objects for the requested
+        # kind (None = all 13; a kind string; or a tuple handled by recursing and merging),
+        # after validating device. The overloads above only refine static return types.
+        # Inputs: device - None/"cpu"/_DASK_DEVICE; kind - None, str or tuple of str.
+        # Outputs: new dict.
+        # Exceptions: ValueError for an unsupported device or kind.
+        # KNOWN ISSUE: kind "bool" maps to the scalar type numpy.bool_ instead of dtype(bool),
+        # unlike all other branches.
         """
         The array API data types supported by Dask.
 
@@ -380,6 +406,10 @@ class __array_namespace_info__:
         raise ValueError(f"unsupported kind: {kind!r}")
 
     def devices(self) -> tuple[Device]:
+        # [FUNCTION DOC]
+        # Returns the tuple ("cpu", _DASK_DEVICE).
+        # KNOWN ISSUE: the docstring describes and shows a list, and the annotation
+        # tuple[Device] denotes a one-element tuple; a two-element tuple is returned.
         """
         The devices supported by Dask.
 
