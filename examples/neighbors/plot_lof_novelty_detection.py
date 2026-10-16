@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: fits LocalOutlierFactor(novelty=True, n_neighbors=20) on regular
+# Gaussian training data, then uses predict/decision_function on unseen regular
+# and uniformly drawn abnormal points; plots the learned frontier contour and
+# reports error counts per group.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =================================================
 Novelty detection with Local Outlier Factor (LOF)

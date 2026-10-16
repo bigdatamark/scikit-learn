@@ -1,4 +1,11 @@
 # ruff: noqa: CPY001, E501
+# [MODULE DOC]
+# Gallery script demonstrating release 1.9.0 highlights:
+# callbacks, HTML repr improvements, metrics across thresholds, sparse array
+# configuration.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Release Highlights for scikit-learn 1.9

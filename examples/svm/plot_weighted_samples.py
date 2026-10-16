@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: fits SVC on make_classification data with constant and with
+# random (positive class x15) sample weights and plots both decision functions
+# with marker sizes proportional to the weights.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =====================
 SVM: Weighted samples
@@ -41,6 +47,10 @@ X_plot, y_plot = X[plot_indices], y[plot_indices]
 
 
 def plot_decision_function(classifier, sample_weight, axis, title):
+    # [FUNCTION DOC]
+    # HELPER: Scatters the module-level plotting subset sized by sample_weight and
+    # draws classifier's decision function on axis with a title.
+    # Inputs: fitted classifier; sample_weight (n_samples,); axis Axes; title str.
     """Plot the synthetic data and the classifier decision function. Points with
     larger sample_weight are mapped to larger circles in the scatter plot."""
     axis.scatter(

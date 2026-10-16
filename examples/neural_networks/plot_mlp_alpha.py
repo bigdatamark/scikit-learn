@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on moons, circles and a linearly separable dataset, trains
+# StandardScaler + MLPClassifier pipelines for a log-spaced range of alpha values
+# and plots decision function (or probability) surfaces with test scores.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ================================================
 Varying regularization in Multi-layer Perceptron

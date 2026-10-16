@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on a small hand-made 2D binary dataset, plots SVC decision
+# regions, margins and support vectors for linear, poly, rbf and sigmoid kernels,
+# and on XOR data for all kernels.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================================================
 Plot classification boundaries with different SVM Kernels
@@ -113,6 +119,16 @@ from sklearn.inspection import DecisionBoundaryDisplay
 def plot_training_data_with_decision_boundary(
     kernel, ax=None, long_title=True, support_vectors=True
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits SVC(kernel, gamma=2) on module-level X, y and plots predicted
+    # regions, decision-function contours at -1/0/1, optionally circles support
+    # vectors, and scatters the samples with a class legend.
+    # Inputs: kernel str; ax Axes or None (new figure); long_title bool True;
+    # support_vectors bool True.
+    # KNOWN ISSUE: the legend uses the module-level global scatter (from the data
+    # plot above), not the scatter drawn here.
+    # KNOWN ISSUE: the final 'if ax is None: plt.show()' is dead code because ax was
+    # already replaced by a new Axes when None.
     # Train the SVC
     clf = svm.SVC(kernel=kernel, gamma=2).fit(X, y)
 

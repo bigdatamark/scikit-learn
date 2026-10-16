@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: compares KBinsDiscretizer strategies uniform, quantile and
+# kmeans on three 2D datasets by coloring the predicted bins over a grid and
+# overlaying the bin edges.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==========================================================
 Demonstrating the different strategies of KBinsDiscretizer

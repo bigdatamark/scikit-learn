@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: TF-IDF vectorizes 4 newsgroups categories, trains a
+# RidgeClassifier and inspects confusion matrix and top feature effects, repeats
+# without headers/footers/quotes, then benchmarks many sparse-friendly
+# classifiers (accuracy, train and test time) and plots the trade-offs.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ======================================================
 Classification of text documents using sparse features
@@ -46,10 +53,20 @@ categories = [
 
 
 def size_mb(docs):
+    # [FUNCTION DOC]
+    # HELPER: Total UTF-8 byte size of an iterable of strings, in megabytes.
     return sum(len(s.encode("utf-8")) for s in docs) / 1e6
 
 
 def load_dataset(verbose=False, remove=()):
+    # [FUNCTION DOC]
+    # HELPER: Fetches train/test subsets of the module-level categories (shuffled,
+    # random_state=42, removing the remove parts), fits a TfidfVectorizer
+    # (sublinear_tf, max_df=0.5, min_df=5, English stop words) on train and
+    # transforms test. Inputs: verbose bool False (prints sizes and timings);
+    # remove tuple ().
+    # Outputs: X_train, X_test (sparse), y_train, y_test, feature_names,
+    # target_names.
     """Load and vectorize the 20 newsgroups dataset."""
 
     data_train = fetch_20newsgroups(
@@ -185,6 +202,11 @@ import pandas as pd
 
 
 def plot_feature_effects():
+    # [FUNCTION DOC]
+    # HELPER: Weights the module-level clf.coef_ by the mean TF-IDF of each term,
+    # takes the top 5 terms per class, plots grouped horizontal bars of their
+    # effects per class and prints a table of the top keywords.
+    # Outputs: Axes. Side effects: new figure, prints; reads module globals.
     # learned coefficients weighted by frequency of appearance
     average_feature_effects = clf.coef_ * np.asarray(X_train.mean(axis=0)).ravel()
 
@@ -318,6 +340,11 @@ from sklearn.utils.extmath import density
 
 
 def benchmark(clf, custom_name=False):
+    # [FUNCTION DOC]
+    # HELPER: Fits clf on module-level train data, times fit and predict, prints
+    # accuracy and (if coef_ exists) dimensionality/density.
+    # Inputs: clf; custom_name - str or False for class name.
+    # Outputs: (description str, accuracy, train_time, test_time).
     print("_" * 80)
     print("Training: ")
     print(clf)

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: augments digits by 1px shifts, min-max scales to [0, 1], then
+# compares a BernoulliRBM + LogisticRegression pipeline with LogisticRegression on
+# raw pixels via classification reports and plots the 100 RBM components.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==============================================================
 Restricted Boltzmann Machine features for digit classification
@@ -31,6 +37,11 @@ from sklearn.preprocessing import minmax_scale
 
 
 def nudge_dataset(X, Y):
+    # [FUNCTION DOC]
+    # HELPER: Returns the original images plus four copies each shifted by one
+    # pixel (via convolution with one-hot 3x3 kernels, zero padded).
+    # Inputs: X - array (n, 64) of flattened 8x8 images; Y - labels (n,).
+    # Outputs: (X array (5n, 64), Y array (5n,)) with labels tiled 5 times.
     """
     This produces a dataset 5 times bigger than the original one,
     by moving the 8x8 images in X around by 1px to left, right, down, up
@@ -43,6 +54,9 @@ def nudge_dataset(X, Y):
     ]
 
     def shift(x, w):
+        # [FUNCTION DOC]
+        # HELPER: Reshapes one flattened image to 8x8, convolves it with kernel w
+        # (constant zero border) and flattens it back to length 64.
         return convolve(x.reshape((8, 8)), mode="constant", weights=w).ravel()
 
     X = np.concatenate(

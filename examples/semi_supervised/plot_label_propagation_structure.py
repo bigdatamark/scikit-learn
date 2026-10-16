@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: two concentric circles with only one labeled point each;
+# LabelSpreading(knn, alpha=0.8) propagates labels along the manifold and the
+# raw and learned labels are plotted.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================================
 Label Propagation circles: Learning a complex structure

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits SVR with rbf, linear and polynomial kernels to a noisy 1D
+# sine and plots fits and support vectors per kernel.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===================================================================
 Support Vector Regression (SVR) using linear and non-linear kernels

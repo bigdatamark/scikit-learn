@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script: benchmarks exact (KNeighborsTransformer) versus approximate
+# (nmslib via a local wrapper, pynndescent) nearest-neighbor transformers on MNIST
+# subsets, alone and chained with TSNE(metric='precomputed'), then plots the
+# resulting 2D embeddings side by side.
+# Exits the process (sys.exit) with a message if nmslib or pynndescent is missing.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =====================================
 Approximate nearest neighbors in TSNE
@@ -47,15 +55,31 @@ from sklearn.utils import shuffle
 
 
 class NMSlibTransformer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal scikit-learn transformer wrapping an nmslib index so it can
+    # replace KNeighborsTransformer; outputs a sparse distance graph.
+    # Fitted attributes: n_samples_fit_ (int), nmslib_ (nmslib index object).
     """Wrapper for using nmslib as sklearn's KNeighborsTransformer"""
 
     def __init__(self, n_neighbors=5, metric="euclidean", method="sw-graph", n_jobs=-1):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged (sklearn convention): n_neighbors (int, 5),
+        # metric (str, 'euclidean'; one of euclidean/cosine/l1/l2), method (nmslib index
+        # method, 'sw-graph'), n_jobs (int, -1 means all CPUs).
         self.n_neighbors = n_neighbors
         self.method = method
         self.metric = metric
         self.n_jobs = n_jobs
 
     def fit(self, X):
+        # [FUNCTION DOC]
+        # Builds an nmslib index over the rows of X.
+        # Inputs: X - dense array (n_samples, n_features). No y parameter.
+        # Outputs: self.
+        # Exceptions: KeyError if metric is not one of euclidean/cosine/l1/l2.
+        # Side effects: sets n_samples_fit_ and nmslib_; copies X into the index.
+        # KNOWN ISSUE: the signature accepts no y, so calling fit_transform(X, y) with a
+        # non-None y (e.g. via a Pipeline given y) would raise TypeError.
         self.n_samples_fit_ = X.shape[0]
 
         # see more metric in the manual
@@ -73,6 +97,15 @@ class NMSlibTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Queries n_neighbors + 1 neighbors per row (each sample counts as its own
+        # neighbor) with a thread count derived from n_jobs (negative values follow the
+        # joblib convention cpu_count + n_jobs + 1), stacks the indices and distances
+        # and assembles them into a CSR graph with a constant number of entries per row.
+        # Inputs: X - dense array (n_queries, n_features).
+        # Outputs: csr_array (n_queries, n_samples_fit_) of distances.
+        # Exceptions: AttributeError if not fitted.
+        # Side effects: none besides the nmslib query.
         n_samples_transform = X.shape[0]
 
         # For compatibility reasons, as each sample is considered as its own
@@ -102,6 +135,11 @@ class NMSlibTransformer(TransformerMixin, BaseEstimator):
 
 
 def load_mnist(n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Fetches mnist_784 from OpenML, shuffles with random_state=2 and
+    # returns the first n_samples rows scaled to [0, 1] with their string labels.
+    # Inputs: n_samples - int. Outputs: (X float array (n_samples, 784), y array).
+    # Side effects: network download / cache read.
     """Load MNIST, shuffle the data, and return only n_samples."""
     mnist = fetch_openml("mnist_784", as_frame=False)
     X, y = shuffle(mnist.data, mnist.target, random_state=2)

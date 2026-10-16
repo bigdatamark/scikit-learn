@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: trains MLPClassifier with several SGD/Adam learning-rate
+# schedules and momentum settings on iris, digits, circles and moons and plots
+# the training loss curves per dataset, suppressing ConvergenceWarning.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================================================
 Compare Stochastic learning strategies for MLPClassifier
@@ -93,6 +99,12 @@ plot_args = [
 
 
 def plot_on_dataset(X, y, ax, name):
+    # [FUNCTION DOC]
+    # HELPER: Min-max scales X, fits one MLPClassifier per entry of the module-level
+    # params/labels lists (max_iter 15 for 'digits', else 400, random_state=0),
+    # prints training score and final loss, then plots each loss_curve_ on ax.
+    # Inputs: X array (n_samples, n_features), y labels, ax Axes, name str.
+    # Side effects: prints, draws on ax, silences ConvergenceWarning locally.
     # for each dataset, plot learning for each learning strategy
     print("\nlearning on dataset %s" % name)
     ax.set_title(name)

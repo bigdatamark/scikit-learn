@@ -1,4 +1,11 @@
 # ruff: noqa: CPY001
+# [MODULE DOC]
+# Gallery script demonstrating release 1.7.0 highlights:
+# HTML repr improvements, custom validation set for HGBT, ROC curves from CV
+# results, Array API, MLP API consistency, sparse arrays.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Release Highlights for scikit-learn 1.7

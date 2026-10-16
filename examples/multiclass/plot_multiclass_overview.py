@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script: compares multiclass meta-estimators (OneVsRestClassifier,
+# OneVsOneClassifier, OutputCodeClassifier) wrapping a DecisionTreeClassifier against
+# the tree's native multiclass support on the OpenML yeast dataset.
+# Flow: fetch data, inspect class balance, cross-validate each strategy with
+# RepeatedStratifiedKFold, plot score distributions, then repeat after tuning the
+# tree hyperparameters with GridSearchCV.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===============================================
 Overview of multiclass training meta-estimators

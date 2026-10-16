@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: fits DecisionTreeRegressor with max_depth 2 and 5 on a noisy
+# 1D sine and on a multi-output circle target, plotting predictions to show
+# overfitting with deeper trees.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================
 Decision Tree Regression

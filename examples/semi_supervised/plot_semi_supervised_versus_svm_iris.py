@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on two iris features, compares decision boundaries of
+# LabelSpreading and SelfTrainingClassifier(SVC) for increasing labeled
+# fractions, with a fully supervised SVC as reference.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===============================================================================
 Decision boundary of semi-supervised classifiers versus SVM on the Iris dataset

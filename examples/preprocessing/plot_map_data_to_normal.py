@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: transforms samples from lognormal, chi-squared, Weibull,
+# Gaussian, uniform and bimodal distributions with PowerTransformer (Box-Cox,
+# Yeo-Johnson) and QuantileTransformer(output_distribution='normal') and
+# histograms the before/after data on held-out splits.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =================================
 Map data to a normal distribution

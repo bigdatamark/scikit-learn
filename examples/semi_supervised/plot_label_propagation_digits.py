@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: shuffles digits (RandomState(2)), keeps 340 samples with only
+# 40 labeled (others set to -1), fits LabelSpreading(knn, 7 neighbors), prints a
+# classification report and confusion matrix on the unlabeled part and shows the
+# 10 most uncertain predictions (highest label-distribution entropy).
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===================================================
 Label Propagation digits: Demonstrating performance

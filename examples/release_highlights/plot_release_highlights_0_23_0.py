@@ -1,4 +1,11 @@
 # ruff: noqa: CPY001
+# [MODULE DOC]
+# Gallery script demonstrating release 0.23.0 highlights:
+# Poisson/Tweedie GLMs and Poisson HGBT loss, HTML estimator repr, KMeans
+# improvements, HGBT monotonic constraints, sample weights for Lasso/ElasticNet.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================================
 Release Highlights for scikit-learn 0.23

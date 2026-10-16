@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: illustrates 1D kernel density estimation: histograms versus
+# tophat/gaussian KDE on bimodal normal data, the shapes of all available kernels,
+# and a comparison of several KDE kernels against the true density.
+# Uses a fixed np.random.seed(1) (global RNG mutated).
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===================================
 Simple 1D Kernel Density Estimation
@@ -91,6 +98,11 @@ fig.subplots_adjust(left=0.05, right=0.95, hspace=0.05, wspace=0.05)
 
 
 def format_func(x, loc):
+    # [FUNCTION DOC]
+    # HELPER: Matplotlib tick formatter labelling x positions in units of the
+    # bandwidth h ('0', 'h', '-h', or '<int>h').
+    # Inputs: x - tick value; loc - tick position (unused). Outputs: str.
+    # KNOWN ISSUE: non-integer x is truncated by the integer format.
     if x == 0:
         return "0"
     elif x == 1:

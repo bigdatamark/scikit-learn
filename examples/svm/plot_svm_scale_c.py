@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: shows how the optimal C of L1-penalized LinearSVC and
+# L2-penalized SVC/LinearSVC varies with training-set size, using validation
+# curves over C for several train fractions, with and without rescaling C by
+# the number of samples.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 r"""
 ==============================================
 Scaling the regularization parameter for SVCs

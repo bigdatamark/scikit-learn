@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: grid-searches n_neighbors of a KNeighborsClassifier fed with a
+# precomputed KNeighborsTransformer graph inside a Pipeline whose memory is a
+# TemporaryDirectory, so the neighbor graph is computed once (for the largest k)
+# and reused across candidates; plots test accuracy and fit time versus k on digits.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================
 Caching nearest neighbors

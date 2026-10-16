@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script: multilabel classification on the OpenML yeast dataset.
+# Fits an independent OneVsRestClassifier(LogisticRegression) baseline, then an
+# ensemble of 10 ClassifierChain models with random label orders; scores each with
+# sample-averaged Jaccard similarity, also scores the averaged chain probabilities
+# thresholded at 0.5, and bar-plots all scores.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==================================================
 Multilabel classification using a classifier chain

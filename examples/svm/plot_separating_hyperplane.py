@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits a linear SVC with large C on 40 blob points and plots the
+# decision boundary, margins and support vectors.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================================
 SVM: Maximum margin separating hyperplane

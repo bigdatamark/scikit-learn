@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: visualizes the NCA stochastic-neighbor probabilities of one
+# point (index 3) to all others as line thicknesses, in the original space and
+# after fitting NeighborhoodComponentsAnalysis on a small make_classification set.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =============================================
 Neighborhood Components Analysis Illustration
@@ -53,6 +59,12 @@ ax.axis("equal")  # so that boundaries are displayed correctly as circles
 
 
 def link_thickness_i(X, i):
+    # [FUNCTION DOC]
+    # HELPER: Computes the softmax over negative squared Euclidean distances from
+    # point i to every point (self excluded by setting its distance to infinity),
+    # using logsumexp for stability.
+    # Inputs: X - array (n_samples, 2); i - int index.
+    # Outputs: array (n_samples,) of probabilities summing to 1, zero at i.
     diff_embedded = X[i] - X
     dist_embedded = np.einsum("ij,ij->i", diff_embedded, diff_embedded)
     dist_embedded[i] = np.inf
@@ -64,6 +76,13 @@ def link_thickness_i(X, i):
 
 
 def relate_point(X, i, ax):
+    # [FUNCTION DOC]
+    # HELPER: Draws a line from point i to every other point j, colored by y[j]
+    # and with width 5 times the link probability from link_thickness_i.
+    # Inputs: X - array (n_samples, 2); i - int; ax - matplotlib Axes.
+    # Side effects: draws on ax; reads the module-level global y.
+    # KNOWN ISSUE: link_thickness_i is recomputed inside the loop for every j
+    # although it does not depend on j (wasteful but correct).
     pt_i = X[i]
     for j, pt_j in enumerate(X):
         thickness = link_thickness_i(X, i)

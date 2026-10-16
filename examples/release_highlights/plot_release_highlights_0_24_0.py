@@ -1,4 +1,12 @@
 # ruff: noqa: CPY001, E501
+# [MODULE DOC]
+# Gallery script demonstrating release 0.24.0 highlights:
+# successive halving search, native categorical HGBT, self-training,
+# SequentialFeatureSelector, PolynomialCountSketch, ICE plots, Poisson tree
+# criterion.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================================
 Release Highlights for scikit-learn 0.24

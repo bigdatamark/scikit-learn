@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: projects digits onto 15 PCA components, grid-searches the
+# KernelDensity bandwidth, samples 44 new points from the best KDE (random_state=0),
+# maps them back with the inverse PCA and plots real vs generated digit images.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================
 Kernel Density Estimation

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits NearestCentroid on two iris features with shrink_threshold
+# None and 0.2, prints training accuracy and plots each decision boundary.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===============================
 Nearest Centroid Classification

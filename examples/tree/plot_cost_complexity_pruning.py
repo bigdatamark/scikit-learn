@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: computes the cost-complexity pruning path of a
+# DecisionTreeClassifier on breast cancer, fits one tree per ccp_alpha and plots
+# impurity, node count, depth and train/test accuracy versus alpha.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================================================
 Post pruning decision trees with cost complexity pruning

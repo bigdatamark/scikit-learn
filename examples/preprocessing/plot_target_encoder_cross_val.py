@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: builds a synthetic regression set with an informative
+# categorical feature and a high-cardinality uninformative one, and shows that
+# TargetEncoder.fit_transform (internal cross fitting) avoids the overfitting
+# seen with fit(X, y).transform(X), via Ridge coefficients and test R2.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Target Encoder's Internal Cross fitting

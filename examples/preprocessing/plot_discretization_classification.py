@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: on moons, circles and linearly separable data, grid-searches
+# LogisticRegression, LinearSVC, KBinsDiscretizer/SplineTransformer + linear
+# models, GradientBoosting and an RBF SVC, and plots decision functions with
+# test scores in a grid of subplots.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ======================
 Feature discretization
@@ -49,6 +56,9 @@ h = 0.02  # step size in the mesh
 
 
 def get_name(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns the estimator class name; for a Pipeline, recursively joins
+    # the step names with ' + '. Inputs: estimator. Outputs: str.
     name = estimator.__class__.__name__
     if name == "Pipeline":
         name = [get_name(est[1]) for est in estimator.steps]

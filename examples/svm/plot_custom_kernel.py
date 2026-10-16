@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: trains SVC with a callable custom kernel on two iris features
+# and plots the decision surface plus support vectors.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ======================
 SVM with custom kernel
@@ -25,6 +30,10 @@ Y = iris.target
 
 
 def my_kernel(X, Y):
+    # [FUNCTION DOC]
+    # HELPER: Gram matrix X M Y^T with M = diag(2, 1).
+    # Inputs: X (n, 2), Y (m, 2). Outputs: array (n, m).
+    # Exceptions: shape mismatch error if the inputs do not have 2 features.
     """
     We create a custom kernel:
 

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: on two unbalanced blobs, plots the decision boundaries of a
+# linear SVC with and without class_weight={1: 10}.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =================================================
 SVM: Separating hyperplane for unbalanced classes

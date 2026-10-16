@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: applies LocalOutlierFactor (outlier-detection mode) via
+# fit_predict to Gaussian inliers plus uniform outliers, counts prediction errors,
+# and draws circles with radius proportional to the normalized outlier score.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =================================================
 Outlier detection with Local Outlier Factor (LOF)
@@ -68,6 +74,11 @@ from matplotlib.legend_handler import HandlerPathCollection
 
 
 def update_legend_marker_size(handle, orig):
+    # [FUNCTION DOC]
+    # HELPER: Legend handler callback that copies properties from the original
+    # scatter handle then fixes the legend marker size to 20.
+    # Inputs: handle - legend artist; orig - original PathCollection.
+    # Side effects: mutates handle.
     "Customize size of the legend marker"
     handle.update_from(orig)
     handle.set_sizes([20])

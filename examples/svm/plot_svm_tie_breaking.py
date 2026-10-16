@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits SVC(decision_function_shape='ovr') with break_ties False
+# and True on 3 blobs and plots predictions over a grid to show the tie region.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================================================
 SVM Tie Breaking Example

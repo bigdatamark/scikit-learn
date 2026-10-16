@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: fits a haversine-metric, ball-tree KernelDensity on the
+# latitude/longitude (radians) of two species' observations, evaluates the
+# density on the land cells of the coverage grid and plots contour maps,
+# drawing coastlines with basemap if importable, else from the coverage data.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ================================================
 Kernel Density Estimate of Species Distributions
@@ -55,6 +62,13 @@ except ImportError:
 
 
 def construct_grids(batch):
+    # [FUNCTION DOC]
+    # HELPER: Builds the x and y coordinate axes of the coverage map, starting one
+    # grid_size past the lower-left corner and stepping by grid_size for Nx / Ny
+    # cells. Inputs: batch - Bunch from fetch_species_distributions.
+    # Outputs: tuple (xgrid, ygrid) of 1D float arrays.
+    # KNOWN ISSUE: arange with a float step can yield one element more or less than
+    # Nx / Ny due to floating point rounding.
     """Construct the map grid from the batch object
 
     Parameters

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits a DecisionTreeClassifier on every pair of iris features
+# and plots decision surfaces, then plots the tree fitted on all features.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================================================
 Plot the decision surface of decision trees trained on the iris dataset

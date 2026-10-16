@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: compares decision boundaries and test accuracy of a
+# StandardScaler + KNeighborsClassifier pipeline with and without a
+# NeighborhoodComponentsAnalysis step, on two iris features.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =============================================================================
 Comparing Nearest Neighbors with and without Neighborhood Components Analysis

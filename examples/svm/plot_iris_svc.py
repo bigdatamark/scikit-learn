@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits SVC(linear), LinearSVC, SVC(rbf) and SVC(poly, degree 3) on
+# two iris features and plots their decision regions in a 2x2 grid.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==================================================
 Plot different SVM classifiers in the iris dataset

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script: takes median income and average occupancy from California
+# housing and shows, for raw data and for each scaler/transformer (Standard,
+# MinMax, MaxAbs, Robust, PowerTransformer variants, QuantileTransformer variants,
+# Normalizer), a full-range and a 0-99th percentile zoomed scatter with marginal
+# histograms, colored by the min-max scaled target.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =============================================================
 Compare the effect of different scalers on data with outliers
@@ -121,6 +129,12 @@ cmap = getattr(cm, "plasma_r", cm.hot_r)
 
 
 def create_axes(title, figsize=(16, 6)):
+    # [FUNCTION DOC]
+    # HELPER: Creates a figure titled title with two scatter-plus-marginal-histogram
+    # panels (full and zoomed) and a narrow colorbar axis, using fixed rectangles.
+    # Inputs: title str; figsize tuple, default (16, 6).
+    # Outputs: ((scatter, histy, histx), (scatter_zoom, histy_zoom, histx_zoom),
+    # colorbar_axes).
     fig = plt.figure(figsize=figsize)
     fig.suptitle(title)
 
@@ -164,6 +178,12 @@ def create_axes(title, figsize=(16, 6)):
 
 
 def plot_distribution(axes, X, y, hist_nbins=50, title="", x0_label="", x1_label=""):
+    # [FUNCTION DOC]
+    # HELPER: Scatter-plots the two columns of X colored by the module-level cmap
+    # of y, styles spines, and draws grey marginal histograms with hist_nbins bins.
+    # Inputs: axes - (scatter, hist for X1, hist for X0); X (n, 2); y (n,) in [0,1];
+    # hist_nbins int 50; title/x0_label/x1_label str.
+    # Side effects: draws on the given axes.
     ax, hist_X1, hist_X0 = axes
 
     ax.set_title(title)
@@ -207,6 +227,11 @@ def plot_distribution(axes, X, y, hist_nbins=50, title="", x0_label="", x1_label
 
 
 def make_plot(item_idx):
+    # [FUNCTION DOC]
+    # HELPER: For distributions[item_idx], creates axes, plots the full data and
+    # the subset strictly inside the 0-99th percentiles of both features, then adds
+    # a colorbar normalized on y_full. Inputs: item_idx int.
+    # Side effects: creates a figure; reads module globals (y, y_full, features...).
     title, X = distributions[item_idx]
     ax_zoom_out, ax_zoom_in, ax_colorbar = create_axes(title)
     axarr = (ax_zoom_out, ax_zoom_in)

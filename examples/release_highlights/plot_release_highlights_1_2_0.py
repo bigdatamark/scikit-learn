@@ -1,4 +1,11 @@
 # ruff: noqa: CPY001, E501
+# [MODULE DOC]
+# Gallery script demonstrating release 1.2.0 highlights:
+# set_output pandas API, HGBT interaction constraints, new displays, faster
+# fetch_openml parser, Array API in LinearDiscriminantAnalysis.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Release Highlights for scikit-learn 1.2

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: appends 36 noise features to iris, runs a SelectPercentile
+# (f_classif) + StandardScaler + SVC pipeline over several percentiles and plots
+# mean/std of cross-validated accuracy versus percentile.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =================================================
 SVM-Anova: SVM with univariate feature selection

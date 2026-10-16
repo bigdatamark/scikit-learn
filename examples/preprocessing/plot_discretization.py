@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on a noisy 1D sine-like regression set, fits LinearRegression
+# and DecisionTreeRegressor before and after one-hot KBinsDiscretizer(10 bins) and
+# plots both models' predictions together with the bin edges.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ================================================================
 Using KBinsDiscretizer to discretize continuous features

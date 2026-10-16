@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: visualizes RBF SVC decision functions on a binary 2-feature iris
+# subset for a 3x3 grid of C and gamma, then grid-searches C/gamma on full
+# standardized iris with StratifiedShuffleSplit and heat-maps the validation
+# accuracy using a custom midpoint normalization.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==================
 RBF SVM parameters
@@ -86,11 +93,21 @@ from matplotlib.colors import Normalize
 
 
 class MidpointNormalize(Normalize):
+    # [CLASS DOC]
+    # HELPER: Matplotlib Normalize that maps vmin->0, midpoint->0.5, vmax->1 by
+    # piecewise linear interpolation, to stretch colors around a chosen midpoint.
     def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+        # [FUNCTION DOC]
+        # Stores midpoint and delegates vmin, vmax, clip to Normalize.
         self.midpoint = midpoint
         Normalize.__init__(self, vmin, vmax, clip)
 
     def __call__(self, value, clip=None):
+        # [FUNCTION DOC]
+        # Interpolates value over (vmin, midpoint, vmax) -> (0, 0.5, 1) and returns a
+        # masked array. Inputs: value scalar/array; clip ignored.
+        # KNOWN ISSUE: the clip argument and any masked input are ignored, and values
+        # outside [vmin, vmax] are clamped by interp rather than flagged.
         x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
         return np.ma.masked_array(np.interp(value, x, y))
 

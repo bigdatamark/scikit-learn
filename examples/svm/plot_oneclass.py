@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: fits OneClassSVM(rbf, nu=0.1, gamma=0.1) on Gaussian training
+# data, counts errors on training, regular test and uniform abnormal points, and
+# plots the learned frontier.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==========================================
 One-class SVM with non-linear kernel (RBF)

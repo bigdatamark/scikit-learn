@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: clusters 4 newsgroups categories with KMeans and
+# MiniBatchKMeans on TF-IDF, TF-IDF + LSA, and HashingVectorizer + TF-IDF + LSA
+# features, evaluates against true labels over several seeds and plots metrics
+# and training times; also prints top terms per cluster.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Clustering text documents using k-means
@@ -112,6 +119,13 @@ evaluations_std = []
 
 
 def fit_and_evaluate(km, X, name=None, n_runs=5):
+    # [FUNCTION DOC]
+    # HELPER: Fits km n_runs times with random_state 0..n_runs-1, recording fit time
+    # and homogeneity, completeness, V-measure, adjusted Rand and silhouette
+    # (sample_size 2000) scores; prints means +/- std and appends mean and std dicts
+    # to the module-level evaluations / evaluations_std lists.
+    # Inputs: km clusterer; X features; name str or None; n_runs int 5.
+    # Side effects: mutates km params, appends to globals, prints.
     name = km.__class__.__name__ if name is None else name
 
     train_times = []

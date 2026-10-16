@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on 5 newsgroups categories with TF-IDF features, compares
+# micro-F1 of an SGDClassifier trained on 100% and 20% of labels with
+# SelfTrainingClassifier and LabelSpreading using 20% labels plus unlabeled data.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ================================================
 Semi-supervised Classification on a Text Dataset
@@ -95,6 +101,11 @@ ls_pipeline = Pipeline(
 
 
 def eval_and_get_f1(clf, X_train, y_train, X_test, y_test):
+    # [FUNCTION DOC]
+    # HELPER: Prints the training set size and count of unlabeled (-1) targets,
+    # fits clf, predicts X_test and returns the micro-averaged F1 score.
+    # Inputs: clf estimator; X_train/X_test documents; y_train (-1 = unlabeled),
+    # y_test. Outputs: float. Side effects: fits clf, prints.
     """Evaluate model performance and return F1 score"""
     print(f"   Number of training samples: {len(X_train)}")
     print(f"   Unlabeled samples in training set: {sum(1 for x in y_train if x == -1)}")

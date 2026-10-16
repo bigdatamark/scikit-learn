@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: reduces digits to 2D with PCA, LinearDiscriminantAnalysis and
+# NeighborhoodComponentsAnalysis (each after StandardScaler), evaluates a 3-NN
+# classifier in each embedding on a held-out split and scatter-plots the
+# embedded points titled with the KNN test accuracy.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ==============================================================
 Dimensionality Reduction with Neighborhood Components Analysis

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on the wine dataset shows the effect of StandardScaler on a
+# KNeighborsClassifier decision boundary (proline/hue), on PCA principal
+# components, and on LogisticRegression log-loss and accuracy.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =============================
 Importance of Feature Scaling
@@ -76,6 +82,11 @@ clf = KNeighborsClassifier(n_neighbors=20)
 
 
 def fit_and_plot_model(X_plot, y, clf, ax):
+    # [FUNCTION DOC]
+    # HELPER: Fits clf on X_plot, draws its predicted-class decision boundary on ax
+    # and overlays the samples using the proline and hue columns.
+    # Inputs: X_plot DataFrame with 'proline' and 'hue'; y labels; clf; ax.
+    # Outputs: the Axes used. Side effects: refits clf (mutates it).
     clf.fit(X_plot, y)
     disp = DecisionBoundaryDisplay.from_estimator(
         clf,

@@ -1,4 +1,12 @@
 # ruff: noqa: CPY001
+# [MODULE DOC]
+# Gallery script demonstrating release 1.5.0 highlights:
+# FixedThresholdClassifier, TunedThresholdClassifierCV, PCA speedups,
+# subscriptable ColumnTransformer, callable SimpleImputer strategy, pairwise
+# distances on non-numeric data.
+# Each section is an independent short snippet fitting and printing results.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =======================================
 Release Highlights for scikit-learn 1.5
@@ -75,6 +83,9 @@ from sklearn.metrics import confusion_matrix
 
 
 def custom_score(y_observed, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Business metric from the all-normalized confusion matrix:
+    # tp - 2 * fn - 0.1 * fp. Inputs: binary y_observed, y_pred. Outputs: float.
     tn, fp, fn, tp = confusion_matrix(y_observed, y_pred, normalize="all").ravel()
     return tp - 2 * fn - 0.1 * fp
 
@@ -195,6 +206,9 @@ X = np.array(
 
 
 def smallest_abs(arr):
+    # [FUNCTION DOC]
+    # HELPER: Returns the minimum absolute value of a 1D array (used as a
+    # SimpleImputer strategy). Outputs: scalar.
     """Return the smallest absolute value of a 1D array."""
     return np.min(np.abs(arr))
 
@@ -215,6 +229,11 @@ Y = ["cat", "fox"]
 
 
 def levenshtein_distance(x, y):
+    # [FUNCTION DOC]
+    # HELPER: Naive recursive edit distance between two strings: if either is
+    # empty return the other's length; if first characters match recurse on the
+    # tails; else 1 plus the minimum of deletion, insertion and substitution.
+    # Outputs: int. Exponential time; only suited to tiny strings.
     """Return the Levenshtein distance between two strings."""
     if x == "" or y == "":
         return max(len(x), len(y))

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: on breast cancer with only 50 labels, cross-validates
+# SelfTrainingClassifier(SVC) for thresholds 0.4-1.05 and plots accuracy, number
+# of labeled samples at the end of fit, and the last iteration's labels.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =============================================
 Effect of varying threshold for self-training

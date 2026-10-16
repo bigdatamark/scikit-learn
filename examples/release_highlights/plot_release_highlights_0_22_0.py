@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script demonstrating scikit-learn 0.22 features: plotting API,
+# stacking, permutation importance, HGBT missing values, precomputed neighbors
+# graph, KNNImputer, tree pruning, OpenML dataframes, check_estimator, multiclass
+# ROC AUC. Each section is an independent short snippet.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ========================================
 Release Highlights for scikit-learn 0.22
@@ -278,6 +285,10 @@ from sklearn.utils.estimator_checks import parametrize_with_checks
 
 @parametrize_with_checks([LogisticRegression(), DecisionTreeRegressor()])
 def test_sklearn_compatible_estimator(estimator, check):
+    # [FUNCTION DOC]
+    # Pytest-style test parametrized by parametrize_with_checks; runs one estimator
+    # check callable on the given estimator. Inputs: estimator, check callable.
+    # Only defined (not run) by the script.
     check(estimator)
 
 

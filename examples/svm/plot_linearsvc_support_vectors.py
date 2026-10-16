@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: fits LinearSVC with C=1 and C=100 on blobs, recovers support
+# vectors as samples whose absolute decision function is at most 1 (plus a small
+# tolerance), and plots margins and those points.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =====================================
 Plot the support vectors in LinearSVC

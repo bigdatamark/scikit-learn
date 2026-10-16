@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: trains a StandardScaler + KNeighborsClassifier(11 neighbors)
+# pipeline on two iris features and plots decision boundaries for weights='uniform'
+# and weights='distance' using DecisionBoundaryDisplay, with test points overlaid.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ================================
 Nearest Neighbors Classification

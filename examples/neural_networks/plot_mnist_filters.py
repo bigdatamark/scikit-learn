@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: trains a one-hidden-layer (40 units) MLPClassifier with SGD on
+# a scaled MNIST subset for 8 iterations (ConvergenceWarning ignored), prints
+# train/test scores and displays the first-layer weights as 28x28 images.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =====================================
 Visualization of MLP weights on MNIST

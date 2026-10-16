@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script: fits a linear SVC on Gaussian clusters with C=1 and C=0.05 and
+# plots the separating line and margins computed from coef_ and intercept_.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================================================
 SVM Margins Example

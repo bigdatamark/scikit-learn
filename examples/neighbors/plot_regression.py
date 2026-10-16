@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script: fits KNeighborsRegressor(5 neighbors) to a noisy 1D sine with
+# uniform and distance weights and plots the interpolated predictions on a grid.
+# Uses np.random.seed(0) (global RNG mutated).
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ============================
 Nearest Neighbors regression

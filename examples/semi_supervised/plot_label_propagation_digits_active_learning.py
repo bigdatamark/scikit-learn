@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script: active learning loop with LabelSpreading on 330 digits: starts
+# with 40 labels, each of 5 iterations reports metrics, picks the 5 most
+# uncertain unlabeled samples by entropy, reveals their labels and plots them.
+# KNOWN ISSUE: the docstring says training starts with 10 labeled points, but the
+# code uses n_labeled_points = 40.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 =========================================
 Label Propagation digits: Active learning

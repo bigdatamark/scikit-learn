@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: on 20 newsgroups text, benchmarks DictVectorizer and
+# FeatureHasher on token-frequency dicts and raw tokens, then CountVectorizer,
+# HashingVectorizer and TfidfVectorizer on raw text, and plots vectorization
+# speed.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ===========================================
 FeatureHasher and DictVectorizer Comparison
@@ -69,6 +76,8 @@ import re
 
 
 def tokenize(doc):
+    # [FUNCTION DOC]
+    # HELPER: Lazily yields lowercased regex word tokens of doc. Outputs: generator.
     """Extract tokens from doc.
 
     This uses a simple regex that matches word characters to break strings
@@ -89,6 +98,8 @@ from collections import defaultdict
 
 
 def token_freqs(doc):
+    # [FUNCTION DOC]
+    # HELPER: Counts occurrences of each token of doc. Outputs: defaultdict(int).
     """Extract a dict mapping tokens from doc to their occurrences."""
 
     freq = defaultdict(int)
@@ -166,6 +177,9 @@ import numpy as np
 
 
 def n_nonzero_columns(X):
+    # [FUNCTION DOC]
+    # HELPER: Number of distinct column indices holding a nonzero in sparse X.
+    # Outputs: int.
     """Number of columns with at least one non-zero value in a CSR matrix.
 
     This is useful to count the number of features columns that are effectively

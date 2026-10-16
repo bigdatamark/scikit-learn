@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script: on OpenML wine reviews, compares cross-validated RMSE of
+# HistGradientBoostingRegressor with categorical features dropped, ordinal-,
+# one-hot-, target-encoded, mixed, and native categorical support; collects
+# results in a DataFrame and bar-plots them.
+# Side effects: downloads/loads data, prints results and opens matplotlib figures at
+# import time; this is a sphinx-gallery script, not a library.
 """
 ============================================
 Comparing Target Encoder with Other Encoders
@@ -82,6 +89,13 @@ results = []
 
 
 def evaluate_model_and_store(name, pipe):
+    # [FUNCTION DOC]
+    # HELPER: Cross-validates pipe on module-level X, y with n_cv_folds and
+    # negated RMSE scoring, appends a dict of mean/std train and test RMSE
+    # labeled by name to the module-level results list.
+    # Inputs: name str; pipe estimator. Outputs: None.
+    # KNOWN ISSUE: 'rmse_test_std' is computed from the train scores instead of the
+    # test scores.
     result = cross_validate(
         pipe,
         X,
