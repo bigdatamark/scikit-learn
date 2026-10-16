@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Matplotlib displays for learning curves (LearningCurveDisplay) and validation curves
+#   (ValidationCurveDisplay), sharing the plotting routine of _BaseCurveDisplay.
+#   Displays store precomputed train/test score matrices and can be built directly from
+#   an estimator via learning_curve / validation_curve. matplotlib is imported lazily,
+#   only when plotting.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -9,6 +15,9 @@ from sklearn.utils._plotting import _interval_max_min_ratio, _validate_score_nam
 
 
 class _BaseCurveDisplay:
+    # [CLASS DOC]
+    # HELPER: Mixin providing _plot_curve to subclasses that define train_scores,
+    #   test_scores (arrays (n_ticks, n_cv_folds)) and score_name.
     def _plot_curve(
         self,
         x_data,
@@ -22,6 +31,27 @@ class _BaseCurveDisplay:
         fill_between_kw=None,
         errorbar_kw=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Plots mean scores across CV folds versus x_data and their spread (+/-
+        #   one std).
+        # Steps: requires matplotlib; creates a new figure/axes if ax is None;
+        #   optionally negates scores; validates std_display_style ('fill_between',
+        #   'errorbar', None) and score_type ('test', 'train', 'both'); for
+        #   'fill_between' or None draws mean lines (line_kw), for 'errorbar' draws
+        #   error bars of mean and std (errorbar_kw), and for 'fill_between'
+        #   additionally shades mean +/- std (fill_between_kw, default alpha 0.5); adds
+        #   a legend; uses a log x-scale (symlog if any x <= 0) when the ratio of the
+        #   largest to smallest gap between x values exceeds 5, else linear; sets the
+        #   y-label to score_name (falling back to self.score_name).
+        # Inputs: x_data - 1-D array of x positions; ax - matplotlib Axes or None; other
+        #   keyword arguments as above.
+        # Outputs: None.
+        # Exceptions: ValueError for invalid std_display_style or score_type;
+        #   ImportError if matplotlib is missing.
+        # Side effects: draws on ax and sets lines_, errorbar_, fill_between_ (each a
+        #   list or None), ax_, figure_.
+        # KNOWN ISSUE: if both score_name and self.score_name are None the y-label
+        #   becomes the literal string "None".
         check_matplotlib_support(f"{self.__class__.__name__}.plot")
 
         import matplotlib.pyplot as plt
@@ -124,6 +154,9 @@ class _BaseCurveDisplay:
 
 
 class LearningCurveDisplay(_BaseCurveDisplay):
+    # [CLASS DOC]
+    # Learning curve display: x-axis is the absolute number of training samples
+    #   (train_sizes).
     """Learning Curve visualization.
 
     It is recommended to use
@@ -203,6 +236,9 @@ class LearningCurveDisplay(_BaseCurveDisplay):
     """
 
     def __init__(self, *, train_sizes, train_scores, test_scores, score_name=None):
+        # [FUNCTION DOC]
+        # Stores train_sizes, train_scores, test_scores and score_name without
+        #   validation.
         self.train_sizes = train_sizes
         self.train_scores = train_scores
         self.test_scores = test_scores
@@ -220,6 +256,12 @@ class LearningCurveDisplay(_BaseCurveDisplay):
         fill_between_kw=None,
         errorbar_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Draws the learning curve via _plot_curve using train_sizes as x data (default
+        #   score_type 'both') and labels the x-axis "Number of samples in the training
+        #   set".
+        # Outputs: self. Side effects: sets ax_, figure_, lines_, errorbar_,
+        #   fill_between_.
         """Plot visualization.
 
         Parameters
@@ -311,6 +353,16 @@ class LearningCurveDisplay(_BaseCurveDisplay):
         fill_between_kw=None,
         errorbar_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Class constructor: checks matplotlib availability, derives score_name from
+        #   scoring/negate_score, runs learning_curve with the given CV and parallelism
+        #   options (fit_params forwarded as params, no timing returned), builds the
+        #   display and plots it.
+        # Inputs: estimator, X, y plus learning_curve options and plot options (see
+        #   docstring).
+        # Outputs: the plotted display instance.
+        # Exceptions: propagates errors from learning_curve and plot.
+        # Side effects: fits clones of the estimator; draws a figure.
         """Create a learning curve display from an estimator.
 
         Read more in the :ref:`User Guide <visualizations>` for general
@@ -509,6 +561,8 @@ class LearningCurveDisplay(_BaseCurveDisplay):
 
 
 class ValidationCurveDisplay(_BaseCurveDisplay):
+    # [CLASS DOC]
+    # Validation curve display: x-axis is the values of a hyperparameter (param_range).
     """Validation Curve visualization.
 
     It is recommended to use
@@ -596,6 +650,9 @@ class ValidationCurveDisplay(_BaseCurveDisplay):
     def __init__(
         self, *, param_name, param_range, train_scores, test_scores, score_name=None
     ):
+        # [FUNCTION DOC]
+        # Stores param_name, param_range, train_scores, test_scores and score_name
+        #   without validation.
         self.param_name = param_name
         self.param_range = param_range
         self.train_scores = train_scores
@@ -614,6 +671,11 @@ class ValidationCurveDisplay(_BaseCurveDisplay):
         fill_between_kw=None,
         errorbar_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Draws the validation curve via _plot_curve using param_range as x data and
+        #   labels the x-axis with param_name.
+        # Outputs: self. Side effects: sets ax_, figure_, lines_, errorbar_,
+        #   fill_between_.
         """Plot visualization.
 
         Parameters
@@ -703,6 +765,12 @@ class ValidationCurveDisplay(_BaseCurveDisplay):
         fill_between_kw=None,
         errorbar_kw=None,
     ):
+        # [FUNCTION DOC]
+        # Class constructor: checks matplotlib availability, derives score_name, runs
+        #   validation_curve over param_name/param_range, builds the display
+        #   (param_range converted to a numpy array) and plots it.
+        # Outputs: the plotted display instance.
+        # Side effects: fits clones of the estimator; draws a figure.
         """Create a validation curve display from an estimator.
 
         Read more in the :ref:`User Guide <visualizations>` for general
