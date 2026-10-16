@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for PrecisionRecallDisplay: agreement with precision_recall_curve and
+# average_precision_score for single-curve and per-fold constructors, length
+# validation, chance-level lines (prevalence), naming and default labels, pipelines,
+# string labels, pos_label switching, reuse of prevalence, despine, deprecated y_pred
+#   and
+# prevalence computation for torch/numpy/list targets. Uses the pyplot fixture.
 from collections import Counter
 
 import numpy as np
@@ -24,6 +31,10 @@ from sklearn.utils._testing import assert_allclose
 
 
 def _check_figure_axes_and_labels(display, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: Asserts Axes/Figure types, axis labels 'Recall/Precision (Positive label:
+    # X)', adjustable 'box', equal aspect and limits (-0.01, 1.01) on both axes.
+    # Inputs: display; pos_label - expected label shown.
     """Check mpl figure and axes are correct."""
     import matplotlib as mpl
 
@@ -48,6 +59,15 @@ def test_precision_recall_display_plotting(
     drop_intermediate,
     with_sample_weight,
 ):
+    # [FUNCTION DOC]
+    # Verifies for both single-curve constructors, both response methods,
+    # drop_intermediate and sample weights that precision, recall and AP match the
+    #   metric
+    # functions, axes defaults hold, the line is a steps-post Line2D, re-plotting with a
+    # name and curve_kwargs alpha sets the label 'name (AP = x)' and alpha, and no
+    #   chance
+    # line is drawn by default.
+    # KNOWN ISSUE: the classifier is fitted twice (redundant).
     """Check the overall plotting rendering."""
     import matplotlib as mpl
 
@@ -123,6 +143,12 @@ def test_precision_recall_display_plotting(
 def test_precision_recall_display_from_cv_results_plotting(
     pyplot, response_method, drop_intermediate, with_sample_weight
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_cv_results with both response methods, drop_intermediate and
+    # sample weights that each fold's precision, recall and AP match per-fold manual
+    # computation, each fold line is a steps-post Line2D, axes defaults hold and no
+    #   chance
+    # line is drawn by default.
     """Check the overall plotting of `from_cv_results`."""
     import matplotlib as mpl
 
@@ -260,6 +286,11 @@ def test_precision_recall_display_from_cv_results_plotting(
     ],
 )
 def test_precision_recall_plot_parameter_length_validation(pyplot, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies that plot raises ValueError naming the mismatched attributes (precision,
+    # recall, average_precision, prevalence_pos_label, name) with their lengths, and
+    #   that a
+    # name list of length 1 is accepted.
     """Check `plot` parameter length validation performed correctly."""
     display = PrecisionRecallDisplay(**params)
     if err_msg:
@@ -276,6 +307,11 @@ def test_precision_recall_plot_parameter_length_validation(pyplot, params, err_m
 def test_precision_recall_chance_level_line(
     pyplot, plot_chance_level, chance_level_kw, constructor_name
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_estimator/from_predictions that chance_level_ is None when not
+    # requested; otherwise it is a horizontal Line2D at the positive-class prevalence
+    #   from
+    # x=0 to 1, black by default or red via color/c, labeled 'Chance level (AP = p)'.
     """Check chance level plotting behavior, for `from_estimator`/`from_predictions`."""
     import matplotlib as mpl
 
@@ -324,6 +360,10 @@ def test_precision_recall_chance_level_line(
 def test_precision_recall_chance_level_line_from_cv_results(
     pyplot, plot_chance_level, chance_level_kw
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_cv_results one chance line per fold at that fold's test-set
+    # prevalence, with default or custom color, the first labeled with mean +/- std
+    # prevalence and the others carrying matplotlib's automatic '_childN' labels.
     """Check chance level plotting behavior for `from_cv_results`."""
     import matplotlib as mpl
 
@@ -385,6 +425,10 @@ def test_precision_recall_chance_level_line_from_cv_results(
     ],
 )
 def test_precision_recall_display_name(pyplot, constructor_name, default_label):
+    # [FUNCTION DOC]
+    # Verifies default labels for each constructor ('LogisticRegression (AP = x)',
+    # 'Classifier (AP = x)', aggregate 'AP = mean +/- std' for CV) and that re-plotting
+    # with name='MySpecialEstimator' updates the (first) label accordingly.
     """Check the behaviour of the name parameters"""
     X, y = make_classification(n_classes=2, n_samples=100, random_state=0)
     pos_label = 1
@@ -456,6 +500,9 @@ def test_precision_recall_display_name(pyplot, constructor_name, default_label):
     ],
 )
 def test_precision_recall_display_pipeline(pyplot, clf):
+    # [FUNCTION DOC]
+    # Verifies that unfitted pipelines raise NotFittedError and that after fitting the
+    # display name is the pipeline class name ('Pipeline').
     X, y = make_classification(n_classes=2, n_samples=50, random_state=0)
     with pytest.raises(NotFittedError):
         PrecisionRecallDisplay.from_estimator(clf, X, y)
@@ -465,6 +512,13 @@ def test_precision_recall_display_pipeline(pyplot, clf):
 
 
 def test_precision_recall_display_string_labels(pyplot):
+    # [FUNCTION DOC]
+    # Regression test for #15738 on breast cancer with string targets: AP and name are
+    # correct for from_estimator; from_predictions without pos_label raises ValueError
+    #   and
+    # with pos_label matches; from_cv_results AP per fold matches manual computation
+    #   using
+    # each fold estimator's classes_[1].
     # regression test #15738
     cancer = load_breast_cancer()
     X, y = cancer.data, cancer.target_names[cancer.target]
@@ -527,6 +581,9 @@ def test_precision_recall_display_string_labels(pyplot):
     ],
 )
 def test_default_labels(pyplot, average_precision, name, expected_label):
+    # [FUNCTION DOC]
+    # Verifies legend labels from direct construction: AP only, name only, and name with
+    # AP.
     """Check the default labels used in the display."""
     precision = np.array([1, 0.5, 0])
     recall = np.array([0, 0.5, 1])
@@ -543,9 +600,24 @@ def test_default_labels(pyplot, average_precision, name, expected_label):
 @pytest.mark.parametrize("constructor_name", ["from_estimator", "from_predictions"])
 @pytest.mark.parametrize("response_method", ["predict_proba", "decision_function"])
 def test_plot_precision_recall_pos_label(pyplot, constructor_name, response_method):
+    # [FUNCTION DOC]
+    # Verifies via _check_pos_label_statistics on imbalanced breast cancer data that
+    # the AP and the uninterpolated AP recomputed from the curve match reference values
+    #   for
+    # each pos_label choice.
+    # KNOWN ISSUE: from_cv_results is not in the parametrization, so the cv branch of
+    #   the
+    # nested checker is never exercised here.
     """Check switching `pos_label` give correct statistics, using imbalanced data."""
 
     def _check_average_precision(display, constructor_name, pos_label):
+        # [FUNCTION DOC]
+        # HELPER: Chooses reference AP values according to pos_label ('cancer' or not)
+        #   and
+        # asserts (rel 1e-3) that display.average_precision and the uninterpolated AP
+        #   computed
+        # from the stored curve match, per fold for from_cv_results.
+        # Inputs: display; constructor_name; pos_label.
         if pos_label == "cancer":
             avg_prec_limit = 0.6338
             avg_prec_limit_multi = [0.8189, 0.8802, 0.8795]
@@ -554,6 +626,12 @@ def test_plot_precision_recall_pos_label(pyplot, constructor_name, response_meth
             avg_prec_limit_multi = [0.9966, 0.9984, 0.9976]
 
         def average_precision_uninterpolated(precision, recall):
+            # [FUNCTION DOC]
+            # HELPER: Computes AP as the negative sum over consecutive points of the
+            #   recall
+            # difference times the preceding precision (recall is decreasing in the
+            #   stored curve).
+            # Inputs: precision, recall - sequences of equal length. Outputs: float.
             return -np.sum(np.diff(recall) * np.array(precision)[:-1])
 
         if constructor_name == "from_cv_results":
@@ -582,6 +660,11 @@ def test_plot_precision_recall_pos_label(pyplot, constructor_name, response_meth
     "constructor_name", ["from_estimator", "from_predictions", "from_cv_results"]
 )
 def test_precision_recall_prevalence_pos_label_reusable(pyplot, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies that displays built with plot_chance_level=False by any constructor
+    # still store prevalence so that a later plot(plot_chance_level=True) draws the
+    #   chance
+    # line(s).
     # Check that even if one passes plot_chance_level=False the first time
     # one can still call disp.plot with plot_chance_level=True and get the
     # chance level line
@@ -623,6 +706,9 @@ def test_precision_recall_prevalence_pos_label_reusable(pyplot, constructor_name
 
 
 def test_precision_recall_raise_no_prevalence(pyplot):
+    # [FUNCTION DOC]
+    # Verifies that plotting the chance level on a display constructed without
+    # prevalence_pos_label raises ValueError with the full guidance message.
     # Check that raises correctly when plotting chance level with
     # no prvelance_pos_label is provided
     precision = np.array([1, 0.5, 0])
@@ -647,6 +733,10 @@ def test_precision_recall_raise_no_prevalence(pyplot):
     "constructor_name", ["from_estimator", "from_predictions", "from_cv_results"]
 )
 def test_plot_precision_recall_despine(pyplot, despine, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies for all constructors that despine hides top/right spines (visible
+    # otherwise) and bounds bottom/left spines to (0, 1).
+    # KNOWN ISSUE: the classifier is fitted twice (redundant).
     # Check that the despine keyword is working correctly
     X, y = make_classification(n_classes=2, n_samples=50, random_state=0)
 
@@ -677,6 +767,10 @@ def test_plot_precision_recall_despine(pyplot, despine, constructor_name):
 
 # TODO(1.10): remove
 def test_y_score_and_y_pred_specified_error(pyplot):
+    # [FUNCTION DOC]
+    # Verifies ValueError when both y_score and y_pred are given and a FutureWarning
+    #   when
+    # only the deprecated y_pred is given.
     """1. Check that an error is raised when both y_score and y_pred are specified.
     2. Check that a warning is raised when y_pred is specified.
     """
@@ -706,6 +800,14 @@ def test_y_score_and_y_pred_specified_error(pyplot):
 def test_correct_prevalence_pos_label_with_array_types(
     pyplot, array_lib, y_true, pos_label, expected_prevalence_pos_label
 ):
+    # [FUNCTION DOC]
+    # Non-regression for #33342: verifies prevalence_pos_label equals the expected
+    # fraction of pos_label (or the default positive class) for torch tensors, numpy
+    #   arrays
+    # and lists.
+    # KNOWN ISSUE: importorskip('torch') runs for every parametrization, so the numpy
+    #   and
+    # list cases are also skipped when torch is not installed.
     """
     Non-regression test for issue #33342
     Checks whether the prevalence_pos_label is calculated correctly when using

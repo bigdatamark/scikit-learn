@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Unsupervised (internal) cluster validity indices that use only the data and the
+# predicted labels: Silhouette coefficient (per sample and mean), Calinski-Harabasz
+# variance ratio, and Davies-Bouldin index. Silhouette uses chunked pairwise distances
+# to bound memory; Calinski-Harabasz and Davies-Bouldin support array API inputs.
 """Unsupervised evaluation metrics."""
 
 # Authors: The scikit-learn developers
@@ -29,6 +34,12 @@ from sklearn.utils._param_validation import Interval, StrOptions, validate_param
 
 
 def check_number_of_labels(n_labels, n_samples):
+    # [FUNCTION DOC]
+    # Validates that the number of distinct labels lies strictly between 1 and
+    # n_samples, i.e. 2 to n_samples - 1 inclusive.
+    # Inputs: n_labels, n_samples - ints.
+    # Outputs: None.
+    # Exceptions: ValueError otherwise.
     """Check that number of labels are valid.
 
     Parameters
@@ -59,6 +70,14 @@ def check_number_of_labels(n_labels, n_samples):
 def silhouette_score(
     X, labels, *, metric="euclidean", sample_size=None, random_state=None, **kwds
 ):
+    # [FUNCTION DOC]
+    # If sample_size is given, validates X/labels (dense or CSR/CSC), draws a random
+    # permutation of sample indices with random_state and keeps the first sample_size;
+    # for a precomputed matrix both rows and columns are subset. Then returns the plain
+    # mean of silhouette_samples on the (possibly subsampled) data, as a Python float.
+    # Exceptions: ValueError from check_X_y, from silhouette_samples (label count or
+    # non-zero precomputed diagonal); InvalidParameterError for invalid parameters.
+    # Side effects: consumes randomness from random_state when sampling.
     """Compute the mean Silhouette Coefficient of all samples.
 
     The Silhouette Coefficient is calculated using the mean intra-cluster
@@ -147,6 +166,19 @@ def silhouette_score(
 
 
 def _silhouette_reduce(D_chunk, start, labels, label_freqs):
+    # [FUNCTION DOC]
+    # HELPER: Reduce function for pairwise_distances_chunked. For each row of the
+    # distance chunk, sums the distances to all samples per cluster (weighted bincount
+    # over labels; for CSR only stored entries are visited, so implicit zeros contribute
+    # nothing). Picks the sum to the sample's own cluster as intra distance (later
+    # divided by cluster size minus one by the caller), then sets that entry to
+    # infinity, divides all per-cluster sums by cluster sizes and takes the row minimum
+    # as the nearest-other-cluster mean.
+    # Inputs: D_chunk - (n_chunk, n_samples) dense or CSR distances; start - global
+    # index of the chunk's first row; labels - encoded int labels; label_freqs - cluster
+    # sizes.
+    # Outputs: tuple of two 1d arrays of length n_chunk (intra sums, inter means).
+    # Exceptions: TypeError if D_chunk is sparse but not CSR.
     """Accumulate silhouette statistics for vertical chunk of X.
 
     Parameters
@@ -209,6 +241,17 @@ def _silhouette_reduce(D_chunk, start, labels, label_freqs):
     prefer_skip_nested_validation=True,
 )
 def silhouette_samples(X, labels, *, metric="euclidean", **kwds):
+    # [FUNCTION DOC]
+    # Validates X and labels (CSR accepted). For precomputed metrics, raises ValueError
+    # if any diagonal entry is non-zero (tolerance 100 machine eps for floats, exact for
+    # integers). Label-encodes labels, counts cluster sizes and checks the label count.
+    # Streams pairwise distances in chunks through _silhouette_reduce, concatenates
+    # intra sums and inter means, divides intra sums by (cluster size - 1), then
+    # computes (b - a) / max(a, b) per sample with divide warnings suppressed; NaNs
+    # (singleton clusters) become 0.
+    # Outputs: float ndarray of shape (n_samples,).
+    # Side effects: inserts "metric" into the kwds dict (local copy of keyword
+    # arguments).
     """Compute the Silhouette Coefficient for each sample.
 
     The Silhouette Coefficient is a measure of how well samples are clustered
@@ -331,6 +374,16 @@ def silhouette_samples(X, labels, *, metric="euclidean", **kwds):
     prefer_skip_nested_validation=True,
 )
 def calinski_harabasz_score(X, labels):
+    # [FUNCTION DOC]
+    # Determines the array namespace; non-NumPy inputs with dispatch off are moved to
+    # NumPy on CPU, otherwise X is cast to the highest-precision float dtype. Validates
+    # X/labels, label-encodes and checks the label count. Accumulates between-cluster
+    # dispersion (cluster size times squared distance of the cluster mean to the global
+    # mean) and within-cluster dispersion (sum of squared deviations from the cluster
+    # mean), then returns extra * (n - k) / (intra * (k - 1)), or 1.0 if intra
+    # dispersion is exactly zero.
+    # Outputs: Python float.
+    # Exceptions: ValueError from check_X_y or check_number_of_labels.
     """Compute the Calinski and Harabasz score.
 
     It is also known as the Variance Ratio Criterion.
@@ -411,6 +464,17 @@ def calinski_harabasz_score(X, labels):
     prefer_skip_nested_validation=True,
 )
 def davies_bouldin_score(X, labels):
+    # [FUNCTION DOC]
+    # Validates inputs, label-encodes and checks the label count. For each cluster
+    # computes its centroid and the mean Euclidean distance of its points to the
+    # centroid; computes Euclidean distances between centroids. Returns 0.0 if all intra
+    # distances or all centroid distances are close to zero. Otherwise zero centroid
+    # distances are replaced by infinity, and for each cluster the maximum over other
+    # clusters of (s_i + s_j) / d_ij is taken; the result is the mean of those maxima,
+    # as a Python float.
+    # Exceptions: ValueError from check_X_y or check_number_of_labels.
+    # Note: the diagonal (i equals j) has zero distance and becomes infinity, so it
+    # contributes 0 to the maximum.
     """Compute the Davies-Bouldin score.
 
     The score is defined as the average similarity measure of each cluster with

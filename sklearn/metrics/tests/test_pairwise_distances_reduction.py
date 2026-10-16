@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tests for the Cython pairwise-distances-reduction dispatchers (ArgKmin,
+#   ArgKminClassMode, RadiusNeighbors, RadiusNeighborsClassMode,
+#   BaseDistancesReductionDispatcher.is_usable_for) and sqeuclidean_row_norms.
+# Provides tolerance-aware comparison helpers for k-NN and radius-neighbor results
+#   (accepting rank swaps caused by float rounding), and ASSERT_RESULT, a mapping from
+#   (dispatcher, dtype) to the comparison helper pre-bound with FLOAT32_TOLS or
+#   FLOAT64_TOLS.
+# Results are checked against scipy cdist / euclidean_distances references and for
+#   invariance to chunk size, thread count, input format, memmapping and parallelization
+#   strategy.
 import itertools
 import re
 import warnings
@@ -41,6 +52,13 @@ CDIST_PAIRWISE_DISTANCES_REDUCTION_COMMON_METRICS = [
 
 
 def _get_metric_params_list(metric: str, n_features: int, seed: int = 1):
+    # [FUNCTION DOC]
+    # HELPER: Builds the list of metric keyword-argument dicts to test for a metric.
+    # Inputs: metric - metric name; n_features - number of features (sizes
+    #   weight/variance vectors); seed - RandomState seed, default 1.
+    # Outputs: list of dicts; for minkowski, p in 1.5, 2, 3, inf plus a weighted p=3
+    #   case with random weights; for seuclidean, one dict with random V; otherwise a
+    #   list containing one empty dict.
     """Return list of dummy DistanceMetric kwargs for tests."""
 
     # Distinguishing on cases not to compute unneeded datastructures.
@@ -74,6 +92,15 @@ def assert_same_distances_for_common_neighbors(
     rtol,
     atol,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For one query, checks that neighbors present in both result rows have
+    #   distances equal within rtol/atol.
+    # Inputs: query_idx - row index used in messages; dist_row_a/b - 1-D distance
+    #   arrays; indices_row_a/b - matching 1-D index arrays; rtol, atol - tolerances.
+    # Builds index-to-distance maps for each row, intersects the index sets and compares
+    #   each common index's distances with assert_allclose.
+    # Exceptions: AssertionError (chained from the original) naming the query and
+    #   neighbor index when distances differ.
     """Check that the distances of common neighbors are equal up to tolerance.
 
     This does not check if there are missing neighbors in either result set.
@@ -111,6 +138,13 @@ def assert_no_missing_neighbors(
     indices_row_b,
     threshold,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For one query, checks that every neighbor whose distance is below
+    #   threshold in one row appears (anywhere) in the other row.
+    # Inputs: same rows as assert_same_distances_for_common_neighbors; threshold - float
+    #   cutoff.
+    # Exceptions: AssertionError listing indices missing from each side plus the full
+    #   rows.
     """Compare the indices of neighbors in two results sets.
 
     Any neighbor index with a distance below the precision threshold should
@@ -147,6 +181,16 @@ def assert_compatible_argkmin_results(
     rtol=1e-5,
     atol=1e-6,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two argkmin results (distances and indices, each 2-D of shape
+    #   (n_queries, k)) are equivalent up to rounding.
+    # Inputs: neighbors_dists_a/b, neighbors_indices_a/b - 2-D arrays; rtol default
+    #   1e-5, atol default 1e-6.
+    # For each query row: assert both distance rows are non-decreasing, compare common
+    #   neighbors' distances, then require no missing neighbor below the threshold (1 -
+    #   rtol) times the larger of the two k-th distances minus atol.
+    # Exceptions: AssertionError on shape mismatch, unsorted rows, distance mismatch or
+    #   missing neighbors.
     """Assert that argkmin results are valid up to rounding errors.
 
     This function asserts that the results of argkmin queries are valid up to:
@@ -223,6 +267,21 @@ def _non_trivial_radius(
     n_subsampled_queries=10,
     **metric_kwargs,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Picks a radius that yields roughly expected_n_neighbors neighbors per
+    #   query.
+    # Inputs (keyword only): X, Y - datasets used when precomputed_dists is None; metric
+    #   and metric_kwargs - passed to pairwise_distances; precomputed_dists - optional
+    #   2-D distance matrix; expected_n_neighbors default 10; n_subsampled_queries
+    #   default 10.
+    # Sorts each row of the sampled distance matrix and returns the mean of the column
+    #   at position expected_n_neighbors.
+    # Outputs: float radius.
+    # Exceptions: AssertionError if neither metric nor precomputed_dists is given, or
+    #   X/Y missing when distances must be computed.
+    # KNOWN ISSUE: n_subsampled_queries is only applied to precomputed_dists; when
+    #   computing from X and Y the full pairwise matrix is used, contrary to the comment
+    #   about a small subsample.
     # Find a non-trivial radius using a small subsample of the pairwise
     # distances between X and Y: we want to return around expected_n_neighbors
     # on average. Yielding too many results would make the test slow (because
@@ -252,6 +311,17 @@ def assert_compatible_radius_results(
     rtol=1e-5,
     atol=1e-6,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two radius-neighbors results (sequences of variable-length per-
+    #   query rows) are equivalent up to rounding.
+    # Inputs: neighbors_dists_a/b, neighbors_indices_a/b - sequences of 1-D arrays;
+    #   radius - query radius; check_sorted default True; rtol default 1e-5; atol
+    #   default 1e-6.
+    # Per query: optionally check sortedness, check each row's distance and index
+    #   lengths match, check max distance does not exceed radius, compare common
+    #   neighbors' distances, and require no missing neighbor below (1 - rtol) times
+    #   radius minus atol.
+    # Exceptions: AssertionError on any violation.
     """Assert that radius neighborhood results are valid up to:
 
       - relative and absolute tolerance on computed distance values
@@ -349,6 +419,11 @@ ASSERT_RESULT = {
 
 
 def test_assert_compatible_argkmin_results():
+    # [FUNCTION DOC]
+    # Verifies assert_compatible_argkmin_results accepts self-comparison, permutations
+    #   among near-tied distances and differing boundary indices, and rejects swapped
+    #   distinct distances, missing indices (both directions, with exact message
+    #   content) and unsorted distances.
     atol = 1e-7
     rtol = 0.0
     tols = dict(atol=atol, rtol=rtol)
@@ -489,6 +564,11 @@ def test_assert_compatible_argkmin_results():
 
 @pytest.mark.parametrize("check_sorted", [True, False])
 def test_assert_compatible_radius_results(check_sorted):
+    # [FUNCTION DOC]
+    # Verifies assert_compatible_radius_results accepts valid permutations and
+    #   extra/missing elements near the radius, and rejects distance mismatches, missing
+    #   neighbors, distances above the radius, and (when check_sorted) unsorted rows;
+    #   with check_sorted False an unsorted row is accepted.
     atol = 1e-7
     rtol = 0.0
     tols = dict(atol=atol, rtol=rtol)
@@ -652,6 +732,11 @@ def test_assert_compatible_radius_results(check_sorted):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_pairwise_distances_reduction_is_usable_for(csr_container):
+    # [FUNCTION DOC]
+    # Verifies BaseDistancesReductionDispatcher.is_usable_for accepts float32/float64
+    #   C-ordered dense or CSR pairs for manhattan and rejects int dtypes, mixed dtypes,
+    #   pyfunc, Fortran-ordered data, CSR-CSR (sq)euclidean, CSR without non-zeros and
+    #   CSR with int64 indices.
     rng = np.random.RandomState(0)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -720,6 +805,11 @@ def test_pairwise_distances_reduction_is_usable_for(csr_container):
 
 
 def test_argkmin_factory_method_wrong_usages():
+    # [FUNCTION DOC]
+    # Verifies ArgKmin.compute raises ValueError for mismatched/unsupported dtypes, k
+    #   below 1, unknown metric, 1-D input and Fortran-ordered input; emits UserWarning
+    #   when unused metric_kwargs are passed; and emits no UserWarning when only X/Y
+    #   squared norms are passed for euclidean.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -797,6 +887,10 @@ def test_argkmin_factory_method_wrong_usages():
 
 
 def test_argkmin_classmode_factory_method_wrong_usages():
+    # [FUNCTION DOC]
+    # Verifies ArgKminClassMode.compute raises ValueError for unsupported dtypes, k
+    #   below 1, unknown metric, 1-D input, Fortran-ordered input and an unknown weights
+    #   strategy.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -915,6 +1009,10 @@ def test_argkmin_classmode_factory_method_wrong_usages():
 
 
 def test_radius_neighbors_factory_method_wrong_usages():
+    # [FUNCTION DOC]
+    # Verifies RadiusNeighbors.compute raises ValueError for unsupported dtypes,
+    #   negative radius, unknown metric, 1-D input and Fortran-ordered input, and warns
+    #   (or not) about unused metric_kwargs like the ArgKmin test.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -1007,6 +1105,13 @@ def test_radius_neighbors_factory_method_wrong_usages():
 
 
 def test_radius_neighbors_classmode_factory_method_wrong_usages():
+    # [FUNCTION DOC]
+    # Verifies RadiusNeighborsClassMode.compute raises ValueError for unsupported
+    #   dtypes, negative radius, unknown metric, 1-D input, Fortran-ordered input and an
+    #   unknown weights strategy.
+    # KNOWN ISSUE: the unknown-metric case also passes radius=-1 and the bad-weights
+    #   case also passes metric "wrong_metric", so each relies on validation order and
+    #   could pass for the wrong reason.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -1124,6 +1229,10 @@ def test_chunk_size_agnosticism(
     dtype,
     n_features=100,
 ):
+    # [FUNCTION DOC]
+    # Verifies ArgKmin/RadiusNeighbors results with manhattan metric are the same for
+    #   chunk_size 256 and 41, on random data with random sample counts; radius chosen
+    #   via _non_trivial_radius (euclidean).
     """Check that results do not depend on the chunk size."""
     rng = np.random.RandomState(global_random_seed)
     spread = 100
@@ -1174,6 +1283,9 @@ def test_n_threads_agnosticism(
     dtype,
     n_features=100,
 ):
+    # [FUNCTION DOC]
+    # Verifies results with default metric are the same when OpenMP is limited to one
+    #   thread versus unrestricted, using chunk_size 25.
     """Check that results do not depend on the number of threads."""
     rng = np.random.RandomState(global_random_seed)
     n_samples_X, n_samples_Y = rng.choice([97, 100, 101, 500], size=2, replace=False)
@@ -1231,6 +1343,9 @@ def test_format_agnosticism(
     dtype,
     csr_container,
 ):
+    # [FUNCTION DOC]
+    # Verifies results on dense X/Y match those on every other dense/CSR combination for
+    #   ArgKmin and RadiusNeighbors in both dtypes.
     """Check that results do not depend on the format (dense, sparse) of the input."""
     rng = np.random.RandomState(global_random_seed)
     spread = 100
@@ -1290,6 +1405,10 @@ def test_strategies_consistency(
     Dispatcher,
     n_features=10,
 ):
+    # [FUNCTION DOC]
+    # Verifies parallel_on_X and parallel_on_Y strategies give compatible results for a
+    #   randomly chosen metric (euclidean, minkowski, manhattan, haversine; haversine
+    #   uses the first 2 features) with chunk sizes forcing several chunks.
     """Check that the results do not depend on the strategy used."""
     rng = np.random.RandomState(global_random_seed)
     metric = rng.choice(
@@ -1377,6 +1496,12 @@ def test_pairwise_distances_argkmin(
     n_samples=100,
     k=10,
 ):
+    # [FUNCTION DOC]
+    # Verifies ArgKmin.compute on every dense/CSR combination matches a reference built
+    #   by argsorting the euclidean_distances or cdist matrix, for each common metric,
+    #   strategy and dtype, possibly with a large translation of the data.
+    # KNOWN ISSUE: the haversine slicing branch is dead (haversine is not in the metric
+    #   list) and would anyway leave X_csr/Y_csr unsliced.
     rng = np.random.RandomState(global_random_seed)
     n_features = rng.choice([50, 500])
     translation = rng.choice([0, 1e6])
@@ -1441,6 +1566,10 @@ def test_pairwise_distances_radius_neighbors(
     n_queries=5,
     n_samples=100,
 ):
+    # [FUNCTION DOC]
+    # Verifies RadiusNeighbors.compute (sorted results) matches a reference obtained by
+    #   thresholding each row of the euclidean_distances/cdist matrix at a non-trivial
+    #   radius and sorting.
     rng = np.random.RandomState(global_random_seed)
     n_features = rng.choice([50, 500])
     translation = rng.choice([0, 1e6])
@@ -1501,6 +1630,9 @@ def test_memmap_backed_data(
     Dispatcher,
     dtype,
 ):
+    # [FUNCTION DOC]
+    # Verifies ArgKmin/RadiusNeighbors results on read-only memmap-backed copies equal
+    #   those on the in-memory arrays.
     """Check that the results do not depend on the datasets writability."""
     rng = np.random.RandomState(0)
     spread = 100
@@ -1552,6 +1684,10 @@ def test_sqeuclidean_row_norms(
     dtype,
     csr_container,
 ):
+    # [FUNCTION DOC]
+    # Verifies sqeuclidean_row_norms on dense and CSR input matches squared numpy row
+    #   norms for random sizes and thread counts, and raises ValueError on Fortran-
+    #   ordered input.
     rng = np.random.RandomState(global_random_seed)
     spread = 100
     n_samples = rng.choice([97, 100, 101, 1000])
@@ -1575,6 +1711,9 @@ def test_sqeuclidean_row_norms(
 
 
 def test_argkmin_classmode_strategy_consistent():
+    # [FUNCTION DOC]
+    # Verifies ArgKminClassMode.compute gives identical outputs for parallel_on_X and
+    #   parallel_on_Y strategies with uniform weights.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)
@@ -1609,6 +1748,9 @@ def test_argkmin_classmode_strategy_consistent():
 
 @pytest.mark.parametrize("outlier_label", [None, 0, 3, 6, 9])
 def test_radius_neighbors_classmode_strategy_consistent(outlier_label):
+    # [FUNCTION DOC]
+    # Verifies RadiusNeighborsClassMode.compute gives close outputs for both parallel
+    #   strategies for several outlier_label values.
     rng = np.random.RandomState(1)
     X = rng.rand(100, 10)
     Y = rng.rand(100, 10)

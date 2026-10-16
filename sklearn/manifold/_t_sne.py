@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implementation of t-distributed Stochastic Neighbor Embedding (t-SNE) with exact
+#   O(N^2) and Barnes-Hut O(N log N) gradients. Provides the joint-probability
+#   computations (dense and nearest-neighbor sparse), the KL divergence objectives with
+#   gradients, a momentum/gain gradient descent optimizer, the trustworthiness score and
+#   the TSNE estimator. MACHINE_EPSILON (float64 eps) is used as a floor for
+#   probabilities and sums.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -33,6 +40,19 @@ MACHINE_EPSILON = np.finfo(np.double).eps
 
 
 def _joint_probabilities(distances, desired_perplexity, verbose):
+    # [FUNCTION DOC]
+    # HELPER: Converts input-space squared distances into symmetric joint probabilities
+    #   for the exact method. Casts distances to float32, runs the perplexity binary
+    #   search to get row-wise conditional probabilities, symmetrizes by adding the
+    #   transpose, converts to condensed form, divides by the total (floored at
+    #   MACHINE_EPSILON) and floors every entry at MACHINE_EPSILON.
+    # Inputs: distances - square (n_samples, n_samples) array of (squared) distances;
+    #   desired_perplexity - float; verbose - int verbosity passed to the binary search.
+    # Outputs: condensed float array of length n_samples * (n_samples - 1) / 2.
+    # Exceptions: none raised directly.
+    # Side effects: may print progress from the binary search.
+    # KNOWN ISSUE: the docstring describes distances as a condensed 1-D array, but the
+    #   code (binary search per row, transpose, squareform) requires a square matrix.
     """Compute joint probabilities p_ij from distances.
 
     Parameters
@@ -66,6 +86,22 @@ def _joint_probabilities(distances, desired_perplexity, verbose):
 
 
 def _joint_probabilities_nn(distances, desired_perplexity, verbose):
+    # [FUNCTION DOC]
+    # HELPER: Sparse variant of _joint_probabilities restricted to k nearest neighbors.
+    #   Sorts the CSR indices in place, reshapes the stored distances into (n_samples,
+    #   k) rows (requires the same number of stored neighbors per row), runs the
+    #   perplexity binary search on them, rebuilds a CSR array of conditional
+    #   probabilities with the original sparsity pattern, symmetrizes it by adding its
+    #   transpose, and divides by the total (floored at MACHINE_EPSILON).
+    # Inputs: distances - CSR (n_samples, n_samples) of squared neighbor distances;
+    #   desired_perplexity - float; verbose - int.
+    # Outputs: CSR sparse matrix/array (container aligned via _align_api_if_sparse) of
+    #   joint probabilities.
+    # Exceptions: AssertionError if probabilities are not finite or exceed 1; ValueError
+    #   from reshape if rows have differing neighbor counts.
+    # Side effects: sorts indices of the input matrix in place; prints timing if verbose
+    #   >= 2.
+    # KNOWN ISSUE: the docstring says the dense version is O(N); it is O(N^2).
     """Compute joint probabilities p_ij from distances using just nearest
     neighbors.
 
@@ -131,6 +167,25 @@ def _kl_divergence(
     skip_num_points=0,
     compute_error=True,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Exact t-SNE objective. Reshapes params to (n_samples, n_components),
+    #   computes the condensed Student-t kernel (1 + squared distance / dof) to the
+    #   power -(dof + 1) / 2, normalizes it into Q (total of the square matrix is twice
+    #   the condensed sum, floored at MACHINE_EPSILON). The error is twice the dot
+    #   product of P with log(max(P, eps) / Q), or NaN when compute_error is False. For
+    #   each point i from skip_num_points onward, the gradient row is the sum over j of
+    #   (p_ij - q_ij) times the kernel value times (y_i - y_j); the flattened gradient
+    #   is multiplied by 2 (dof + 1) / dof.
+    # Inputs: params - flattened embedding (n_samples * n_components,); P - condensed
+    #   joint probabilities; degrees_of_freedom - positive number; n_samples,
+    #   n_components - ints; skip_num_points - int (default 0); compute_error - bool
+    #   (default True).
+    # Outputs: tuple (kl_divergence float or NaN, gradient flat array with params'
+    #   dtype).
+    # Exceptions: none raised directly.
+    # Side effects: none.
+    # KNOWN ISSUE: the gradient buffer is allocated uninitialized, so rows below
+    #   skip_num_points contain arbitrary memory instead of zeros.
     """t-SNE objective function: gradient of the KL divergence
     of p_ijs and q_ijs and the absolute error.
 
@@ -211,6 +266,22 @@ def _kl_divergence_bh(
     compute_error=True,
     num_threads=1,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Barnes-Hut t-SNE objective. Casts params to float32, reshapes into the
+    #   embedding, extracts P's data/indices/indptr (indices as int64) and calls the
+    #   Cython _barnes_hut_tsne.gradient which fills a zero-initialized gradient buffer
+    #   using attractive forces over the sparse neighbors and a space-partitioning tree
+    #   with opening angle angle for repulsive forces, and returns the KL error. Scales
+    #   the flattened gradient by 2 (dof + 1) / dof.
+    # Inputs: params - flat embedding; P - CSR joint probabilities; degrees_of_freedom,
+    #   n_samples, n_components; angle - float (default 0.5); skip_num_points (default
+    #   0); verbose (default False); compute_error (default True); num_threads (default
+    #   1).
+    # Outputs: tuple (error float, float32 flat gradient).
+    # Exceptions: errors from the Cython routine on inconsistent inputs.
+    # Side effects: may print from the Cython routine when verbose.
+    # KNOWN ISSUE: skip_num_points is accepted but never forwarded to the gradient
+    #   routine, so the gradient is computed for all points.
     """t-SNE objective function: KL divergence of p_ijs and q_ijs.
 
     Uses Barnes-Hut tree methods to calculate the gradient that
@@ -310,6 +381,28 @@ def _gradient_descent(
     args=None,
     kwargs=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Batch gradient descent with momentum and per-parameter adaptive gains
+    #   (Jacobs delta-bar-delta style). Starting from a copy of p0 flattened, for
+    #   iterations it to max_iter - 1: set kwargs["compute_error"] only on check
+    #   iterations (every n_iter_check) and the last one, call the objective, increase
+    #   gains by 0.2 where the previous update and the gradient have opposite signs and
+    #   multiply them by 0.8 elsewhere, clip gains at min_gain, scale the gradient by
+    #   the gains, update = momentum * update - learning_rate * gradient, and add it to
+    #   p. On check iterations compute the norm of the gain-scaled gradient, optionally
+    #   print progress, track the best error/iteration, and stop when no improvement
+    #   happened for more than n_iter_without_progress iterations or when the gradient
+    #   norm is at or below min_grad_norm.
+    # Inputs: objective - callable(p, *args, **kwargs) returning (error, grad); p0 -
+    #   initial parameters; it - starting iteration index; max_iter - exclusive end
+    #   iteration; n_iter_check (1); n_iter_without_progress (300); momentum (0.8);
+    #   learning_rate (200.0); min_gain (0.01); min_grad_norm (1e-7); verbose (0); args
+    #   (None -> []); kwargs (None -> {}).
+    # Outputs: tuple (p optimized flat array, last error evaluated, index of the last
+    #   iteration run; equals it if the loop does not run).
+    # Exceptions: none raised directly.
+    # Side effects: mutates the kwargs dict passed in (sets "compute_error"); prints
+    #   when verbose >= 2.
     """Batch gradient descent with momentum and individual gains.
 
     Parameters
@@ -451,6 +544,19 @@ def _gradient_descent(
     prefer_skip_nested_validation=True,
 )
 def trustworthiness(X, X_embedded, *, n_neighbors=5, metric="euclidean"):
+    # [FUNCTION DOC]
+    # Computes the trustworthiness score. Validates n_neighbors < n_samples / 2,
+    #   computes the full input-space distance matrix (copied when precomputed so the
+    #   input is not modified), sets the diagonal to infinity and argsorts each row to
+    #   get input-space neighbor rankings. Finds the n_neighbors nearest neighbors of
+    #   each sample in X_embedded (excluding itself), builds an inverse permutation
+    #   giving each sample's 1-based rank in the input space, subtracts n_neighbors from
+    #   the ranks of embedded neighbors, sums the positive values and normalizes as in
+    #   the docstring formula.
+    # Inputs/Outputs: as documented; returns a Python float.
+    # Exceptions: ValueError when n_neighbors >= n_samples / 2; parameter validation
+    #   errors.
+    # Side effects: none on inputs. Memory is O(n_samples^2).
     r"""Indicate to what extent the local structure is retained.
 
     The trustworthiness is within [0, 1]. It is defined as
@@ -555,6 +661,14 @@ def trustworthiness(X, X_embedded, *, n_neighbors=5, metric="euclidean"):
 
 
 class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # t-SNE estimator. Hyperparameters are stored unchanged in __init__ and validated
+    #   through _parameter_constraints at fit time. Class constants
+    #   _EXPLORATION_MAX_ITER (250, length of the early exaggeration phase) and
+    #   _N_ITER_CHECK (50, error check interval) control the optimization schedule.
+    #   Fitted attributes: embedding_, kl_divergence_, n_iter_, learning_rate_,
+    #   n_features_in_ and feature_names_in_. Has no separate transform method; only
+    #   fit_transform produces embeddings.
     """T-distributed Stochastic Neighbor Embedding.
 
     t-SNE [1] is a tool to visualize high-dimensional data. It converts
@@ -823,6 +937,9 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         angle=0.5,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores every constructor argument as an attribute with the same name, without
+        #   validation (scikit-learn estimator convention).
         self.n_components = n_components
         self.perplexity = perplexity
         self.early_exaggeration = early_exaggeration
@@ -840,6 +957,10 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         self.n_jobs = n_jobs
 
     def _check_params_vs_input(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Ensures perplexity is strictly less than the number of rows of X.
+        # Inputs: X - object with a shape attribute (called before data validation).
+        # Exceptions: ValueError if perplexity >= n_samples.
         if self.perplexity >= X.shape[0]:
             raise ValueError(
                 f"perplexity ({self.perplexity}) must be less "
@@ -847,6 +968,31 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
             )
 
     def _fit(self, X, skip_num_points=0):
+        # [FUNCTION DOC]
+        # HELPER: Core fitting routine. Steps: set learning_rate_ (for "auto", n_samples
+        #   / early_exaggeration / 4 floored at 50); validate X (barnes_hut accepts CSR
+        #   and needs at least 2 samples; exact accepts CSR/CSC/COO; float32/float64).
+        #   For metric="precomputed" reject init="pca", non-square X, negative entries
+        #   and sparse X with method exact. Reject n_components > 3 for barnes_hut.
+        #   Exact method: obtain the full distance matrix (squared Euclidean directly,
+        #   otherwise the metric with metric_params and then squared), reject negative
+        #   distances and compute dense joint probabilities. Barnes-Hut: use
+        #   min(n_samples - 1, int(3 * perplexity + 1)) nearest neighbors, square the
+        #   neighbor distances and compute sparse joint probabilities. Initialize the
+        #   embedding from the given ndarray, from PCA rescaled so the first component
+        #   has std 1e-4, or from Gaussian noise with std 1e-4; set degrees of freedom
+        #   to max(n_components - 1, 1) and run _tsne.
+        # Inputs: X - data or precomputed distances; skip_num_points - int (default 0).
+        # Outputs: embedding array (n_samples, n_components).
+        # Exceptions: ValueError / TypeError for the invalid combinations above;
+        #   AssertionError if probabilities are invalid.
+        # Side effects: sets learning_rate_, n_features_in_ (via validate_data) and,
+        #   through _tsne, n_iter_ and kl_divergence_; prints progress when verbose;
+        #   consumes the random state.
+        # KNOWN ISSUE: in the exact path with metric="precomputed", distances is the
+        #   validated X itself and is squared in place, so a float64/float32 numpy input
+        #   passed by the user is modified. neighbors_nn is always None, so the
+        #   neighbors argument of _tsne is unused.
         """Private function to fit the model using X as training data."""
 
         if self.learning_rate == "auto":
@@ -1038,6 +1184,24 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         neighbors=None,
         skip_num_points=0,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Runs the two-stage optimization. Stage 1: multiply P in place by
+        #   early_exaggeration and run _gradient_descent for _EXPLORATION_MAX_ITER
+        #   iterations with momentum 0.5 (n_iter_without_progress also set to that
+        #   value). Stage 2: divide P back, then continue from the next iteration up to
+        #   max_iter with momentum 0.8 and the user's n_iter_without_progress. The
+        #   objective is _kl_divergence_bh (with angle, verbose and OpenMP thread count)
+        #   or _kl_divergence.
+        # Inputs: P - joint probabilities (dense condensed or CSR); degrees_of_freedom;
+        #   n_samples; X_embedded - initial embedding; neighbors (unused);
+        #   skip_num_points.
+        # Outputs: final embedding reshaped to (n_samples, n_components).
+        # Side effects: temporarily scales P in place; sets n_iter_ (index of the last
+        #   iteration, i.e. iterations run minus one) and kl_divergence_; prints when
+        #   verbose.
+        # KNOWN ISSUE: stage 1 always ends with it below _EXPLORATION_MAX_ITER, so the
+        #   condition guarding stage 2 is always true and the remaining > 0 check is
+        #   dead. The neighbors parameter is never used.
         """Runs t-SNE."""
         # t-SNE minimizes the Kullback-Leiber divergence of the Gaussians P
         # and the Student's t-distributions Q. The optimization algorithm that
@@ -1109,6 +1273,14 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Checks perplexity against the number of samples, runs _fit, stores the result
+        #   in embedding_ and returns it.
+        # Inputs: X - data or precomputed distances; y - ignored.
+        # Outputs: ndarray (n_samples, n_components).
+        # Exceptions: ValueError from _check_params_vs_input and _fit; parameter
+        #   validation errors via _fit_context.
+        # Side effects: sets all fitted attributes.
         """Fit X into an embedded space and return that transformed output.
 
         Parameters
@@ -1139,6 +1311,9 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model by calling fit_transform and returns self.
+        # Side effects: same as fit_transform.
         """Fit X into an embedded space.
 
         Parameters
@@ -1164,10 +1339,17 @@ class TSNE(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # Number of output features (columns of embedding_), used to build output
+        #   feature names.
+        # Exceptions: AttributeError if not fitted.
         """Number of transformed output features."""
         return self.embedding_.shape[1]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the base tags: input is pairwise when metric is "precomputed", and
+        #   sparse input is supported.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = self.metric == "precomputed"
         tags.input_tags.sparse = True

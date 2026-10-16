@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the regression metrics in sklearn.metrics._regression (MSE, RMSE,
+# MSLE, RMSLE, MAE, MAPE, median AE, max error, pinball loss, R2, explained
+# variance, Tweedie deviance and the D2 scores) plus the _check_reg_targets
+# validator. Values are checked against hand-computed or closed-form results.
 from itertools import product
 
 import numpy as np
@@ -36,6 +41,14 @@ from sklearn.utils._testing import (
 
 
 def test_regression_metrics(n_samples=50):
+    # [FUNCTION DOC]
+    # Verifies every regression metric on y_true = 0..n-1 with predictions shifted by
+    # +1 / -1 against closed-form values: unit MSE/MAE/max error, pinball loss for
+    # several alphas, huge but finite MAPE (y_true contains 0), R2 and explained
+    # variance, Tweedie power 0 equal to MSE, D2 scores against manual formulas, and
+    # Tweedie deviance / D2 Tweedie for powers -1, 1, 3/2, 2, 3 on y_pred = 2*y_true
+    # against sympy-derived expressions.
+    # Inputs: n_samples - number of samples, default 50 (not parametrized by pytest).
     y_true = np.arange(n_samples)
     y_pred = y_true + 1
     y_pred_2 = y_true - 1
@@ -126,6 +139,9 @@ def test_regression_metrics(n_samples=50):
 
 
 def test_root_mean_squared_error_multioutput_raw_value():
+    # [FUNCTION DOC]
+    # Non-regression: RMSE with multioutput raw_values equals the square root of MSE
+    # raw_values on a single 1x1 sample.
     # non-regression test for
     # https://github.com/scikit-learn/scikit-learn/pull/16323
     mse = mean_squared_error([[1]], [[10]], multioutput="raw_values")
@@ -134,6 +150,12 @@ def test_root_mean_squared_error_multioutput_raw_value():
 
 
 def test_multioutput_regression():
+    # [FUNCTION DOC]
+    # Verifies metrics on a 3x4 binary multioutput problem against hand-computed
+    # averages, including MAPE being huge but finite, D2 pinball per output (NaN for
+    # the constant 4th output mapped to 1), and R2 behaviour with force_finite: True
+    # gives 1.0 / 0.0 for constant y_true, False propagates NaN or -inf; after
+    # dropping the constant output both settings agree.
     y_true = np.array([[1, 0, 0, 1], [0, 1, 1, 1], [1, 1, 0, 1]])
     y_pred = np.array([[0, 0, 0, 1], [1, 0, 1, 1], [0, 0, 0, 1]])
 
@@ -221,6 +243,14 @@ def test_multioutput_regression():
 
 
 def test_regression_metrics_at_limits():
+    # [FUNCTION DOC]
+    # Verifies edge cases: single-sample perfect predictions give zero errors, perfect
+    # R2/D2 are 1, R2 and explained variance with constant targets give 0/1 when
+    # force_finite and -inf/NaN otherwise; MSLE / RMSLE raise ValueError for values
+    # <= -1; Tweedie deviance and D2 Tweedie raise ValueError on invalid y / y_pred
+    # domains for powers -1.2, 1, 1.5, 2, 3 and return closed-form values otherwise.
+    # KNOWN ISSUE: the last msg (Root Mean Squared Logarithmic Error ...) is assigned
+    # but never used; the RMSLE check above it reuses the MSLE message.
     # Single-sample case
     # Note: for r2 and d2_tweedie see also test_regression_single_sample
     assert_almost_equal(mean_squared_error([0.0], [0.0]), 0.0)
@@ -319,6 +349,10 @@ def test_regression_metrics_at_limits():
 
 
 def test__check_reg_targets():
+    # [FUNCTION DOC]
+    # Verifies _check_reg_targets on every pair of example targets: matching type and
+    # output count returns the type and the arrays (1d reshaped to a column);
+    # mismatching pairs raise ValueError.
     # All of length 3
     EXAMPLES = [
         ("continuous", [1, 2, 3], 1),
@@ -346,6 +380,8 @@ def test__check_reg_targets():
 
 
 def test__check_reg_targets_exception():
+    # [FUNCTION DOC]
+    # Verifies an invalid multioutput string raises ValueError listing allowed values.
     invalid_multioutput = "this_value_is_not_valid"
     expected_message = (
         "Allowed 'multioutput' string values are.+You provided multioutput={!r}".format(
@@ -357,6 +393,12 @@ def test__check_reg_targets_exception():
 
 
 def test_regression_multioutput_array():
+    # [FUNCTION DOC]
+    # Verifies multioutput raw_values results of MSE, MAE, pinball, MAPE, R2,
+    # explained variance (both force_finite settings) and D2 pinball against
+    # expected per-output values, including constant targets, the zero numerator and
+    # denominator case (1.0 vs NaN), uniform_average being the mean of raw values, and
+    # MSLE equal to MSE on log1p-transformed targets.
     y_true = [[1, 2], [2.5, -1], [4.5, 3], [5, 7]]
     y_pred = [[1, 1], [2, -1], [5, 4], [5, 6.5]]
 
@@ -451,6 +493,10 @@ def test_regression_multioutput_array():
 
 
 def test_regression_custom_weights():
+    # [FUNCTION DOC]
+    # Verifies metrics with an explicit multioutput weight vector [0.4, 0.6] against
+    # expected weighted averages, and MSLE with weights equals weighted MSE on log1p
+    # targets.
     y_true = [[1, 2], [2.5, -1], [4.5, 3], [5, 7]]
     y_pred = [[1, 1], [2, -1], [5, 4], [5, 6.5]]
 
@@ -486,6 +532,10 @@ def test_regression_custom_weights():
 
 @pytest.mark.parametrize("metric", [r2_score, d2_tweedie_score, d2_pinball_score])
 def test_regression_single_sample(metric):
+    # [FUNCTION DOC]
+    # Verifies that R2, D2 Tweedie and D2 pinball warn UndefinedMetricWarning and
+    # return NaN for a single sample.
+    # Inputs: metric - parametrized metric function.
     y_true = [0]
     y_pred = [1]
     warning_msg = "not well-defined with less than two samples."
@@ -497,6 +547,10 @@ def test_regression_single_sample(metric):
 
 
 def test_tweedie_deviance_continuity(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies mean Tweedie deviance is continuous at the boundaries between its
+    # piecewise definitions (power 0, 1, 2) by comparing powers offset by 1e-10.
+    # Inputs: global_random_seed fixture for random positive targets.
     n_samples = 100
 
     rng = np.random.RandomState(global_random_seed)
@@ -533,6 +587,9 @@ def test_tweedie_deviance_continuity(global_random_seed):
 
 
 def test_mean_absolute_percentage_error(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies MAPE equals 0.2 when predictions are 1.2 times positive targets.
+    # Inputs: global_random_seed fixture.
     random_number_generator = np.random.RandomState(global_random_seed)
     y_true = random_number_generator.exponential(size=100)
     y_pred = 1.2 * y_true
@@ -546,6 +603,13 @@ def test_mean_absolute_percentage_error(global_random_seed):
 def test_mean_pinball_loss_on_constant_predictions(
     distribution, target_quantile, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies for several distributions and quantiles that the pinball loss of a
+    # constant predictor is minimized at the empirical quantile, matches the analytic
+    # formula on a grid of candidate constants, and that numerical minimization of the
+    # loss recovers the quantile (loose tolerance).
+    # Inputs: distribution, target_quantile (parametrized), global_random_seed.
+    # KNOWN ISSUE: the skip when numpy lacks quantile is dead code for supported numpy.
     if not hasattr(np, "quantile"):
         pytest.skip(
             "This test requires a more recent version of numpy "
@@ -585,6 +649,10 @@ def test_mean_pinball_loss_on_constant_predictions(
     # Check that we can actually recover the target_quantile by minimizing the
     # pinball loss w.r.t. the constant prediction quantile.
     def objective_func(x):
+        # [FUNCTION DOC]
+        # HELPER: Mean pinball loss of the constant prediction x on data at the target
+        # quantile; objective for scipy minimize. Inputs: x - scalar/1-element array.
+        # Outputs: float loss.
         constant_pred = np.full(n_samples, fill_value=x)
         return mean_pinball_loss(data, constant_pred, alpha=target_quantile)
 
@@ -598,6 +666,10 @@ def test_mean_pinball_loss_on_constant_predictions(
 
 
 def test_dummy_quantile_parameter_tuning(global_random_seed):
+    # [FUNCTION DOC]
+    # Integration test: for each alpha, grid-searching DummyRegressor quantile with a
+    # negated pinball-loss scorer selects quantile equal to alpha.
+    # Inputs: global_random_seed fixture.
     # Integration test to check that it is possible to use the pinball loss to
     # tune the hyperparameter of a quantile regressor. This is conceptually
     # similar to the previous test but using the scikit-learn estimator and
@@ -625,6 +697,11 @@ def test_dummy_quantile_parameter_tuning(global_random_seed):
 
 
 def test_pinball_loss_relation_with_mae(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies MAE equals twice the pinball loss at alpha 0.5 (exact equality).
+    # Inputs: global_random_seed fixture.
+    # KNOWN ISSUE: rng.uniform(n) draws one scalar (low=n, high=1), not n values, so
+    # predictions are y_true plus a constant offset.
     # Test that mean_pinball loss with alpha=0.5 if half of mean absolute error
     rng = np.random.RandomState(global_random_seed)
     n = 100

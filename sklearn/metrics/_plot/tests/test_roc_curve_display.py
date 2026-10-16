@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for RocCurveDisplay: single-curve and per-fold (from_cv_results) plotting
+# against roc_curve/auc, parameter length validation, chance-level line styling and
+# legends, pipelines, default legend labels, pos_label switching and despine. Uses the
+# pyplot fixture and a module-scoped noisy binary make_classification dataset.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -21,6 +26,10 @@ from sklearn.utils._response import _get_response_values_binary
 
 @pytest.fixture(scope="module")
 def data_binary():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning (X, y) from make_classification with 200
+    # samples, 20 features (5 informative, 2 redundant), 10% label noise, class_sep 0.8,
+    # random_state 42.
     X, y = make_classification(
         n_samples=200,
         n_features=20,
@@ -34,6 +43,12 @@ def data_binary():
 
 
 def _check_figure_axes_and_labels(display, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that ax_ and figure_ are matplotlib Axes/Figure, the axes use
+    # adjustable 'box' and equal aspect, both limits are (-0.01, 1.01), and the axis
+    #   labels
+    # end with '(Positive label: X)' where X is pos_label or 1 when None.
+    # Inputs: display - plotted RocCurveDisplay; pos_label - expected label or None.
     """Check mpl axes and figure defaults are correct."""
     import matplotlib as mpl
 
@@ -72,6 +87,13 @@ def test_roc_curve_display_plotting(
     constructor_name,
     default_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies for both single-curve constructors across response methods, sample
+    # weights, drop_intermediate, and int/string labels that fpr, tpr and roc_auc match
+    # roc_curve/auc, the default name ('LogisticRegression' or 'Classifier') is stored,
+    #   the
+    # axes defaults hold, curve_kwargs alpha is applied and the label is 'name (AUC =
+    #   x)'.
     """Check the overall plotting behaviour for single curve."""
     X, y = data_binary
 
@@ -188,6 +210,11 @@ def test_roc_curve_display_plotting(
     ],
 )
 def test_roc_curve_plot_parameter_length_validation(pyplot, params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies that plot raises ValueError with messages naming the mismatched
+    # attributes when fpr/tpr/roc_auc/name lists differ in length, and that a name list
+    #   of
+    # length 1 is accepted.
     """Check `plot` parameter length validation performed correctly."""
     display = RocCurveDisplay(**params)
     if err_msg:
@@ -219,6 +246,17 @@ def test_roc_curve_display_plotting_from_cv_results(
     drop_intermediate,
     curve_kwargs,
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_cv_results across curve_kwargs forms, drop_intermediate,
+    # response methods, sample weights and label types that each fold's fpr/tpr/AUC
+    #   match
+    # manual per-fold computation, name stays None, axes defaults hold, and labels are
+    # per-curve 'AUC = x' when curve_kwargs is a list, else a single aggregate 'AUC =
+    #   mean
+    # +/- std' (hard-coded values) on the first line and matplotlib's '_childN' on
+    #   others.
+    # KNOWN ISSUE: the alpha check 'line.get_alpha() == 0.5' lacks an assert, so it
+    # verifies nothing.
     """Check overall plotting of `from_cv_results`."""
     X, y = data_binary
 
@@ -295,6 +333,13 @@ def test_roc_curve_display_plotting_from_cv_results(
 
 
 def _check_chance_level(plot_chance_level, chance_level_kw, display):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that chance_level_ is a Line2D from (0,0) to (1,1) when
+    # plot_chance_level is True (else None), with default black dashed style and label
+    # 'Chance level (AUC = 0.5)' when chance_level_kw is None, otherwise color,
+    #   linewidth and
+    # linestyle matching the given kwargs (full names or c/lw/ls aliases).
+    # Inputs: plot_chance_level bool; chance_level_kw dict or None; display.
     """Check chance level line and line styles correct."""
     import matplotlib as mpl
 
@@ -345,6 +390,13 @@ def test_roc_curve_chance_level_line(
     label,
     constructor_name,
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_estimator and from_predictions with various curve labels and
+    # chance_level_kw values: the curve artist and alpha, chance-line presence and
+    #   style,
+    # and, when chance_level_kw is given with plot_chance_level, that a legend
+    #   containing
+    # the set labels exists iff any label is set.
     """Check chance level plotting behavior of `from_predictions`, `from_estimator`."""
     X, y = data_binary
 
@@ -413,6 +465,11 @@ def test_roc_curve_chance_level_line_from_cv_results(
     chance_level_kw,
     curve_kwargs,
 ):
+    # [FUNCTION DOC]
+    # Verifies for from_cv_results that all fold lines are Line2D with the requested
+    # alpha, chance-line presence/style, that a legend always exists, and that it
+    #   contains
+    # the custom chance label when given or only the single aggregate entry otherwise.
     """Check chance level plotting behavior with `from_cv_results`."""
     X, y = data_binary
     n_cv = 3
@@ -463,6 +520,11 @@ def test_roc_curve_chance_level_line_from_cv_results(
 )
 @pytest.mark.parametrize("constructor_name", ["from_estimator", "from_predictions"])
 def test_roc_curve_display_complex_pipeline(pyplot, data_binary, clf, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies that unfitted classifiers/pipelines raise NotFittedError in
+    # from_estimator, and after fitting the default name (class name or 'Classifier')
+    # appears in the line label and display.name. from_predictions uses y itself as
+    #   scores.
     """Check the behaviour with complex pipeline."""
     X, y = data_binary
 
@@ -502,6 +564,10 @@ def test_roc_curve_display_complex_pipeline(pyplot, data_binary, clf, constructo
 def test_roc_curve_display_default_labels(
     pyplot, roc_auc, name, curve_kwargs, expected_labels
 ):
+    # [FUNCTION DOC]
+    # Verifies legend labels built by plot directly from the constructor for: aggregate
+    # mean +/- std AUC with and without a name, per-curve names with AUC, and per-curve
+    # names without AUC.
     """Check the default labels used in the display."""
     fpr = [np.array([0, 0.5, 1]), np.array([0, 0.3, 1])]
     tpr = [np.array([0, 0.5, 1]), np.array([0, 0.3, 1])]
@@ -517,9 +583,19 @@ def test_roc_curve_display_default_labels(
     "constructor_name", ["from_estimator", "from_predictions", "from_cv_results"]
 )
 def test_plot_roc_curve_pos_label(pyplot, response_method, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies, via the shared _check_pos_label_statistics helper on imbalanced data,
+    # that choosing the minority class as pos_label yields the expected AUC values for
+    #   all
+    # three constructors and that the trapezoid integral of the curve matches.
     """Test switching `pos_label` gives correct statistics, using imbalanced data."""
 
     def _check_auc(display, constructor_name, pos_label):
+        # [FUNCTION DOC]
+        # HELPER: Asserts the expected AUC (0.95679 for single-curve constructors, also
+        #   via
+        # trapezoid of tpr over fpr; per-fold reference values for from_cv_results).
+        # Inputs: display; constructor_name; pos_label (unused).
         roc_auc_limit = 0.95679
         roc_auc_limit_multi = [0.97007, 0.985915, 0.980952]
 
@@ -540,6 +616,10 @@ def test_plot_roc_curve_pos_label(pyplot, response_method, constructor_name):
     "constructor_name", ["from_estimator", "from_predictions", "from_cv_results"]
 )
 def test_plot_roc_curve_despine(pyplot, data_binary, despine, constructor_name):
+    # [FUNCTION DOC]
+    # Verifies for all three constructors that despine hides the top and right spines
+    # (and keeps them otherwise) and bounds bottom/left spines to (0, 1).
+    # KNOWN ISSUE: the LogisticRegression is fitted twice in a row (redundant).
     # Check that the despine keyword is working correctly
     X, y = data_binary
 

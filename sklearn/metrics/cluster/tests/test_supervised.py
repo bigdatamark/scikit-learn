@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the supervised clustering metrics in _supervised: input validation, known
+# reference values, bounds, chance adjustment, overflow regressions, contingency and
+# pair confusion matrices, entropy (including array API dispatch) and the deprecated
+# public entropy.
 import warnings
 
 import numpy as np
@@ -45,6 +50,9 @@ score_funcs = [
 
 @pytest.mark.parametrize("score_func", score_funcs)
 def test_error_messages_on_wrong_input(score_func):
+    # [FUNCTION DOC]
+    # For each score in score_funcs, checks ValueError messages for inconsistent lengths
+    # and for 2D labels_true or labels_pred.
     expected = r"Found input variables with inconsistent numbers of samples: \[2, 3\]"
     with pytest.raises(ValueError, match=expected):
         score_func([0, 1], [1, 1, 1])
@@ -59,6 +67,9 @@ def test_error_messages_on_wrong_input(score_func):
 
 
 def test_generalized_average():
+    # [FUNCTION DOC]
+    # Checks _generalized_average ordering min <= geometric <= arithmetic <= max for
+    # unequal inputs and equality of all four for equal inputs.
     a, b = 1, 2
     methods = ["min", "geometric", "arithmetic", "max"]
     means = [_generalized_average(a, b, method) for method in methods]
@@ -70,6 +81,9 @@ def test_generalized_average():
 
 @pytest.mark.parametrize("score_func", score_funcs)
 def test_perfect_matches(score_func):
+    # [FUNCTION DOC]
+    # Checks each score returns 1 for empty input, a single sample, and labelings
+    # identical up to renaming, with int and float label values.
     assert score_func([], []) == pytest.approx(1.0)
     assert score_func([0], [1]) == pytest.approx(1.0)
     assert score_func([0, 0, 0], [0, 0, 0]) == pytest.approx(1.0)
@@ -88,6 +102,9 @@ def test_perfect_matches(score_func):
 )
 @pytest.mark.parametrize("average_method", ["min", "geometric", "arithmetic", "max"])
 def test_perfect_matches_with_changing_means(score_func, average_method):
+    # [FUNCTION DOC]
+    # Same perfect-match checks for NMI and AMI under each average_method, plus the
+    # non-regression cases from issue 30950 where every sample is its own cluster.
     assert score_func([], [], average_method=average_method) == pytest.approx(1.0)
     assert score_func([0], [1], average_method=average_method) == pytest.approx(1.0)
     assert score_func(
@@ -115,6 +132,9 @@ def test_perfect_matches_with_changing_means(score_func, average_method):
 
 
 def test_homogeneous_but_not_complete_labeling():
+    # [FUNCTION DOC]
+    # Checks homogeneity, completeness and V-measure reference values (2 decimals) for a
+    # labeling that splits one true class into two clusters.
     # homogeneous but not complete clustering
     h, c, v = homogeneity_completeness_v_measure([0, 0, 0, 1, 1, 1], [0, 0, 0, 1, 2, 2])
     assert_almost_equal(h, 1.00, 2)
@@ -123,6 +143,8 @@ def test_homogeneous_but_not_complete_labeling():
 
 
 def test_complete_but_not_homogeneous_labeling():
+    # [FUNCTION DOC]
+    # Checks reference h/c/v values for a labeling that merges two true classes.
     # complete but not homogeneous clustering
     h, c, v = homogeneity_completeness_v_measure([0, 0, 1, 1, 2, 2], [0, 0, 1, 1, 1, 1])
     assert_almost_equal(h, 0.58, 2)
@@ -131,6 +153,9 @@ def test_complete_but_not_homogeneous_labeling():
 
 
 def test_not_complete_and_not_homogeneous_labeling():
+    # [FUNCTION DOC]
+    # Checks reference h/c/v values for a labeling that is neither homogeneous nor
+    # complete.
     # neither complete nor homogeneous but not so bad either
     h, c, v = homogeneity_completeness_v_measure([0, 0, 0, 1, 1, 1], [0, 1, 0, 1, 2, 2])
     assert_almost_equal(h, 0.67, 2)
@@ -139,6 +164,10 @@ def test_not_complete_and_not_homogeneous_labeling():
 
 
 def test_beta_parameter():
+    # [FUNCTION DOC]
+    # Checks that beta=0.2 is honored by both homogeneity_completeness_v_measure and
+    # v_measure_score, comparing against the weighted harmonic mean of the reference h
+    # and c.
     # test for when beta passed to
     # homogeneity_completeness_v_measure
     # and v_measure_score
@@ -159,6 +188,9 @@ def test_beta_parameter():
 
 
 def test_non_consecutive_labels():
+    # [FUNCTION DOC]
+    # Checks that label value gaps (e.g. 0, 2 or 0, 4) do not change h/c/v, ARI or Rand
+    # index compared with consecutive labels.
     # regression tests for labels with gaps
     h, c, v = homogeneity_completeness_v_measure([0, 0, 0, 2, 2, 2], [0, 1, 0, 1, 2, 2])
     assert_almost_equal(h, 0.67, 2)
@@ -182,6 +214,12 @@ def test_non_consecutive_labels():
 
 
 def uniform_labelings_scores(score_func, n_samples, k_range, n_runs=10, seed=42):
+    # [FUNCTION DOC]
+    # HELPER: For each k in k_range and each of n_runs repetitions, draws two
+    # independent uniform random labelings of n_samples with k classes from a
+    # RandomState seeded with seed (shared across all draws) and records score_func on
+    # them.
+    # Outputs: float ndarray of shape (len(k_range), n_runs).
     # Compute score for random uniform cluster labelings
     random_labels = np.random.RandomState(seed).randint
     scores = np.zeros((len(k_range), n_runs))
@@ -194,6 +232,9 @@ def uniform_labelings_scores(score_func, n_samples, k_range, n_runs=10, seed=42)
 
 
 def test_adjustment_for_chance():
+    # [FUNCTION DOC]
+    # Checks ARI is close to zero (max abs score matches reference values to 2 decimals)
+    # on random uniform labelings across several cluster counts.
     # Check that adjusted scores are almost zero on random labels
     n_clusters_range = [2, 10, 50, 90]
     n_samples = 100
@@ -208,6 +249,10 @@ def test_adjustment_for_chance():
 
 
 def test_adjusted_mutual_info_score():
+    # [FUNCTION DOC]
+    # Checks MI against a reference value with no contingency, a sparse contingency and
+    # a dense one; EMI and AMI against references; AMI is 1 for renamed identical
+    # labelings; and AMI on a 110x tiled input stays near 0.38.
     # Compute the Adjusted Mutual Information and test against known values
     labels_a = np.array([1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3])
     labels_b = np.array([1, 1, 1, 1, 2, 1, 2, 2, 2, 2, 3, 1, 3, 3, 3, 2, 2])
@@ -239,12 +284,18 @@ def test_adjusted_mutual_info_score():
 
 
 def test_expected_mutual_info_overflow():
+    # [FUNCTION DOC]
+    # Regression test: a single contingency cell above 2 to the 16 must not overflow in
+    # EMI (result must be at most 1).
     # Test for regression where contingency cell exceeds 2**16
     # leading to overflow in np.outer, resulting in EMI > 1
     assert expected_mutual_information(np.array([[70000]]), 70000) <= 1
 
 
 def test_int_overflow_mutual_info_fowlkes_mallows_score():
+    # [FUNCTION DOC]
+    # Regression test: mutual_info_score and fowlkes_mallows_score must return finite
+    # values on ~75k samples whose pair counts overflow 32-bit integers.
     # Test overflow in mutual_info_classif and fowlkes_mallows_score
     x = np.array(
         [1] * (52632 + 2529)
@@ -272,11 +323,16 @@ def test_int_overflow_mutual_info_fowlkes_mallows_score():
 
 # TODO(1.10): Remove
 def test_public_entropy_deprecation():
+    # [FUNCTION DOC]
+    # Checks the public entropy function emits the deprecation FutureWarning.
     with pytest.warns(FutureWarning, match="Function entropy is deprecated"):
         entropy([0, 0, 42.0])
 
 
 def test_entropy():
+    # [FUNCTION DOC]
+    # Checks _entropy reference value for float labels, that empty input returns 1 and
+    # that a constant labeling has entropy 0.
     assert_almost_equal(_entropy([0, 0, 42.0]), 0.6365141, 5)
     assert_almost_equal(_entropy([]), 1)
     assert _entropy([1, 1, 1, 1]) == 0
@@ -287,6 +343,9 @@ def test_entropy():
     yield_namespace_device_dtype_combinations(),
 )
 def test_entropy_array_api(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Same _entropy checks with array API dispatch enabled for each
+    # namespace/device/dtype combination.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     float_labels = xp.asarray(np.asarray([0, 0, 42.0], dtype=dtype_name), device=device)
     empty_int32_labels = xp.asarray([], dtype=xp.int32, device=device)
@@ -298,6 +357,9 @@ def test_entropy_array_api(array_namespace, device_name, dtype_name):
 
 
 def test_contingency_matrix():
+    # [FUNCTION DOC]
+    # Checks contingency_matrix against numpy histogram2d and that eps is added to every
+    # cell.
     labels_a = np.array([1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3])
     labels_b = np.array([1, 1, 1, 1, 2, 1, 2, 2, 2, 2, 3, 1, 3, 3, 3, 2, 2])
     C = contingency_matrix(labels_a, labels_b)
@@ -308,6 +370,9 @@ def test_contingency_matrix():
 
 
 def test_contingency_matrix_sparse():
+    # [FUNCTION DOC]
+    # Checks the sparse contingency matrix densifies to the dense one and that combining
+    # eps with sparse=True raises ValueError.
     labels_a = np.array([1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3])
     labels_b = np.array([1, 1, 1, 1, 2, 1, 2, 2, 2, 2, 3, 1, 3, 3, 3, 2, 2])
     C = contingency_matrix(labels_a, labels_b)
@@ -318,6 +383,10 @@ def test_contingency_matrix_sparse():
 
 
 def test_exactly_zero_info_score():
+    # [FUNCTION DOC]
+    # Checks NMI, V-measure and AMI are exactly or approximately zero when one labeling
+    # is constant and the other all-distinct, for several sizes and all average methods.
+    # KNOWN ISSUE: the NMI default-method assertion is duplicated within the loop.
     # Check numerical stability when information is exactly zero
     for i in np.logspace(1, 4, 4).astype(int):
         labels_a, labels_b = (np.ones(i, dtype=int), np.arange(i, dtype=int))
@@ -336,6 +405,11 @@ def test_exactly_zero_info_score():
 
 
 def test_v_measure_and_mutual_information(seed=36):
+    # [FUNCTION DOC]
+    # Checks V-measure equals 2 MI / (H(a) + H(b)) and equals arithmetic NMI on seeded
+    # random 10-class labelings of increasing size.
+    # KNOWN ISSUE: the first comparison uses 0 decimals, so it is an extremely loose
+    # check.
     # Check relation between v_measure, entropy and mutual information
     for i in np.logspace(1, 4, 4).astype(int):
         random_state = np.random.RandomState(seed)
@@ -358,6 +432,9 @@ def test_v_measure_and_mutual_information(seed=36):
 
 
 def test_fowlkes_mallows_score():
+    # [FUNCTION DOC]
+    # Checks Fowlkes-Mallows on a general case against a hand-computed value, a renamed
+    # perfect match (1) and the worst case (0).
     # General case
     score = fowlkes_mallows_score([0, 0, 0, 1, 1, 1], [0, 0, 1, 1, 2, 2])
     assert_almost_equal(score, 4.0 / np.sqrt(12.0 * 6.0))
@@ -372,6 +449,9 @@ def test_fowlkes_mallows_score():
 
 
 def test_fowlkes_mallows_score_properties():
+    # [FUNCTION DOC]
+    # Checks Fowlkes-Mallows on a handcrafted example is invariant to swapping arguments
+    # and to cyclic relabeling, separately and combined.
     # handcrafted example
     labels_a = np.array([0, 0, 0, 1, 1, 2])
     labels_b = np.array([1, 1, 2, 2, 0, 0])
@@ -405,12 +485,18 @@ def test_fowlkes_mallows_score_properties():
     ],
 )
 def test_mutual_info_score_positive_constant_label(labels_true, labels_pred):
+    # [FUNCTION DOC]
+    # Non-regression for 16355: MI is exactly 0 when one or both labelings are constant,
+    # including string labels.
     # Check that MI = 0 when one or both labelling are constant
     # non-regression test for #16355
     assert mutual_info_score(labels_true, labels_pred) == 0
 
 
 def test_check_clustering_error():
+    # [FUNCTION DOC]
+    # Checks check_clusterings emits the UserWarning about continuous values when both
+    # inputs are continuous floats.
     # Test warning message for continuous values
     rng = np.random.RandomState(42)
     noise = rng.rand(500)
@@ -426,6 +512,9 @@ def test_check_clustering_error():
 
 
 def test_pair_confusion_matrix_fully_dispersed():
+    # [FUNCTION DOC]
+    # Checks pair_confusion_matrix when each sample is its own cluster: all N(N-1)
+    # ordered pairs fall in the "different in both" cell.
     # edge case: every element is its own cluster
     N = 100
     clustering1 = list(range(N))
@@ -435,6 +524,9 @@ def test_pair_confusion_matrix_fully_dispersed():
 
 
 def test_pair_confusion_matrix_single_cluster():
+    # [FUNCTION DOC]
+    # Checks pair_confusion_matrix with a single cluster: all ordered pairs fall in the
+    # "same in both" cell.
     # edge case: only one cluster
     N = 100
     clustering1 = np.zeros((N,))
@@ -444,6 +536,9 @@ def test_pair_confusion_matrix_single_cluster():
 
 
 def test_pair_confusion_matrix():
+    # [FUNCTION DOC]
+    # Checks pair_confusion_matrix against a brute-force O(n squared) count over ordered
+    # sample pairs for two block clusterings.
     # regular case: different non-trivial clusterings
     n = 10
     N = n**2
@@ -465,12 +560,17 @@ def test_pair_confusion_matrix():
     [(list(range(100)), list(range(100))), (np.zeros((100,)), np.zeros((100,)))],
 )
 def test_rand_score_edge_cases(clustering1, clustering2):
+    # [FUNCTION DOC]
+    # Checks Rand index is 1 for the all-singleton and the single-cluster edge cases.
     # edge case 1: every element is its own cluster
     # edge case 2: only one cluster
     assert_allclose(rand_score(clustering1, clustering2), 1.0)
 
 
 def test_rand_score():
+    # [FUNCTION DOC]
+    # Checks Rand index against a hand-computed pair confusion matrix for a small
+    # example.
     # regular case: different non-trivial clusterings
     clustering1 = [0, 0, 0, 1, 1, 1]
     clustering2 = [0, 1, 0, 1, 2, 2]
@@ -487,6 +587,9 @@ def test_rand_score():
 
 
 def test_adjusted_rand_score_overflow():
+    # [FUNCTION DOC]
+    # Regression for 20305: ARI on 100k int8 labels must not emit an overflow
+    # RuntimeWarning (warnings turned into errors).
     """Check that large amount of data will not lead to overflow in
     `adjusted_rand_score`.
     Non-regression test for:
@@ -502,6 +605,9 @@ def test_adjusted_rand_score_overflow():
 
 @pytest.mark.parametrize("average_method", ["min", "arithmetic", "geometric", "max"])
 def test_normalized_mutual_info_score_bounded(average_method):
+    # [FUNCTION DOC]
+    # Regression for 13836: NMI is 0 when one labeling is constant and strictly below 1
+    # for nearly identical non-perfect labelings, for every average method.
     """Check that nmi returns a score between 0 (included) and 1 (excluded
     for non-perfect match)
 
