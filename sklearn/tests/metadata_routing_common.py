@@ -633,8 +633,8 @@ def consuming_metric(y_pred, y_true, registry=None, scorer=None, **kwargs):
     # holder, and returns mean_squared_error with the given sample_weight.
     # Inputs: y_pred, y_true - arrays; registry - optional list; scorer - record holder.
     # Outputs: float MSE.
-    # KNOWN ISSUE: arguments are passed to mean_squared_error as (y_pred, y_true), the
-    # reverse of its (y_true, y_pred) signature; harmless since MSE is symmetric.
+    # KNOWN ISSUE: parameter names are swapped relative to the scorer's call order
+    # (score_func(y_true, y_pred)); harmless since MSE is symmetric.
     # Emulates metric function used in a `_Scorer`. Records are stored on the
     # per-test `scorer` instance, not on this module-level function, so they
     # don't leak across tests.

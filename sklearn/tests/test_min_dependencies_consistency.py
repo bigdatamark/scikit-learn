@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests that the minimum dependency versions declared in sklearn/_min_dependencies.py
+# agree with README.rst and with pyproject.toml. Defines module-level toy pyproject
+# TOML snippets and a toy dependency table (joblib install, scipy build+install) used
+# to exercise the checker on matching and deliberately broken inputs.
 """Tests for the minimum dependencies in README.rst and pyproject.toml"""
 
 import os
@@ -63,6 +68,11 @@ requires = ["scipy>=1.10.0"]
 
 
 def test_min_dependencies_readme():
+    # [FUNCTION DOC]
+    # Parses README.rst (located next to the installed sklearn package directory) for
+    # lines of the form ".. |<Name>MinVersion| replace:: X.Y[.Z]"; for each lower-cased
+    # package also listed in dependent_packages, asserts the parsed version equals the
+    # declared minimum version. Skips when README.rst is absent (e.g. wheel install).
     # Test that the minimum dependencies in the README.rst file are
     # consistent with the minimum dependencies defined at the file:
     # sklearn/_min_dependencies.py
@@ -104,6 +114,14 @@ def test_min_dependencies_readme():
 
 
 def extract_packages_and_pyproject_tags(dependencies):
+    # [FUNCTION DOC]
+    # HELPER: Groups package names by their min-dependencies tag and returns the mapping
+    # from pyproject section path to tag.
+    # Inputs: dependencies - dict package -> (min_version, comma-separated tag string).
+    # Outputs: tuple (defaultdict tag -> list of packages, restricted to tags "build" and
+    # "install"; dict {"build-system.requires": "build", "project.dependencies":
+    # "install"}).
+    # Side effects: none.
     pyproject_section_to_min_dependencies_tag = {
         "build-system.requires": "build",
         "project.dependencies": "install",
@@ -122,6 +140,22 @@ def extract_packages_and_pyproject_tags(dependencies):
 
 
 def check_pyproject_sections(pyproject_toml, min_dependencies):
+    # [FUNCTION DOC]
+    # HELPER: Checks one parsed pyproject against a min-dependencies table. For each of
+    # the two sections, walks the dotted key path into the TOML dict, regex-parses each
+    # requirement string into name and version (only ">=" or "==" accepted), asserts the
+    # set of package names equals the packages tagged for that section, then asserts each
+    # version equals the declared minimum (version check skipped for numpy in
+    # build-system.requires).
+    # Inputs: pyproject_toml - dict from tomllib; min_dependencies - dict package ->
+    # (version, tags).
+    # Outputs: None.
+    # Exceptions: NotImplementedError when a requirement does not match the pattern;
+    # AssertionError on package set or version mismatch; KeyError if a section is
+    # missing.
+    # KNOWN ISSUE: the regex character class "[>=]=" also accepts "==" and ">=" but the
+    # version group may capture part of an upper bound only if separated oddly; upper
+    # bounds after a comma are silently ignored rather than validated.
     packages, pyproject_tags = extract_packages_and_pyproject_tags(min_dependencies)
 
     for pyproject_section, min_dependencies_tag in pyproject_tags.items():
@@ -173,6 +207,9 @@ def check_pyproject_sections(pyproject_toml, min_dependencies):
 
 
 def test_min_dependencies_pyproject_toml():
+    # [FUNCTION DOC]
+    # Loads the real pyproject.toml next to the sklearn package directory and runs
+    # check_pyproject_sections against dependent_packages. Skips when the file is absent.
     """Check versions in pyproject.toml is consistent with _min_dependencies."""
 
     root_directory = Path(sklearn.__file__).parent.parent
@@ -197,6 +234,10 @@ def test_min_dependencies_pyproject_toml():
     ],
 )
 def test_check_matching_pyproject_section(example_pyproject):
+    # [FUNCTION DOC]
+    # Verifies that toy pyprojects with matching versions (with and without upper bounds)
+    # pass check_pyproject_sections without error.
+    # Inputs: example_pyproject - parametrized TOML text.
     """Test the version check for matching packages."""
 
     pyproject_toml = tomllib.loads(example_pyproject)
@@ -230,6 +271,11 @@ def test_check_matching_pyproject_section(example_pyproject):
 def test_check_non_matching_pyproject_section(
     example_non_matching_pyproject, error_msg
 ):
+    # [FUNCTION DOC]
+    # Verifies that each broken toy pyproject (wrong operator, missing package, extra
+    # package, wrong version) makes check_pyproject_sections raise with a message
+    # matching the expected regex.
+    # Inputs: example_non_matching_pyproject - TOML text; error_msg - regex to match.
     """Test the version check for non-matching packages and versions."""
 
     pyproject_toml = tomllib.loads(example_non_matching_pyproject)

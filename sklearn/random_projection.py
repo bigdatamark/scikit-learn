@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Random projection dimensionality reduction: the Johnson-Lindenstrauss bound
+# helper johnson_lindenstrauss_min_dim, private random matrix generators
+# (dense Gaussian, sparse Achlioptas/Li), and the transformers
+# GaussianRandomProjection and SparseRandomProjection sharing fit and
+# inverse_transform logic in BaseRandomProjection.
 """Random projection transformers.
 
 Random projections are a simple and computationally efficient way to
@@ -61,6 +67,15 @@ __all__ = [
     prefer_skip_nested_validation=True,
 )
 def johnson_lindenstrauss_min_dim(n_samples, *, eps=0.1):
+    # [FUNCTION DOC]
+    # Computes the JL minimum dimension elementwise (with broadcasting):
+    # 4 * ln(n_samples) / (eps^2/2 - eps^3/3), truncated to int64.
+    # Inputs: n_samples - number or array-like (>= 1); eps - number or array-like in
+    # the open interval (0, 1), default 0.1.
+    # Outputs: numpy int64 scalar or array of the broadcast shape.
+    # Exceptions: ValueError if any eps is outside (0, 1) or any n_samples <= 0
+    # (plus validate_params errors for scalar inputs out of range).
+    # Side effects: none.
     """Find a 'safe' number of components to randomly project to.
 
     The distortion introduced by a random projection `p` only changes the
@@ -147,6 +162,10 @@ def johnson_lindenstrauss_min_dim(n_samples, *, eps=0.1):
 
 
 def _check_density(density, n_features):
+    # [FUNCTION DOC]
+    # HELPER: Resolves density: "auto" becomes 1/sqrt(n_features); a numeric value
+    # must be in (0, 1] and is returned unchanged.
+    # Exceptions: ValueError for a numeric density outside (0, 1].
     """Factorize density check according to Li et al."""
     if density == "auto":
         density = 1 / np.sqrt(n_features)
@@ -157,6 +176,9 @@ def _check_density(density, n_features):
 
 
 def _check_input_size(n_components, n_features):
+    # [FUNCTION DOC]
+    # HELPER: Validates that n_components and n_features are both strictly positive.
+    # Exceptions: ValueError naming the offending argument.
     """Factorize argument checking for random matrix generation."""
     if n_components <= 0:
         raise ValueError(
@@ -167,6 +189,15 @@ def _check_input_size(n_components, n_features):
 
 
 def _gaussian_random_matrix(n_components, n_features, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Validates sizes, then draws a dense (n_components, n_features) matrix
+    # of i.i.d. normal entries with mean 0 and standard deviation
+    # 1/sqrt(n_components).
+    # Inputs: n_components, n_features - positive ints; random_state - seed,
+    # RandomState or None.
+    # Outputs: float64 ndarray.
+    # Exceptions: ValueError from _check_input_size.
+    # Side effects: consumes the random state.
     """Generate a dense Gaussian random matrix.
 
     The components of the random matrix are drawn from
@@ -207,6 +238,21 @@ def _gaussian_random_matrix(n_components, n_features, random_state=None):
 
 
 def _sparse_random_matrix(n_components, n_features, density="auto", random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Generates the Achlioptas/Li sparse projection matrix. Validates sizes
+    # and resolves density. If density is exactly 1: returns a dense matrix of
+    # random +-1 values scaled by 1/sqrt(n_components). Otherwise, for each row draws
+    # the number of non-zeros from Binomial(n_features, density), samples that many
+    # distinct column indices without replacement, accumulates CSR indptr; signs are
+    # random +-1 with equal probability; builds a CSR array (aligned to the
+    # configured sparse API) and scales by sqrt(1/density)/sqrt(n_components).
+    # Inputs: n_components, n_features - positive ints; density - float in (0, 1]
+    # or "auto"; random_state.
+    # Outputs: dense ndarray (density 1) or CSR sparse (n_components, n_features).
+    # Exceptions: ValueError from size/density checks.
+    # Side effects: consumes the random state.
+    # KNOWN ISSUE: the docstring says the result is a "Gaussian random matrix"; it
+    # is a sparse sign matrix. Column indices within a row may be unsorted.
     """Generalized Achlioptas random sparse matrix for random projection.
 
     Setting density to 1 / 3 will yield the original matrix by Dimitris
@@ -308,6 +354,12 @@ def _sparse_random_matrix(n_components, n_features, density="auto", random_state
 class BaseRandomProjection(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator, metaclass=ABCMeta
 ):
+    # [CLASS DOC]
+    # Abstract transformer base. Subclasses implement _make_random_matrix and
+    # transform. Fitted attributes: n_components_, components_ (dtype of X),
+    # inverse_components_ (when compute_inverse_components), _n_features_out,
+    # n_features_in_/feature_names_in_. Output feature names are
+    # "<lowercase class name><i>". Tags: preserves float64/float32, accepts sparse.
     """Base class for random projections.
 
     Warning: This class should not be used directly.
@@ -333,6 +385,9 @@ class BaseRandomProjection(
         compute_inverse_components=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores n_components ("auto" or int >= 1), eps (> 0), compute_inverse_components
+        # and random_state unchanged.
         self.n_components = n_components
         self.eps = eps
         self.compute_inverse_components = compute_inverse_components
@@ -340,6 +395,9 @@ class BaseRandomProjection(
 
     @abstractmethod
     def _make_random_matrix(self, n_components, n_features):
+        # [FUNCTION DOC]
+        # Abstract: subclasses return the (n_components, n_features) projection matrix.
+        # The base body is empty and returns None.
         """Generate the random projection matrix.
 
         Parameters
@@ -358,6 +416,10 @@ class BaseRandomProjection(
         """
 
     def _compute_inverse_components(self):
+        # [FUNCTION DOC]
+        # HELPER: Densifies components_ if sparse and returns its Moore-Penrose
+        # pseudo-inverse, shape (n_features, n_components), computed without finiteness
+        # checks.
         """Compute the pseudo-inverse of the (densified) components."""
         components = self.components_
         if sp.issparse(components):
@@ -366,6 +428,24 @@ class BaseRandomProjection(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (csr/csc, float64 or float32; other dtypes converted to float64);
+        # only its shape is used. If n_components is "auto", n_components_ is the JL
+        # bound for n_samples and eps; if that is <= 0 or > n_features a ValueError is
+        # raised. Otherwise n_components_ = n_components, warning
+        # DataDimensionalityWarning when it exceeds n_features. Then builds components_
+        # with _make_random_matrix cast to X's dtype, optionally computes
+        # inverse_components_, and stores _n_features_out.
+        # Inputs: X - (n_samples, n_features); y ignored.
+        # Outputs: self.
+        # Exceptions: ValueError as above; parameter validation errors.
+        # Side effects: sets fitted attributes; uses random_state; may warn.
+        # KNOWN ISSUE: _n_features_out is set from n_components rather than
+        # n_components_, so with n_components="auto" it holds the string "auto" and
+        # get_feature_names_out cannot produce the right number of names. The eps
+        # constraint allows eps >= 1, which johnson_lindenstrauss_min_dim then rejects
+        # with ValueError. The docstring says "sparse" matrix also for the Gaussian
+        # subclass.
         """Generate a sparse random projection matrix.
 
         Parameters
@@ -433,6 +513,13 @@ class BaseRandomProjection(
         return self
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted, validates X (n_samples, n_components; csr/csc allowed,
+        # float64/float32) and returns X times the transposed pseudo-inverse, using the
+        # stored inverse_components_ or computing it on the fly.
+        # Outputs: ndarray (n_samples, n_features) (dense even for sparse X, per
+        # docstring; the result type follows the matrix product with a dense array).
+        # Exceptions: NotFittedError; validation errors.
         """Project data back to its original space.
 
         Returns an array X_original whose transform would be X. Note that even
@@ -462,6 +549,8 @@ class BaseRandomProjection(
         return _align_api_if_sparse(X @ inverse_components.T)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: preserves float64/float32 dtypes and accepts sparse input.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         tags.input_tags.sparse = True
@@ -469,6 +558,9 @@ class BaseRandomProjection(
 
 
 class GaussianRandomProjection(BaseRandomProjection):
+    # [CLASS DOC]
+    # Random projection with a dense Gaussian matrix N(0, 1/n_components); transform
+    # always returns a dense array.
     """Reduce dimensionality through Gaussian random projection.
 
     The components of the random matrix are drawn from N(0, 1 / n_components).
@@ -560,6 +652,8 @@ class GaussianRandomProjection(BaseRandomProjection):
         compute_inverse_components=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseRandomProjection.__init__.
         super().__init__(
             n_components=n_components,
             eps=eps,
@@ -568,6 +662,9 @@ class GaussianRandomProjection(BaseRandomProjection):
         )
 
     def _make_random_matrix(self, n_components, n_features):
+        # [FUNCTION DOC]
+        # Returns _gaussian_random_matrix(n_components, n_features) using a RandomState
+        # derived from self.random_state.
         """Generate the random projection matrix.
 
         Parameters
@@ -589,6 +686,11 @@ class GaussianRandomProjection(BaseRandomProjection):
         )
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted, validates X (csr/csc, float dtypes, feature count checked) and
+        # returns X times components_ transposed.
+        # Outputs: ndarray (n_samples, n_components_).
+        # Exceptions: NotFittedError; validation errors.
         """Project the data by using matrix product with the random matrix.
 
         Parameters
@@ -614,6 +716,10 @@ class GaussianRandomProjection(BaseRandomProjection):
 
 
 class SparseRandomProjection(BaseRandomProjection):
+    # [CLASS DOC]
+    # Random projection with the sparse Achlioptas/Li matrix. Extra parameters:
+    # density ((0, 1] or "auto") and dense_output. Extra fitted attribute:
+    # density_ (resolved density).
     """Reduce dimensionality through sparse random projection.
 
     Sparse random matrix is an alternative to dense random
@@ -766,6 +872,9 @@ class SparseRandomProjection(BaseRandomProjection):
         compute_inverse_components=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards common hyperparameters to the base and stores density and
+        # dense_output.
         super().__init__(
             n_components=n_components,
             eps=eps,
@@ -777,6 +886,12 @@ class SparseRandomProjection(BaseRandomProjection):
         self.density = density
 
     def _make_random_matrix(self, n_components, n_features):
+        # [FUNCTION DOC]
+        # Resolves and stores density_, then returns _sparse_random_matrix with it and a
+        # RandomState derived from self.random_state.
+        # Side effects: sets self.density_.
+        # KNOWN ISSUE: docstring promises a sparse CSR matrix, but density 1 yields a
+        # dense ndarray.
         """Generate the random projection matrix
 
         Parameters
@@ -800,6 +915,12 @@ class SparseRandomProjection(BaseRandomProjection):
         )
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted, validates X (csr/csc, float dtypes) and returns the product of
+        # X and components_ transposed; result is sparse only if X is sparse and
+        # dense_output is False.
+        # Outputs: ndarray or sparse (n_samples, n_components_).
+        # Exceptions: NotFittedError; validation errors.
         """Project the data by using matrix product with the random matrix.
 
         Parameters
