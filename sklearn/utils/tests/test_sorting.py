@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._sorting._py_simultaneous_sort, which sorts a values array in
+# place while permuting an index array accordingly, with 2-way or 3-way partitioning.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import numpy as np
@@ -9,6 +12,12 @@ from sklearn.utils._sorting import _py_simultaneous_sort
 
 @pytest.mark.parametrize("kind", ["2-way", "3-way"])
 def test_simultaneous_sort_correctness(kind):
+    # [FUNCTION DOC]
+    # Verifies on random arrays of several sizes (including heavy duplicates) that after
+    # sorting the values are non-decreasing, indexing the original array with the
+    # permuted indices reproduces the sorted values, and indices remain a permutation of
+    # 0..n-1.
+    # Inputs: kind - '2-way' or '3-way', selects use_three_way_partition.
     rng = np.random.default_rng(0)
     for x in [
         rng.uniform(size=3),
@@ -29,6 +38,11 @@ def test_simultaneous_sort_correctness(kind):
 
 @pytest.mark.parametrize("kind", ["2-way", "3-way"])
 def test_simultaneous_sort_no_stackoverflow(kind):
+    # [FUNCTION DOC]
+    # Verifies that sorting one million elements in adversarial patterns (all zeros; a
+    # rotated range; a median-of-3 killer sequence for 3-way partitioning) completes
+    # without exceeding the recursion limit. Only checks that no crash occurs.
+    # Inputs: kind - '2-way' or '3-way'.
     """Check that worst case inputs do not exceed the recursion stack limit."""
     n = 1_000_000
     # worst case pattern (i.e. triggers the quadratic path)

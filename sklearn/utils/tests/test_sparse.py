@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the sparse_interface configuration option: sparse outputs from utilities,
+# transformers, functions and estimator properties follow the configured scipy sparse
+# API (sparray vs spmatrix).
 import numpy as np
 import pytest
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix
@@ -19,6 +23,12 @@ import sklearn
     ],
 )
 def test_align_api_if_sparse(sparse_interface, x, result_type):
+    # [FUNCTION DOC]
+    # Verifies that sklearn.utils._align_api_if_sparse converts CSR/CSC arrays and
+    # matrices to the array or matrix class (preserving format) selected by the
+    # sparse_interface config.
+    # Inputs: sparse_interface - 'sparray' or 'spmatrix'; x - sparse input; result_type
+    # - expected class.
     with sklearn.config_context(sparse_interface=sparse_interface):
         result = sklearn.utils._align_api_if_sparse(x)
         assert isinstance(result, result_type)
@@ -32,6 +42,10 @@ def test_align_api_if_sparse(sparse_interface, x, result_type):
     ],
 )
 def test_ndarray_align_api_if_sparse(sparse_interface, x, result_type):
+    # [FUNCTION DOC]
+    # Verifies that _align_api_if_sparse leaves dense ndarrays as ndarrays under either
+    # sparse_interface setting.
+    # Inputs: sparse_interface, x, result_type - parametrized.
     with sklearn.config_context(sparse_interface=sparse_interface):
         result = sklearn.utils._align_api_if_sparse(x)
         assert isinstance(result, result_type)
@@ -42,6 +56,10 @@ def test_ndarray_align_api_if_sparse(sparse_interface, x, result_type):
     [("sparray", csr_array), ("spmatrix", csr_matrix)],
 )
 def test_transform_returns_sparse(sparse_interface, result_type):
+    # [FUNCTION DOC]
+    # Verifies that CountVectorizer.fit_transform returns csr_array or csr_matrix
+    # according to sparse_interface.
+    # Inputs: sparse_interface, result_type - parametrized.
     corpus = [
         "This is the first document.",
         "This document is the second document.",
@@ -59,6 +77,10 @@ def test_transform_returns_sparse(sparse_interface, result_type):
     [("sparray", csr_array), ("spmatrix", csr_matrix)],
 )
 def test_function_returns_sparse(sparse_interface, result_type):
+    # [FUNCTION DOC]
+    # Verifies that the private barycenter_kneighbors_graph function returns the CSR
+    # class selected by sparse_interface.
+    # Inputs: sparse_interface, result_type - parametrized.
     with sklearn.config_context(sparse_interface=sparse_interface):
         X, y = sklearn.datasets.make_regression(n_features=2, random_state=0)
         X = sklearn.manifold._locally_linear.barycenter_kneighbors_graph(X, 1)
@@ -70,6 +92,10 @@ def test_function_returns_sparse(sparse_interface, result_type):
     [("sparray", csr_array), ("spmatrix", csr_matrix)],
 )
 def test_estimator_property_sparse(sparse_interface, result_type):
+    # [FUNCTION DOC]
+    # Verifies that the fitted ElasticNet.sparse_coef_ property returns the CSR class
+    # selected by sparse_interface.
+    # Inputs: sparse_interface, result_type - parametrized.
     with sklearn.config_context(sparse_interface=sparse_interface):
         X, y = sklearn.datasets.make_regression(n_features=2, random_state=0)
         regr = sklearn.linear_model.ElasticNet(random_state=0)

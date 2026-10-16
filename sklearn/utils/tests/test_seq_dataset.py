@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for the Cython sequential datasets in sklearn.utils._seq_dataset
+# (ArrayDataset32/64, CSRDataset32/64) used by SGD-style solvers: sequential and random
+# sample access, shuffling determinism, float32/float64 consistency and dtype
+# validation. Import-time: loads iris and builds float32 and float64 copies of X, y and
+# sample weights (0..n-1).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -31,6 +37,14 @@ floating = [np.float32, np.float64]
 
 
 def assert_csr_equal_values(current, expected):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two CSR matrices hold the same values: same shape and identical
+    # data, indices and indptr after removing explicit zeros; expected is cast to
+    # current's dtype.
+    # Inputs: current, expected - CSR sparse matrices/arrays.
+    # Outputs: none.
+    # Exceptions: AssertionError on mismatch.
+    # Side effects: calls eliminate_zeros in place on both inputs.
     current.eliminate_zeros()
     expected.eliminate_zeros()
     expected = expected.astype(current.dtype)
@@ -42,12 +56,23 @@ def assert_csr_equal_values(current, expected):
 
 
 def _make_dense_dataset(float_dtype):
+    # [FUNCTION DOC]
+    # HELPER: Builds an ArrayDataset32 (float32 dtype) or ArrayDataset64 (otherwise)
+    # from the iris arrays with seed 42.
+    # Inputs: float_dtype - np.float32 or np.float64.
+    # Outputs: the dataset object.
     if float_dtype == np.float32:
         return ArrayDataset32(X32, y32, sample_weight32, seed=42)
     return ArrayDataset64(X64, y64, sample_weight64, seed=42)
 
 
 def _make_sparse_dataset(csr_container, float_dtype):
+    # [FUNCTION DOC]
+    # HELPER: Converts the iris X of the given dtype with csr_container and builds a
+    # CSRDataset32 or CSRDataset64 from its data, indptr, indices plus y and sample
+    # weights, seed 42.
+    # Inputs: csr_container - CSR constructor; float_dtype - np.float32 or np.float64.
+    # Outputs: the dataset object.
     if float_dtype == np.float32:
         X, y, sample_weight, csr_dataset = X32, y32, sample_weight32, CSRDataset32
     else:
@@ -57,10 +82,17 @@ def _make_sparse_dataset(csr_container, float_dtype):
 
 
 def _dense_dataset_factories():
+    # [FUNCTION DOC]
+    # HELPER: Returns a list of zero-argument partials building dense datasets, one per
+    # dtype in floating (float32, float64).
     return [partial(_make_dense_dataset, float_dtype) for float_dtype in floating]
 
 
 def _sparse_dataset_factories():
+    # [FUNCTION DOC]
+    # HELPER: Returns zero-argument partials building sparse datasets for every
+    # combination of CSR container and dtype (container-major order, float32 then
+    # float64).
     return [
         partial(_make_sparse_dataset, csr_container, float_dtype)
         for csr_container, float_dtype in product(CSR_CONTAINERS, floating)
@@ -68,6 +100,10 @@ def _sparse_dataset_factories():
 
 
 def _fused_types_dataset_factories():
+    # [FUNCTION DOC]
+    # HELPER: Concatenates dense and sparse factories and groups them into consecutive
+    # pairs (float32 factory, float64 factory) for the same container type.
+    # Outputs: list of 2-element lists of factories.
     all_factories = _dense_dataset_factories() + _sparse_dataset_factories()
     # group dataset by array types to get a tuple (float32, float64)
     return [all_factories[idx : idx + 2] for idx in range(0, len(all_factories), 2)]
@@ -78,6 +114,12 @@ def _fused_types_dataset_factories():
     "dataset_factory", _dense_dataset_factories() + _sparse_dataset_factories()
 )
 def test_seq_dataset_basic_iteration(dataset_factory, csr_container):
+    # [FUNCTION DOC]
+    # Verifies that for 5 draws both _next_py and _random_py return a sample whose
+    # sparse row, target and sample weight match the float64 iris row at the returned
+    # index.
+    # Inputs: dataset_factory - builds the dataset; csr_container - used only to wrap
+    # the returned row and the reference matrix.
     NUMBER_OF_RUNS = 5
     X_csr64 = csr_container(X64)
     dataset = dataset_factory()
@@ -103,6 +145,12 @@ def test_seq_dataset_basic_iteration(dataset_factory, csr_container):
     "float_dtype, csr_container", product(floating, CSR_CONTAINERS)
 )
 def test_seq_dataset_shuffle(float_dtype, csr_container):
+    # [FUNCTION DOC]
+    # Verifies deterministic index sequences: before shuffling _next_py yields 0..4 and
+    # _random_py yields a fixed seeded sequence; after _shuffle_py(77) both dense and
+    # sparse datasets yield identical hard-coded index sequences for next and random
+    # draws.
+    # Inputs: float_dtype, csr_container - parametrized.
     dense_dataset = _make_dense_dataset(float_dtype)
     sparse_dataset = _make_sparse_dataset(csr_container, float_dtype)
     # not shuffled
@@ -140,6 +188,12 @@ def test_seq_dataset_shuffle(float_dtype, csr_container):
     "dataset_32_factory, dataset_64_factory", _fused_types_dataset_factories()
 )
 def test_fused_types_consistency(dataset_32_factory, dataset_64_factory):
+    # [FUNCTION DOC]
+    # Verifies that paired float32 and float64 datasets of the same kind return samples
+    # of the correct dtype whose feature values and targets agree to rtol 1e-5 over 5
+    # sequential draws.
+    # Inputs: dataset_32_factory, dataset_64_factory - factories from
+    # _fused_types_dataset_factories.
     dataset_32, dataset_64 = dataset_32_factory(), dataset_64_factory()
     NUMBER_OF_RUNS = 5
     for _ in range(NUMBER_OF_RUNS):
@@ -155,6 +209,10 @@ def test_fused_types_consistency(dataset_32_factory, dataset_64_factory):
 
 
 def test_buffer_dtype_mismatch_error():
+    # [FUNCTION DOC]
+    # Verifies that constructing a 64-bit dataset from float32 buffers, or a 32-bit
+    # dataset from float64 buffers, raises ValueError 'Buffer dtype mismatch', for both
+    # dense and CSR datasets and every CSR container.
     with pytest.raises(ValueError, match="Buffer dtype mismatch"):
         ArrayDataset64(X32, y32, sample_weight32, seed=42)
 

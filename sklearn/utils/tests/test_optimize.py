@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.optimize: the private Newton-CG solver _newton_cg (accuracy vs
+# scipy, Array API support, verbose output and warning paths) and
+# _check_optimize_result's ConvergenceWarning messages.
 import warnings
 
 import numpy as np
@@ -13,6 +17,14 @@ from sklearn.utils.optimize import _check_optimize_result, _newton_cg
 
 
 def test_newton_cg(global_random_seed):
+    # [FUNCTION DOC]
+    # On a random 10x10 matrix A (seeded by global_random_seed), minimizes the quadratic
+    # one half of the squared norm of A x from x0 = ones; checks _newton_cg reaches 0
+    # within 1e-7 and agrees with scipy fmin_ncg within atol 1e-5.
+    # KNOWN ISSUE: the hess callback passed to fmin_ncg computes the product using
+    # x.all() (a scalar boolean) instead of the vector p, so it is not the Hessian-
+    # vector product A^T A p; the comparison only passes because the scipy run still
+    # converges near 0.
     # Test that newton_cg gives same result as scipy's fmin_ncg
 
     rng = np.random.RandomState(global_random_seed)
@@ -20,16 +32,31 @@ def test_newton_cg(global_random_seed):
     x0 = np.ones(10)
 
     def func(x):
+        # [FUNCTION DOC]
+        # HELPER: Objective, one half of the squared norm of A x. Inputs: x - 1D array
+        # (10,).
+        # Outputs: float.
         Ax = A.dot(x)
         return 0.5 * (Ax).dot(Ax)
 
     def grad(x):
+        # [FUNCTION DOC]
+        # HELPER: Gradient A^T A x. Inputs: x - 1D array. Outputs: 1D array (10,).
         return A.T.dot(A.dot(x))
 
     def hess(x, p):
+        # [FUNCTION DOC]
+        # HELPER: Intended Hessian-vector product for fmin_ncg.
+        # Inputs: x - current point; p - direction vector.
+        # Outputs: array computed from p dotted with A^T A applied to x.all().
+        # KNOWN ISSUE: uses x.all() rather than p for the Hessian application; result is
+        # not the true Hessian-vector product.
         return p.dot(A.T.dot(A.dot(x.all())))
 
     def grad_hess(x):
+        # [FUNCTION DOC]
+        # HELPER: Returns the gradient at x and a callable computing the Hessian-vector
+        # product A^T A z, as expected by _newton_cg.
         return grad(x), lambda x: A.T.dot(A.dot(x))
 
     # func is a definite positive quadratic form, so the minimum is at x = 0
@@ -47,6 +74,10 @@ def test_newton_cg(global_random_seed):
     yield_namespace_device_dtype_combinations(),
 )
 def test_newton_cg_array_api_compliance(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # For each namespace/device/dtype combination, solves the least squares problem with
+    # A = [[3, -1], [-1, 1]], y = [0, 1] under array_api_dispatch and checks the
+    # solution moved to numpy equals [1/2, 3/2] within 1e-10.
     """Test that newton_cg works with Array API input."""
     xp, device = _array_api_for_tests(array_namespace, device_name)
     A = xp.asarray(np.array([[3, -1], [-1, 1]]).astype(dtype_name), device=device)
@@ -54,15 +85,23 @@ def test_newton_cg_array_api_compliance(array_namespace, device_name, dtype_name
     x0 = xp.asarray(np.ones(2).astype(dtype_name), device=device)
 
     def func(x):
+        # [FUNCTION DOC]
+        # HELPER: Least squares objective, one half of the squared norm of y - A x.
         return 0.5 * (y - A @ x) @ (y - A @ x)
 
     def grad(x):
+        # [FUNCTION DOC]
+        # HELPER: Gradient A^T (A x - y).
         return A.T @ (A @ x - y)
 
     def hess(x, p):
+        # [FUNCTION DOC]
+        # HELPER: Hessian-vector product A^T A p (independent of x).
         return A.T @ (A @ p)
 
     def grad_hess(x):
+        # [FUNCTION DOC]
+        # HELPER: Returns grad(x) and a closure mapping p to hess(x, p).
         return grad(x), lambda p: hess(x, p)
 
     with config_context(array_api_dispatch=True):
@@ -77,6 +116,17 @@ def test_newton_cg_array_api_compliance(array_namespace, device_name, dtype_name
 
 @pytest.mark.parametrize("verbose", [0, 1, 2])
 def test_newton_cg_verbosity(capsys, verbose):
+    # [FUNCTION DOC]
+    # For verbose 0, 1, 2 on an identity quadratic, checks captured stdout is empty at 0
+    # and contains iteration/convergence messages otherwise, plus inner CG and line
+    # search messages at 2. At verbose 2 it also runs pathological problems (huge
+    # collinear Hessian, near-singular Hessian, wrong-sign Hessian, ill-conditioned
+    # diagonal with maxinner=1) and checks the expected warnings
+    # (RuntimeWarning/UserWarning or ConvergenceWarning) and diagnostic messages for
+    # line search fallbacks, tiny curvature, steepest-descent fallback and inner
+    # maxiter.
+    # Note: the two consecutive "verbose >= 2" branches could be merged; behavior is
+    # same.
     """Test the std output of verbose newton_cg solver."""
     A = np.eye(2)
     b = np.array([1, 2], dtype=float)
@@ -201,6 +251,12 @@ def test_newton_cg_verbosity(capsys, verbose):
 
 
 def test_check_optimize():
+    # [FUNCTION DOC]
+    # Uses a Bunch mocking lbfgs output to verify _check_optimize_result: no warning for
+    # status 0; for status 1 without max_iter a single ConvergenceWarning mentioning the
+    # iteration count and message and data scaling but not increasing iterations; with
+    # max_iter it does recommend increasing iterations; for another status (2) with
+    # max_iter it does not.
     # Mock some lbfgs output using a Bunch instance:
     result = Bunch()
 
