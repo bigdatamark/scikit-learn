@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.kernel_approximation transformers (PolynomialCountSketch,
+# AdditiveChi2Sampler, SkewedChi2Sampler, RBFSampler, Nystroem). At import time builds
+# two read-only 300x50 random matrices X and Y (seed 0) whose rows are normalized to
+# sum to 1; most tests compare the inner product of transformed features against the
+# exact kernel computed from sklearn.metrics.pairwise.
 import re
 
 import numpy as np
@@ -52,6 +58,10 @@ Y.flags.writeable = False
 @pytest.mark.parametrize("degree, n_components", [(1, 500), (2, 500), (3, 5000)])
 @pytest.mark.parametrize("coef0", [0, 2.5])
 def test_polynomial_count_sketch(gamma, degree, coef0, n_components):
+    # [FUNCTION DOC]
+    # Verifies PolynomialCountSketch approximates the polynomial kernel between X and Y:
+    # the mean error is near zero (<= 0.05), max absolute error <= 0.1 and mean absolute
+    # error <= 0.05, across gamma, degree/n_components and coef0 grids.
     # test that PolynomialCountSketch approximates polynomial
     # kernel on random data
 
@@ -82,6 +92,9 @@ def test_polynomial_count_sketch(gamma, degree, coef0, n_components):
 @pytest.mark.parametrize("degree", [1, 2, 3])
 @pytest.mark.parametrize("coef0", [0, 2.5])
 def test_polynomial_count_sketch_dense_sparse(gamma, degree, coef0, csr_container):
+    # [FUNCTION DOC]
+    # Verifies PolynomialCountSketch with the same random_state yields identical
+    # transforms for dense X/Y and their CSR versions.
     """Check that PolynomialCountSketch results are the same for dense and sparse
     input.
     """
@@ -102,11 +115,19 @@ def test_polynomial_count_sketch_dense_sparse(gamma, degree, coef0, csr_containe
 
 
 def _linear_kernel(x, y):
+    # [FUNCTION DOC]
+    # HELPER: Callable linear kernel used as a custom Nystroem kernel.
+    # Inputs: x, y - 1D arrays of equal length.
+    # Outputs: scalar dot product of x and y.
     return x @ y
 
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_additive_chi2_sampler(csr_container):
+    # [FUNCTION DOC]
+    # Verifies AdditiveChi2Sampler (sample_steps=3) approximates the additive chi2 kernel
+    # (sum over features of 2xy/(x+y)) to 1 decimal, that dense and CSR inputs give the
+    # same features, and that fitting on data with a negative value raises ValueError.
     # test that AdditiveChi2Sampler approximates kernel on random data
 
     # compute exact kernel
@@ -145,6 +166,9 @@ def test_additive_chi2_sampler(csr_container):
 @pytest.mark.parametrize("method", ["fit", "fit_transform", "transform"])
 @pytest.mark.parametrize("sample_steps", range(1, 4))
 def test_additive_chi2_sampler_sample_steps(method, sample_steps):
+    # [FUNCTION DOC]
+    # Verifies that each of fit, fit_transform and transform works for sample_steps 1-3
+    # without sample_interval, and that a user-given sample_interval is not overwritten.
     """Check that the input sample step doesn't raise an error
     and that sample interval doesn't change after fit.
     """
@@ -162,6 +186,9 @@ def test_additive_chi2_sampler_sample_steps(method, sample_steps):
 
 @pytest.mark.parametrize("method", ["fit", "fit_transform", "transform"])
 def test_additive_chi2_sampler_wrong_sample_steps(method):
+    # [FUNCTION DOC]
+    # Verifies that sample_steps=4 without sample_interval raises a ValueError with the
+    # expected message for fit, fit_transform and transform.
     """Check that we raise a ValueError on invalid sample_steps"""
     transformer = AdditiveChi2Sampler(sample_steps=4)
     msg = re.escape(
@@ -172,6 +199,12 @@ def test_additive_chi2_sampler_wrong_sample_steps(method):
 
 
 def test_skewed_chi2_sampler():
+    # [FUNCTION DOC]
+    # Verifies SkewedChi2Sampler approximates the skewed chi2 kernel (computed in log space
+    # as a product over features) to 1 decimal, even with one entry in (-c, 0); checks both
+    # Gram matrices are finite and that transform raises ValueError for values below -c.
+    # KNOWN ISSUE: the leading comment says it tests RBFSampler; it tests
+    # SkewedChi2Sampler.
     # test that RBFSampler approximates kernel on random data
 
     # compute exact kernel
@@ -213,6 +246,9 @@ def test_skewed_chi2_sampler():
 
 
 def test_additive_chi2_sampler_exceptions():
+    # [FUNCTION DOC]
+    # Verifies AdditiveChi2Sampler raises ValueError mentioning "X in AdditiveChi2Sampler"
+    # when fitting on negative data and when transforming negative data after a valid fit.
     """Ensures correct error message"""
     transformer = AdditiveChi2Sampler()
     X_neg = X.copy()
@@ -225,6 +261,9 @@ def test_additive_chi2_sampler_exceptions():
 
 
 def test_rbf_sampler():
+    # [FUNCTION DOC]
+    # Verifies RBFSampler (gamma=10, 1000 components) approximates the RBF kernel: mean
+    # error <= 0.01, max absolute error <= 0.1, mean absolute error <= 0.05.
     # test that RBFSampler approximates kernel on random data
     # compute exact kernel
     gamma = 10.0
@@ -244,6 +283,9 @@ def test_rbf_sampler():
 
 
 def test_rbf_sampler_fitted_attributes_dtype(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies RBFSampler stores random_offset_ and random_weights_ in the input dtype.
+    # Inputs: global_dtype - fixture giving float32/float64.
     """Check that the fitted attributes are stored accordingly to the
     data type of X."""
     rbf = RBFSampler()
@@ -257,6 +299,9 @@ def test_rbf_sampler_fitted_attributes_dtype(global_dtype):
 
 
 def test_rbf_sampler_dtype_equivalence():
+    # [FUNCTION DOC]
+    # Verifies RBFSampler fitted random attributes agree between float32 and float64 input
+    # with the same random_state.
     """Check the equivalence of the results with 32 and 64 bits input."""
     rbf32 = RBFSampler(random_state=42)
     X32 = np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
@@ -271,6 +316,9 @@ def test_rbf_sampler_dtype_equivalence():
 
 
 def test_rbf_sampler_gamma_scale():
+    # [FUNCTION DOC]
+    # Verifies gamma="scale" sets the internal _gamma to 1/(n_features * X.var()), i.e. 4
+    # for the two points 0 and 1.
     """Check the inner value computed when `gamma='scale'`."""
     X, y = [[0.0], [1.0]], [0, 1]
     rbf = RBFSampler(gamma="scale")
@@ -279,6 +327,9 @@ def test_rbf_sampler_gamma_scale():
 
 
 def test_skewed_chi2_sampler_fitted_attributes_dtype(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies SkewedChi2Sampler stores random_offset_ and random_weights_ in the input
+    # dtype given by the global_dtype fixture.
     """Check that the fitted attributes are stored accordingly to the
     data type of X."""
     skewed_chi2_sampler = SkewedChi2Sampler()
@@ -292,6 +343,9 @@ def test_skewed_chi2_sampler_fitted_attributes_dtype(global_dtype):
 
 
 def test_skewed_chi2_sampler_dtype_equivalence():
+    # [FUNCTION DOC]
+    # Verifies SkewedChi2Sampler fitted random attributes agree between float32 and
+    # float64 input with the same random_state.
     """Check the equivalence of the results with 32 and 64 bits input."""
     skewed_chi2_sampler_32 = SkewedChi2Sampler(random_state=42)
     X_32 = np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
@@ -311,6 +365,9 @@ def test_skewed_chi2_sampler_dtype_equivalence():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_input_validation(csr_container):
+    # [FUNCTION DOC]
+    # Regression test: the samplers accept plain nested lists (and RBFSampler a CSR
+    # matrix) for fit and transform without crashing; no assertions.
     # Regression test: kernel approx. transformers should work on lists
     # No assertions; the old versions would simply crash
     X = [[1, 2], [3, 4], [5, 6]]
@@ -323,6 +380,10 @@ def test_input_validation(csr_container):
 
 
 def test_nystroem_approximation():
+    # [FUNCTION DOC]
+    # Verifies basic Nystroem behavior: with n_components equal to n_samples the feature
+    # inner products reproduce the RBF kernel exactly; with 2 components the output has 2
+    # columns, including for a callable kernel and for every name in kernel_metrics().
     # some basic tests
     rnd = np.random.RandomState(0)
     X = rnd.uniform(size=(10, 4))
@@ -360,6 +421,11 @@ def test_nystroem_approximation():
 def test_nystroem_approximation_array_api(
     array_namespace, device_name, dtype_name, kernel, n_components
 ):
+    # [FUNCTION DOC]
+    # Verifies Nystroem array API support: fit_transform under array_api_dispatch with the
+    # given namespace/device/dtype matches the NumPy result within dtype tolerance, and
+    # components_ and normalization_ live in the same namespace and device as the input.
+    # For "precomputed", the input is replaced by an RBF Gram matrix of n_components rows.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rnd = np.random.RandomState(0)
     n_samples = 10
@@ -391,6 +457,9 @@ def test_nystroem_approximation_array_api(
 
 
 def test_nystroem_default_parameters():
+    # [FUNCTION DOC]
+    # Verifies Nystroem defaults: rbf uses gamma=None (1/n_features) and chi2 uses gamma=1,
+    # by comparing feature inner products with the exact kernels for full-rank Nystroem.
     rnd = np.random.RandomState(42)
     X = rnd.uniform(size=(10, 4))
 
@@ -411,6 +480,11 @@ def test_nystroem_default_parameters():
 
 
 def test_nystroem_singular_kernel():
+    # [FUNCTION DOC]
+    # Verifies Nystroem reproduces an RBF kernel matrix that is singular (duplicated
+    # samples) and produces finite output.
+    # KNOWN ISSUE: the final finiteness assertion checks the module-level Y instead of
+    # X_transformed, so it does not test what it intends.
     # test that nystroem works with singular kernel matrix
     rng = np.random.RandomState(0)
     X = rng.rand(10, 20)
@@ -427,6 +501,9 @@ def test_nystroem_singular_kernel():
 
 
 def test_nystroem_poly_kernel_params():
+    # [FUNCTION DOC]
+    # Non-regression: Nystroem forwards degree and coef0 to the polynomial kernel;
+    # full-rank features reproduce polynomial_kernel(degree=3.1, coef0=0.1).
     # Non-regression: Nystroem should pass other parameters beside gamma.
     rnd = np.random.RandomState(37)
     X = rnd.uniform(size=(10, 4))
@@ -440,12 +517,21 @@ def test_nystroem_poly_kernel_params():
 
 
 def test_nystroem_callable():
+    # [FUNCTION DOC]
+    # Verifies Nystroem with a callable kernel and kernel_params: the callable is invoked
+    # exactly n(n-1)/2 times for n-1 components on list input (counted through a shared
+    # log list), and passing gamma, coef0 or degree with a callable raises ValueError.
     # Test Nystroem on a callable.
     rnd = np.random.RandomState(42)
     n_samples = 10
     X = rnd.uniform(size=(n_samples, 4))
 
     def logging_histogram_kernel(x, y, log):
+        # [FUNCTION DOC]
+        # HELPER: Histogram intersection kernel that records each call.
+        # Inputs: x, y - 1D arrays; log - list to append to.
+        # Outputs: sum of elementwise minima.
+        # Side effects: appends 1 to log.
         """Histogram kernel that writes to a log."""
         log.append(1)
         return np.minimum(x, y).sum()
@@ -469,6 +555,9 @@ def test_nystroem_callable():
 
 
 def test_nystroem_precomputed_kernel():
+    # [FUNCTION DOC]
+    # Non-regression (PR 14706): Nystroem with kernel="precomputed" reproduces the given
+    # Gram matrix, and passing gamma, coef0 or degree raises ValueError.
     # Non-regression: test Nystroem on precomputed kernel.
     # PR - 14706
     rnd = np.random.RandomState(12)
@@ -489,6 +578,8 @@ def test_nystroem_precomputed_kernel():
 
 
 def test_nystroem_component_indices():
+    # [FUNCTION DOC]
+    # Non-regression (issue 20474): component_indices_ has shape (n_components,) after fit.
     """Check that `component_indices_` corresponds to the subset of
     training points used to construct the feature map.
     Non-regression test for:
@@ -507,6 +598,9 @@ def test_nystroem_component_indices():
     "Estimator", [PolynomialCountSketch, RBFSampler, SkewedChi2Sampler, Nystroem]
 )
 def test_get_feature_names_out(Estimator):
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns "<lowercase class name><i>" for each output
+    # column of the parametrized transformer fitted on X.
     """Check get_feature_names_out"""
     est = Estimator().fit(X)
     X_trans = est.transform(X)
@@ -518,6 +612,9 @@ def test_get_feature_names_out(Estimator):
 
 
 def test_additivechi2sampler_get_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies AdditiveChi2Sampler feature names: "additivechi2sampler_" prefix followed by
+    # "<input>_sqrt", then "_cos<k>"/"_sin<k>" blocks for k = 1, 2 over all input features.
     """Check get_feature_names_out for AdditiveChi2Sampler."""
     rng = np.random.RandomState(0)
     X = rng.random_sample(size=(300, 3))
