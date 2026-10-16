@@ -153,8 +153,7 @@ def check_pyproject_sections(pyproject_toml, min_dependencies):
     # Exceptions: NotImplementedError when a requirement does not match the pattern;
     # AssertionError on package set or version mismatch; KeyError if a section is
     # missing.
-    # KNOWN ISSUE: the regex character class "[>=]=" also accepts "==" and ">=" but the
-    # version group may capture part of an upper bound only if separated oddly; upper
+    # KNOWN ISSUE: the regex only reads the first ">=" or "==" constraint; upper
     # bounds after a comma are silently ignored rather than validated.
     packages, pyproject_tags = extract_packages_and_pyproject_tags(min_dependencies)
 
