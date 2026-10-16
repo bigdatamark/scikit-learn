@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.multiclass (unique_labels, type_of_target, is_multilabel,
+# check_classification_targets, class_distribution, _ovr_decision_function) and
+# metaestimators._safe_split. Defines module-level fixtures: EXAMPLES (target examples
+# keyed by expected type_of_target, many in dense and sparse forms of several dtypes),
+# ARRAY_API_EXAMPLES (dense-only subset for Array API tests), NON_ARRAY_LIKE_EXAMPLES
+# (sets, dicts, strings, None) and MULTILABEL_SEQUENCES (legacy sequence-of-sequences
+# targets).
 import warnings
 from itertools import product
 
@@ -54,6 +62,13 @@ def _generate_sparse(
     ),
     dtypes=(bool, int, np.int8, np.uint8, float, np.float32),
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds the cartesian product of sparse containers and dtypes for one
+    # input.
+    # Inputs: data - dense array-like; sparse_containers - tuple of sparse classes
+    # (default: all COO, CSC, CSR, DOK and LIL containers); dtypes - tuple of dtypes
+    # (default bool, int, int8, uint8, float, float32).
+    # Outputs: list of sparse matrices/arrays, one per (container, dtype) pair.
     return [
         sparse_container(data, dtype=dtype)
         for sparse_container in sparse_containers
@@ -268,6 +283,11 @@ MULTILABEL_SEQUENCES = [
 
 
 def test_unique_labels():
+    # [FUNCTION DOC]
+    # Checks unique_labels: ValueError with no input; sorted labels for ranges, arrays,
+    # lists, multilabel indicators and several inputs combined; ValueError for mixing
+    # multiclass with indicator input, indicators of different widths, and string with
+    # numeric labels.
     # Empty iterable
     with pytest.raises(ValueError, match="No argument has been passed"):
         unique_labels()
@@ -310,6 +330,9 @@ def test_unique_labels():
 
 @skip_if_array_api_compat_not_configured
 def test_unique_labels_mixed_str_numerical_array_api():
+    # [FUNCTION DOC]
+    # Skipped without array_api_compat. Under array_api_dispatch, checks mixing string
+    # (unicode or object) with numeric numpy labels raises ValueError.
     """Test error is raised for mixed string and numerical input and dispatch enabled.
 
     Mixed string and numerical NumPy input with array API dispatch enabled should raise
@@ -331,6 +354,9 @@ def test_unique_labels_mixed_str_numerical_array_api():
     yield_namespace_device_dtype_combinations(),
 )
 def test_unique_labels_array_api(array_namespace, device, dtype_name):
+    # [FUNCTION DOC]
+    # For each namespace/device/dtype, checks unique_labels on namespace arrays under
+    # dispatch matches the numpy result within the dtype tolerance.
     """Check `unique_labels` compliance for array API."""
     xp, device_ = _array_api_for_tests(array_namespace, device)
     y1_np = np.array([1, 2, 3], dtype=dtype_name)
@@ -347,6 +373,9 @@ def test_unique_labels_array_api(array_namespace, device, dtype_name):
 
 
 def test_check_classification_targets_too_many_unique_classes():
+    # [FUNCTION DOC]
+    # Checks check_classification_targets warns (UserWarning) when 25 samples all have
+    # distinct classes, and stays silent (warnings as errors) for 10 such samples.
     """Check that we raise a warning when the number of unique classes is greater than
     50% of the number of samples.
 
@@ -367,6 +396,10 @@ def test_check_classification_targets_too_many_unique_classes():
 
 
 def test_unique_labels_non_specific():
+    # [FUNCTION DOC]
+    # Smoke-tests unique_labels on all binary, multiclass and multilabel examples and
+    # checks ValueError for non array-like inputs and for unknown, continuous and
+    # multioutput examples.
     # Test unique_labels with a variety of collected examples
 
     # Smoke test for all supported format
@@ -391,6 +424,10 @@ def test_unique_labels_non_specific():
 
 
 def test_unique_labels_mixed_types():
+    # [FUNCTION DOC]
+    # Checks unique_labels raises ValueError when mixing multilabel indicators with
+    # binary/multiclass targets in either order, and for mixed string/number labels in
+    # nested lists.
     # Mix with binary or multiclass and multilabel
     mix_clf_format = product(
         EXAMPLES["multilabel-indicator"], EXAMPLES["multiclass"] + EXAMPLES["binary"]
@@ -416,6 +453,12 @@ def test_unique_labels_mixed_types():
 
 
 def test_is_multilabel():
+    # [FUNCTION DOC]
+    # For every example, checks is_multilabel is True only for the multilabel-indicator
+    # group; numeric 2D examples (and sparse ones) are also converted to every sparse
+    # container and checked, with sparse results expected True only for examples that
+    # were already sparse multilabel indicators. Sparse examples are densified before
+    # the dense check.
     for group, group_examples in EXAMPLES.items():
         dense_exp = group == "multilabel-indicator"
 
@@ -459,6 +502,10 @@ def test_is_multilabel():
     yield_namespace_device_dtype_combinations(),
 )
 def test_is_multilabel_array_api_compliance(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # For each namespace/device/dtype, converts ARRAY_API_EXAMPLES (floats cast to the
+    # tested dtype) to namespace arrays and checks is_multilabel under dispatch is True
+    # only for the multilabel-indicator group.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     for group, group_examples in ARRAY_API_EXAMPLES.items():
@@ -477,6 +524,9 @@ def test_is_multilabel_array_api_compliance(array_namespace, device_name, dtype_
 
 
 def test_check_classification_targets():
+    # [FUNCTION DOC]
+    # Checks check_classification_targets raises ValueError "Unknown label type" for
+    # unknown and continuous examples and accepts all other groups.
     for y_type in EXAMPLES.keys():
         if y_type in ["unknown", "continuous", "continuous-multioutput"]:
             for example in EXAMPLES[y_type]:
@@ -489,6 +539,10 @@ def test_check_classification_targets():
 
 
 def test_type_of_target():
+    # [FUNCTION DOC]
+    # Checks type_of_target returns the group key for each example, raises ValueError
+    # for non array-like inputs, and raises ValueError about the legacy multilabel
+    # representation for sequences of sequences.
     for group, group_examples in EXAMPLES.items():
         for example in group_examples:
             assert type_of_target(example) == group, (
@@ -516,6 +570,8 @@ def test_type_of_target():
 
 
 def test_type_of_target_pandas_sparse():
+    # [FUNCTION DOC]
+    # Skipped without pandas. Checks a pandas SparseArray raises ValueError.
     pd = pytest.importorskip("pandas")
 
     y = pd.arrays.SparseArray([1, np.nan, np.nan, 1, np.nan])
@@ -525,6 +581,10 @@ def test_type_of_target_pandas_sparse():
 
 
 def test_type_of_target_pandas_nullable():
+    # [FUNCTION DOC]
+    # Skipped without pandas. Checks type_of_target on nullable Int32/Float32 series and
+    # DataFrames gives multiclass, binary, continuous-multioutput, multilabel-indicator
+    # and multiclass-multioutput as appropriate.
     """Check that type_of_target works with pandas nullable dtypes."""
     pd = pytest.importorskip("pandas")
 
@@ -547,6 +607,9 @@ def test_type_of_target_pandas_nullable():
 
 @pytest.mark.parametrize("dtype", ["Int64", "Float64", "boolean"])
 def test_unique_labels_pandas_nullable(dtype):
+    # [FUNCTION DOC]
+    # Non-regression for gh-25634 (skipped without pandas): unique_labels of a nullable
+    # Int64/Float64/boolean series and an int64 series returns [0, 1].
     """Checks that unique_labels work with pandas nullable dtypes.
 
     Non-regression test for gh-25634.
@@ -562,6 +625,12 @@ def test_unique_labels_pandas_nullable(dtype):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_class_distribution(csc_container):
+    # [FUNCTION DOC]
+    # Checks class_distribution on a 6x4 multioutput target and an equivalent CSC matrix
+    # (with explicit and implicit zeros) returns expected per-column classes, counts and
+    # priors, then repeats with sample weights.
+    # KNOWN ISSUE: in the weighted part, the "sparse" results are computed from the
+    # dense y instead of y_sp, so the weighted sparse code path is not exercised.
     y = np.array(
         [
             [1, 0, 0, 1],
@@ -613,6 +682,10 @@ def test_class_distribution(csc_container):
 
 
 def test_safe_split_with_precomputed_kernel():
+    # [FUNCTION DOC]
+    # Using iris and one ShuffleSplit split, checks _safe_split on a precomputed kernel
+    # SVC returns the kernel restricted to train rows/columns (and to test rows vs train
+    # columns for test) consistent with splitting X, with identical y splits.
     clf = SVC()
     clfp = SVC(kernel="precomputed")
 
@@ -635,6 +708,11 @@ def test_safe_split_with_precomputed_kernel():
 
 
 def test_ovr_decision_function():
+    # [FUNCTION DOC]
+    # Checks _ovr_decision_function: values within 0.5 of the vote counts, argmax
+    # follows votes and breaks ties by confidence, higher confidence gives higher value
+    # for equal votes, and computing per sample gives the same result as on the full
+    # batch.
     # test properties for ovr decision function
 
     predictions = np.array([[0, 1, 1], [0, 1, 0], [0, 1, 1], [0, 1, 1]])
@@ -675,6 +753,9 @@ def test_ovr_decision_function():
 
 @pytest.mark.parametrize("input_type", ["list", "array"])
 def test_labels_in_bytes_format_error(input_type):
+    # [FUNCTION DOC]
+    # Non-regression for issue 16980: checks bytes labels in a list or array make
+    # type_of_target raise TypeError.
     # check that we raise an error with bytes encoded labels
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/16980
