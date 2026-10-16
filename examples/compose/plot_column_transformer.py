@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script classifying 20newsgroups posts (sci.med vs sci.space, footers and
+#   quotes removed; downloads on first use) with a ColumnTransformer over heterogeneous
+#   text-derived features.
+# Pipeline: subject_body_extractor (FunctionTransformer) splits each post into a
+#   2-column object array (subject, body); a ColumnTransformer applies TF-IDF (min_df
+#   50) to the subject, TF-IDF then 50-component arpack PCA to the body, and text_stats
+#   + DictVectorizer to the body, with weights 0.8/0.5/1.0; then LinearSVC(dual=False).
+# Outputs: prints a sample post, verbose pipeline timings and a classification report on
+#   the test split.
 """
 ==================================================
 Column Transformer with Heterogeneous Data Sources
@@ -78,6 +88,15 @@ print(X_train[0])
 
 
 def subject_body_extractor(posts):
+    # [FUNCTION DOC]
+    # HELPER: Splits raw posts into subject and body columns.
+    # Inputs: posts - iterable of str. Outputs: object ndarray (n_posts, 2); column 0 is
+    #   the text after "Subject:" in the header (empty string if absent), column 1 is
+    #   the body.
+    # Steps: header and body are separated at the first blank line (double newline); the
+    #   first header line starting with "Subject:" gives the subject (leading space
+    #   kept).
+    # Side effects: none.
     # construct object dtype array with two columns
     # first column = 'subject' and second column = 'body'
     features = np.empty(shape=(len(posts), 2), dtype=object)
@@ -107,6 +126,10 @@ subject_body_transformer = FunctionTransformer(subject_body_extractor)
 
 
 def text_stats(posts):
+    # [FUNCTION DOC]
+    # HELPER: Computes simple statistics per text.
+    # Inputs: posts - iterable of str. Outputs: list of dicts with "length" (character
+    #   count) and "num_sentences" (count of "." characters, a crude proxy).
     return [{"length": len(text), "num_sentences": text.count(".")} for text in posts]
 
 

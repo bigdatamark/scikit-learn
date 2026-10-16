@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script implementing an inductive meta-estimator: cluster training data, then
+#   train a classifier on the cluster labels so new samples can be assigned.
+# Steps: 5000 samples in 3 blobs; AgglomerativeClustering (3 clusters) labels; 10 new
+#   points from shifted blobs plotted in black;
+#   InductiveClusterer(AgglomerativeClustering, RandomForestClassifier) fitted, predicts
+#   clusters for new points, and DecisionBoundaryDisplay shows the induced regions.
+# Side effects: one 3-panel figure, plt.show.
 """
 ====================
 Inductive Clustering
@@ -38,6 +46,13 @@ RANDOM_STATE = 42
 
 
 def _classifier_has(attr):
+    # [FUNCTION DOC]
+    # HELPER: Builds the predicate used by available_if to expose a method only when the
+    #   classifier has it.
+    # Inputs: attr - method name string.
+    # Outputs: a callable taking the meta-estimator and returning True when the fitted
+    #   classifier_ (if present) or else the unfitted classifier has attr.
+    # Side effects: none.
     """Check if we can delegate a method to the underlying classifier.
 
     First, we check the first fitted classifier if available, otherwise we
@@ -51,11 +66,24 @@ def _classifier_has(attr):
 
 
 class InductiveClusterer(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-estimator combining a (possibly transductive) clusterer with a classifier
+    #   trained on its labels. Params: clusterer, classifier (unfitted estimators,
+    #   cloned at fit). Fitted attributes: clusterer_, classifier_, labels_.
+    # predict/decision_function exist only if the classifier provides them.
     def __init__(self, clusterer, classifier):
+        # [FUNCTION DOC]
+        # Stores clusterer and classifier unchanged (scikit-learn convention, no
+        #   validation).
         self.clusterer = clusterer
         self.classifier = classifier
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Clones clusterer and classifier, runs fit_predict of the clusterer on X to get
+        #   labels, fits the classifier on X with those labels.
+        # Inputs: X - array (n_samples, n_features); y - ignored.
+        # Outputs: self. Side effects: sets clusterer_, classifier_, labels_.
         self.clusterer_ = clone(self.clusterer)
         self.classifier_ = clone(self.classifier)
         y = self.clusterer_.fit_predict(X)
@@ -65,16 +93,31 @@ class InductiveClusterer(ClusterMixin, BaseEstimator):
 
     @available_if(_classifier_has("predict"))
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts cluster labels for new samples using the fitted classifier_.
+        # Inputs: X - array (n_samples, n_features). Outputs: label array (n_samples,).
+        # Exceptions: NotFittedError if fit was not called.
         check_is_fitted(self)
         return self.classifier_.predict(X)
 
     @available_if(_classifier_has("decision_function"))
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns classifier_.decision_function(X) (shape depends on classifier).
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: with the RandomForestClassifier used in this script this method
+        #   is never available.
         check_is_fitted(self)
         return self.classifier_.decision_function(X)
 
 
 def plot_scatter(X, color, alpha=0.5):
+    # [FUNCTION DOC]
+    # HELPER: Scatter-plots the first two columns of X with given color(s), alpha and
+    #   black edges.
+    # Inputs: X - array (n, >=2); color - color or per-point values; alpha - float,
+    #   default 0.5.
+    # Outputs: the matplotlib PathCollection. Side effects: draws on current axes.
     return plt.scatter(X[:, 0], X[:, 1], c=color, alpha=alpha, edgecolor="k")
 
 

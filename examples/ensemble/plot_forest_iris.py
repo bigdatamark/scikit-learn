@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script plotting decision surfaces of DecisionTree, RandomForest (30),
+#   ExtraTrees (30) and AdaBoost (30 depth-3 trees) on three iris feature pairs.
+# For each pair and model: shuffle with global seed 13, standardize, fit, print training
+#   accuracy; on a fine meshgrid draw the surface (single tree directly; ensembles as
+#   overlaid surfaces of each sub-estimator with alpha 1 / n_estimators); overlay
+#   coarse-grid ensemble predictions as small dots and the training points.
+# Side effects: resets the global numpy seed each iteration (also controls the unseeded
+#   forests); models are refit in place across pairs.
+# KNOWN ISSUE: the model title is derived by string-slicing the type repr, which is
+#   fragile; scores are training accuracy, not CV scores as the docstring's numbers
+#   suggest.
 """
 ====================================================================
 Plot the decision surfaces of ensembles of trees on the iris dataset

@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script visualizing make_multilabel_classification with 2 features and 3
+#   classes for n_labels 1 and 3.
+# Side effects: RANDOM_SEED is drawn from the unseeded global RNG at import, so each run
+#   differs; it is printed at the end along with class priors P(C) and per-class feature
+#   probabilities.
+# KNOWN ISSUE: the docstring table maps green to labels 1 and 2, but the code encodes
+#   labels as a bitmask (class 1 = 1, class 2 = 2, class 3 = 4), giving purple for 1+2
+#   and green for 2+3. The first COLORS entry "!" is a placeholder for the unused all-
+#   zero label set (allow_unlabeled is False).
 """
 ==============================================
 Plot randomly generated multilabel dataset
@@ -62,6 +72,19 @@ RANDOM_SEED = np.random.randint(2**10)
 
 
 def plot_2d(ax, n_labels=1, n_classes=3, length=50):
+    # [FUNCTION DOC]
+    # HELPER: Generates a 150-sample 2-feature multilabel dataset and plots it on ax.
+    # Inputs: ax - matplotlib Axes; n_labels - average labels per sample (default 1);
+    #   n_classes - default 3; length - expected sum of features per sample (default
+    #   50).
+    # Steps: call make_multilabel_classification with return_distributions and the
+    #   global RANDOM_SEED; color each point by the bitmask of its labels; draw one star
+    #   per class at its expected feature counts (p_w_c times length), sized by the
+    #   class prior squared.
+    # Outputs: (p_c, p_w_c) - class priors (n_classes,) and feature-given-class
+    #   probabilities (n_features, n_classes).
+    # KNOWN ISSUE: the bitmask weights [1, 2, 4] and star colors assume n_classes is 3;
+    #   other values would fail or mislabel.
     X, Y, p_c, p_w_c = make_ml_clf(
         n_samples=150,
         n_features=2,

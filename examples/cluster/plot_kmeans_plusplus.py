@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script showing seeds chosen by kmeans_plusplus on 4000 points from 4 blobs
+#   (std 0.6, random_state 0, columns swapped).
+# Steps: call kmeans_plusplus with 4 clusters, random_state 0; scatter points colored by
+#   true blob and overlay the initial centers in blue.
+# Side effects: one figure, plt.show.
 """
 ===========================================================
 An example of K-Means++ initialization

@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery script comparing location/covariance estimation error of MCD, full-data
+#   empirical estimates and inlier-only ("pure") empirical estimates as the number of
+#   outliers grows.
+# Data: 80 standard normal samples in 5 dims; a random subset of n_outliers rows (0 up
+#   to 40) is shifted by +/-5 on each feature. 10 repetitions per outlier count.
+# Errors: location error is the squared norm of the estimated location (truth is 0);
+#   covariance error is error_norm against identity.
+# Plot: two panels with error bars; the full-data covariance curve is drawn with error
+#   bars only for small outlier counts and as a dashed line beyond.
+# KNOWN ISSUE: the per-repetition RandomState is seeded with i*j, so all repetitions
+#   with i=0 or j=0 share seed 0; the outlier offsets use the unseeded global numpy RNG
+#   instead of rng, so results are not reproducible. The dashed segment slice stops at
+#   x_size // 2 - 1 and does not cover the full range.
 r"""
 =======================================
 Robust vs Empirical covariance estimate

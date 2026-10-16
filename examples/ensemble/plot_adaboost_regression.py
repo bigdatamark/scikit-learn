@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script comparing a depth-4 DecisionTreeRegressor with AdaBoostRegressor (300
+#   depth-4 trees) on a noisy 1D signal sin(x) + sin(6x) with 100 points in [0, 6]
+#   (RandomState 1, also passed to AdaBoost).
+# Plots training points and both fitted curves using a seaborn colorblind palette.
+# Side effects: requires seaborn; plt.show.
 """
 ======================================
 Decision Tree Regression with AdaBoost

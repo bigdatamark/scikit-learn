@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script showing AdaBoostClassifier (300 trees with max 8 leaves, random_state
+#   42) on a 3-class make_gaussian_quantiles problem (2000 samples, 10 features, 70/30
+#   split).
+# Steps: compute test misclassification error of a single weak tree and of a
+#   DummyClassifier; plot AdaBoost test error per boosting stage (staged_predict)
+#   against those two baselines; plot per-stage estimator_errors_ and
+#   estimator_weights_.
+# Side effects: requires pandas; fits the weak_learner template itself in place for the
+#   baseline (AdaBoost uses clones, so this is harmless).
 """
 =====================================
 Multi-class AdaBoosted Decision Trees
@@ -103,6 +113,8 @@ dummy_clf = DummyClassifier()
 
 
 def misclassification_error(y_true, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Returns 1 minus accuracy_score(y_true, y_pred) as a float in [0, 1].
     return 1 - accuracy_score(y_true, y_pred)
 
 

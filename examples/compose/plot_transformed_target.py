@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script showing TransformedTargetRegressor improving RidgeCV when the target is
+#   skewed.
+# Synthetic part: make_regression (10000 samples, noise 100, seed 0), target shifted to
+#   non-negative, divided by 200 and passed through expm1 to make it skewed; histograms
+#   of y and log1p(y); compare RidgeCV vs TransformedTargetRegressor(RidgeCV,
+#   log1p/expm1) with actual-vs-predicted plots annotated with R2 and MedAE.
+# Ames part: fetch house_prices from OpenML, keep numeric columns minus three with
+#   missing values, target in thousands; histogram vs normal-quantile transformed
+#   target; compare RidgeCV vs TransformedTargetRegressor with QuantileTransformer
+#   (normal output) via actual-vs-predicted and residual plots.
+# Side effects: network download, figures, plt.show.
 """
 ======================================================
 Effect of transforming the targets in regression model
@@ -72,6 +84,10 @@ from sklearn.metrics import median_absolute_error, r2_score
 
 
 def compute_score(y_true, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Formats regression scores for legends.
+    # Inputs: y_true, y_pred - 1D arrays of equal length.
+    # Outputs: dict with "R2" and "MedAE" mapped to strings with 3 decimals.
     return {
         "R2": f"{r2_score(y_true, y_pred):.3f}",
         "MedAE": f"{median_absolute_error(y_true, y_pred):.3f}",

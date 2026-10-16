@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script estimating a sparse precision matrix with GraphicalLassoCV and
+#   comparing it with empirical and Ledoit-Wolf estimates.
+# Data: make_sparse_spd_matrix precision (20 features, alpha 0.98, coefficients in [0.4,
+#   0.7], RandomState 1), converted to a covariance rescaled to unit diagonal (precision
+#   rescaled accordingly); 60 multivariate normal samples, then standardized.
+# Steps: empirical covariance, GraphicalLassoCV fit, ledoit_wolf covariance and its
+#   inverse; plot the four covariances and four precisions (zeros masked, gray
+#   background, color range clipped), then the CV score versus alpha with the chosen
+#   alpha marked.
+# Side effects: figures, plt.show. The set_axis_bgcolor branch is a fallback for very
+#   old matplotlib and effectively dead.
 """
 ======================================
 Sparse inverse covariance estimation

@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery script building prediction intervals with quantile-loss
+#   GradientBoostingRegressor.
+# Data: 1000 x uniform in [0, 10] (RandomState 42), target x sin(x) plus centered
+#   lognormal noise whose sigma grows with x; train/test split.
+# Steps: fit quantile models for alpha 0.05, 0.5, 0.95 and a squared-error model; plot
+#   true function, test points, median, mean and 90 percent interval; tabulate pinball
+#   losses at the three alphas and MSE on train and test with the minimum per column
+#   highlighted; tune the 5 percent and 95 percent quantile models with
+#   HalvingRandomSearchCV (n_estimators as resource, 50-250) using pinball-loss scorers;
+#   plot the tuned interval; compute train/test coverage fractions and 95 percent
+#   bootstrap confidence intervals of coverage.
+# Side effects: uses the experimental halving search import; prints best params and
+#   coverage CIs; pandas Styler expressions render only in notebooks.
 """
 =====================================================
 Prediction Intervals for Gradient Boosting Regression
@@ -22,6 +36,8 @@ from sklearn.model_selection import train_test_split
 
 
 def f(x):
+    # [FUNCTION DOC]
+    # HELPER: True function x times sin(x), elementwise on an array of any shape.
     """The function to predict."""
     return x * np.sin(x)
 
@@ -137,6 +153,10 @@ import pandas as pd
 
 
 def highlight_min(x):
+    # [FUNCTION DOC]
+    # HELPER: pandas Styler callback that bolds the minimum of a column.
+    # Inputs: x - pandas Series. Outputs: list of CSS strings, "font-weight: bold" where
+    #   the value equals the column minimum, else empty.
     x_min = x.min()
     return ["font-weight: bold" if v == x_min else "" for v in x]
 
@@ -309,6 +329,10 @@ plt.show()
 
 
 def coverage_fraction(y, y_low, y_high):
+    # [FUNCTION DOC]
+    # HELPER: Fraction of observations falling inside the closed interval [y_low,
+    #   y_high].
+    # Inputs: y, y_low, y_high - equal-length 1D arrays. Outputs: float in [0, 1].
     return np.mean(np.logical_and(y >= y_low, y <= y_high))
 
 

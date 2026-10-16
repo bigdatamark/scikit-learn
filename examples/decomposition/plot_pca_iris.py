@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script projecting iris to 3 principal components and plotting them in 3D.
+# Steps: load iris as a DataFrame, print its keys, replace the frame target with species
+#   names and draw a seaborn pairplot; fit PCA(3) on the 4 features and draw a 3D
+#   scatter colored by class with a legend.
+# Side effects: requires seaborn; mutates iris.frame target column to strings.
 """
 ==================================================
 Principal Component Analysis (PCA) on Iris Dataset

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Gallery script demonstrating a custom estimator that implements __sklearn_is_fitted__
+#   so check_is_fitted uses it instead of looking for trailing-underscore attributes.
+# Only defines the class; nothing is executed at import.
 """
 ========================================
 `__sklearn_is_fitted__` as Developer API
@@ -35,10 +39,20 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class CustomEstimator(BaseEstimator, ClassifierMixin):
+    # [CLASS DOC]
+    # Toy classifier: stores sorted classes on fit, predicts the first class for every
+    #   sample, and returns a constant score. Fitted state is flagged via the private
+    #   _is_fitted attribute.
     def __init__(self, parameter=1):
+        # [FUNCTION DOC]
+        # Stores parameter (unused by the model; default 1).
         self.parameter = parameter
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Records classes_ as the sorted list of unique labels in y and sets _is_fitted
+        #   to True; X is ignored.
+        # Outputs: self. Side effects: sets classes_ and _is_fitted.
         """
         Fit the estimator to the training data.
         """
@@ -48,6 +62,9 @@ class CustomEstimator(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns a list of length len(X) filled with classes_[0] (smallest class).
+        # Exceptions: NotFittedError when not fitted.
         """
         Perform Predictions
 
@@ -59,6 +76,11 @@ class CustomEstimator(BaseEstimator, ClassifierMixin):
         return predictions
 
     def score(self, X, y):
+        # [FUNCTION DOC]
+        # Returns the constant 0.5 regardless of X and y.
+        # Exceptions: NotFittedError when not fitted.
+        # KNOWN ISSUE: overrides ClassifierMixin.score with a placeholder rather than
+        #   computing accuracy.
         """
         Calculate Score
 
@@ -69,6 +91,9 @@ class CustomEstimator(BaseEstimator, ClassifierMixin):
         return 0.5
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # Returns True only if the _is_fitted attribute exists and is truthy; used by
+        #   check_is_fitted.
         """
         Check fitted status and return a Boolean value.
         """

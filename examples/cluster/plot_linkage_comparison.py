@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script comparing single, average, complete and ward AgglomerativeClustering on
+#   six 1500-sample 2D toy datasets (circles, moons, varied blobs, anisotropic blobs,
+#   blobs, uniform noise), all seeded with 170.
+# For each dataset: merge default params with overrides, standardize, fit each linkage
+#   while timing, and draw a grid of scatter plots colored by label with fit time in the
+#   corner.
+# Side effects: one large figure, plt.show; rebinds the sklearn "datasets" module name
+#   to a list.
+# KNOWN ISSUE: no connectivity is passed, so n_neighbors parameters and the
+#   connectivity-warning filter are unused, and the predict fallback branch is dead
+#   (AgglomerativeClustering always has labels_).
 """
 ================================================================
 Comparing different hierarchical linkage methods on toy datasets

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script comparing RandomForestRegressor (min_samples_leaf 5, all physical
+#   cores) and HistGradientBoostingRegressor (15 leaves, no early stopping) on
+#   California housing (downloaded).
+# Steps: print dataset size and physical core count; GridSearchCV with shuffled 4-fold
+#   KFold over n_estimators (RF) or max_iter (HGBT) with train scores; build a two-panel
+#   plotly figure of mean test R2 against mean fit time and mean score time (with std
+#   error bars) per model.
+# Side effects: requires plotly and pandas; heavy compute.
 """
 ===============================================================
 Comparing Random Forests and Histogram Gradient Boosting models

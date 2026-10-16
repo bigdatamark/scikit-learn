@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script illustrating PLSCanonical, PLSRegression (PLS2 and PLS1) and CCA.
+# Data: numpy default_rng(42); 500 samples with two latent variables, each duplicated
+#   into two columns of X and Y plus independent noise; 50/50 unshuffled split; prints
+#   rounded correlation matrices.
+# Steps: fit PLSCanonical(2) and scatter train/test scores (X vs Y per component, and
+#   component 1 vs 2 within X and within Y) with test correlations in the titles. PLS2:
+#   Y = X B + noise + 5 with B nonzero only in first two rows, print true and estimated
+#   coef_. PLS1: univariate y = x0 + 2 x1 + noise + 5, print coef_. Finally fit CCA(2)
+#   and transform train/test (results unused).
+# Side effects: prints, one figure.
 """
 ===================================
 Compare cross decomposition methods

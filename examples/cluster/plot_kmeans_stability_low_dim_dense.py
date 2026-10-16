@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script measuring how robust KMeans and MiniBatchKMeans are to initialization
+#   (k-means++ vs random) on a 3x3 grid of tight Gaussian clusters.
+# Steps: for each of 4 (estimator, init, extra params) cases, for 5 runs (data and model
+#   seeded by run id) and n_init in 1/5/10/15/20, fit and record inertia_; plot mean
+#   inertia with std error bars versus n_init. Then fit a single MiniBatchKMeans with
+#   random init and n_init=1 and plot its cluster assignment and centers to show a bad
+#   local optimum.
+# Side effects: prints progress, two figures, plt.show.
 """
 ============================================================
 Empirical evaluation of the impact of k-means initialization
@@ -51,6 +60,16 @@ n_clusters = grid_size**2
 
 
 def make_data(random_state, n_samples_per_center, grid_size, scale):
+    # [FUNCTION DOC]
+    # HELPER: Generates a shuffled 2D dataset of Gaussian clusters centered on a grid.
+    # Inputs: random_state - None, int or RandomState; n_samples_per_center - int;
+    #   grid_size - int, centers at all integer (i, j) with 0 <= i, j < grid_size; scale
+    #   - float noise std.
+    # Outputs: (X, y) shuffled; X shape (grid_size squared * n_samples_per_center, 2), y
+    #   integer center ids.
+    # Side effects: consumes draws from the given RandomState.
+    # KNOWN ISSUE: a single noise array is drawn once and added to every center, so all
+    #   clusters are identical translated copies rather than independent samples.
     random_state = check_random_state(random_state)
     centers = np.array([[i, j] for i in range(grid_size) for j in range(grid_size)])
     n_clusters_true, n_features = centers.shape

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script fitting AdaBoost with 200 decision stumps on a two-class dataset built
+#   from two make_gaussian_quantiles blobs (the second blob's labels inverted).
+# Plots: decision regions via DecisionBoundaryDisplay with training points per class;
+#   histograms of decision_function scores per class over a shared range.
+# KNOWN ISSUE: plot_step is defined but unused; AdaBoostClassifier is not seeded.
 """
 ==================
 Two-class AdaBoost

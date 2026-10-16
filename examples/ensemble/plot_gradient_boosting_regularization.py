@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script comparing regularization settings of GradientBoostingClassifier on
+#   make_hastie_10_2 (4000 samples, labels re-encoded to 0/1, 20 percent train).
+# Settings (400 trees with 4 leaves): no shrinkage; learning_rate 0.2; subsample 0.5;
+#   both; learning_rate 0.2 with max_features 2. For each, plot every fifth stage of
+#   test deviance (twice log loss from staged_predict_proba).
 """
 ================================
 Gradient Boosting regularization

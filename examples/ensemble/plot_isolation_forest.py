@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script using IsolationForest (max_samples 100, random_state 0) on two Gaussian
+#   clusters (120 points each, one anisotropic) plus 40 uniform outliers in [-4, 4]
+#   (RandomState 0); stratified train/test split, fit on train.
+# Plots: true classes; predict-based decision regions (binary); decision_function-based
+#   continuous regions with a colorbar, each overlaid with all points.
 """
 =======================
 IsolationForest example

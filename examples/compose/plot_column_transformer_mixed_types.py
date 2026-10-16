@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script building a ColumnTransformer pipeline for the OpenML titanic dataset
+#   (downloaded) with numeric and categorical branches.
+# Numeric (age, fare): median SimpleImputer then StandardScaler. Categorical (embarked,
+#   sex, pclass): OneHotEncoder (dense, ignore unknown) then SelectPercentile(chi2, 50).
+#   Classifier: LogisticRegression; pipeline output set to pandas.
+# Steps: 80/20 split (random_state 0), fit and print test score; restrict to the 5 used
+#   columns and rebuild the ColumnTransformer selecting columns by dtype with
+#   make_column_selector, refit and score; RandomizedSearchCV (10 iterations,
+#   random_state 0) over imputer strategy, selector percentile and C; print best params,
+#   CV score, top 5 cv_results rows and test accuracy.
+# Side effects: seeds global numpy RNG with 0; bare expressions (clf, search_cv) render
+#   HTML reprs in notebooks only.
 """
 ===================================
 Column Transformer with Mixed Types

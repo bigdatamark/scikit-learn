@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery script contrasting MLE (EmpiricalCovariance) and robust MCD (MinCovDet)
+#   Mahalanobis distances on contaminated 2D Gaussian data.
+# Data: global seed 7; 125 samples with covariance scaling first feature by 2; the last
+#   25 rows are replaced by outliers whose second feature is scaled by 7.
+# Steps: fit both estimators, print their covariance matrices; scatter inliers/outliers
+#   and overlay contours of the square root of each estimator's Mahalanobis distance on
+#   a 100x100 grid; then box plots of cube-root Mahalanobis distances (inliers vs
+#   outliers) for each estimator, with individual points jittered beside the boxes.
+# KNOWN ISSUE: distances are computed on data that is already shifted by the mean (or
+#   MCD location) before calling mahalanobis, which itself subtracts location_ again;
+#   the shift is therefore applied twice, distorting the box plots. The docstring cites
+#   a cube-root transform (Wilson-Hilferty) which the code approximates with exponent
+#   0.33.
 r"""
 ================================================================
 Robust covariance estimation and Mahalanobis distances relevance

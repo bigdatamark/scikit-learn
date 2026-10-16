@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery script comparing IncrementalPCA (batch_size 10) and PCA projections of iris to
+#   2 components.
+# For each method a scatter colored by species; the IPCA plot title includes the mean
+#   absolute difference of the absolute projections (sign-insensitive comparison).
 """
 
 ===============

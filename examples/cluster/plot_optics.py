@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script demonstrating OPTICS with Xi cluster extraction and DBSCAN-style
+#   extraction at eps 0.5 and 2 via cluster_optics_dbscan.
+# Data: six 250-point 2D Gaussian clusters with different stds (global seed 0).
+# Plots: reachability plot (ordered reachability colored by Xi label, noise black,
+#   horizontal lines at 0.5 and 2), and scatter plots of Xi, eps=0.5 and eps=2
+#   clusterings with noise as "+".
+# KNOWN ISSUE: only labels 0..4 (Xi, eps 0.5 uses 0..3, eps 2 uses 0..3) are drawn; any
+#   additional clusters found are silently omitted from the plots.
 """
 ===================================
 Demo of OPTICS clustering algorithm

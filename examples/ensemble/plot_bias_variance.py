@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script estimating the pointwise bias-variance decomposition of the squared
+#   error for a DecisionTreeRegressor and a BaggingRegressor of trees.
+# Setup: global seed 0; 50 training sets of 50 points each from generate; one test set
+#   of 1000 points with 50 noisy targets per point.
+# For each estimator: fit on each training set and predict the test set; error is the
+#   average over all (train set, test target) pairs of squared differences; noise is the
+#   variance of test targets; bias squared is the squared difference between the true f
+#   and the mean prediction; variance is the variance of predictions. Prints means and
+#   plots predictions (top) and decomposition curves (bottom).
 """
 ============================================================
 Single estimator versus bagging: bias-variance decomposition
@@ -93,12 +103,23 @@ n_estimators = len(estimators)
 
 # Generate data
 def f(x):
+    # [FUNCTION DOC]
+    # HELPER: True regression function exp(-x^2) + 1.5 exp(-(x-2)^2), applied to the
+    #   flattened input.
+    # Inputs: x - array of any shape. Outputs: 1D float array.
     x = x.ravel()
 
     return np.exp(-(x**2)) + 1.5 * np.exp(-((x - 2) ** 2))
 
 
 def generate(n_samples, noise, n_repeat=1):
+    # [FUNCTION DOC]
+    # HELPER: Draws a sorted uniform sample of x in [-5, 5) and noisy targets.
+    # Inputs: n_samples - int; noise - Gaussian noise std; n_repeat - number of
+    #   independent target draws per x (default 1).
+    # Outputs: X with shape (n_samples, 1); y with shape (n_samples,) when n_repeat is
+    #   1, else (n_samples, n_repeat).
+    # Side effects: consumes the global numpy RNG.
     X = np.random.rand(n_samples) * 10 - 5
     X = np.sort(X)
 

@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery script segmenting the skimage "coins" image with spectral_clustering.
+# Steps: Gaussian-smooth (sigma 2) and downscale the image to 20 percent, convert it to
+#   a pixel adjacency graph whose edge weights are gradients (img_to_graph), then map
+#   each weight to exp(-beta * w / std(w)) + eps with beta 10 so similar neighboring
+#   pixels get strong affinity.
+# For each assign_labels strategy ("kmeans", "discretize", "cluster_qr") run
+#   spectral_clustering asking for 26 + 3 extra clusters (eigen_tol 1e-7, random_state
+#   42), time it, reshape labels to the image, and draw contours of only the first 26
+#   regions over the image.
+# Side effects: requires scikit-image and scipy; prints timing titles, creates one
+#   figure per strategy, calls plt.show.
+# KNOWN ISSUE: the module docstring names the option 'discrete' but the code uses
+#   'discretize'. Regions with label >= 26 are computed but never drawn.
 """
 ================================================
 Segmenting the picture of greek coins in regions

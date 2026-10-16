@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script comparing GradientBoostingRegressor with and without early stopping
+#   (validation_fraction 0.1, n_iter_no_change 10) on the first 600 California housing
+#   samples (downloaded), 1000 max estimators, depth 5.
+# Steps: time both fits and record n_estimators_; compute staged train and validation
+#   MSE for each; plot both curves on log scale and a bar chart of training times
+#   labelled with the number of estimators.
 """
 ===================================
 Early stopping in Gradient Boosting

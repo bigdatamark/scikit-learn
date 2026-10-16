@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script segmenting the coins image with connectivity-constrained Ward
+#   clustering.
+# Steps: Gaussian-smooth and rescale the skimage coins image to 20 percent, flatten
+#   pixels into a single-feature column X, build a grid_to_graph pixel connectivity, fit
+#   AgglomerativeClustering (ward, 27 clusters, connectivity) and reshape labels to the
+#   image.
+# Outputs: prints elapsed time, pixel count and cluster count; plots contour lines of
+#   each cluster over the image and calls plt.show.
+# Side effects: requires scikit-image and scipy; imports are scattered across notebook-
+#   style cells.
 """
 ======================================================================
 A demo of structured Ward hierarchical clustering on an image of coins

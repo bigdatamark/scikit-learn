@@ -1,3 +1,24 @@
+# [MODULE DOC]
+# Gallery script comparing 11 clustering estimators on 6 small 2D toy datasets.
+# Data: 500-sample noisy circles, noisy moons, isotropic blobs, uniform random noise (no
+#   structure), anisotropic blobs (blobs linearly transformed) and blobs with varied
+#   std; all seeded (seed 30 / random_state 170).
+# Steps: for each dataset, merge default_base params with dataset-specific overrides,
+#   standardize X, estimate a MeanShift bandwidth from the quantile, build a symmetrized
+#   k-nearest-neighbors connectivity graph, instantiate MiniBatchKMeans,
+#   AffinityPropagation, MeanShift, SpectralClustering, Ward and average-linkage
+#   AgglomerativeClustering (with connectivity), DBSCAN, HDBSCAN, OPTICS, Birch and
+#   GaussianMixture, fit each while silencing known connectivity UserWarnings, and time
+#   the fit.
+# Labels come from labels_ when present, otherwise from predict (GaussianMixture). Each
+#   result is drawn in a grid subplot (rows = datasets, columns = algorithms) with a
+#   cycled color palette plus black for label -1 (noise); fit time is printed in the
+#   corner.
+# Side effects: creates a large matplotlib figure and calls plt.show; rebinds the
+#   imported name datasets (sklearn.datasets module) to the list of (data, params)
+#   tuples after data generation.
+# KNOWN ISSUE: shadowing the sklearn "datasets" module with a list makes the module
+#   unusable later in the script; harmless here but misleading.
 """
 =========================================================
 Comparing different clustering algorithms on toy datasets

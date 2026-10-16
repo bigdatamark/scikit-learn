@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script showing the effect of connectivity constraints on hierarchical
+#   clustering.
+# Part 1: swiss roll (1500 points, noise 0.05, unseeded, y thinned by half); fit Ward
+#   with 6 clusters without and with a 10-NN connectivity graph, print times, 3D scatter
+#   each labelling.
+# Part 2: noisy 2D spiral (global seed 0); for connectivity None or a 30-NN graph and
+#   n_clusters 30 or 3, fit average, complete, ward and single linkage and plot each
+#   labelling with fit time in a 4x4 subfigure grid.
+# Side effects: prints, three figures, plt.show.
+# KNOWN ISSUE: subplots_adjust and suptitle are called inside the inner linkage loop,
+#   i.e. repeated four times per subfigure.
 """
 ===================================================
 Hierarchical clustering with and without structure

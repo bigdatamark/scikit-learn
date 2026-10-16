@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script showing monotonic constraints in HistGradientBoostingRegressor.
+# Data: 1000 samples of two uniform features (RandomState 0); y = 5 f0 + sin(10 pi f0) -
+#   5 f1 - cos(10 pi f1) + small noise.
+# Steps: fit unconstrained and constrained (increasing in f0, decreasing in f1) models;
+#   overlay their partial dependence curves with the raw data; then show the same
+#   constraint given as a dict on a DataFrame and check prediction equality with
+#   np.allclose (result displayed only in notebooks).
+# KNOWN ISSUE: the estimators are not seeded; HGBT is deterministic here without early
+#   stopping, but this is implicit.
 """
 =====================
 Monotonic Constraints

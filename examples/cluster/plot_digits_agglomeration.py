@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script showing FeatureAgglomeration on the 8x8 digits images.
+# Steps: flatten images to 64 features, build an 8x8 grid connectivity, fit
+#   FeatureAgglomeration with 32 clusters, transform (pool features per cluster) then
+#   inverse_transform to restore 64 features, reshape back to images.
+# Plot: first 4 original vs agglomerated images and the 8x8 map of pixel-cluster labels;
+#   calls plt.show.
 """
 =========================================================
 Feature agglomeration

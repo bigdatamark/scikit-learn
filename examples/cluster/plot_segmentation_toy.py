@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script segmenting synthetic images of overlapping circles with
+#   spectral_clustering.
+# Steps: build four boolean circles on a 100x100 grid, sum them into an image, take the
+#   mask of foreground pixels, add 1 plus Gaussian noise (std 0.2, unseeded); build a
+#   masked pixel graph with img_to_graph and set edge weights to exp(-gradient / std);
+#   spectral_clustering with 4 clusters (arpack), write labels into a -1-filled image
+#   and plot it next to the input. Repeat with only two circles and 2 clusters.
+# KNOWN ISSUE: noise and spectral clustering are not seeded, so outputs vary between
+#   runs.
 """
 ===========================================
 Spectral clustering for image segmentation

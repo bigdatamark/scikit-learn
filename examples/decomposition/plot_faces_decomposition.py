@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script applying several unsupervised decompositions to Olivetti faces
+#   (downloaded, shuffled with RandomState 0) and showing 6 components of each as 64x64
+#   images.
+# Preprocessing: faces_centered is globally centered (feature means removed) then
+#   locally centered (each image's mean removed). NMF uses the raw non-negative faces.
+# Estimators: randomized whitened PCA, NMF, FastICA, MiniBatchSparsePCA,
+#   MiniBatchDictionaryLearning, MiniBatchKMeans (cluster centers), FactorAnalysis (plus
+#   a plot of its per-pixel noise_variance_), and MiniBatchDictionaryLearning with
+#   positive dictionary, positive code, and both (red-blue colormap).
+# Side effects: configures root logging at INFO, network download, one figure per
+#   gallery (plot_gallery calls plt.show each time); the shared RandomState is consumed
+#   sequentially, so results depend on execution order.
 """
 ============================
 Faces dataset decompositions
@@ -51,6 +64,19 @@ image_shape = (64, 64)
 
 
 def plot_gallery(title, images, n_col=n_col, n_row=n_row, cmap=plt.cm.gray):
+    # [FUNCTION DOC]
+    # HELPER: Shows a grid of flattened images with a shared symmetric color scale and
+    #   colorbar.
+    # Inputs: title - figure title string; images - sequence of 4096-length vectors
+    #   (reshaped to the global image_shape 64x64); n_col, n_row - grid size (defaults
+    #   captured from module globals 3 and 2 at definition time); cmap - colormap
+    #   (default gray).
+    # Steps: create constrained-layout subplots; for each axis/vector pair, scale color
+    #   limits to plus/minus the vector's max absolute value and draw it; add a
+    #   horizontal colorbar using the last image.
+    # Outputs: none. Side effects: creates and shows a figure.
+    # KNOWN ISSUE: each image gets its own color range but the colorbar reflects only
+    #   the last image's range.
     fig, axs = plt.subplots(
         nrows=n_row,
         ncols=n_col,

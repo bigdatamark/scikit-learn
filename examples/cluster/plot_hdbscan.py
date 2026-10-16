@@ -1,4 +1,13 @@
 # -*- coding: utf-8 -*-
+# [MODULE DOC]
+# Gallery script contrasting DBSCAN and HDBSCAN and exploring HDBSCAN hyperparameters.
+# Steps: generate 750 blobs with different stds; show DBSCAN(eps=0.3) at data scales 1,
+#   0.5 and 3 (labels change with scale) and DBSCAN(eps=0.9) on scaled data; show
+#   HDBSCAN at the same scales (scale invariant). Then a second 4-blob dataset with very
+#   different densities: DBSCAN with eps 0.7 and 0.3 vs default HDBSCAN; HDBSCAN with
+#   min_cluster_size 5/3/25, with min_samples 5/3/25 (min_cluster_size 20), and
+#   dbscan_clustering with cut_distance 0.1/0.5/1.0 from one fitted HDBSCAN.
+# Side effects: only figures; all HDBSCAN instances use copy=True.
 """
 ====================================
 Demo of HDBSCAN clustering algorithm
@@ -25,6 +34,21 @@ from sklearn.datasets import make_blobs
 
 
 def plot(X, labels, probabilities=None, parameters=None, ground_truth=False, ax=None):
+    # [FUNCTION DOC]
+    # HELPER: Scatter-plots 2D points colored by cluster with marker size from
+    #   membership probability.
+    # Inputs: X - array (n_samples, >=2); labels - int array (n_samples,) or None
+    #   (treated as all ones); probabilities - array (n_samples,) or None (all ones);
+    #   parameters - optional dict appended to title as k=v; ground_truth - bool, title
+    #   says "True" instead of "Estimated"; ax - matplotlib Axes or None (a new 10x4
+    #   figure is created).
+    # Steps: assign a Spectral colormap color per unique label; for every point plot
+    #   individually: noise (label -1) as black "x" size 4, others as "o" sized 1 + 5 *
+    #   probability; title shows cluster count excluding -1.
+    # Outputs: none. Side effects: draws on ax, calls plt.tight_layout. One plot call
+    #   per point, so slow on large data.
+    # KNOWN ISSUE: the None-default for labels uses np.ones (floats), so all points form
+    #   one cluster labelled 1.0.
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 4))
     labels = labels if labels is not None else np.ones(X.shape[0])

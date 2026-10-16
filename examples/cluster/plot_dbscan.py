@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script demonstrating DBSCAN on three standardized Gaussian blobs (750 samples,
+#   std 0.4, random_state 0).
+# Steps: scatter the raw data; fit DBSCAN(eps=0.3, min_samples=10); count clusters
+#   (distinct labels excluding -1) and noise points (label -1); print homogeneity,
+#   completeness, V-measure, ARI, AMI against true labels and silhouette score on X.
+# Plot: builds a boolean mask of core samples from core_sample_indices_, then for each
+#   label draws core points as large markers and non-core members as small markers,
+#   using black for noise.
+# Side effects: prints metrics, shows two figures.
 """
 ===================================
 Demo of DBSCAN clustering algorithm

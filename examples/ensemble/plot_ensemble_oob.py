@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script tracking the out-of-bag error of RandomForestClassifier as trees are
+#   added (warm_start) for max_features sqrt, log2 and None.
+# Data: make_classification with 500 samples, 25 features, 15 informative (random_state
+#   123).
+# Steps: for each forest, increase n_estimators from 15 to 150 in steps of 5, refit
+#   (only new trees are grown), record 1 - oob_score_; plot OOB error versus number of
+#   trees.
+# Side effects: may emit warnings about samples without OOB predictions for small
+#   forests.
 """
 =============================
 OOB Errors for Random Forests

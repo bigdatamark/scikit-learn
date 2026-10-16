@@ -1,3 +1,19 @@
+# [MODULE DOC]
+# Gallery script tour of HistGradientBoostingRegressor features on the OpenML
+#   electricity dataset (downloaded), predicting "transfer" from rows after index 17760.
+# Sections: weekly transfer profile by day (seaborn); unshuffled 60/40 split, average
+#   predicted weekly profile for max_iter 5 and 50; early stopping on a 20 percent
+#   validation fraction with RMSE scoring and its validation curve, then a fixed
+#   max_iter rounded up from n_iter_ to the next hundred; robustness to MCAR missing
+#   values (refit on data with 0, 1 and 3 percent missing); quantile loss at 0.95 and
+#   0.05 with pinball loss and shaded interval; monotonic constraints on demand/price
+#   features shown with partial dependence; TimeSeriesSplit RMSE with and without
+#   constraints.
+# Side effects: requires seaborn; the hgbt object is refit repeatedly; a shared
+#   RandomState(42) drives missing-value generation.
+# KNOWN ISSUE: in the missing-values and quantile sections predictions are already
+#   restricted to the first week, so the second first_week slice applied when plotting
+#   is a no-op.
 """
 ==============================================
 Features in Histogram Gradient Boosting Trees
@@ -226,6 +242,16 @@ missing_fraction_list = [0, 0.01, 0.03]
 
 
 def generate_missing_values(X, missing_fraction):
+    # [FUNCTION DOC]
+    # HELPER: Returns a copy of DataFrame X with values set to NaN at randomly drawn
+    #   positions.
+    # Inputs: X - pandas DataFrame; missing_fraction - float in [0, 1].
+    # Steps: n = int(fraction * total cells); draw n row indices and n column indices
+    #   with replacement from the module-level rng; assign NaN via iloc.
+    # Outputs: new DataFrame. Side effects: consumes the global rng.
+    # KNOWN ISSUE: assigning with two index arrays through iloc masks the full cross
+    #   product of the selected rows and columns, not n paired cells, so far more than
+    #   missing_fraction of the cells become NaN.
     total_cells = X.shape[0] * X.shape[1]
     num_missing_cells = int(total_cells * missing_fraction)
     row_indices = rng.choice(X.shape[0], num_missing_cells, replace=True)

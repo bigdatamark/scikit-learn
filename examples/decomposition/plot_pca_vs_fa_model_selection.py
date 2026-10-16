@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script selecting the number of components for PCA and FactorAnalysis by cross-
+#   validated log-likelihood on rank-5 data in 25 dimensions with homoscedastic or
+#   heteroscedastic noise (RandomState 42).
+# Steps: for each noise type compute CV scores for n_components 0, 5, 10, 15, 20; print
+#   the argmax for each model and the PCA "mle" estimate; plot both curves with vertical
+#   lines for truth and estimates, and horizontal lines for CV scores of a tuned
+#   ShrunkCovariance and LedoitWolf.
+# KNOWN ISSUE: the LedoitWolf legend label applies the percent operator to a string with
+#   no placeholder, which raises a TypeError ("not all arguments converted") at runtime.
 """
 ===============================================================
 Model selection with Probabilistic PCA and Factor Analysis (FA)
@@ -62,6 +72,16 @@ n_components = np.arange(0, n_features, 5)  # options for n_components
 
 
 def compute_scores(X):
+    # [FUNCTION DOC]
+    # HELPER: Cross-validated average log-likelihood of PCA and FactorAnalysis for each
+    #   candidate dimension.
+    # Inputs: X - array (n_samples, n_features). Uses the global n_components grid.
+    # Steps: create one PCA (full solver) and one FactorAnalysis, and for each n set
+    #   n_components on both and append the mean 5-fold cross_val_score (their score is
+    #   mean log-likelihood).
+    # Outputs: (pca_scores, fa_scores) - lists of floats aligned with n_components.
+    # Side effects: mutates the local estimators' n_components directly instead of
+    #   set_params.
     pca = PCA(svd_solver="full")
     fa = FactorAnalysis()
 
@@ -76,12 +96,21 @@ def compute_scores(X):
 
 
 def shrunk_cov_score(X):
+    # [FUNCTION DOC]
+    # HELPER: Tunes ShrunkCovariance shrinkage over 30 log-spaced values in [0.01, 1]
+    #   with GridSearchCV on X, then returns the mean cross-validated log-likelihood of
+    #   the best estimator on X.
+    # Outputs: float. Note: tuning and evaluation use the same data, so the score is
+    #   optimistically biased.
     shrinkages = np.logspace(-2, 0, 30)
     cv = GridSearchCV(ShrunkCovariance(), {"shrinkage": shrinkages})
     return np.mean(cross_val_score(cv.fit(X).best_estimator_, X))
 
 
 def lw_score(X):
+    # [FUNCTION DOC]
+    # HELPER: Returns the mean 5-fold cross-validated log-likelihood of LedoitWolf on X
+    #   (float).
     return np.mean(cross_val_score(LedoitWolf(), X))
 
 

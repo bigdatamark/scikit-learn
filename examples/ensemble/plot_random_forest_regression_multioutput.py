@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script comparing a native multi-output RandomForestRegressor with
+#   MultiOutputRegressor wrapping one forest per target.
+# Data: 600 sorted x in [-100, 100) (RandomState 1); targets (pi sin x, pi cos x) plus
+#   uniform noise in (-0.5, 0.5]; 400/200 split.
+# Plots test targets and both models' predictions in the 2D target plane with R2 scores
+#   in the legend.
 """
 ============================================================
 Comparing random forests and the multi-output meta estimator

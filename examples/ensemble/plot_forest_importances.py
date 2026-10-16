@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script comparing impurity-based (MDI) feature importances and permutation
+#   importances of a RandomForestClassifier.
+# Data: make_classification with 10 features, 3 informative (unshuffled so they are the
+#   first 3), stratified split.
+# Steps: fit forest; compute MDI importances and their std across trees, time it, bar
+#   plot with error bars; compute permutation_importance on the test set (10 repeats,
+#   n_jobs 2), time it, bar plot of means with std.
 """
 ==========================================
 Feature importances with a forest of trees

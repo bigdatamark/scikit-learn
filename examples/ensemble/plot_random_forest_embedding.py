@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script on RandomTreesEmbedding (10 trees, depth 3) for make_circles (100
+#   samples).
+# Steps: hash X into a sparse one-hot leaf encoding; reduce with TruncatedSVD(2); fit
+#   BernoulliNB on the embedding and ExtraTreesClassifier on raw X; plot original data,
+#   SVD projection, and probability maps over a meshgrid (step 0.01) for NB (via
+#   embedding the grid) and ExtraTrees.
+# KNOWN ISSUE: TruncatedSVD is not seeded, so the projection may vary in sign/rotation
+#   between runs.
 """
 =========================================================
 Hashing feature transformation using Totally Random Trees

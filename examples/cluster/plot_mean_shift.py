@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script demonstrating MeanShift on 10000 points from 3 blobs (std 0.6).
+# Steps: estimate_bandwidth with quantile 0.2 on 500 subsampled points, fit MeanShift
+#   with bin_seeding, print number of clusters, plot members and centers with per-
+#   cluster color and marker.
+# KNOWN ISSUE: make_blobs and estimate_bandwidth are not seeded, so results vary between
+#   runs; if more than 3 clusters are found, only the first 3 are plotted (zip with 3
+#   colors).
 """
 =============================================
 A demo of the mean-shift clustering algorithm

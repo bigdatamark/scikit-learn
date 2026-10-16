@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# Gallery script comparing ShrunkCovariance shrinkage choices: a grid of fixed values,
+#   GridSearchCV, Ledoit-Wolf and OAS, in a 20-sample / 40-feature setting.
+# Data: global seed 42; train and test sets are standard normal samples multiplied by a
+#   shared random 40x40 coloring matrix, so the true covariance is its transpose times
+#   itself.
+# Steps: for 30 log-spaced shrinkages in [0.01, 1] compute negative test log-likelihood
+#   of ShrunkCovariance fitted on train; compute the reference value from the empirical
+#   train covariance and the inverse true covariance; tune shrinkage with GridSearchCV;
+#   fit LedoitWolf and OAS and score on test.
+# Plot: log-log curve of negative log-likelihood versus shrinkage, a red dashed
+#   reference line, and vertical bars at the LW, OAS and CV shrinkages whose heights are
+#   their negative test log-likelihoods.
+# Side effects: seeds global RNG, plt.show.
 """
 =======================================================================
 Shrinkage covariance estimation: LedoitWolf vs OAS and max-likelihood

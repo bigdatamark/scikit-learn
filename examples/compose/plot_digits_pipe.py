@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script tuning a StandardScaler -> PCA -> LogisticRegression pipeline on digits
+#   with GridSearchCV (n_components 5..60, C on a 4-point log grid, n_jobs 2).
+# Steps: print best score/params; refit the standalone pca object on unscaled digits and
+#   plot its explained variance ratio with a vertical line at the chosen n_components;
+#   using polars, keep for each n_components the row(s) with maximal mean test score and
+#   plot mean test score with std error bars.
+# Side effects: requires polars; one figure.
+# KNOWN ISSUE: the variance curve uses PCA fitted on unscaled data, while the pipeline's
+#   PCA operates on standardized data, so the plotted spectrum is not the one used for
+#   selection.
 """
 =========================================================
 Pipelining: chaining a PCA and a logistic regression

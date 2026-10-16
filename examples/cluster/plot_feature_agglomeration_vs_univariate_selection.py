@@ -1,3 +1,19 @@
+# [MODULE DOC]
+# Gallery script comparing Ward FeatureAgglomeration and ANOVA SelectPercentile as
+#   dimensionality reduction before BayesianRidge on a synthetic image regression.
+# Data: 200 samples of 40x40 Gaussian noise images, each Gaussian-smoothed (sigma 1)
+#   then standardized per feature; true coefficients are -1 on the top-left 15x15 block
+#   and +1 on the bottom-right block; y is X times coef plus scaled Gaussian noise.
+#   Global numpy seed 0.
+# Models: Pipeline(FeatureAgglomeration with grid connectivity and joblib Memory cache,
+#   BayesianRidge) tuned on n_clusters in 10/20/30 with 2-fold GridSearchCV;
+#   Pipeline(SelectPercentile with cached f_regression, BayesianRidge) tuned on
+#   percentile 5/10/20. The best ridge coef_ is mapped back to pixel space via the first
+#   step's inverse_transform.
+# Outputs: three images (true, selection, agglomeration weights). Side effects:
+#   temporary cache directory created and deleted at the end; global RNG seeded.
+# KNOWN ISSUE: the noise scaling divides by exp(snr / 20) whereas a decibel SNR would
+#   use 10 to the power snr / 20; the resulting SNR is not 5 dB as the name suggests.
 """
 ==============================================
 Feature agglomeration vs. univariate selection

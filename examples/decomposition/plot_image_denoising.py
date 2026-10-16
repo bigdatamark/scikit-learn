@@ -1,3 +1,18 @@
+# [MODULE DOC]
+# Gallery script denoising the right half of the raccoon face using a dictionary learned
+#   on the noisy left half.
+# Steps: load gray face, scale to [0,1], downsample by averaging 2x2 pixel blocks taken
+#   with stride 4 (quarter resolution), add Gaussian noise (std 0.075, unseeded) to the
+#   right half. Extract all 7x7 patches of the left half, standardize per feature, fit
+#   MiniBatchDictionaryLearning (50 atoms, batch 200, alpha 1, 10 iterations) and plot
+#   atoms. Extract right-half patches, center them, then for OMP (1 and 2 atoms), LARS
+#   (4 atoms) and thresholding (alpha 0.1) compute codes, reconstruct patches (codes
+#   times dictionary plus mean; threshold output min-max rescaled), average overlapping
+#   patches back into the image, and plot result and difference from the clean image.
+# Side effects: prints timings; many figures.
+# KNOWN ISSUE: the training patches are divided by their std but the noisy patches are
+#   only centered, so the reconstruction scale differs from the training scale. The atom
+#   plot uses a 10x10 grid for V[:100] while only 50 atoms exist. The noise is unseeded.
 """
 =========================================
 Image denoising using dictionary learning
@@ -70,6 +85,14 @@ import matplotlib.pyplot as plt
 
 
 def show_with_diff(image, reference, title):
+    # [FUNCTION DOC]
+    # HELPER: Displays an image next to its difference from a reference.
+    # Inputs: image, reference - 2D float arrays of the same shape (values about [0,1]);
+    #   title - suptitle string.
+    # Steps: new figure; left panel the image in gray with range [0,1]; right panel the
+    #   difference in a PuOr colormap clipped to [-0.5, 0.5], titled with its Frobenius
+    #   norm.
+    # Outputs: none. Side effects: creates a figure.
     """Helper function to display denoising"""
     plt.figure(figsize=(5, 3.3))
     plt.subplot(1, 2, 1)

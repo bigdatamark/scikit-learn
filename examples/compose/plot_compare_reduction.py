@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script using GridSearchCV over a Pipeline (MinMaxScaler, reduce_dim,
+#   LinearSVC) on digits to compare PCA, NMF and SelectKBest(mutual_info_classif) with
+#   2/4/8 features and C in 1/10/100/1000.
+# Steps: fit the grid, reshape mean_test_score to (n_C, n_reducers, n_features), take
+#   the max over C, and draw a grouped bar chart per feature count. Then shows a
+#   Pipeline with joblib Memory caching ("cachedir" in the working directory) and
+#   clears/removes the cache.
+# Side effects: creates and deletes ./cachedir; one figure.
+# KNOWN ISSUE: cv_results_ lists the PCA/NMF sub-grid (C outermost) followed by the
+#   SelectKBest sub-grid, so reshaping the concatenated scores with C as the leading
+#   axis appears to mix entries from different C values and reducers; the bar values may
+#   not correspond to their labels.
 """
 =================================================================
 Selecting dimensionality reduction with Pipeline and GridSearchCV

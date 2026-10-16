@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script recovering three mixed signals (sine, square, sawtooth plus Gaussian
+#   noise, standardized) with FastICA and comparing with PCA.
+# Steps: global seed 0; 2000 time points; mix with a fixed 3x3 matrix; FastICA(3,
+#   arbitrary-variance whitening) estimates sources and mixing matrix; an assert checks
+#   that sources times mixing transpose plus mean_ reconstructs X; PCA(3) projections
+#   for comparison; four stacked subplots of observations, true sources, ICA and PCA
+#   outputs.
+# Exceptions: AssertionError if the ICA reconstruction is not close to X.
+# KNOWN ISSUE: FastICA is not given random_state, so the recovered sources' order and
+#   signs can vary between runs.
 """
 =====================================
 Blind source separation using FastICA

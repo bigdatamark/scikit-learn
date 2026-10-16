@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script illustrating cases where KMeans gives unintuitive clusters.
+# Data (1500 samples, random_state 170): plain blobs, anisotropic blobs (fixed linear
+#   transformation), blobs with stds 1/2.5/0.5, and uneven blobs (500/100/10 points
+#   taken from the plain blobs).
+# Steps: plot ground truth; plot KMeans results (n_init "auto") with 2 clusters on plain
+#   blobs and 3 clusters on the others; plot KMeans with 3 clusters on plain blobs and
+#   with n_init=10 on uneven blobs; plot GaussianMixture(3) on anisotropic and varied-
+#   variance data.
+# Side effects: several figures shown.
+# KNOWN ISSUE: the GaussianMixture fits do not set random_state, so those results are
+#   not reproducible.
 """
 ====================================
 Demonstration of k-means assumptions

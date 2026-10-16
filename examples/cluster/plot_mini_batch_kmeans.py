@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script comparing KMeans and MiniBatchKMeans (batch_size 45, n_init 10) on 3000
+#   points from 3 blobs (global seed 0).
+# Steps: time both fits; match MiniBatch centers to KMeans centers by nearest distance
+#   (pairwise_distances_argmin) so colors correspond; recompute labels as nearest
+#   center; plot both clusterings with train time and inertia, and a third panel
+#   highlighting points whose labels differ in magenta.
+# Side effects: seeds global numpy RNG; one figure.
+# KNOWN ISSUE: the "different" mask is initialized by comparing labels to 4, an obscure
+#   way to obtain an all-False array; neither estimator sets random_state, relying on
+#   the global seed only for data.
 """
 ====================================================================
 Comparison of the K-Means and MiniBatchKMeans clustering algorithms

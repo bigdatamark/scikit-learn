@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script stacking regressors (scaled RidgeCV, spline + interaction RidgeCV,
+#   HistGradientBoosting) with StackingRegressor.
+# Data: 500 x uniform in [-3, 3] (RandomState 42); y = 2.4 x + 3.1 sin(3.2 x) minus 10
+#   where x > 2, plus heteroscedastic Gaussian noise whose variance is 0.75 + 0.75 x
+#   squared (named sigma but used as a variance).
+# Steps: scatter data; fit base models and a RidgeCV-final stack and plot their fitted
+#   curves; for each base model and the stack run 5-fold cross_validate (R2, MAE) and
+#   cross_val_predict, plot actual vs predicted with scores and timing; inspect
+#   final_estimator_ coefficients for RidgeCV, LassoCV and a non-negative no-intercept
+#   LinearRegression (super-learner style) and their sum.
+# Side effects: requires pandas; n_jobs -1; bare coef_ expressions render only in
+#   notebooks.
 """
 =================================
 Combine predictors using stacking

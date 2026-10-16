@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script sparse-coding a step signal (3 on the first quarter, -1 elsewhere,
+#   length 1024) with SparseCoder over Ricker wavelet dictionaries.
+# Dictionaries: fixed width 100 with 341 atoms, or multiple widths (10, 50, 100, 500,
+#   1000) with 68 atoms each stacked.
+# For each dictionary: plot the signal; reconstruct with OMP (15 nonzero) and lasso_lars
+#   (alpha 2), showing nonzero count and squared error; reconstruct with thresholding
+#   (alpha 20) then debias by least squares refit on the selected atoms.
 """
 ===========================================
 Sparse coding with a precomputed dictionary
@@ -26,6 +34,13 @@ from sklearn.decomposition import SparseCoder
 
 
 def ricker_function(resolution, center, width):
+    # [FUNCTION DOC]
+    # HELPER: Samples a Ricker (Mexican hat) wavelet on integer positions.
+    # Inputs: resolution - int number of samples; center - float position; width - float
+    #   scale.
+    # Outputs: 1D float array of length resolution, computed as a normalization constant
+    #   2 / (sqrt(3 width) pi^(1/4)) times (1 - squared distance over width squared)
+    #   times a Gaussian of std width.
     """Discrete sub-sampled Ricker (Mexican hat) wavelet"""
     x = np.linspace(0, resolution - 1, resolution)
     x = (
@@ -37,6 +52,11 @@ def ricker_function(resolution, center, width):
 
 
 def ricker_matrix(width, resolution, n_components):
+    # [FUNCTION DOC]
+    # HELPER: Builds a dictionary of Ricker wavelets with evenly spaced centers.
+    # Inputs: width - wavelet width; resolution - signal length; n_components - number
+    #   of atoms.
+    # Outputs: array (n_components, resolution) with each row L2-normalized.
     """Dictionary of Ricker (Mexican hat) wavelets"""
     centers = np.linspace(0, resolution - 1, n_components)
     D = np.empty((n_components, resolution))

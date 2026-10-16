@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script contrasting PCA and RBF KernelPCA (gamma 10, alpha 0.1, inverse
+#   transform learned) on make_circles (1000 samples, seed 0, stratified split).
+# Steps: plot train/test data; fit both on train and plot the test projections
+#   (KernelPCA separates the circles linearly); reconstruct the test set with
+#   inverse_transform of each and plot (exact for PCA with 2 components, approximate for
+#   KernelPCA).
 """
 ==========
 Kernel PCA

@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script showing vector quantization of the grayscale scipy raccoon face via
+#   KBinsDiscretizer.
+# Steps: load the face (scipy.datasets, may download), print shape/dtype/bytes, show
+#   image and 256-bin histogram; reshape pixels to one column and fit_transform an 8-bin
+#   ordinal KBinsDiscretizer with "uniform" strategy, reshape back and plot it with its
+#   histogram; compute bin centers as midpoints of bin_edges_ and overlay them as
+#   vertical lines on the original histogram; repeat with the "kmeans" strategy.
+# Finally prints memory size of the compressed (float64) image and the compression ratio
+#   relative to the uint8 original, which is greater than 1 (the encoded image is
+#   larger), and its dtype.
+# Side effects: figures and prints only; bare "bin_center" expressions exist to display
+#   values in notebook-style rendering.
 """
 ===========================
 Vector Quantization Example

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery script showing geometric ICA vs PCA on 20000 samples of two heavy-tailed
+#   Student t sources (df 1.5, first scaled by 2, RandomState 42) mixed by
+#   [[1,1],[0,2]].
+# Steps: fit PCA and FastICA, then plot four panels: true sources, observations with PCA
+#   (components transposed) and ICA (mixing_) directions as arrows, PCA-whitened data,
+#   and ICA-recovered sources.
 """
 ==========================
 FastICA on 2D point clouds
@@ -62,6 +69,16 @@ import matplotlib.pyplot as plt
 
 
 def plot_samples(S, axis_list=None):
+    # [FUNCTION DOC]
+    # HELPER: Scatter plots 2D samples on the current axes with optional direction
+    #   arrows.
+    # Inputs: S - array (n, 2); axis_list - optional list of (axis matrix (2, 2) with
+    #   one direction per column, color, label).
+    # Steps: scatter points; for each entry normalize the 2x2 matrix by its overall std,
+    #   unpack its two rows as the x and y components of two arrows from the origin and
+    #   draw them with quiver; draw axes lines and fix limits to [-5,5] x [-3,3] with
+    #   equal aspect.
+    # Outputs: none. Side effects: draws on current matplotlib axes.
     plt.scatter(
         S[:, 0], S[:, 1], s=2, marker="o", zorder=10, color="steelblue", alpha=0.5
     )

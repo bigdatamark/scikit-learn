@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Gallery script learning an 81-atom dictionary of 20x20 face patches with online
+#   MiniBatchKMeans.partial_fit.
+# Steps: fetch Olivetti faces (downloads on first use); for 6 passes over all images,
+#   extract 50 random patches per image, flatten them and append to a buffer; every 10
+#   images concatenate the buffer, standardize each feature (subtract mean, divide by
+#   std) and call partial_fit, then clear the buffer; print progress every 100 images.
+# Outputs: prints timing; plots the 81 cluster centers as 9x9 grayscale grid.
+# Side effects: network download/cache, shared RandomState(0) used by both patch
+#   extraction and kmeans, verbose kmeans output.
+# KNOWN ISSUE: the suptitle reports 8 * len(faces.images) patches, but the number
+#   actually processed is 6 passes * 50 patches * len(faces.images). The docstring says
+#   500 patches per partial_fit (10 images * 50), which matches the code.
 """
 Online learning of a dictionary of parts of faces
 =================================================

@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script turning tree-ensemble leaf indices into sparse one-hot features for
+#   LogisticRegression.
+# Data: 80000-sample make_classification split into test half, a half of the remainder
+#   for fitting ensembles and the other for the linear models (avoids overfitting the
+#   embedding).
+# Models: RandomForest and GradientBoosting (10 trees, depth 3); RandomTreesEmbedding +
+#   LR pipeline; FunctionTransformer(rf_apply / gbdt_apply) + OneHotEncoder + LR
+#   pipelines using the pre-fitted ensembles.
+# Plots: ROC curves of the five models on the test set, then the same curves zoomed into
+#   the top-left corner.
 """
 ===============================================
 Feature transformations with ensembles of trees
@@ -107,6 +118,9 @@ from sklearn.preprocessing import FunctionTransformer, OneHotEncoder
 
 
 def rf_apply(X, model):
+    # [FUNCTION DOC]
+    # HELPER: Returns model.apply(X), the leaf index reached in each tree, shape
+    #   (n_samples, n_estimators). model must be a fitted forest.
     return model.apply(X)
 
 
@@ -122,6 +136,10 @@ rf_model.fit(X_train_linear, y_train_linear)
 
 # %%
 def gbdt_apply(X, model):
+    # [FUNCTION DOC]
+    # HELPER: Returns leaf indices from a fitted gradient boosting classifier, dropping
+    #   the per-class axis of apply's (n_samples, n_estimators, n_classes_or_1) output
+    #   by taking its first slice; valid for binary problems.
     return model.apply(X)[:, :, 0]
 
 

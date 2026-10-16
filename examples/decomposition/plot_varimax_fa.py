@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script comparing loadings of PCA, unrotated FactorAnalysis and varimax-rotated
+#   FactorAnalysis (2 components) on standardized iris.
+# Steps: plot the feature correlation matrix; fit each method, print components_
+#   transposed (features x components) and show them as heatmaps with a symmetric color
+#   scale.
 """
 ===============================================================
 Factor Analysis (with rotation) to visualize patterns

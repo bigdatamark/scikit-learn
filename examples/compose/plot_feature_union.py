@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery script combining PCA and SelectKBest features with FeatureUnion on iris, then
+#   grid-searching n_components (1-3), k (1-2) and linear SVC C (0.1, 1, 10) in a
+#   Pipeline.
+# Outputs: prints combined feature count (3), verbose grid search logs and the best
+#   estimator.
 """
 =================================================
 Concatenating multiple feature extraction methods

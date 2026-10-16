@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery script fitting GradientBoostingRegressor (500 trees, depth 4, learning rate
+#   0.01, squared error) on the diabetes dataset (90/10 split, random_state 13).
+# Steps: print test MSE; plot train_score_ and staged test MSE per iteration; plot
+#   impurity-based feature importances as sorted bars and permutation importances on the
+#   test set as horizontal box plots.
+# Side effects: chooses boxplot keyword names (tick_labels vs labels, orientation vs
+#   vert) based on the installed matplotlib version.
 """
 ============================
 Gradient Boosting regression

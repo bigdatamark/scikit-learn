@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery script benchmarking KMeans initializations (k-means++, random, PCA components)
+#   on the digits dataset and plotting KMeans on 2D PCA projection.
+# Steps: load digits (1797 x 64, 10 classes); print a table from bench_k_means for each
+#   init; then fit PCA(2), KMeans(10, k-means++) on the reduced data, plot the predicted
+#   region map with DecisionBoundaryDisplay, the points, and the centroids as white
+#   crosses.
+# KNOWN ISSUE: the PCA-based init components are computed on unscaled data while
+#   bench_k_means fits KMeans after StandardScaler, so the init centers are in a
+#   different space than the data clustered.
 """
 ===========================================================
 A demo of K-Means clustering on the handwritten digits data
@@ -64,6 +74,16 @@ from sklearn.preprocessing import StandardScaler
 
 
 def bench_k_means(kmeans, name, data, labels):
+    # [FUNCTION DOC]
+    # HELPER: Fits StandardScaler + the given KMeans as a pipeline, times it, and prints
+    #   one formatted result row.
+    # Inputs: see docstring (kmeans, name, data, labels).
+    # Row contents: name, fit time, inertia_, homogeneity, completeness, V-measure, ARI,
+    #   AMI vs labels, and euclidean silhouette score on a random 300-sample subset.
+    # Outputs: none (returns None). Side effects: prints; fits the passed kmeans in
+    #   place (pipeline does not clone).
+    # KNOWN ISSUE: silhouette is computed on unscaled data although clustering was done
+    #   on scaled data; sample_size=300 without random_state makes it non-deterministic.
     """Benchmark to evaluate the KMeans initialization methods.
 
     Parameters

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Gallery script comparing 2D projections of iris by PCA (unsupervised) and LDA
+#   (supervised); prints PCA explained variance ratios and draws two scatter plots
+#   colored by species.
 """
 =======================================================
 Comparison of LDA and PCA 2D projection of Iris dataset

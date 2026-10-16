@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script comparing OOB, held-out test and 3-fold CV estimates of the best number
+#   of boosting iterations for a stochastic GradientBoostingClassifier (1200 trees,
+#   subsample 0.5, learning rate 0.01).
+# Data: 1000 samples, x1, x2 uniform, x3 integer 0..3, binary y drawn with probability
+#   expit(sin(3 x1) - 4 x2 + x3) (RandomState 13), cast to float32, 50/50 split.
+# Steps: fit and print test accuracy; negative cumulative sum of oob_improvement_ as OOB
+#   loss; test and CV deviance curves shifted to start at 0; plot the three curves with
+#   vertical lines at their argmins.
 """
 ======================================
 Gradient Boosting Out-of-Bag estimates
@@ -68,6 +77,12 @@ x = np.arange(n_estimators) + 1
 
 
 def heldout_score(clf, X_test, y_test):
+    # [FUNCTION DOC]
+    # HELPER: Computes the deviance (twice the log loss) on (X_test, y_test) after each
+    #   boosting stage.
+    # Inputs: clf - fitted binary GradientBoostingClassifier with the global
+    #   n_estimators stages; X_test, y_test.
+    # Outputs: float64 array of length n_estimators (global).
     """compute deviance scores on ``X_test`` and ``y_test``."""
     score = np.zeros((n_estimators,), dtype=np.float64)
     for i, y_proba in enumerate(clf.staged_predict_proba(X_test)):
@@ -76,6 +91,14 @@ def heldout_score(clf, X_test, y_test):
 
 
 def cv_estimate(n_splits=None):
+    # [FUNCTION DOC]
+    # HELPER: K-fold (unshuffled) cross-validated staged deviance on the global training
+    #   data.
+    # Inputs: n_splits - int number of folds (the default None is invalid for KFold and
+    #   would raise).
+    # Steps: for each fold fit a fresh-parameter classifier (same global params, reused
+    #   instance) and add heldout_score on the held-out part; divide by n_splits.
+    # Outputs: float64 array of length n_estimators.
     cv = KFold(n_splits=n_splits)
     cv_clf = ensemble.GradientBoostingClassifier(**params)
     val_scores = np.zeros((n_estimators,), dtype=np.float64)

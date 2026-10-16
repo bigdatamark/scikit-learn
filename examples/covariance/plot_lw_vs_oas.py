@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script comparing Ledoit-Wolf and OAS covariance estimators on Gaussian data
+#   with an AR(1) Toeplitz covariance (r = 0.1, 100 features).
+# Steps: for n_samples from 6 to 30 and 100 repetitions, draw samples colored by the
+#   Cholesky factor of the true covariance, fit both estimators (assume_centered, no
+#   precision) and record error_norm against the true covariance (unscaled squared
+#   Frobenius) and shrinkage_.
+# Plot: mean and std of MSE and of shrinkage versus n_samples for both estimators.
+# Side effects: seeds global RNG with 0, plt.show.
 """
 =============================
 Ledoit-Wolf vs OAS estimation

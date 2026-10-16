@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Gallery script comparing categorical-feature strategies for
+#   HistGradientBoostingRegressor on the Ames housing data (OpenML 42165, downloaded),
+#   restricted to 10 categorical and 10 numerical columns.
+# Pipelines (all random_state 42): drop categoricals; OneHotEncoder (dense, ignore
+#   unknown); OrdinalEncoder (unknown -> NaN); TargetEncoder (continuous, shuffled
+#   KFold); native support via categorical_features="from_dtype". Each is evaluated with
+#   5-fold cross_validate on negative MAPE (n_jobs -1) and plotted with
+#   plot_performance_tradeoff; then all are restricted to max_depth 3 and 15 iterations
+#   and evaluated/plotted again (underfitting regime).
+# Side effects: network download, prints dataset sizes, mutates estimator params in
+#   place; bare estimator expressions render HTML reprs in notebooks only.
 """
 ================================================
 Categorical Feature Support in Gradient Boosting
@@ -236,6 +248,16 @@ import matplotlib.ticker as ticker
 
 
 def plot_performance_tradeoff(results, title):
+    # [FUNCTION DOC]
+    # HELPER: Plots fit time (log x-axis) versus test MAPE for each strategy.
+    # Inputs: results - list of (name, cross_validate result dict with fit_time and
+    #   test_score as negative errors); title - axes title.
+    # Steps: per strategy, scatter each fold's (fit time, error) with its own marker, a
+    #   black marker at the means, and black error bars for std of error and of fit
+    #   time; set 7 log-spaced x ticks with scientific formatting; annotate the lower-
+    #   left "best models" corner.
+    # Outputs: none. Side effects: creates a figure and calls plt.show. Supports at most
+    #   5 strategies (marker list length).
     fig, ax = plt.subplots()
     markers = ["s", "o", "^", "x", "D"]
 

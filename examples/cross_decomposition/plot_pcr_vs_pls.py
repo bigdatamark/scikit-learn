@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Gallery script showing PCR (StandardScaler + PCA + LinearRegression) failing where
+#   PLSRegression succeeds when the target depends on a low-variance direction.
+# Data: 500 samples from a 2D Gaussian (cov [[3,3],[3,4]], RandomState 0); target is the
+#   projection on the second principal component plus noise.
+# Steps: plot data with scaled principal components; plot y versus projections on each
+#   component; fit 1-component PCR and PLS on a train split, plot test predictions vs
+#   projections, print R2 for both, then a 2-component PCA + LinearRegression R2.
+# KNOWN ISSUE: the 2-component PCR pipeline omits the StandardScaler used by the
+#   1-component PCR, so the two PCR variants are not strictly comparable (harmless for
+#   R2 since all components are kept).
 """
 ==================================================================
 Principal Component Regression vs Partial Least Squares Regression

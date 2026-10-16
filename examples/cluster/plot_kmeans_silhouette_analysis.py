@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Gallery script using silhouette analysis to choose n_clusters for KMeans on 500 points
+#   from 4 blobs (random_state 1).
+# For each n_clusters in 2..6: fit KMeans (random_state 10), print the mean
+#   silhouette_score, compute per-sample silhouette_samples; left panel stacks each
+#   cluster's sorted silhouette values as a filled horizontal band (10-row gaps between
+#   clusters) with a red dashed line at the mean; right panel scatters the data colored
+#   by cluster with numbered white center markers.
+# Side effects: one figure per n_clusters, prints scores, plt.show.
 """
 ===============================================================================
 Selecting the number of clusters with silhouette analysis on KMeans clustering
