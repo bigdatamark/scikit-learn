@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Small user-interface utilities for verbose output: formatting a fixed-width
+# timing log line and a context manager that prints elapsed time on exit.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -6,6 +9,15 @@ from contextlib import contextmanager
 
 
 def _message_with_time(source, message, time):
+    # [FUNCTION DOC]
+    # HELPER: Builds a 70-character log line "[source] ....... message, total=T". Time
+    # is formatted as minutes with one decimal ("%4.1fmin") when above 60 seconds,
+    # otherwise seconds ("%5.1fs" with a leading space). The gap between the prefix
+    # and the suffix is filled with dots so the total is 70 characters (no dots if the
+    # parts already exceed 70).
+    # Inputs: source - str; message - str; time - number of seconds (int or float).
+    # Outputs: the formatted str.
+    # Exceptions/side effects: none.
     """Create one line message for logging purposes.
 
     Parameters
@@ -34,6 +46,16 @@ def _message_with_time(source, message, time):
 
 @contextmanager
 def _print_elapsed_time(source, message=None):
+    # [FUNCTION DOC]
+    # HELPER: Generator-based context manager. When message is None it simply yields
+    # and prints nothing. Otherwise it records a timeit.default_timer timestamp,
+    # yields, and after the block completes prints _message_with_time(source, message,
+    # elapsed) to stdout.
+    # Inputs: source - str; message - str or None (default None).
+    # Outputs: yields None.
+    # Side effects: prints to stdout.
+    # KNOWN ISSUE: the yield is not wrapped in try/finally, so nothing is printed if
+    # the block raises.
     """Log elapsed time to stdout when the context is exited.
 
     Parameters

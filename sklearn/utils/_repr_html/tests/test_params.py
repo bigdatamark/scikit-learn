@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the parameter HTML table (params module) and the doc-link helper
+# generate_link_to_param_doc from common.
 import re
 
 import pytest
@@ -8,6 +11,8 @@ from sklearn.utils._repr_html.params import ParamsDict, _params_html_repr, _read
 
 
 def test_params_dict_content():
+    # [FUNCTION DOC]
+    # Verifies ParamsDict stores values and the non_default tuple (default empty).
     """Check the behavior of the ParamsDict class."""
     params = ParamsDict(params={"a": 1, "b": 2})
     assert params["a"] == 1
@@ -21,6 +26,9 @@ def test_params_dict_content():
 
 
 def test_params_dict_repr_html_():
+    # [FUNCTION DOC]
+    # Verifies _repr_html_ yields the parameters table and raises AttributeError under
+    # display='text'.
     params = ParamsDict(params={"a": 1, "b": 2}, non_default=("a",), estimator_class="")
     out = params._repr_html_()
     assert "<summary>Parameters</summary>" in out
@@ -32,6 +40,9 @@ def test_params_dict_repr_html_():
 
 
 def test_params_dict_repr_mimebundle():
+    # [FUNCTION DOC]
+    # Verifies mime bundle content (plain dict repr and HTML) and that HTML is omitted
+    # under display='text'.
     params = ParamsDict(params={"a": 1, "b": 2}, non_default=("a",), estimator_class="")
     out = params._repr_mimebundle_()
 
@@ -47,6 +58,9 @@ def test_params_dict_repr_mimebundle():
 
 
 def test_read_params():
+    # [FUNCTION DOC]
+    # Verifies _read_params classifies default vs user-set and HTML-escapes a script
+    # tag injection in the value repr.
     """Check the behavior of the `_read_params` function."""
     out = _read_params("a", 1, tuple())
     assert out["param_type"] == "default"
@@ -71,6 +85,8 @@ def test_read_params():
 
 
 def test_params_html_repr():
+    # [FUNCTION DOC]
+    # Smoke test: renderer output contains both table CSS classes.
     """Check returned HTML template"""
     params = ParamsDict(params={"a": 1, "b": 2}, estimator_class="")
     assert "parameters-table" in _params_html_repr(params)
@@ -78,6 +94,8 @@ def test_params_html_repr():
 
 
 def test_params_html_repr_copy_button():
+    # [FUNCTION DOC]
+    # Verifies each row's copy control is a button with an accessible aria-label.
     """Copy control renders as an accessible <button> with an aria-label."""
     params = ParamsDict(params={"alpha": 1}, estimator_class="")
     html_output = _params_html_repr(params)
@@ -90,9 +108,16 @@ def test_params_html_repr_copy_button():
 
 
 def test_params_html_repr_with_doc_links():
+    # [FUNCTION DOC]
+    # Using a mock class with a numpydoc Parameters section and a doc_link, verifies
+    # both parameters render as anchors with text-fragment hrefs and escaped hover
+    # descriptions (angle brackets escaped, description lines joined by <br>).
     """Test `_params_html_repr` with valid and invalid doc links."""
 
     class MockEstimator:
+        # [CLASS DOC]
+        # HELPER: Fake estimator class whose docstring documents a and b; module and
+        # qualname are overridden to look like a scikit-learn class.
         """A fake estimator class with a docstring used for testing.
 
         Parameters
@@ -147,9 +172,14 @@ def test_params_html_repr_with_doc_links():
 
 
 def test_params_html_repr_without_doc_links():
+    # [FUNCTION DOC]
+    # Verifies that with an undocumented class and no doc_link, names render as plain
+    # text cells with no '?' link and values are escaped.
     """Test `_params_html_repr` when `link_to_param_doc` returns None."""
 
     class MockEstimatorWithoutDoc:
+        # [CLASS DOC]
+        # HELPER: Fake estimator class without docstring.
         __module__ = "sklearn.mock_module"
         __qualname__ = "MockEstimatorWithoutDoc"
         # No docstring defined on this test class.
@@ -176,9 +206,13 @@ def test_params_html_repr_without_doc_links():
 
 
 def test_generate_link_to_param_doc_basic():
+    # [FUNCTION DOC]
+    # Verifies the URL fragment is 'name,-type' for two documented parameters.
     """Return anchor URLs for documented parameters in the estimator."""
 
     class MockEstimator:
+        # [CLASS DOC]
+        # HELPER: Mock class documenting alpha (float) and beta (int).
         """Mock class.
 
         Parameters
@@ -198,9 +232,13 @@ def test_generate_link_to_param_doc_basic():
 
 
 def test_generate_link_to_param_doc_param_not_found():
+    # [FUNCTION DOC]
+    # Verifies None is returned for an undocumented parameter.
     """Ensure None is returned when the parameter is not documented."""
 
     class MockEstimator:
+        # [CLASS DOC]
+        # HELPER: Mock class documenting only alpha.
         """Mock class
 
         Parameters
@@ -216,9 +254,13 @@ def test_generate_link_to_param_doc_param_not_found():
 
 
 def test_generate_link_to_param_doc_empty_docstring():
+    # [FUNCTION DOC]
+    # Verifies None is returned when the class has no docstring.
     """Ensure None is returned when the estimator has no docstring."""
 
     class MockEstimator:
+        # [CLASS DOC]
+        # HELPER: Mock class without docstring.
         pass
 
     doc_link = "mock_module.MockEstimator.html"
@@ -227,11 +269,17 @@ def test_generate_link_to_param_doc_empty_docstring():
 
 
 def test_generate_link_to_param_doc_special_char():
+    # [FUNCTION DOC]
+    # Regression test: a type line containing backticks, parentheses and commas is
+    # stripped of backticks and percent-encoded in the fragment.
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/33830
     """
 
     class MockEstimator:
+        # [CLASS DOC]
+        # HELPER: Mock class with an Attributes entry whose type contains special
+        # characters.
         """Mock class.
 
         Attributes

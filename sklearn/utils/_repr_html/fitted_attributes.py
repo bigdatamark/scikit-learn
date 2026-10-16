@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# HTML table of an estimator's fitted attributes (names ending in '_'): value
+# formatting helper, table renderer and the AttrsDict container whose Jupyter repr
+# is that table.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -15,6 +19,13 @@ from sklearn.utils._repr_html.common import (
 
 
 def _read_fitted_attr(value):
+    # [FUNCTION DOC]
+    # HELPER: Formats one fitted attribute value for display. ndarrays use numpy
+    # array2string with precision 2, comma separator, small values suppressed and
+    # summarisation beyond 4 elements, then HTML-escaped. Floats are formatted with 4
+    # significant digits (not escaped; not needed). Other values use a reprlib.Repr
+    # limited to 4 items for containers and 9 chars for strings, HTML-escaped.
+    # Inputs: value - any. Outputs: str.
     if isinstance(value, np.ndarray):
         value = np.array2string(
             value, precision=2, separator=",", suppress_small=True, threshold=4
@@ -42,6 +53,17 @@ def _read_fitted_attr(value):
 
 
 def _fitted_attr_html_repr(fitted_attributes):
+    # [FUNCTION DOC]
+    # HELPER: Renders an AttrsDict as a collapsible 'Fitted attributes' table with
+    # Name/Type/Value columns. For each attribute: builds a doc link and Attributes
+    # docstring tooltip; if both exist and doc_link is set, the name becomes a link
+    # with hover description, else a plain styled anchor. When the info dict has 2
+    # entries (type_name, value) the type is the escaped type name; otherwise it is
+    # treated as array-like and displayed as type_name[dtype]shape. The value column
+    # comes from _read_fitted_attr.
+    # Inputs: fitted_attributes - AttrsDict mapping name to info dict with keys
+    # type_name, value and optionally dtype, shape. Outputs: str HTML.
+    # Exceptions: KeyError if info dicts lack expected keys.
     """Generate HTML representation of estimator fitted attributes.
 
     Creates an HTML table with fitted attribute names and values
@@ -138,6 +160,10 @@ def _fitted_attr_html_repr(fitted_attributes):
 
 
 class AttrsDict(ReprHTMLMixin, UserDict):
+    # [CLASS DOC]
+    # UserDict of fitted attribute info with an HTML repr (via ReprHTMLMixin and
+    # _html_repr set to _fitted_attr_html_repr), carrying estimator_class and doc_link
+    # metadata used for documentation links.
     """Dictionary-like class to store and provide an HTML representation.
 
     It builds an HTML structure to be used with Jupyter notebooks or similar
@@ -161,6 +187,10 @@ class AttrsDict(ReprHTMLMixin, UserDict):
     _html_repr = _fitted_attr_html_repr
 
     def __init__(self, *, fitted_attrs=None, estimator_class=None, doc_link=""):
+        # [FUNCTION DOC]
+        # Inputs (keyword-only): fitted_attrs - dict or None (empty dict if falsy);
+        # estimator_class - class or None; doc_link - str, default ''.
+        # Side effects: fills the dict and sets estimator_class and doc_link.
         super().__init__(fitted_attrs or {})
         self.estimator_class = estimator_class
         self.doc_link = doc_link

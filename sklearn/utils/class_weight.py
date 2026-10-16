@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Public utilities that turn a class_weight specification ("balanced", dict, list of
+# dicts or None) into per-class weights and per-sample weights. Array API aware for
+# compute_class_weight; compute_sample_weight works on numpy/scipy sparse.
+# [MODULE DOC]
+# Public utilities that turn a class_weight specification ("balanced", dict, list of
+# dicts or None) into per-class weights and per-sample weights. Array API aware for
+# compute_class_weight; compute_sample_weight works on numpy/scipy sparse.
 """Utilities for handling weights based on class labels."""
 
 # Authors: The scikit-learn developers
@@ -28,6 +36,50 @@ from sklearn.utils.validation import _check_sample_weight
     prefer_skip_nested_validation=True,
 )
 def compute_class_weight(class_weight, *, classes, y, sample_weight=None):
+    # [FUNCTION DOC]
+    # Behavior: resolve the namespace/device of y and classes; raise if y holds labels
+    # not in classes. Then:
+    # - None or empty dict: weights of one for every class.
+    # - "balanced": label-encode y, require every element of classes to be among the
+    #   encoded labels, validate sample_weight (ones when None), compute weighted
+    #   counts per encoded label and set weight = total weight / (n_labels_in_y *
+    #   count), reindexed to classes.
+    # - dict: start from ones; for each class try to cast to int (fall back to str)
+    #   and use the dict value if the key exists, else remember it as unweighted.
+    # Inputs: see docstring; classes must be an ndarray (validate_params).
+    # Outputs: 1d float array of length len(classes) in y's namespace/device.
+    # Exceptions: ValueError when y has labels outside classes; when "balanced" and
+    # some classes are absent from y; when the dict has keys not matching any class
+    # while some classes are left unweighted. Parameter validation errors from
+    # validate_params.
+    # Side effects: none.
+    # KNOWN ISSUE: the dict branch casts each class with int(), so float classes such
+    # as 1.5 are truncated before lookup; dict keys that do not match any class are
+    # silently ignored when every class is matched.
+    # KNOWN ISSUE: sample_weight is documented as used only for "balanced", which
+    # matches the code; it is silently ignored otherwise.
+    # [FUNCTION DOC]
+    # Behavior: resolve the namespace/device of y and classes; raise if y holds labels
+    # not in classes. Then:
+    # - None or empty dict: weights of one for every class.
+    # - "balanced": label-encode y, require every element of classes to be among the
+    #   encoded labels, validate sample_weight (ones when None), compute weighted
+    #   counts per encoded label and set weight = total weight / (n_labels_in_y *
+    #   count), reindexed to classes.
+    # - dict: start from ones; for each class try to cast to int (fall back to str)
+    #   and use the dict value if the key exists, else remember it as unweighted.
+    # Inputs: see docstring; classes must be an ndarray (validate_params).
+    # Outputs: 1d float array of length len(classes) in y's namespace/device.
+    # Exceptions: ValueError when y has labels outside classes; when "balanced" and
+    # some classes are absent from y; when the dict has keys not matching any class
+    # while some classes are left unweighted. Parameter validation errors from
+    # validate_params.
+    # Side effects: none.
+    # KNOWN ISSUE: the dict branch casts each class with int(), so float classes such
+    # as 1.5 are truncated before lookup; dict keys that do not match any class are
+    # silently ignored when every class is matched.
+    # KNOWN ISSUE: sample_weight is documented as used only for "balanced", which
+    # matches the code; it is silently ignored otherwise.
     """Estimate class weights for unbalanced datasets.
 
     Parameters
@@ -131,6 +183,44 @@ def compute_class_weight(class_weight, *, classes, y, sample_weight=None):
     prefer_skip_nested_validation=True,
 )
 def compute_sample_weight(class_weight, y, *, indices=None):
+    # [FUNCTION DOC]
+    # Behavior: make y 2D (dense 1d becomes a column; sparse kept), validate options,
+    # then for each output column k: take the dense column, its sorted classes, choose
+    # the class weight spec for k (the same spec for "balanced" or single output, else
+    # class_weight[k]); with indices, compute class weights on the subsample
+    # y[indices] and map them to all classes (np.take with clip), recording classes
+    # absent from the subsample; otherwise compute on the full column. Map class
+    # weights to samples by searchsorted, zero the weights of missing classes, and
+    # finally multiply the per-output weight vectors elementwise (float64).
+    # Inputs: see docstring.
+    # Outputs: float64 ndarray of shape (n_samples,).
+    # Exceptions: ValueError when indices is given with class_weight other than
+    # "balanced"; for multi-output when class_weight is None or a dict, or a list of
+    # wrong length; plus errors propagated from compute_class_weight.
+    # Side effects: none.
+    # KNOWN ISSUE: for a single output a list of one dict is accepted by validation
+    # but passed whole to compute_class_weight, which rejects lists.
+    # KNOWN ISSUE: for multi-output with class_weight None an error is raised,
+    # although the docstring says None means weight one for all classes.
+    # [FUNCTION DOC]
+    # Behavior: make y 2D (dense 1d becomes a column; sparse kept), validate options,
+    # then for each output column k: take the dense column, its sorted classes, choose
+    # the class weight spec for k (the same spec for "balanced" or single output, else
+    # class_weight[k]); with indices, compute class weights on the subsample
+    # y[indices] and map them to all classes (np.take with clip), recording classes
+    # absent from the subsample; otherwise compute on the full column. Map class
+    # weights to samples by searchsorted, zero the weights of missing classes, and
+    # finally multiply the per-output weight vectors elementwise (float64).
+    # Inputs: see docstring.
+    # Outputs: float64 ndarray of shape (n_samples,).
+    # Exceptions: ValueError when indices is given with class_weight other than
+    # "balanced"; for multi-output when class_weight is None or a dict, or a list of
+    # wrong length; plus errors propagated from compute_class_weight.
+    # Side effects: none.
+    # KNOWN ISSUE: for a single output a list of one dict is accepted by validation
+    # but passed whole to compute_class_weight, which rejects lists.
+    # KNOWN ISSUE: for multi-output with class_weight None an error is raised,
+    # although the docstring says None means weight one for all classes.
     """Estimate sample weights by class for unbalanced datasets.
 
     Parameters

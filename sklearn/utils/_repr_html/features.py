@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Renders the collapsible 'output features' box of the estimator HTML diagram.
+# Defines _MAX_DISPLAY_FEATURES (100), the cap on rendered rows, and _features_html.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -7,6 +10,16 @@ _MAX_DISPLAY_FEATURES = 100
 
 
 def _features_html(features, is_fitted_css_class=""):
+    # [FUNCTION DOC]
+    # HELPER: Builds a details element whose summary shows the feature count ('N
+    # feature'
+    # / 'N features', or '100 of N,NNN features' when more than the cap) plus a copy
+    # button calling the JS copyFeatureNamesToClipboard, and whose body is a table with
+    # one HTML-escaped row per feature for the first _MAX_DISPLAY_FEATURES features.
+    # Inputs: features - sliceable sequence of str (list or ndarray of names);
+    # is_fitted_css_class - str CSS class, escaped, default ''.
+    # Outputs: str HTML. Exceptions: html.escape fails on non-string feature names.
+    # Side effects: none.
     """Generate HTML representation of feature names.
 
     Creates a collapsible HTML details element containing a table of feature

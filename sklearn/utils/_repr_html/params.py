@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HTML table of estimator parameters shown inside the diagram: value formatting,
+# table rendering with copy buttons and doc links, and the ParamsDict container.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +16,15 @@ from sklearn.utils._repr_html.common import (
 
 
 def _read_params(name, value, non_default_params):
+    # [FUNCTION DOC]
+    # HELPER: Prepares one table row: HTML-escapes the name, formats the value with a
+    # reprlib.Repr limited to 2 list items, 1 tuple item and 50 chars for strings
+    # (then escaped), and labels it 'user-set' if the name is in non_default_params,
+    # else 'default'.
+    # Inputs: name - str; value - any; non_default_params - container of names.
+    # Outputs: dict with param_type, param_name, param_value.
+    # KNOWN ISSUE: membership is tested with the escaped name, so a name containing
+    # HTML special characters would never be marked user-set.
     """Categorizes parameters as 'default' or 'user-set' and formats their values.
     Escapes or truncates parameter values for display safety and readability.
     """
@@ -29,6 +41,13 @@ def _read_params(name, value, non_default_params):
 
 
 def _params_html_repr(params):
+    # [FUNCTION DOC]
+    # HELPER: Renders a ParamsDict as a collapsible 'Parameters' table. Each row has a
+    # copy button (JS copyToClipboard with the param name and the value cell), the
+    # name cell, and the value cell; the row class is default or user-set. The name is
+    # a link with hover description when doc_link is set and both a text-fragment link
+    # and a Parameters docstring entry exist, else plain text.
+    # Inputs: params - ParamsDict. Outputs: str HTML.
     """Generate HTML representation of estimator parameters.
 
     Creates an HTML table with parameter names and values, wrapped in a
@@ -95,6 +114,9 @@ def _params_html_repr(params):
 
 
 class ParamsDict(ReprHTMLMixin, UserDict):
+    # [CLASS DOC]
+    # UserDict of parameter values with an HTML repr (ReprHTMLMixin, _html_repr set to
+    # _params_html_repr) plus metadata: non_default names, estimator_class and doc_link.
     """Dictionary-like class to store and provide an HTML representation.
 
     It builds an HTML structure to be used with Jupyter notebooks or similar
@@ -123,6 +145,11 @@ class ParamsDict(ReprHTMLMixin, UserDict):
     def __init__(
         self, *, params=None, non_default=tuple(), estimator_class=None, doc_link=""
     ):
+        # [FUNCTION DOC]
+        # Inputs (keyword-only): params - dict or None (empty if falsy); non_default -
+        # tuple of names, default empty; estimator_class - class or None; doc_link -
+        # str.
+        # Side effects: fills the dict and sets the metadata attributes.
         super().__init__(params or {})
         self.non_default = non_default
         self.estimator_class = estimator_class

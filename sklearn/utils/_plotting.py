@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# HELPER: Shared validation and formatting helpers for scikit-learn Display classes
+# (binary-classifier curve displays, score names, matplotlib style kwargs, axis
+# spines, deprecations of estimator_name / y_pred). Matplotlib is only imported
+# lazily inside functions; no import-time side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 import warnings
@@ -14,6 +19,10 @@ from sklearn.utils.validation import _check_pos_label_consistency, _num_samples
 
 
 class _BinaryClassifierCurveDisplayMixin:
+    # [CLASS DOC]
+    # HELPER: Mixin for curve displays (ROC, PR, DET, ...) of binary classifiers that
+    # centralises input validation for from_estimator / from_predictions /
+    # from_cv_results / plot and builds per-curve legend labels and line kwargs.
     """Mixin class to be used in Displays requiring a binary classifier.
 
     The aim of this class is to centralize some validations regarding the estimator and
@@ -21,6 +30,15 @@ class _BinaryClassifierCurveDisplayMixin:
     """
 
     def _validate_plot_params(self, *, ax=None, name=None):
+        # [FUNCTION DOC]
+        # HELPER: Ensures matplotlib is available, creates a new figure/axes when ax is
+        # None, and resolves the curve name: an explicit name wins, otherwise the
+        # instance's estimator_name attribute, falling back to its name attribute.
+        # Inputs: ax - matplotlib Axes or None; name - str or None (keyword-only).
+        # Outputs: tuple (ax, figure of ax, name).
+        # Exceptions: ImportError if matplotlib missing.
+        # Side effects: may create a new matplotlib figure.
+        # KNOWN ISSUE: if estimator_name exists but is None, name is not used as fallback.
         check_matplotlib_support(f"{self.__class__.__name__}.plot")
         import matplotlib.pyplot as plt
 
@@ -37,6 +55,14 @@ class _BinaryClassifierCurveDisplayMixin:
     def _validate_and_get_response_values(
         cls, estimator, X, y, *, response_method="auto", pos_label=None, name=None
     ):
+        # [FUNCTION DOC]
+        # HELPER: Classmethod. Checks matplotlib, defaults name to the estimator class name,
+        # and computes the positive-class scores via _get_response_values_binary.
+        # Inputs: estimator - fitted binary classifier; X - data; y - unused; response_method
+        # - "auto" or method name; pos_label - label or None; name - str or None.
+        # Outputs: tuple (y_pred 1d scores, resolved pos_label, name).
+        # Exceptions: ImportError; ValueError from response helpers (non-binary, etc.).
+        # KNOWN ISSUE: y is accepted but never used.
         check_matplotlib_support(f"{cls.__name__}.from_estimator")
 
         name = estimator.__class__.__name__ if name is None else name
@@ -54,6 +80,13 @@ class _BinaryClassifierCurveDisplayMixin:
     def _validate_from_predictions_params(
         cls, y_true, y_pred, *, sample_weight=None, pos_label=None, name=None
     ):
+        # [FUNCTION DOC]
+        # HELPER: Classmethod. Checks matplotlib, requires y_true to be binary, checks
+        # consistent lengths of y_true, y_pred and sample_weight, resolves pos_label and
+        # defaults name to "Classifier".
+        # Outputs: tuple (pos_label, name).
+        # Exceptions: ImportError; ValueError for non-binary targets, length mismatches or
+        # ambiguous pos_label.
         check_matplotlib_support(f"{cls.__name__}.from_predictions")
 
         if type_of_target(y_true) != "binary":
@@ -78,6 +111,16 @@ class _BinaryClassifierCurveDisplayMixin:
         *,
         sample_weight,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Classmethod. Checks matplotlib; cv_results (output of cross_validate) must
+        # contain "estimator" and "indices"; the number of samples of X must equal the
+        # train plus test size of the first split; y must be binary; X, y and
+        # sample_weight must have consistent lengths.
+        # Inputs: cv_results - dict; X, y; sample_weight - keyword-only, may be None.
+        # Outputs: None.
+        # Exceptions: ImportError; ValueError on each failed check.
+        # KNOWN ISSUE: the error message lacks a space between "function" and
+        # "`cross_validate`".
         check_matplotlib_support(f"{cls.__name__}.from_cv_results")
 
         required_keys = {"estimator", "indices"}
@@ -108,6 +151,15 @@ class _BinaryClassifierCurveDisplayMixin:
 
     @staticmethod
     def _get_legend_metric(curve_kwargs, n_curves, metric):
+        # [FUNCTION DOC]
+        # HELPER: Static. Decides whether the legend shows one aggregate or per-curve
+        # metric. If several curves share a single (non-list) style, returns the
+        # mean/std of metric (both None if metric is empty/None); otherwise returns the
+        # per-curve metric list (list of None when metric is None) under "metric".
+        # Inputs: curve_kwargs - dict/list/None; n_curves - int; metric - list of floats or
+        # None.
+        # Outputs: tuple (metric possibly expanded to a list, legend_metric dict).
+        # KNOWN ISSUE: the truth test on metric fails for multi-element NumPy arrays.
         """Generate legend information dictionary and expand `metric` if required."""
         if not isinstance(curve_kwargs, list) and n_curves > 1:
             if metric:
@@ -121,6 +173,11 @@ class _BinaryClassifierCurveDisplayMixin:
 
     @staticmethod
     def _get_legend_label(curve_legend_metric, curve_name, legend_metric_name):
+        # [FUNCTION DOC]
+        # HELPER: Static. Formats a legend label: "name (metric_name = value)" when both are
+        # given, "metric_name = value" or "name" when only one is given, else None. Values
+        # use two decimals.
+        # Outputs: str or None.
         """Helper to get legend label using `name` and `legend_metric`"""
         if curve_legend_metric is not None and curve_name is not None:
             label = f"{curve_name} ({legend_metric_name} = {curve_legend_metric:0.2f})"
@@ -144,6 +201,25 @@ class _BinaryClassifierCurveDisplayMixin:
         removed_version="1.9",
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Static. Produces one validated matplotlib kwargs dict per curve.
+        # Steps: reject curve_kwargs together with deprecated **kwargs; if kwargs given,
+        # warn FutureWarning and use them as curve_kwargs. A list curve_kwargs must have
+        # n_curves entries. A list name of length other than 1 requires a list
+        # curve_kwargs. Broadcast name (str or single-item list) to n_curves, None to a list
+        # of None; broadcast a mapping or None curve_kwargs to n_curves entries. Merge
+        # default_multi_curve_kwargs into default_curve_kwargs when n_curves > 1. Build
+        # labels: aggregate mode ("mean" key) gives a single label for the first curve,
+        # with " +/- std" appended (inside the parentheses when a name exists) and None
+        # for the rest; otherwise one label per curve. Finally merge each label and the
+        # defaults with the user kwargs via _validate_style_kwargs.
+        # Outputs: list of n_curves dicts.
+        # Exceptions: ValueError for conflicting/mis-sized arguments; TypeError from
+        # _validate_style_kwargs on alias clashes.
+        # Side effects: FutureWarning for **kwargs.
+        # KNOWN ISSUE: when n_curves > 1 a caller-provided default_curve_kwargs dict is
+        # mutated in place. The docstring says legend_metric may be None but the code
+        # indexes it unconditionally.
         """Get validated line kwargs for each curve.
 
         Parameters
@@ -275,6 +351,16 @@ class _BinaryClassifierCurveDisplayMixin:
 
 
 def _validate_score_name(score_name, scoring, negate_score):
+    # [FUNCTION DOC]
+    # HELPER: Derives an axis label for a score. Returns score_name unchanged when given;
+    # when scoring is None returns "Score" or "Negative score" depending on
+    # negate_score. Otherwise starts from scoring's __name__ (callable) or the string;
+    # with negate_score a "neg_" prefix is stripped, else "Negative " is prepended;
+    # without negate_score a "neg_" prefix becomes "Negative ". Underscores become
+    # spaces and the result is capitalised (first letter upper, rest lower).
+    # Inputs: score_name - str or None; scoring - str, callable or None; negate_score -
+    # bool.
+    # Outputs: str.
     """Validate the `score_name` parameter.
 
     If `score_name` is provided, we just return it as-is.
@@ -302,6 +388,13 @@ def _validate_score_name(score_name, scoring, negate_score):
 
 
 def _interval_max_min_ratio(data):
+    # [FUNCTION DOC]
+    # HELPER: Sorts data, takes consecutive differences and returns max diff / min diff;
+    # used to decide log vs linear axis scale.
+    # Inputs: data - 1d numeric array with at least 2 values.
+    # Outputs: float.
+    # KNOWN ISSUE: duplicate values give a zero minimum difference (inf/nan with a
+    # NumPy RuntimeWarning); fewer than 2 values raise ValueError from max.
     """Compute the ratio between the largest and smallest inter-point distances.
 
     A value larger than 5 typically indicates that the parameter range would
@@ -313,6 +406,14 @@ def _interval_max_min_ratio(data):
 
 
 def _validate_style_kwargs(default_style_kwargs, user_style_kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Merges user matplotlib style kwargs over defaults, normalising short
+    # aliases (e.g. ls, c, lw) to their full names so default and user values do not
+    # clash. Raises TypeError if the user passes both an alias and its full name.
+    # Inputs: default_style_kwargs, user_style_kwargs - dicts.
+    # Outputs: new dict (defaults copied; user values override after alias mapping).
+    # KNOWN ISSUE: aliases present in default_style_kwargs are not normalised, so a
+    # default "c" plus a user "color" would still both be passed to matplotlib.
     """Create valid style kwargs by avoiding Matplotlib alias errors.
 
     Matplotlib raises an error when, for example, 'color' and 'c', or 'linestyle' and
@@ -376,6 +477,10 @@ def _validate_style_kwargs(default_style_kwargs, user_style_kwargs):
 
 
 def _despine(ax):
+    # [FUNCTION DOC]
+    # HELPER: Hides the top and right spines of ax and limits the bottom and left spines
+    # to the data interval [0, 1].
+    # Side effects: mutates the axes.
     """Remove the top and right spines of the plot.
 
     Parameters
@@ -390,6 +495,14 @@ def _despine(ax):
 
 
 def _deprecate_estimator_name(estimator_name, name, version):
+    # [FUNCTION DOC]
+    # HELPER: Handles the estimator_name -> name deprecation. If estimator_name is not
+    # the sentinel "deprecated": error if name is also truthy, else emit FutureWarning
+    # (removal two minor versions after version) and return estimator_name. Otherwise
+    # return name.
+    # Inputs: estimator_name - value or "deprecated"; name - str/None; version - str.
+    # Outputs: the effective name.
+    # Exceptions: ValueError when both are provided.
     """Deprecate `estimator_name` in favour of `name`."""
     version = parse_version(version)
     version_remove = f"{version.major}.{version.minor + 2}"
@@ -410,6 +523,8 @@ def _deprecate_estimator_name(estimator_name, name, version):
 
 
 def _convert_to_list_leaving_none(param):
+    # [FUNCTION DOC]
+    # HELPER: Returns None for None, the same object for a list, else a one-item list.
     """Convert parameters to a list, leaving `None` as is."""
     if param is None:
         return None
@@ -419,6 +534,14 @@ def _convert_to_list_leaving_none(param):
 
 
 def _check_param_lengths(required, optional, class_name):
+    # [FUNCTION DOC]
+    # HELPER: Verifies that all required params and the list-valued optional params have
+    # the same length; non-list optional params are ignored. On mismatch raises
+    # ValueError listing the names (adds "(or `plot`)" when the name key
+    # "'name' (or self.name)" is involved) and their lengths.
+    # Inputs: required, optional - dicts name -> sequence; class_name - str.
+    # Outputs: None.
+    # Exceptions: ValueError on length mismatch.
     """Check required and optional parameters are of the same length."""
     optional_provided = {}
     for name, param in optional.items():
@@ -445,6 +568,13 @@ def _check_param_lengths(required, optional, class_name):
 
 # TODO(1.10): remove after the end of the deprecation period of `y_pred`
 def _deprecate_y_pred_parameter(y_score, y_pred, version):
+    # [FUNCTION DOC]
+    # HELPER: Handles the y_pred -> y_score deprecation. Error if y_score is not None and
+    # y_pred is not the sentinel "deprecated"; if y_pred was given, emit FutureWarning
+    # and return y_pred; otherwise return y_score.
+    # Inputs: y_score, y_pred - arrays or None/"deprecated"; version - str.
+    # Outputs: the effective scores.
+    # Exceptions: ValueError when both are given.
     """Deprecate `y_pred` in favour of `y_score`."""
     version = parse_version(version)
     version_remove = f"{version.major}.{version.minor + 2}"

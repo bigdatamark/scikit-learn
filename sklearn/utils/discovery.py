@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Discovery of public scikit-learn objects by walking all importable sklearn
+# submodules (skipping private modules and those in _MODULE_TO_IGNORE): estimators,
+# displays and functions. Calling these functions imports every public submodule.
 """Utilities to discover scikit-learn objects."""
 
 # Authors: The scikit-learn developers
@@ -20,6 +24,18 @@ _MODULE_TO_IGNORE = {
 
 
 def all_estimators(type_filter=None):
+    # [FUNCTION DOC]
+    # Behavior: walk all sklearn packages, skipping module names that contain an
+    # ignored part or a "._" segment; import each module under
+    # ignore_warnings(FutureWarning); collect public classes; keep subclasses of
+    # BaseEstimator (excluding BaseEstimator itself) that are not abstract. If
+    # type_filter is given (str or list), keep estimators matching any of the
+    # requested mixins (classifier, regressor, transformer, cluster).
+    # Inputs: type_filter - None, str or list of str.
+    # Outputs: list of (name, class) tuples, deduplicated, sorted by name.
+    # Exceptions: ValueError for unknown type_filter entries; ImportError from modules
+    # that fail to import.
+    # Side effects: imports many modules; the input list is copied, not mutated.
     """Get a list of all estimators from `sklearn`.
 
     This function crawls the module and gets all classes that inherit
@@ -81,6 +97,8 @@ def all_estimators(type_filter=None):
     from sklearn.utils._testing import ignore_warnings
 
     def is_abstract(c):
+        # [FUNCTION DOC]
+        # HELPER: True when the class has a non-empty __abstractmethods__ set.
         if not (hasattr(c, "__abstractmethods__")):
             return False
         if not len(c.__abstractmethods__):
@@ -151,6 +169,11 @@ def all_estimators(type_filter=None):
 
 
 def all_displays():
+    # [FUNCTION DOC]
+    # Behavior: same module walk as all_estimators, collecting public classes whose
+    # name ends with "Display".
+    # Outputs: list of (name, class) tuples, deduplicated, sorted by name.
+    # Side effects: imports many modules; FutureWarnings are suppressed.
     """Get a list of all displays from `sklearn`.
 
     Returns
@@ -194,6 +217,10 @@ def all_displays():
 
 
 def _is_checked_function(item):
+    # [FUNCTION DOC]
+    # HELPER: Predicate for inspect.getmembers: True for plain Python functions with a
+    # public name defined in an sklearn.* module other than one ending with
+    # "estimator_checks".
     if not inspect.isfunction(item):
         return False
 
@@ -208,6 +235,13 @@ def _is_checked_function(item):
 
 
 def all_functions():
+    # [FUNCTION DOC]
+    # Behavior: same module walk, collecting public functions accepted by
+    # _is_checked_function, keyed by their __name__.
+    # Outputs: list of (name, function), deduplicated, sorted by name.
+    # Side effects: imports many modules; FutureWarnings are suppressed.
+    # KNOWN ISSUE: the attribute name is filtered for a leading underscore but the
+    # function's __name__ is returned, so aliases appear under their original name.
     """Get a list of all functions from `sklearn`.
 
     Returns

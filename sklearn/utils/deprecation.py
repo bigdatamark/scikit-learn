@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Deprecation helpers: the public `deprecated` decorator (for functions, classes and
+# properties, emitting FutureWarning on use) and the private _is_deprecated check.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -9,6 +12,12 @@ __all__ = ["deprecated"]
 
 
 class deprecated:
+    # [CLASS DOC]
+    # Decorator factory object. An instance stores the extra message; calling it with
+    # the object to deprecate dispatches on the object kind (class, property, other
+    # callable) and returns a wrapped object emitting FutureWarning on use.
+    # KNOWN ISSUE: the docstring says a warning is added to the decorated object's
+    # docstring, but no docstring modification is performed by the code.
     """Decorator to mark a function or class as deprecated.
 
     Issue a warning when the function is called/the class is instantiated and
@@ -36,9 +45,18 @@ class deprecated:
     # but with many changes.
 
     def __init__(self, extra=""):
+        # [FUNCTION DOC]
+        # Inputs: extra - str, default "", appended to the deprecation message.
+        # Side effects: stores it as self.extra.
         self.extra = extra
 
     def __call__(self, obj):
+        # [FUNCTION DOC]
+        # Dispatches: a type goes to _decorate_class, a property object to
+        # _decorate_property, anything else to _decorate_fun.
+        # Inputs: obj - class, property or callable.
+        # Outputs: the decorated object (the same class object for classes, a new
+        # wrapper otherwise).
         """Call method
 
         Parameters
@@ -60,6 +78,15 @@ class deprecated:
             return self._decorate_fun(obj)
 
     def _decorate_class(self, cls):
+        # [FUNCTION DOC]
+        # HELPER: Replaces cls.__new__ with a wrapper that issues FutureWarning("Class
+        # <name> is deprecated[; extra]") on each instantiation, then calls the
+        # original __new__ (passing no extra args when the original is object.__new__,
+        # which rejects them). Saves the original signature of cls into
+        # cls.__signature__ so introspection is unchanged.
+        # Inputs: cls - class.
+        # Outputs: the same class object, mutated.
+        # Side effects: mutates cls.__new__ and cls.__signature__.
         msg = "Class %s is deprecated" % cls.__name__
         if self.extra:
             msg += "; %s" % self.extra
@@ -68,6 +95,13 @@ class deprecated:
         sig = signature(cls)
 
         def wrapped(cls, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Replacement __new__: warns, then delegates to the saved original
+            # __new__.
+            # Inputs: cls - class being instantiated; *args/**kwargs - constructor
+            # arguments.
+            # Outputs: the new, uninitialised instance.
+            # Side effects: emits FutureWarning.
             warnings.warn(msg, category=FutureWarning)
             if new is object.__new__:
                 return object.__new__(cls)
@@ -83,6 +117,11 @@ class deprecated:
         return cls
 
     def _decorate_fun(self, fun):
+        # [FUNCTION DOC]
+        # HELPER: Wraps a function in a functools.wraps wrapper that emits
+        # FutureWarning("Function <name> is deprecated[; extra]") and then calls it.
+        # Inputs: fun - callable with a __name__.
+        # Outputs: the wrapper, with __wrapped__ set to fun.
         """Decorate function fun"""
 
         msg = "Function %s is deprecated" % fun.__name__
@@ -91,6 +130,8 @@ class deprecated:
 
         @functools.wraps(fun)
         def wrapped(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Emits the FutureWarning and returns fun(*args, **kwargs).
             warnings.warn(msg, category=FutureWarning)
             return fun(*args, **kwargs)
 
@@ -101,11 +142,21 @@ class deprecated:
         return wrapped
 
     def _decorate_property(self, prop):
+        # [FUNCTION DOC]
+        # HELPER: Builds a new property whose getter emits FutureWarning with message
+        # self.extra, then returns the original getter's value.
+        # Inputs: prop - property object.
+        # Outputs: a new read-only property.
+        # KNOWN ISSUE: only fget is preserved (setter/deleter are dropped) and the
+        # message is just extra, so an empty extra produces a warning with an empty
+        # message.
         msg = self.extra
 
         @property
         @functools.wraps(prop.fget)
         def wrapped(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Property getter: warns, then returns prop.fget(*args, **kwargs).
             warnings.warn(msg, category=FutureWarning)
             return prop.fget(*args, **kwargs)
 
@@ -113,6 +164,17 @@ class deprecated:
 
 
 def _is_deprecated(func):
+    # [FUNCTION DOC]
+    # HELPER: Heuristically detects a function produced by `deprecated` by checking
+    # whether any string stored in its closure cells contains the substring
+    # "deprecated" (the wrapper closes over msg).
+    # Inputs: func - any object.
+    # Outputs: bool.
+    # Exceptions: ValueError from cell_contents on an empty closure cell is not
+    # handled.
+    # KNOWN ISSUE: property wrappers close over extra only, so they are detected only
+    # if extra happens to contain "deprecated"; unrelated closures holding such a
+    # string give false positives.
     """Helper to check if func is wrapped by our deprecated decorator"""
     closures = getattr(func, "__closure__", [])
     if closures is None:

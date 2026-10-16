@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Numerical helper routines shared across scikit-learn: norms, safe (sparse-aware)
+# dot products, randomized range finding / SVD / eigendecomposition, weighted mode,
+# cartesian products, SVD sign flipping, softmax, numerically stable accumulators,
+# incremental mean/variance updates, NaN-aware averaging and an approximate
+# multivariate hypergeometric mode. Many functions dispatch through the Array API
+# namespace of their inputs (get_namespace) and fall back to NumPy/SciPy.
+# Side effects at import: none beyond imports.
 """Utilities to perform optimal mathematical operations in scikit-learn."""
 
 # Authors: The scikit-learn developers
@@ -30,6 +38,12 @@ from sklearn.utils.validation import check_array, check_random_state
 
 
 def squared_norm(x):
+    # [FUNCTION DOC]
+    # Flattens x (order "K") and returns the dot product of the flat vector with itself,
+    # i.e. the squared Euclidean (vector) or Frobenius (matrix) norm.
+    # Inputs: x - array-like of any shape.
+    # Outputs: NumPy scalar of the input's (promoted) dtype.
+    # Side effects: emits a UserWarning when the dtype is integer (overflow risk).
     """Squared Euclidean or Frobenius norm of x.
 
     Faster than norm(x) ** 2.
@@ -58,6 +72,14 @@ def squared_norm(x):
 
 
 def row_norms(X, squared=False):
+    # [FUNCTION DOC]
+    # Computes per-row Euclidean norms. Sparse input is converted to CSR and handled by
+    # the compiled csr_row_norms kernel. Dense NumPy input uses an einsum of the row
+    # with itself (no X-sized temporary); other Array API namespaces sum the
+    # elementwise square along axis 1. The square root is taken unless squared=True.
+    # Inputs: X - 2-D dense array or sparse matrix (not validated); squared - bool.
+    # Outputs: 1-D array of length n_samples in X's namespace.
+    # Side effects: none (the CSR conversion produces a new object when needed).
     """Row-wise (squared) Euclidean norm of X.
 
     Equivalent to np.sqrt((X * X).sum(axis=1)), but also supports sparse
@@ -96,6 +118,12 @@ def row_norms(X, squared=False):
 
 
 def fast_logdet(A):
+    # [FUNCTION DOC]
+    # Returns the log-determinant of square matrix A via slogdet of A's namespace.
+    # If the determinant sign is not strictly positive (zero or negative determinant)
+    # returns negative infinity instead of the log of the absolute value.
+    # Inputs: A - square 2-D array. Outputs: scalar float (or -inf).
+    # Exceptions: those raised by slogdet for non-square input.
     """Compute logarithm of determinant of a square matrix.
 
     The (natural) logarithm of the determinant of a square matrix
@@ -136,6 +164,12 @@ def fast_logdet(A):
 
 
 def density(w):
+    # [FUNCTION DOC]
+    # Fraction of non-zero entries. For objects with toarray (sparse matrices) uses
+    # nnz divided by rows times columns; otherwise counts non-zeros of the dense array
+    # divided by its size; None yields 0.
+    # Inputs: w - sparse matrix, dense array or None. Outputs: float (int 0 for None).
+    # KNOWN ISSUE: the sparse branch assumes 2-D shape; a sparse 1-D array would fail.
     """Compute density of a sparse vector.
 
     Parameters
@@ -164,6 +198,21 @@ def density(w):
 
 
 def safe_sparse_dot(a, b, *, dense_output=False):
+    # [FUNCTION DOC]
+    # Matrix product that copes with sparse/dense mixes and >2-D arrays.
+    # Behavior: if either operand has more than 2 dims: sparse a (2-D) times N-D b is
+    #   done
+    # by moving b's second-to-last axis first, reshaping to 2-D, multiplying and
+    # reshaping back; N-D a times sparse b reshapes a to 2-D over its last axis; dense
+    # N-D cases use tensordot contracting a's last axis with b's last (1-D b) or
+    # second-to-last axis. If both are 2-D CSR/CSC float32/float64 sparse and
+    # dense_output is requested, a dedicated sparse-times-sparse-to-dense kernel is
+    # used. Otherwise the plain matrix product is used. Finally, if both inputs were
+    # sparse, dense_output is true and the result is sparse, it is densified.
+    # Inputs: a, b - arrays or sparse matrices with compatible inner dimension;
+    # dense_output - bool, keyword-only, default False.
+    # Outputs: dense array or sparse matrix (sparse only when both inputs sparse and
+    # dense_output is False).
     """Dot product that handle the sparse matrix case correctly.
 
     Parameters
@@ -241,6 +290,14 @@ def safe_sparse_dot(a, b, *, dense_output=False):
 def randomized_range_finder(
     A, *, size, n_iter, power_iteration_normalizer="auto", random_state=None
 ):
+    # [FUNCTION DOC]
+    # Public, validating wrapper: converts A with check_array (sparse accepted) and
+    # delegates to _randomized_range_finder with the same arguments.
+    # Inputs: A - 2-D array/sparse; size - number of random vectors; n_iter - power
+    # iterations; power_iteration_normalizer - "auto"/"QR"/"LU"/"none";
+    # random_state - seed/RandomState/None.
+    # Outputs: Q, dense array of shape (A.shape[0], size) with orthonormal columns.
+    # Exceptions: those of check_array and the private implementation.
     """Compute an orthonormal matrix whose range approximates the range of A.
 
     Parameters
@@ -313,6 +370,20 @@ def randomized_range_finder(
 def _randomized_range_finder(
     A, *, size, n_iter, power_iteration_normalizer="auto", random_state=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Implementation of the Halko et al. randomized range finder (no
+    #   validation).
+    # Steps: draw a Gaussian matrix Q of shape (n_features, size) from random_state
+    # (always via NumPy); cast to float32 if A is float32 or the device lacks float64;
+    # move to A's namespace/device. Resolve "auto" normalizer: "none" when n_iter <= 2,
+    # otherwise "QR" under Array API (with a warning) or "LU" for NumPy. Then for each
+    #   of
+    # n_iter iterations: Q = normalize(A Q), Q = normalize(A^T Q). Finally return the
+    # orthonormal factor of a reduced QR of A Q.
+    # Inputs: as randomized_range_finder; A already validated.
+    # Outputs: Q of shape (A.shape[0], size).
+    # Exceptions: ValueError when "LU" is requested with an Array API namespace.
+    # Side effects: consumes random_state; UserWarning when auto falls back to QR.
     """Body of randomized_range_finder without input validation."""
     xp, is_array_api_compliant = get_namespace(A)
     random_state = check_random_state(random_state)
@@ -411,6 +482,14 @@ def randomized_svd(
     random_state=None,
     svd_lapack_driver="gesdd",
 ):
+    # [FUNCTION DOC]
+    # Public wrapper validated by validate_params: converts M with check_array (sparse
+    # accepted) and delegates all arguments to _randomized_svd.
+    # Inputs: M - 2-D array/sparse; n_components >= 1; n_oversamples >= 0; n_iter int
+    # or "auto"; power_iteration_normalizer; transpose bool or "auto"; flip_sign bool;
+    # random_state; svd_lapack_driver "gesdd"/"gesvd".
+    # Outputs: (U, s, Vt) of shapes (n_samples, k), (k,), (k, n_features).
+    # Exceptions: InvalidParameterError from validate_params for bad arguments.
     """Compute a truncated randomized SVD.
 
     This method solves the fixed-rank approximation problem described in [1]_
@@ -569,6 +648,18 @@ def _randomized_svd(
     random_state=None,
     svd_lapack_driver="gesdd",
 ):
+    # [FUNCTION DOC]
+    # HELPER: Body of randomized_svd. Warns (SparseEfficiencyWarning) on LIL/DOK input.
+    # Sets n_random = n_components + n_oversamples; "auto" n_iter becomes 7 if
+    # n_components < 10% of the smaller dimension, else 4; "auto" transpose is true
+    # when n_samples < n_features, in which case M is transposed. Computes the range
+    # basis Q, projects B = Q^T M, takes a thin SVD of B (namespace svd under Array
+    # API, else scipy with svd_lapack_driver), and lifts U = Q Uhat. If flip_sign,
+    # applies svd_flip (v-based decision when transposed so that the decision is still
+    # based on the original u). Transposes results back when needed and truncates to
+    # n_components.
+    # Outputs: (U, s, Vt) truncated to n_components.
+    # Side effects: consumes random_state; may warn.
     """Body of randomized_svd without input validation."""
     xp, is_array_api_compliant = get_namespace(M)
 
@@ -643,6 +734,18 @@ def _randomized_eigsh(
     selection="module",
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Approximate top eigenpairs of a symmetric matrix M.
+    # selection="module": runs randomized_svd (flip_sign=False), keeps the first
+    # n_components left singular vectors as eigenvectors and singular values as
+    # eigenvalue magnitudes, then recovers the sign of each eigenvalue as the sign of
+    # the dot product between the matching rows of Vt and columns of U (opposite
+    # singular vectors indicate a negative eigenvalue).
+    # Inputs: M - square symmetric (not checked); other args as randomized_svd;
+    # selection - "module" or "value".
+    # Outputs: (eigvals of shape (k,), eigvecs of shape (n, k)).
+    # Exceptions: NotImplementedError for "value"; ValueError for other selections.
+    # KNOWN ISSUE: symmetry of M is assumed but never verified.
     """Computes a truncated eigendecomposition using randomized methods
 
     This method solves the fixed-rank approximation problem described in the
@@ -789,6 +892,18 @@ def _randomized_eigsh(
 
 
 def weighted_mode(a, w, *, axis=0):
+    # [FUNCTION DOC]
+    # Weighted modal value along an axis. axis=None flattens a and w and uses axis 0.
+    # If shapes differ, w is broadcast/filled to a's shape. For each unique value of a
+    # (sorted ascending), sums the weights where a equals that value along axis, and
+    # keeps it as the running mode when its total weight is strictly larger than the
+    # current best (so ties keep the smallest value).
+    # Inputs: a - array; w - weights array or scalar broadcastable to a; axis -
+    #   int/None.
+    # Outputs: (mode values, summed weights), each with shape of a with axis reduced
+    # to size 1; mode is float array.
+    # KNOWN ISSUE: if a is empty, the loop never runs and mostfrequent is unbound
+    # (UnboundLocalError).
     """Return an array of the weighted modal (most common) value in the passed array.
 
     If there is more than one such value, only the first is returned.
@@ -863,6 +978,14 @@ def weighted_mode(a, w, *, axis=0):
 
 
 def cartesian(arrays, out=None):
+    # [FUNCTION DOC]
+    # Cartesian product of 1-D arrays. Converts inputs with asarray, builds all index
+    # tuples with indices over their lengths (first array varies slowest), and fills
+    # out column by column by indexing each array.
+    # Inputs: arrays - sequence of 1-D array-likes; out - optional preallocated
+    # 2-D array of shape (product of lengths, len(arrays)).
+    # Outputs: 2-D array (out if given), dtype = result_type of inputs when allocated.
+    # Side effects: writes into out when provided.
     """Generate a cartesian product of input arrays.
 
     Parameters
@@ -922,6 +1045,16 @@ def cartesian(arrays, out=None):
 
 
 def svd_flip(u, v, u_based_decision=True):
+    # [FUNCTION DOC]
+    # Deterministic sign convention for SVD factors. With u_based_decision, for each
+    # column of u finds the entry with largest absolute value and uses its sign to
+    # multiply that column of u and the matching row of v; otherwise the same is done
+    # using the largest-absolute entry of each row of v. Either u or v may be None
+    # (the one not used for the decision).
+    # Inputs: u - (M, K) array or None; v - (K, N) array or None; u_based_decision bool.
+    # Outputs: (u, v), the same objects modified in place.
+    # Side effects: mutates u and v in place.
+    # KNOWN ISSUE: a zero column/row has sign 0, which zeroes the corresponding vectors.
     """Sign correction to ensure deterministic output from SVD.
 
     Adjusts the columns of u and the rows of v such that the loadings in the
@@ -983,6 +1116,13 @@ def svd_flip(u, v, u_based_decision=True):
 
 
 def softmax(X, copy=True):
+    # [FUNCTION DOC]
+    # Row-wise softmax. Optionally copies X, subtracts each row's maximum for
+    # stability, exponentiates (in place for NumPy, new array otherwise) and divides
+    # each row by its sum.
+    # Inputs: X - 2-D float array (n_samples, n_classes); copy - bool default True.
+    # Outputs: array of same shape with rows summing to 1.
+    # Side effects: when copy=False, X is modified in place (for NumPy inputs).
     """
     Calculate the softmax function.
 
@@ -1025,6 +1165,12 @@ def softmax(X, copy=True):
 
 
 def make_nonnegative(X, min_value=0):
+    # [FUNCTION DOC]
+    # Shifts X so its minimum is at least min_value by adding (min_value - min) to every
+    # entry when the current minimum is below min_value; otherwise returns X unchanged.
+    # Inputs: X - dense array or sparse matrix; min_value - scalar, default 0.
+    # Outputs: shifted new array or the original X.
+    # Exceptions: ValueError if a shift is needed and X is sparse.
     """Ensure `X.min()` >= `min_value`.
 
     Parameters
@@ -1061,6 +1207,14 @@ def make_nonnegative(X, min_value=0):
 # see https://github.com/numpy/numpy/issues/9393. The float64 is also retained
 # as it is in case the float overflows
 def _safe_accumulator_op(op, x, *args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Applies accumulator op (sum, mean, matmul, ...) to x and args, upcasting
+    # low-precision real floating inputs to the highest-precision float dtype supported
+    # by x's device. If op accepts a dtype keyword it is passed; otherwise x and all
+    # array-like args are cast before the call. Non-floating or already max-precision
+    # inputs are passed through unchanged.
+    # Inputs: op - callable; x - array; args/kwargs - forwarded to op.
+    # Outputs: result of op.
     """
     This function provides array accumulator functions with a maximum floating
     precision dtype, usually float64, when used on a floating point input. This
@@ -1099,6 +1253,9 @@ def _safe_accumulator_op(op, x, *args, **kwargs):
         target_dtype = _max_precision_float_dtype(xp, device=x_device)
 
         def convert_dtype(arr):
+            # [FUNCTION DOC]
+            # HELPER: Casts arr to the enclosing target_dtype without copying when
+            #   possible.
             return xp.astype(arr, target_dtype, copy=False)
 
         if "dtype" in inspect.signature(op).parameters:
@@ -1118,6 +1275,22 @@ def _safe_accumulator_op(op, x, *args, **kwargs):
 def _incremental_mean_and_var(
     X, last_mean, last_variance, last_sample_count, sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Merges batch statistics of X (NaN-aware, optional sample_weight) into
+    #   running
+    # per-feature mean, variance and count (Chan/Golub/LeVeque update).
+    # Steps: cast last_sample_count to max float dtype; last_sum = last_mean times
+    #   count;
+    # new_sum and new_sample_count are the (weighted) sums and non-NaN counts per
+    # feature computed with upcasting accumulators; updated mean = (last_sum + new_sum)
+    # / updated count. If last_variance is not None: compute centered squares around
+    # the batch mean T with a corrected two-pass correction term, combine with the
+    # previous unnormalized variance plus the between-means term, use the batch
+    # variance alone where the previous count is 0, and normalize by updated count.
+    # Inputs: X (n_samples, n_features); last_mean, last_variance (or None),
+    # last_sample_count - arrays (n_features,) or scalars; sample_weight (n_samples,).
+    # Outputs: (updated_mean, updated_variance or None, updated_sample_count).
+    # Side effects: suppresses NumPy divide/invalid warnings during the merge.
     """Calculate mean update and a Youngs and Cramer variance update.
 
     If sample_weight is given, the weighted mean and variance is computed.
@@ -1265,6 +1438,11 @@ def _incremental_mean_and_var(
 
 
 def _deterministic_vector_sign_flip(u):
+    # [FUNCTION DOC]
+    # HELPER: For each row of u, multiplies the row by the sign of its largest-absolute
+    # entry so that entry becomes positive.
+    # Inputs: u - 2-D array (n_vectors, n_features). Outputs: u.
+    # Side effects: modifies u in place.
     """Modify the sign of vectors for reproducibility.
 
     Flips the sign of elements of all the vectors (rows of u) such that
@@ -1293,6 +1471,12 @@ def _deterministic_vector_sign_flip(u):
     "directly instead."
 )
 def stable_cumsum(arr, axis=None, rtol=1e-05, atol=1e-08):
+    # [FUNCTION DOC]
+    # Deprecated (1.8, removed in 1.10). Cumulative sum in float64 along axis, then
+    # checks the last element equals the float64 total within rtol/atol (NaNs equal).
+    # Inputs: arr - array; axis - int/None; rtol, atol - floats.
+    # Outputs: float64 cumulative sum array.
+    # Side effects: RuntimeWarning if the check fails; FutureWarning from deprecation.
     """Use high precision for cumsum and check that final value matches sum.
 
     .. deprecated:: 1.8
@@ -1335,6 +1519,13 @@ def stable_cumsum(arr, axis=None, rtol=1e-05, atol=1e-08):
 
 
 def _nanaverage(a, weights=None):
+    # [FUNCTION DOC]
+    # HELPER: Weighted average ignoring NaNs. Returns NaN for an empty array or when all
+    # values are NaN; without weights returns the NaN-ignoring mean; otherwise drops
+    # NaN positions from a and weights and computes the weighted average, falling back
+    # to an unweighted average if the remaining weights sum to zero.
+    # Inputs: a - 1-D array; weights - 1-D array-like of same length or None.
+    # Outputs: scalar.
     """Compute the weighted average, ignoring NaNs.
 
     Parameters
@@ -1379,6 +1570,14 @@ def _nanaverage(a, weights=None):
 
 
 def safe_sqr(X, *, copy=True):
+    # [FUNCTION DOC]
+    # Elementwise square of dense or sparse input. Validates with check_array (CSR, CSC,
+    # COO accepted, 1-D allowed); for sparse squares the stored data; for dense
+    # returns a new squared array when copy else squares in place.
+    # Inputs: X - array-like or sparse matrix; copy - bool, keyword-only, default True.
+    # Outputs: squared array/sparse matrix.
+    # Side effects: when copy=False, the validated array (possibly the caller's) is
+    # modified in place.
     """Element wise squaring of array-likes and sparse matrices.
 
     Parameters
@@ -1414,6 +1613,15 @@ def safe_sqr(X, *, copy=True):
 
 
 def _approximate_mode(class_counts, n_draws, rng):
+    # [FUNCTION DOC]
+    # HELPER: Approximates the mode of a multivariate hypergeometric distribution:
+    #   allocates
+    # n_draws proportionally to class_counts, floors, then distributes the remaining
+    # draws to classes in decreasing order of fractional remainder, breaking ties by
+    # random choice without replacement.
+    # Inputs: class_counts - 1-D int array; n_draws - int; rng - seed/RandomState.
+    # Outputs: int array of per-class draws summing to n_draws.
+    # Side effects: consumes rng.
     """Computes approximate mode of multivariate hypergeometric.
 
     This is an approximation to the mode of the multivariate

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for compatibility helpers in sklearn.utils.fixes: NaN detection on object
+# arrays, selection of the smallest admissible sparse index dtype (int32 vs int64),
+# and enforcement of int32 indices on sparse containers. Module-level lists group
+# scipy sparse constructors into those having index arrays (CSR/CSC/COO) and the rest.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -15,6 +20,10 @@ from sklearn.utils.fixes import (
 
 @pytest.mark.parametrize("dtype, val", ([object, 1], [object, "a"], [float, 1]))
 def test_object_dtype_isnan(dtype, val):
+    # [FUNCTION DOC]
+    # Verifies _object_dtype_isnan returns a boolean mask flagging exactly the NaN cells of
+    # a 2x2 array, for object arrays holding ints or strings and for a float array.
+    # Inputs: dtype - array dtype; val - non-missing value placed on the diagonal.
     X = np.array([[val, np.nan], [np.nan, val]], dtype=dtype)
 
     expected_mask = np.array([[False, True], [True, False]])
@@ -33,6 +42,10 @@ def test_object_dtype_isnan(dtype, val):
     ],
 )
 def test_smallest_admissible_index_dtype_max_val(params, expected_dtype):
+    # [FUNCTION DOC]
+    # Verifies _smallest_admissible_index_dtype with only maxval: int32 by default and at
+    # the int32 max, int64 once maxval exceeds the int32 max.
+    # Inputs: params - keyword arguments; expected_dtype - expected numpy dtype.
     """Check the behaviour of `smallest_admissible_index_dtype` depending only on the
     `max_val` parameter.
     """
@@ -82,6 +95,10 @@ def test_smallest_admissible_index_dtype_max_val(params, expected_dtype):
 def test_smallest_admissible_index_dtype_without_checking_contents(
     params, expected_dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies dtype selection from the arrays' dtypes alone (check_contents False): any
+    # int64 array forces int64, all-int32 or smaller dtypes give int32, and a large maxval
+    # overrides to int64.
     """Check the behaviour of `smallest_admissible_index_dtype` using the passed
     arrays but without checking the contents of the arrays.
     """
@@ -137,6 +154,10 @@ def test_smallest_admissible_index_dtype_without_checking_contents(
     ],
 )
 def test_smallest_admissible_index_dtype_by_checking_contents(params, expected_dtype):
+    # [FUNCTION DOC]
+    # Verifies dtype selection with check_contents=True: empty or in-range int64 arrays
+    # downcast to int32, values above the int32 max require int64, and either a large
+    # maxval or large contents force int64 regardless of the other.
     """Check the behaviour of `smallest_admissible_index_dtype` using the dtype of the
     arrays but as well the contents.
     """
@@ -160,6 +181,9 @@ def test_smallest_admissible_index_dtype_by_checking_contents(params, expected_d
     ],
 )
 def test_smallest_admissible_index_dtype_error(params, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies error cases: maxval beyond int64 raises ValueError, a float64 array raises
+    # ValueError about unsupported dtype, and a non-ndarray list raises TypeError.
     """Check that we raise the proper error message."""
     with pytest.raises(err_type, match=err_msg):
         _smallest_admissible_index_dtype(**params)
@@ -188,12 +212,19 @@ SPARSE_CONSTRUCTORS = INDEX_CONSTRUCTORS + NO_INDEX_TEST_CONSTRUCTORS
 
 @pytest.mark.parametrize("constructor", SPARSE_CONSTRUCTORS)
 def test_ensure_sparse_index_int32(constructor):
+    # [FUNCTION DOC]
+    # Smoke test: _ensure_sparse_index_int32 accepts a small matrix built with every sparse
+    # constructor (with and without index arrays) without raising.
     A = constructor(np.array([[1.0, 2.0, 3.0], [3.0, 2.0, 1.0]]))
     _ensure_sparse_index_int32(A)
 
 
 @pytest.mark.parametrize("constructor", INDEX_CONSTRUCTORS)
 def test_ensure_int32_raises(constructor):
+    # [FUNCTION DOC]
+    # Verifies _ensure_sparse_index_int32 raises ValueError "too large" for CSR/CSC/COO
+    # containers whose column (or row, for CSC) index exceeds the int32 max; for CSC the
+    # rows and columns are swapped so the large index lands in the compressed axis.
     with pytest.raises(ValueError, match="too large"):
         rows, cols = [2, 0], [1, np.iinfo(np.int32).max + 1]
         if "csc" in constructor.__name__:

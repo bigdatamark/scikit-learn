@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the fitted-attributes HTML table (fitted_attributes module): row/HTML
+# structure, Jupyter repr hooks under different display configs, pandas values and
+# float formatting. Uses a module-level AttrsDict fixture with a scalar attribute
+# 'a' and an array-like attribute 'b'.
 import re
 
 import numpy as np
@@ -24,6 +29,10 @@ fitted_attrs = AttrsDict(
 
 
 def test_numpy_fitted_attr():
+    # [FUNCTION DOC]
+    # Verifies via a whitespace-tolerant regex that the rendered table has the
+    # header row and one row per attribute, with plain name anchors, 'int' type for the
+    # scalar and 'ndarray[float64](1,)' for the array-like entry.
     html_fitted_attr_out = _fitted_attr_html_repr(fitted_attrs)
 
     expected_html_fitted_attr = (
@@ -60,6 +69,9 @@ def test_numpy_fitted_attr():
 
 
 def test_fitted_attrs_dict_repr_html_error():
+    # [FUNCTION DOC]
+    # Verifies _repr_html_ returns the table with both type cells under the default
+    # diagram display, and raises AttributeError when display is 'text'.
     out = fitted_attrs._repr_html_()
     assert "<summary>Fitted attributes</summary>" in out
     assert '<td class="fitted-att-type">int</td>' in out
@@ -72,6 +84,9 @@ def test_fitted_attrs_dict_repr_html_error():
 
 
 def test_fitted_attrs_dict_repr_mimebundle():
+    # [FUNCTION DOC]
+    # Verifies the mime bundle has text/plain equal to the dict repr and text/html
+    # with the table, and that text/html is omitted when display is 'text'.
     out = fitted_attrs._repr_mimebundle_()
 
     assert "text/plain" in out
@@ -90,12 +105,17 @@ def test_fitted_attrs_dict_repr_mimebundle():
 
 
 def test_fitted_attr_html_repr():
+    # [FUNCTION DOC]
+    # Smoke test: the renderer output contains the summary and table class.
     out = _fitted_attr_html_repr(fitted_attrs)
     assert "<summary>Fitted attributes</summary>" in out
     assert '<table class="parameters-table">' in out
 
 
 def test_pandas_column_names():
+    # [FUNCTION DOC]
+    # Verifies a DataFrame attribute renders type as DataFrame[int64](3, 3) and a
+    # truncated reprlib value showing column names. Skipped without pandas.
     pd = pytest.importorskip("pandas")
     fitted_attrs_with_pandas_cols = AttrsDict(
         fitted_attrs={
@@ -135,6 +155,9 @@ def test_pandas_column_names():
 
 
 def test_pandas_series_fitted_attr():
+    # [FUNCTION DOC]
+    # Verifies a Series attribute renders type Series[int64](3,) and a truncated value
+    # ending with the dtype line. Skipped without pandas.
     pd = pytest.importorskip("pandas")
     fitted_attrs_with_series = AttrsDict(
         fitted_attrs={
@@ -182,4 +205,7 @@ def test_pandas_series_fitted_attr():
     ],
 )
 def test_read_fitted_attr_float_formatting(value, expected):
+    # [FUNCTION DOC]
+    # Parametrized: checks floats are formatted with 4 significant digits, including
+    # scientific notation for large values.
     assert _read_fitted_attr(value) == expected
