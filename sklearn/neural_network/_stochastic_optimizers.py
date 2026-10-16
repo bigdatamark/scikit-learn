@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# HELPER: Stochastic optimizers used internally by the MLP estimators (sgd and adam
+#   solvers).
+# Defines BaseOptimizer (applies additive updates in place and provides learning rate
+#   / stopping hooks), SGDOptimizer (momentum and Nesterov momentum with constant,
+#   invscaling or adaptive schedules) and AdamOptimizer (bias-corrected Adam).
+# Side effects at import: none.
 """Stochastic optimization methods for MLP"""
 
 # Authors: The scikit-learn developers
@@ -7,6 +14,10 @@ import numpy as np
 
 
 class BaseOptimizer:
+    # [CLASS DOC]
+    # HELPER: Abstract base of the MLP optimizers. Subclasses must implement
+    #   _get_updates(grads) returning one additive update array per parameter.
+    # State: learning_rate_init (as given) and learning_rate (current float value).
     """Base (Stochastic) gradient descent optimizer
 
     Parameters
@@ -22,10 +33,25 @@ class BaseOptimizer:
     """
 
     def __init__(self, learning_rate_init=0.1):
+        # [FUNCTION DOC]
+        # Stores learning_rate_init and initialises learning_rate as its float
+        #   conversion.
+        # Inputs: learning_rate_init - positive float, default 0.1.
+        # Side effects: sets self.learning_rate_init and self.learning_rate.
         self.learning_rate_init = learning_rate_init
         self.learning_rate = float(learning_rate_init)
 
     def update_params(self, params, grads):
+        # [FUNCTION DOC]
+        # Computes updates via the subclass _get_updates and adds each update in place
+        #   to the matching parameter array.
+        # Inputs: params - list of numpy arrays (coefs then intercepts), mutated in
+        #   place; grads - list of arrays with the same shapes, same order.
+        # Outputs: None.
+        # Side effects: params arrays are modified in place; subclass state
+        #   (velocities, moments) is updated.
+        # Exceptions: NotImplementedError-like AttributeError if a subclass does not
+        #   define _get_updates.
         """Update parameters with given gradients
 
         Parameters
@@ -43,12 +69,22 @@ class BaseOptimizer:
             param += update
 
     def iteration_ends(self, time_step):
+        # [FUNCTION DOC]
+        # Hook called at the end of each epoch; no-op in the base class.
+        # Inputs: time_step - number of samples seen so far (unused here).
         """Perform update to learning rate and potentially other states at the
         end of an iteration
         """
         pass
 
     def trigger_stopping(self, msg, verbose):
+        # [FUNCTION DOC]
+        # Decides whether training should stop when the convergence criterion fires.
+        #   The base class always stops.
+        # Inputs: msg - message prefix; verbose - bool, print the message plus "
+        #   Stopping." to stdout when true.
+        # Outputs: True.
+        # Side effects: optional print to stdout (docstring says stdin, it is stdout).
         """Decides whether it is time to stop training
 
         Parameters
@@ -70,6 +106,10 @@ class BaseOptimizer:
 
 
 class SGDOptimizer(BaseOptimizer):
+    # [CLASS DOC]
+    # HELPER: SGD with classical or Nesterov momentum. Keeps one velocity array per
+    #   parameter (initialised to zeros) and supports constant, invscaling and adaptive
+    #   learning rate schedules.
     """Stochastic gradient descent optimizer with momentum
 
     Parameters
@@ -126,6 +166,15 @@ class SGDOptimizer(BaseOptimizer):
         nesterov=True,
         power_t=0.5,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters and allocates zero velocity arrays shaped like each
+        #   parameter.
+        # Inputs: params - list of arrays (only shapes/dtypes used);
+        #   learning_rate_init float (0.1); lr_schedule one of
+        #   constant/adaptive/invscaling; momentum float >= 0 (0.9); nesterov bool
+        #   (True); power_t float (0.5).
+        # Side effects: sets lr_schedule, momentum, nesterov, power_t, velocities on
+        #   self. No validation is done.
         super().__init__(learning_rate_init)
 
         self.lr_schedule = lr_schedule
@@ -135,6 +184,12 @@ class SGDOptimizer(BaseOptimizer):
         self.velocities = [np.zeros_like(param) for param in params]
 
     def iteration_ends(self, time_step):
+        # [FUNCTION DOC]
+        # For the invscaling schedule, sets learning_rate to learning_rate_init
+        #   divided by (time_step + 1) raised to power_t; other schedules leave it
+        #   unchanged.
+        # Inputs: time_step - int, number of samples processed so far.
+        # Side effects: may update self.learning_rate.
         """Perform updates to learning rate and potential other states at the
         end of an iteration
 
@@ -150,6 +205,14 @@ class SGDOptimizer(BaseOptimizer):
             )
 
     def trigger_stopping(self, msg, verbose):
+        # [FUNCTION DOC]
+        # Stopping decision. For non-adaptive schedules always returns True. For
+        #   adaptive: if learning_rate is already <= 1e-6 return True; otherwise divide
+        #   learning_rate by 5 and return False so training continues.
+        # Inputs: msg - message prefix; verbose - print a status message to stdout
+        #   when true.
+        # Outputs: bool, True if training should stop.
+        # Side effects: may divide self.learning_rate by 5; optional print.
         if self.lr_schedule != "adaptive":
             if verbose:
                 print(msg + " Stopping.")
@@ -166,6 +229,15 @@ class SGDOptimizer(BaseOptimizer):
         return False
 
     def _get_updates(self, grads):
+        # [FUNCTION DOC]
+        # Computes momentum updates. For each parameter the new velocity is momentum
+        #   times the old velocity minus learning_rate times the gradient; these
+        #   velocities are stored. With nesterov, the returned update is recomputed as
+        #   momentum times the new velocity minus learning_rate times the gradient
+        #   (look-ahead); otherwise the velocity itself is returned.
+        # Inputs: grads - list of arrays aligned with the parameters.
+        # Outputs: list of update arrays, same shapes as grads.
+        # Side effects: replaces self.velocities.
         """Get the values used to update params with given gradients
 
         Parameters
@@ -195,6 +267,9 @@ class SGDOptimizer(BaseOptimizer):
 
 
 class AdamOptimizer(BaseOptimizer):
+    # [CLASS DOC]
+    # HELPER: Adam optimizer (Kingma and Ba 2014). Keeps a step counter t and
+    #   first/second moment arrays ms and vs, all zero-initialised.
     """Stochastic gradient descent optimizer with Adam
 
     Note: All default values are from the original Adam paper
@@ -243,6 +318,12 @@ class AdamOptimizer(BaseOptimizer):
     def __init__(
         self, params, learning_rate_init=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-8
     ):
+        # [FUNCTION DOC]
+        # Stores beta_1, beta_2, epsilon, sets t to 0 and allocates zero first and
+        #   second moment arrays shaped like each parameter.
+        # Inputs: params - list of arrays; learning_rate_init (0.001); beta_1 (0.9)
+        #   and beta_2 (0.999) in [0, 1); epsilon (1e-8). No validation.
+        # Side effects: sets attributes on self.
         super().__init__(learning_rate_init)
 
         self.beta_1 = beta_1
@@ -253,6 +334,15 @@ class AdamOptimizer(BaseOptimizer):
         self.vs = [np.zeros_like(param) for param in params]
 
     def _get_updates(self, grads):
+        # [FUNCTION DOC]
+        # One Adam step: increment t; update each first moment as beta_1 * m + (1 -
+        #   beta_1) * grad and each second moment as beta_2 * v + (1 - beta_2) * grad
+        #   squared; set learning_rate to learning_rate_init times sqrt(1 - beta_2^t)
+        #   divided by (1 - beta_1^t) (folded bias correction); each update is minus
+        #   learning_rate times m divided by (sqrt(v) + epsilon).
+        # Inputs: grads - list of arrays aligned with parameters.
+        # Outputs: list of update arrays.
+        # Side effects: mutates self.t, self.ms, self.vs and self.learning_rate.
         """Get the values used to update params with given gradients
 
         Parameters

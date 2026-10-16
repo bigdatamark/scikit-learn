@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Defines FunctionTransformer, a stateless transformer that wraps an arbitrary user
+#   callable (and optional inverse callable), plus a private identity helper used when
+#   no callable is given.
+# Side effects at import: none beyond imports.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,11 +27,23 @@ from sklearn.utils.validation import (
 
 
 def _identity(X):
+    # [FUNCTION DOC]
+    # HELPER: Identity function used as default forward/inverse function.
+    # Inputs: X - any object. Outputs: X unchanged (same object).
     """The identity function."""
     return X
 
 
 class FunctionTransformer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Wraps func / inverse_func as a scikit-learn transformer. Optional validation
+    #   (validate, accept_sparse) via validate_data; optional round-trip sanity check at
+    #   fit time (check_inverse); optional output feature names (feature_names_out) that
+    #   also control output column renaming in transform.
+    # Fitted attributes: n_features_in_ and feature_names_in_ (set by validate_data in
+    #   fit, even when validate is False, as far as validate_data can infer them).
+    # Stateless: __sklearn_is_fitted__ always returns True, so transform works without
+    #   fit.
     """Constructs a transformer from an arbitrary callable.
 
     A FunctionTransformer forwards its X (and optionally y) arguments to a
@@ -163,6 +180,9 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         kw_args=None,
         inv_kw_args=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all constructor parameters verbatim on self; no validation (done by the
+        #   parameter constraints at fit time).
         self.func = func
         self.inverse_func = inverse_func
         self.validate = validate
@@ -173,6 +193,19 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         self.inv_kw_args = inv_kw_args
 
     def _check_inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Sanity check that inverse_func(func(X)) approximately reproduces X.
+        # Behavior: selects every k-th row, where k is max(1, n_rows // 100) (about 100
+        #   rows); applies transform then inverse_transform; collects dtypes from
+        #   X.dtype or X.dtypes; requires all of them to be numeric numpy dtypes;
+        #   compares with _allclose_dense_sparse.
+        # Inputs: X - validated or raw input supporting row slicing and shape.
+        # Exceptions: ValueError if any dtype is non-numeric or not a numpy dtype (e.g.
+        #   pandas extension dtypes).
+        # Side effects: emits UserWarning when the round trip does not match.
+        # KNOWN ISSUE: if X has neither a dtype nor a dtypes attribute (e.g. a plain
+        #   list when validate is False), the local dtypes is never assigned and an
+        #   UnboundLocalError is raised; such input would also fail earlier on X.shape.
         """Check that func and inverse_func are the inverse."""
         idx_selected = slice(None, None, max(1, X.shape[0] // 100))
         X_round_trip = self.inverse_transform(self.transform(X[idx_selected]))
@@ -205,6 +238,13 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X with reset=True (skipping array conversion unless validate is
+        #   True, accepting sparse only if accept_sparse), recording n_features_in_ /
+        #   feature_names_in_. If check_inverse is True and both func and inverse_func
+        #   are set, runs _check_inverse_transform.
+        # Inputs: X - data; y - ignored. Outputs: self.
+        # Exceptions: propagated from validation or from _check_inverse_transform.
         """Fit transformer by checking X.
 
         If ``validate`` is ``True``, ``X`` will be checked.
@@ -235,6 +275,17 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Applies func (identity if None) with kw_args to X, after validating X
+        #   (reset=False) only if validate is True.
+        # Column consistency: when the output has a columns attribute and
+        #   feature_names_out is set, compares columns to get_feature_names_out(); on
+        #   mismatch, renames output columns to those names if the input names equal the
+        #   output names or not all output column names are strings; otherwise raises
+        #   ValueError.
+        # Warnings: if feature_names_out is None and set_output requests pandas/polars
+        #   but the output is not that DataFrame type, emits a UserWarning.
+        # Outputs: whatever func returns (possibly a renamed container copy).
         """Transform X using the forward function.
 
         Parameters
@@ -309,6 +360,11 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return out
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Applies inverse_func (identity if None) with inv_kw_args. If validate is True,
+        #   X is converted with check_array (no feature-count/name check, unlike
+        #   transform).
+        # Outputs: result of inverse_func.
         """Transform X using the inverse function.
 
         Parameters
@@ -328,6 +384,16 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
 
     @available_if(lambda self: self.feature_names_out is not None)
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Only available when feature_names_out is not None. If the estimator has
+        #   n_features_in_ or input_features is given, resolves input_features via
+        #   _check_feature_names_in. 'one-to-one' returns these names; a callable is
+        #   called with (self, input_features).
+        # Outputs: ndarray of dtype object.
+        # Exceptions: ValueError if feature_names_out is neither 'one-to-one' nor
+        #   callable; errors from _check_feature_names_in on mismatch.
+        # KNOWN ISSUE: when unfitted and input_features is None with 'one-to-one',
+        #   returns an object array wrapping None rather than raising.
         """Get output feature names for transformation.
 
         This method is only defined if `feature_names_out` is not None.
@@ -375,16 +441,25 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return np.asarray(names_out, dtype=object)
 
     def _transform(self, X, func=None, kw_args=None):
+        # [FUNCTION DOC]
+        # HELPER: Calls func (identity if None) on X with kw_args unpacked as keyword
+        #   arguments (empty when kw_args is None or empty). Returns the call result.
         if func is None:
             func = _identity
 
         return func(X, **(kw_args if kw_args else {}))
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # Always returns True: the transformer is stateless and need not be fitted.
         """Return True since FunctionTransformer is stateless."""
         return True
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: no_validation mirrors not validate, requires_fit is
+        #   False, sparse input accepted when not validating or when accept_sparse is
+        #   True. Returns the tags object.
         tags = super().__sklearn_tags__()
         tags.no_validation = not self.validate
         tags.requires_fit = False
@@ -392,6 +467,10 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return tags
 
     def set_output(self, *, transform=None):
+        # [FUNCTION DOC]
+        # Overrides set_output so it is always available (no get_feature_names_out
+        #   requirement). Lazily creates the _sklearn_output_config dict on self and
+        #   stores transform under the "transform" key (None included). Returns self.
         """Set output container.
 
         Refer to the :ref:`user guide <df_output_transform>` for more details
@@ -423,6 +502,10 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def _get_function_name(self):
+        # [FUNCTION DOC]
+        # HELPER: Display name for HTML repr: func.__name__ if present, the wrapped
+        #   function name for functools.partial, otherwise "<ClassName>(...)". For func
+        #   None, returns "NoneType(...)".
         """Get the name display of the `func` used in HTML representation."""
         if hasattr(self.func, "__name__"):
             return self.func.__name__
@@ -431,6 +514,9 @@ class FunctionTransformer(TransformerMixin, BaseEstimator):
         return f"{self.func.__class__.__name__}(...)"
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds a single _VisualBlock for the HTML representation using the
+        #   function name as label and str(self) as details.
         return _VisualBlock(
             "single",
             self,

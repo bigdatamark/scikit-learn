@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for LocalOutlierFactor: toy-data scores and predictions, novelty-mode ROC
+# performance, exact LOF values, precomputed distances, n_neighbors clipping,
+# novelty-dependent method availability, sparse input, error messages, dtype
+# preservation/equivalence and the duplicate-sample warning.
+# Import-time side effect: loads iris and permutes its rows with a seeded RNG
+# (module-global iris used by several tests).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -28,6 +35,10 @@ iris.target = iris.target[perm]
 
 
 def test_lof(global_dtype):
+    # [FUNCTION DOC]
+    # On an 8-point toy set whose last two points are outliers, checks _fit_X equals
+    # X, outlier scores are all below inlier scores, and with contamination=0.25 both
+    # _predict and fit_predict give six 1s followed by two -1s.
     # Toy sample (the last two samples are outliers):
     X = np.asarray(
         [[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1], [5, 3], [-4, 2]],
@@ -50,6 +61,9 @@ def test_lof(global_dtype):
 
 
 def test_lof_performance(global_dtype):
+    # [FUNCTION DOC]
+    # Novelty mode: trains on 100 Gaussian points, tests on 20 inliers plus 20 uniform
+    # outliers, and checks ROC AUC of negated decision_function exceeds 0.99.
     # Generate train/test data
     rng = check_random_state(2)
     X = 0.3 * rng.randn(120, 2).astype(global_dtype, copy=False)
@@ -73,6 +87,10 @@ def test_lof_performance(global_dtype):
 
 
 def test_lof_values(global_dtype):
+    # [FUNCTION DOC]
+    # Checks negative_outlier_factor_ and score_samples on a 3-point set with
+    # n_neighbors=2 equal hand-computed LOF values s_0, s_1, independent of
+    # contamination, both for a new point and for a point already in training.
     # toy samples:
     X_train = np.asarray([[1, 1], [1, 2], [2, 1]], dtype=global_dtype)
     clf1 = neighbors.LocalOutlierFactor(
@@ -93,6 +111,9 @@ def test_lof_values(global_dtype):
 
 
 def test_lof_precomputed(global_dtype, random_state=42):
+    # [FUNCTION DOC]
+    # Checks predictions on training and new data are the same whether LOF is fitted on
+    # features or on precomputed euclidean distance matrices (brute algorithm).
     """Tests LOF with a distance matrix."""
     # Note: smaller samples may result in spurious test success
     rng = np.random.RandomState(random_state)
@@ -119,6 +140,9 @@ def test_lof_precomputed(global_dtype, random_state=42):
 
 
 def test_n_neighbors_attribute():
+    # [FUNCTION DOC]
+    # Checks n_neighbors larger than n_samples is clipped to n_samples - 1 in
+    # n_neighbors_ and a UserWarning about it is emitted on fit.
     X = iris.data
     clf = neighbors.LocalOutlierFactor(n_neighbors=500).fit(X)
     assert clf.n_neighbors_ == X.shape[0] - 1
@@ -131,6 +155,9 @@ def test_n_neighbors_attribute():
 
 
 def test_score_samples(global_dtype):
+    # [FUNCTION DOC]
+    # Checks score_samples equals decision_function plus offset_ for two
+    # contamination settings, and that score_samples does not depend on contamination.
     X_train = np.asarray([[1, 1], [1, 2], [2, 1]], dtype=global_dtype)
     X_test = np.asarray([[2.0, 2.0]], dtype=global_dtype)
     clf1 = neighbors.LocalOutlierFactor(
@@ -156,6 +183,10 @@ def test_score_samples(global_dtype):
 
 
 def test_novelty_errors():
+    # [FUNCTION DOC]
+    # Checks that accessing predict/decision_function/score_samples with
+    # novelty=False, and fit_predict with novelty=True, raises AttributeError whose
+    # __cause__ is an AttributeError with the explanatory message.
     X = iris.data
 
     # check errors for novelty=False
@@ -184,6 +215,9 @@ def test_novelty_errors():
 
 
 def test_novelty_training_scores(global_dtype):
+    # [FUNCTION DOC]
+    # Checks negative_outlier_factor_ on training data is identical for novelty=False
+    # and novelty=True fits.
     # check that the scores of the training samples are still accessible
     # when novelty=True through the negative_outlier_factor_ attribute
     X = iris.data.astype(global_dtype)
@@ -202,6 +236,9 @@ def test_novelty_training_scores(global_dtype):
 
 
 def test_hasattr_prediction():
+    # [FUNCTION DOC]
+    # Checks hasattr reports predict/decision_function/score_samples only when
+    # novelty=True and fit_predict only when novelty=False.
     # check availability of prediction methods depending on novelty value.
     X = [[1, 1], [1, 2], [2, 1]]
 
@@ -224,6 +261,8 @@ def test_hasattr_prediction():
 
 @parametrize_with_checks([neighbors.LocalOutlierFactor(novelty=True)])
 def test_novelty_true_common_tests(estimator, check):
+    # [FUNCTION DOC]
+    # Runs every common estimator check on LocalOutlierFactor(novelty=True).
     # the common tests are run for the default LOF (novelty=False).
     # here we run these common tests for LOF when novelty=True
     check(estimator)
@@ -231,6 +270,9 @@ def test_novelty_true_common_tests(estimator, check):
 
 @pytest.mark.parametrize("expected_outliers", [30, 53])
 def test_predicted_outlier_number(expected_outliers):
+    # [FUNCTION DOC]
+    # Checks fit_predict flags exactly contamination*n_samples outliers on iris, or
+    # else that the discrepancy is explained by ties (check_outlier_corruption).
     # the number of predicted outliers should be equal to the number of
     # expected outliers unless there are ties in the abnormality scores.
     X = iris.data
@@ -248,6 +290,9 @@ def test_predicted_outlier_number(expected_outliers):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Smoke test that fit/predict/score_samples/decision_function (novelty) and
+    # fit_predict (non-novelty) accept CSR input without error.
     # LocalOutlierFactor must support CSR inputs
     # TODO: compare results on dense and sparse data as proposed in:
     # https://github.com/scikit-learn/scikit-learn/pull/23585#discussion_r968388186
@@ -264,6 +309,10 @@ def test_sparse(csr_container):
 
 
 def test_lof_error_n_neighbors_too_large():
+    # [FUNCTION DOC]
+    # Checks the ValueError messages when n_neighbors >= n_samples_fit at fit and at
+    # kneighbors without X, and n_neighbors > n_samples_fit with explicit X, plus the
+    # output shapes of the valid kneighbors calls (regression #17207).
     """Check that we raise a proper error message when n_neighbors == n_samples.
 
     Non-regression test for:
@@ -311,6 +360,9 @@ def test_lof_error_n_neighbors_too_large():
 @pytest.mark.parametrize("novelty", [True, False])
 @pytest.mark.parametrize("contamination", [0.5, "auto"])
 def test_lof_input_dtype_preservation(global_dtype, algorithm, contamination, novelty):
+    # [FUNCTION DOC]
+    # Checks negative_outlier_factor_, score_samples and decision_function outputs
+    # keep the input dtype across algorithms, novelty and contamination settings.
     """Check that the fitted attributes are stored using the data type of X."""
     X = iris.data.astype(global_dtype, copy=False)
 
@@ -331,6 +383,10 @@ def test_lof_input_dtype_preservation(global_dtype, algorithm, contamination, no
 @pytest.mark.parametrize("novelty", [True, False])
 @pytest.mark.parametrize("contamination", [0.5, "auto"])
 def test_lof_dtype_equivalence(algorithm, novelty, contamination):
+    # [FUNCTION DOC]
+    # Checks float32 and float64 fits on the same (float32-rounded) iris subset give
+    # close negative_outlier_factor_ and close outputs (atol 2e-4) for every available
+    # prediction method.
     """Check the equivalence of the results with 32 and 64 bits input."""
 
     inliers = iris.data[:50]  # setosa iris are really distinct from others
@@ -361,6 +417,9 @@ def test_lof_dtype_equivalence(algorithm, novelty, contamination):
 
 
 def test_lof_duplicate_samples():
+    # [FUNCTION DOC]
+    # Checks fit_predict warns "Duplicate values are leading to incorrect results"
+    # when many identical samples exist and n_neighbors=5 (regression #27839).
     """
     Check that LocalOutlierFactor raises a warning when duplicate values
     in the training data cause inaccurate results.

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Unit tests for the MLP stochastic optimizers (BaseOptimizer, SGDOptimizer,
+#   AdamOptimizer). Each test applies one update to zero-initialised parameters of
+#   shapes in the module-level shapes list and compares against a hand-computed expected
+#   result.
 import numpy as np
 
 from sklearn.neural_network._stochastic_optimizers import (
@@ -11,12 +16,20 @@ shapes = [(4, 6), (6, 8), (7, 8, 9)]
 
 
 def test_base_optimizer():
+    # [FUNCTION DOC]
+    # Checks that BaseOptimizer.trigger_stopping always returns True for learning
+    #   rates from 1e-3 to 1e3.
     for lr in [10**i for i in range(-3, 4)]:
         optimizer = BaseOptimizer(lr)
         assert optimizer.trigger_stopping("", False)
 
 
 def test_sgd_optimizer_no_momentum():
+    # [FUNCTION DOC]
+    # Checks that SGD with momentum 0 and no Nesterov performs plain gradient descent:
+    #   after update_params each parameter equals its previous value minus lr times the
+    #   random gradient, for several learning rates. The params list is reused and
+    #   mutated across iterations.
     params = [np.zeros(shape) for shape in shapes]
     rng = np.random.RandomState(0)
 
@@ -31,6 +44,10 @@ def test_sgd_optimizer_no_momentum():
 
 
 def test_sgd_optimizer_momentum():
+    # [FUNCTION DOC]
+    # Checks classical momentum: with velocities set manually to random arrays, the
+    #   parameter update must equal momentum * velocity - lr * grad, for momentum values
+    #   0.5 to 0.8.
     params = [np.zeros(shape) for shape in shapes]
     lr = 0.1
     rng = np.random.RandomState(0)
@@ -51,6 +68,10 @@ def test_sgd_optimizer_momentum():
 
 
 def test_sgd_optimizer_trigger_stopping():
+    # [FUNCTION DOC]
+    # Checks the adaptive schedule: with lr 2e-6 the first trigger_stopping call
+    #   divides the rate by 5 and returns False; the second call (rate now below 1e-6)
+    #   returns True.
     params = [np.zeros(shape) for shape in shapes]
     lr = 2e-6
     optimizer = SGDOptimizer(params, lr, lr_schedule="adaptive")
@@ -60,6 +81,10 @@ def test_sgd_optimizer_trigger_stopping():
 
 
 def test_sgd_optimizer_nesterovs_momentum():
+    # [FUNCTION DOC]
+    # Checks Nesterov momentum: the applied update must equal momentum times the new
+    #   velocity minus lr * grad, where the new velocity is momentum * old velocity - lr
+    #   * grad.
     params = [np.zeros(shape) for shape in shapes]
     lr = 0.1
     rng = np.random.RandomState(0)
@@ -83,6 +108,10 @@ def test_sgd_optimizer_nesterovs_momentum():
 
 
 def test_adam_optimizer():
+    # [FUNCTION DOC]
+    # Checks one Adam step against a manual computation over a grid of beta_1 and
+    #   beta_2 values, with moments and step counter (t = 9 before the step) injected
+    #   into the optimizer; expects exact equality of the updated parameters.
     params = [np.zeros(shape) for shape in shapes]
     lr = 0.001
     epsilon = 1e-8

@@ -1,3 +1,17 @@
+# [PACKAGE DOC]
+# Public API of sklearn.preprocessing: scaling, centering, normalization,
+#   binarization, discretization, encoding, polynomial/spline feature generation and
+#   target encoding.
+# Re-exports, from private submodules: scalers and transformers (StandardScaler,
+#   MinMaxScaler, MaxAbsScaler, RobustScaler, Normalizer, Binarizer, KernelCenterer,
+#   PowerTransformer, QuantileTransformer) and their function forms (scale,
+#   minmax_scale, maxabs_scale, robust_scale, normalize, binarize, power_transform,
+#   quantile_transform, add_dummy_feature); KBinsDiscretizer; OneHotEncoder,
+#   OrdinalEncoder, TargetEncoder; FunctionTransformer; LabelBinarizer, LabelEncoder,
+#   MultiLabelBinarizer, label_binarize; PolynomialFeatures, SplineTransformer. __all__
+#   lists exactly these names.
+# Side effects at import: imports those submodules eagerly; no global state is
+#   changed.
 """Methods for scaling, centering, normalization, binarization, and more."""
 
 # Authors: The scikit-learn developers
