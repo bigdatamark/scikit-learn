@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Python front end of the CART tree estimators: BaseDecisionTree (shared fitting,
+# prediction, pruning logic) and the public DecisionTreeClassifier,
+# DecisionTreeRegressor, ExtraTreeClassifier and ExtraTreeRegressor. Fitting
+# validates inputs, resolves hyperparameters into concrete integers/weights, builds
+# Cython Criterion and Splitter objects and grows a _tree.Tree with a depth-first or
+# best-first builder, then optionally applies minimal cost-complexity pruning.
+# Module-level tables map criterion names (CRITERIA_CLF, CRITERIA_REG) and splitter
+# names (DENSE_SPLITTERS, SPARSE_SPLITTERS) to Cython classes. No import-time side
+# effects besides importing the compiled tree extensions.
 """
 This module gathers tree-based methods, including decision, regression and
 randomized trees. Single and multi-output problems are both handled.
@@ -88,6 +98,12 @@ SPARSE_SPLITTERS = {
 
 
 class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for all tree estimators. Holds parameter constraints for the shared
+    # hyperparameters and marks check_input as unused for predict metadata routing.
+    # Fitted attributes set by _fit: n_features_in_, n_outputs_, classes_ and
+    # n_classes_ (classification; unwrapped to scalars/arrays for single output),
+    # max_features_ and tree_.
     """Base class for decision trees.
 
     Warning: This class should not be used directly.
@@ -141,6 +157,9 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Abstract constructor storing every hyperparameter unchanged as an attribute (no
+        # validation; validation happens in fit via _fit_context).
         self.criterion = criterion
         self.splitter = splitter
         self.max_depth = max_depth
@@ -156,6 +175,9 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         self.monotonic_cst = monotonic_cst
 
     def get_depth(self):
+        # [FUNCTION DOC]
+        # Returns tree_.max_depth (root alone has depth 0).
+        # Exceptions: NotFittedError if not fitted.
         """Return the depth of the decision tree.
 
         The depth of a tree is the maximum distance between the root
@@ -170,6 +192,8 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self.tree_.max_depth
 
     def get_n_leaves(self):
+        # [FUNCTION DOC]
+        # Returns tree_.n_leaves. Exceptions: NotFittedError if not fitted.
         """Return the number of leaves of the decision tree.
 
         Returns
@@ -181,9 +205,20 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self.tree_.n_leaves
 
     def _support_missing_values(self, X):
+        # [FUNCTION DOC]
+        # HELPER: True when X is not sparse and the estimator's tags allow NaN input.
         return not issparse(X) and self.__sklearn_tags__().input_tags.allow_nan
 
     def _compute_missing_values_in_feature_mask(self, X, estimator_name=None):
+        # [FUNCTION DOC]
+        # HELPER: If missing values are unsupported for X, asserts X is fully finite and
+        # returns None. Otherwise sums X (overflow warnings suppressed); if the sum is not
+        # finite, checks element-wise that there are no infinities (NaN allowed); returns
+        # None when the sum is not NaN, else a boolean mask per feature telling which
+        # columns contain NaN (from the column sums).
+        # Inputs: X - validated 2d array or sparse matrix; estimator_name - name for error
+        # messages, defaults to the class name.
+        # Exceptions: ValueError for infinite values or for NaN when unsupported.
         """Return boolean mask denoting if there are missing values for each feature.
 
         This method also ensures that X is finite.
@@ -231,6 +266,33 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         check_input=True,
         missing_values_in_feature_mask=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Core fitting routine shared by all tree estimators.
+        # Steps: (1) with check_input, validate X as float32 (CSC accepted, NaN allowed for
+        # now) and y separately, compute the missing-value mask, sort sparse indices and
+        # reject 64-bit sparse indices; for poisson require non-negative y with positive sum.
+        # (2) Reshape y to 2d; for classification, encode each output's labels to 0..k-1,
+        # record classes_ and n_classes_, and expand class_weight into per-sample weights
+        # from the original labels. (3) Cast y to contiguous float64. (4) Resolve max_depth
+        # (None means int32 max), min_samples_leaf and min_samples_split (fractions times
+        # n_samples rounded up; split at least 2 and at least twice min_samples_leaf),
+        # max_features ("sqrt"/"log2"/None/int/fraction, at least 1) stored as
+        # max_features_, max_leaf_nodes (-1 when None), and min_weight_leaf as
+        # min_weight_fraction_leaf times total sample weight (or n_samples). (5) Build or
+        # deep-copy the criterion, validate monotonic_cst (single output, matching length,
+        # values in -1/0/1, binary classification only; signs flipped for classifiers since
+        # the builder constrains the negative class), build the splitter unless a Splitter
+        # instance is given, create tree_ and grow it with BestFirstTreeBuilder when
+        # max_leaf_nodes is set, otherwise DepthFirstTreeBuilder. (6) Unwrap
+        # classes_/n_classes_ for single-output classifiers and prune with _prune_tree.
+        # Inputs: X, y, sample_weight (optional 1d), check_input (bool, default True),
+        # missing_values_in_feature_mask (used only when check_input is False).
+        # Outputs: self.
+        # Exceptions: ValueError for 64-bit sparse indices, invalid poisson targets,
+        # label/sample count mismatch, and invalid monotonic constraints.
+        # Side effects: sets fitted attributes; consumes random_state.
+        # KNOWN ISSUE: the branch setting max_features to 0 for a non-positive float is
+        # unreachable because parameter validation requires a float in (0, 1].
         random_state = check_random_state(self.random_state)
 
         if check_input:
@@ -475,6 +537,11 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self
 
     def _validate_X_predict(self, X, check_input):
+        # [FUNCTION DOC]
+        # HELPER: With check_input, validates X for prediction as float32 (CSR accepted,
+        # NaN allowed only when missing values are supported, reset=False) and rejects
+        # 64-bit sparse indices; otherwise only checks the number of features.
+        # Outputs: validated X. Exceptions: ValueError on invalid input.
         """Validate the training data on predict (probabilities)."""
         if check_input:
             if self._support_missing_values(X):
@@ -499,6 +566,11 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return X
 
     def predict(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # Predicts with tree_.predict. Classifiers: argmax of per-output class proportions
+        # mapped through classes_ (array of shape (n_samples,) or (n_samples, n_outputs)
+        # with the dtype of the first output's classes). Regressors: first value column.
+        # Exceptions: NotFittedError; validation errors from _validate_X_predict.
         """Predict class or regression value for X.
 
         For a classification model, the predicted class for each sample in X is
@@ -550,6 +622,9 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
                 return proba[:, :, 0]
 
     def apply(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # Returns the leaf index reached by each sample via tree_.apply.
+        # Exceptions: NotFittedError; validation errors.
         """Return the index of the leaf that each sample is predicted as.
 
         .. versionadded:: 0.17
@@ -578,6 +653,10 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self.tree_.apply(X)
 
     def decision_path(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # Returns tree_.decision_path(X): CSR indicator of shape (n_samples, node_count).
+        # KNOWN ISSUE: unlike predict and apply, there is no explicit check_is_fitted, so an
+        # unfitted estimator fails with a less informative error.
         """Return the decision path in the tree.
 
         .. versionadded:: 0.18
@@ -603,6 +682,11 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self.tree_.decision_path(X)
 
     def _prune_tree(self):
+        # [FUNCTION DOC]
+        # HELPER: If ccp_alpha is nonzero, builds a new Tree with the same shape metadata and
+        # fills it with the minimal cost-complexity pruned version of tree_
+        # (_build_pruned_tree_ccp), replacing tree_. No-op when ccp_alpha is 0.
+        # Side effects: replaces self.tree_.
         """Prune tree using Minimal Cost-Complexity Pruning."""
         check_is_fitted(self)
 
@@ -625,6 +709,10 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         self.tree_ = pruned_tree
 
     def cost_complexity_pruning_path(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Clones the estimator with ccp_alpha=0, fits the clone on (X, y, sample_weight)
+        # and returns ccp_pruning_path of its tree as a Bunch with ccp_alphas and
+        # impurities. Self is not modified.
         """Compute the pruning path during Minimal Cost-Complexity Pruning.
 
         See :ref:`minimal_cost_complexity_pruning` for details on the pruning
@@ -665,6 +753,10 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
 
     @property
     def feature_importances_(self):
+        # [FUNCTION DOC]
+        # Property: normalized impurity-decrease importances from
+        # tree_.compute_feature_importances, shape (n_features_in_,).
+        # Exceptions: NotFittedError if not fitted.
         """Return the feature importances.
 
         The importance of a feature is computed as the (normalized) total
@@ -686,6 +778,8 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         return self.tree_.compute_feature_importances()
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the parent tags to declare sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
@@ -697,6 +791,10 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
 
 
 class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
+    # [CLASS DOC]
+    # Public CART classifier. Accepts criteria gini, entropy and log_loss (or a hidden
+    # Criterion instance) and class_weight; check_input is unused for routing in fit
+    # and predict_proba.
     """A decision tree classifier.
 
     Read more in the :ref:`User Guide <tree>`.
@@ -965,6 +1063,9 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters via BaseDecisionTree.__init__ with classifier defaults
+        # (gini, best splitter, all features).
         super().__init__(
             criterion=criterion,
             splitter=splitter,
@@ -983,6 +1084,8 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None, check_input=True):
+        # [FUNCTION DOC]
+        # Validates parameters (via _fit_context) and delegates to _fit. Outputs: self.
         """Build a decision tree classifier from the training set (X, y).
 
         Parameters
@@ -1021,6 +1124,10 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
         return self
 
     def predict_proba(self, X, check_input=True):
+        # [FUNCTION DOC]
+        # Returns tree_.predict proportions restricted to the first n_classes_ columns:
+        # an array (n_samples, n_classes) for single output, or a list of per-output arrays.
+        # Exceptions: NotFittedError; validation errors.
         """Predict class probabilities of the input samples X.
 
         The predicted class probability is the fraction of samples of the same
@@ -1058,6 +1165,10 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
             return all_proba
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the natural log of predict_proba (log of 0 gives -inf with a numpy
+        # warning). For multi-output, replaces each list entry in place.
+        # KNOWN ISSUE: does not accept check_input, unlike predict_proba.
         """Predict class log-probabilities of the input samples X.
 
         Parameters
@@ -1086,6 +1197,8 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
             return proba
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares NaN support (only effective for dense input) and multi-label support.
         tags = super().__sklearn_tags__()
         # XXX: nan values are only accepted in dense arrays, but we set this for
         # common test to pass, specifically: check_estimators_nan_inf
@@ -1095,6 +1208,9 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
 
 
 class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
+    # [CLASS DOC]
+    # Public CART regressor with squared_error, absolute_error and poisson criteria
+    # (or a hidden Criterion instance).
     """A decision tree regressor.
 
     Read more in the :ref:`User Guide <tree>`.
@@ -1341,6 +1457,12 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Maps the deprecated criterion "friedman_mse" to "squared_error" with a
+        # FutureWarning, then stores hyperparameters via BaseDecisionTree.__init__.
+        # KNOWN ISSUE: changing a constructor argument violates the scikit-learn convention
+        # that __init__ stores parameters unchanged; get_params then differs from what the
+        # user passed.
         if isinstance(criterion, str) and criterion == "friedman_mse":
             # TODO(1.11): remove support of "friedman_mse" criterion.
             criterion = "squared_error"
@@ -1368,6 +1490,8 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None, check_input=True):
+        # [FUNCTION DOC]
+        # Validates parameters (via _fit_context) and delegates to _fit. Outputs: self.
         """Build a decision tree regressor from the training set (X, y).
 
         Parameters
@@ -1405,6 +1529,12 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
         return self
 
     def _compute_partial_dependence_recursion(self, grid, target_features):
+        # [FUNCTION DOC]
+        # HELPER: Computes partial dependence by tree traversal (weighted by node sample
+        # counts) for the given grid of target-feature values.
+        # Inputs: grid - (n_points, n_target_features) converted to C-contiguous float32;
+        # target_features - feature indices converted to intp.
+        # Outputs: float64 array (n_points,) filled by tree_.compute_partial_dependence.
         """Fast partial dependence computation.
 
         Parameters
@@ -1433,6 +1563,8 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
         return averaged_predictions
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares NaN support (only effective for dense input).
         tags = super().__sklearn_tags__()
         # XXX: nan values are only accepted in dense arrays, but we set this for
         # for common test to pass, specifically: check_estimators_nan_inf
@@ -1441,6 +1573,10 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
 
 
 class ExtraTreeClassifier(DecisionTreeClassifier):
+    # [CLASS DOC]
+    # Extremely randomized single tree classifier: DecisionTreeClassifier with
+    # defaults splitter="random" and max_features="sqrt". Mostly meant as a base
+    # estimator in ensembles.
     """An extremely randomized tree classifier.
 
     Extra-trees differ from classic decision trees in the way they are built.
@@ -1701,6 +1837,8 @@ class ExtraTreeClassifier(DecisionTreeClassifier):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters with extra-tree defaults via DecisionTreeClassifier.
         super().__init__(
             criterion=criterion,
             splitter=splitter,
@@ -1718,6 +1856,8 @@ class ExtraTreeClassifier(DecisionTreeClassifier):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares multi-label support and NaN support only when splitter is "random".
         tags = super().__sklearn_tags__()
         # XXX: nan values are only accepted in dense arrays, but we set this for
         # common test to pass, specifically: check_estimators_nan_inf
@@ -1728,6 +1868,9 @@ class ExtraTreeClassifier(DecisionTreeClassifier):
 
 
 class ExtraTreeRegressor(DecisionTreeRegressor):
+    # [CLASS DOC]
+    # Extremely randomized single tree regressor: DecisionTreeRegressor with defaults
+    # splitter="random" and max_features=1.0.
     """An extremely randomized tree regressor.
 
     Extra-trees differ from classic decision trees in the way they are built.
@@ -1959,6 +2102,9 @@ class ExtraTreeRegressor(DecisionTreeRegressor):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters with extra-tree defaults via DecisionTreeRegressor (the
+        # friedman_mse deprecation mapping applies there too).
         super().__init__(
             criterion=criterion,
             splitter=splitter,
@@ -1975,6 +2121,8 @@ class ExtraTreeRegressor(DecisionTreeRegressor):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares NaN support only when splitter is "random".
         tags = super().__sklearn_tags__()
         # XXX: nan values are only accepted in dense arrays, but we set this for
         # common test to pass, specifically: check_estimators_nan_inf
