@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Array API inspection namespace for NumPy: defines the __array_namespace_info__ class
+# exposed by the wrapped numpy namespace. Imports NumPy dtypes at import time (bool_ is
+# imported as bool, shadowing the builtin within this module).
 """
 Array API Inspection namespace
 
@@ -32,6 +36,9 @@ from ._typing import Device, DType
 
 
 class __array_namespace_info__:
+    # [CLASS DOC]
+    # Stateless inspection object with capabilities, default_device, default_dtypes,
+    # dtypes and devices; __module__ is set to "numpy" for display.
     """
     Get the array API inspection namespace for NumPy.
 
@@ -66,6 +73,9 @@ class __array_namespace_info__:
     __module__ = 'numpy'
 
     def capabilities(self):
+        # [FUNCTION DOC]
+        # Returns a new dict: boolean indexing True, data-dependent shapes True, max
+        # dimensions 64.
         """
         Return a dictionary of array API library capabilities.
 
@@ -110,6 +120,8 @@ class __array_namespace_info__:
         }
 
     def default_device(self):
+        # [FUNCTION DOC]
+        # Always returns the string "cpu".
         """
         The default device used for new NumPy arrays.
 
@@ -141,6 +153,11 @@ class __array_namespace_info__:
         *,
         device: Device | None = None,
     ) -> DefaultDTypes:
+        # [FUNCTION DOC]
+        # Returns a new dict of default dtypes: float64, complex128, and intp for integral and
+        # indexing.
+        # Inputs: device - must be "cpu" or None.
+        # Exceptions: ValueError for any other device.
         """
         The default data types used for new NumPy arrays.
 
@@ -198,6 +215,14 @@ class __array_namespace_info__:
         device: Device | None = None,
         kind: str | tuple[str, ...] | None = None,
     ) -> dict[str, DType]:
+        # [FUNCTION DOC]
+        # Returns a dict mapping array-API dtype names to numpy dtype objects for the requested
+        # kind: None gives all 13 standard dtypes; a kind string selects bool, signed integer,
+        # unsigned integer, integral, real floating, complex floating or numeric; a tuple
+        # returns the union by recursing over each kind.
+        # Inputs: device - "cpu" or None; kind - None, str or tuple of str.
+        # Outputs: new dict.
+        # Exceptions: ValueError for an unsupported device or kind.
         """
         The array API data types supported by NumPy.
 
@@ -333,6 +358,9 @@ class __array_namespace_info__:
         raise ValueError(f"unsupported kind: {kind!r}")
 
     def devices(self) -> tuple[Device]:
+        # [FUNCTION DOC]
+        # Returns the one-element tuple ("cpu",).
+        # KNOWN ISSUE: the docstring describes and shows a list, but a tuple is returned.
         """
         The devices supported by NumPy.
 
@@ -364,4 +392,6 @@ __all__ = ["__array_namespace_info__"]
 
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__
