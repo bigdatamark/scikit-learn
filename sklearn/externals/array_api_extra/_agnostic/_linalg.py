@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# HELPER: Generic implementation of kron used by array_api_extra._linalg.
 """Array-agnostic implementations for linear algebra functions."""
 
 import typing
@@ -16,6 +18,14 @@ def kron(
     *,
     xp: ArrayNamespace,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Kronecker product. Broadcasts a up to b's ndim (leading 1s); if either is
+    #   0-D returns their product. Otherwise pads both shapes to the same length with
+    #   leading 1s, interleaves new axes (a gets size-1 axes at odd positions, b at even
+    #   positions), multiplies by broadcasting and reshapes to the elementwise product
+    #   of the two shapes.
+    # Inputs: a, b - arrays with eager shapes; xp - namespace.
+    # Outputs: array of shape a_shape[i]*b_shape[i] per axis, dtype by promotion.
     """See docstring in `array_api_extra._linalg`."""
 
     singletons = (1,) * (b.ndim - a.ndim)

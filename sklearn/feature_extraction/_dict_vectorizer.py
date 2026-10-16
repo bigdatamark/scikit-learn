@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines DictVectorizer, which maps sequences of feature-name -> value mappings to
+# 2-D numeric arrays or CSR sparse arrays, one-hot encoding string values as
+# "name<separator>value" columns and counting strings in iterable values.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -15,6 +19,11 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class DictVectorizer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateful transformer that learns a vocabulary (feature_names_, vocabulary_) from
+    # dict samples. Internally always builds a CSR matrix (int32 indices via
+    # array("i")) and densifies only if sparse=False. Declares inverse_transform's
+    # dict_type as unused for metadata routing.
     """Transforms lists of feature-value mappings to vectors.
 
     This transformer turns lists of mappings (dict-like objects) of feature
@@ -102,6 +111,9 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, *, dtype=np.float64, separator="=", sparse=True, sort=True):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters unchanged (validation happens in fit via
+        # _parameter_constraints). Inputs: dtype, separator, sparse, sort (see class doc).
         self.dtype = dtype
         self.separator = separator
         self.sparse = sparse
@@ -119,6 +131,16 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         indices=None,
         values=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Handles one feature f whose value v is an iterable of strings. For each
+        # string element builds the name "f<separator>element" with value 1; if fitting
+        # and the name is new, appends it to feature_names and assigns the next index in
+        # vocab; if transforming and the name is in vocab, appends its index to indices and
+        # the dtype-cast value 1 to values.
+        # Inputs: f - feature key; v - iterable; feature_names - list; vocab - dict;
+        # fitting/transforming - flags; indices/values - output buffers when transforming.
+        # Exceptions: TypeError if any element is not a str.
+        # Side effects: mutates feature_names, vocab, indices and values in place.
         """Add feature names for iterable of strings"""
         for vv in v:
             if isinstance(vv, str):
@@ -140,6 +162,21 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Builds the vocabulary without producing a matrix. For each sample and each
+        # (f, v): strings produce "f=v", numbers and None produce f, Mappings raise,
+        # other iterables go through _add_iterable_element; new names get consecutive
+        # indices. If sort is true, names are sorted and indices reassigned.
+        # Inputs: X - iterable of Mappings (a single Mapping is NOT wrapped here, unlike
+        # _transform); y - ignored. Outputs: self.
+        # Exceptions: TypeError for Mapping values or non-string iterable elements.
+        # Side effects: sets feature_names_ and vocabulary_.
+        # KNOWN ISSUE: there is no else branch for value types that are neither str,
+        # Number, None, Mapping nor Iterable; feature_name then keeps the value from the
+        # previous item (re-registering it) or raises NameError/UnboundLocalError on the
+        # first item, whereas _transform raises a clear TypeError.
+        # KNOWN ISSUE: a single Mapping passed to fit is iterated over its keys, unlike
+        # transform/fit_transform which wrap it in a list.
         """Learn a list of feature name -> indices mappings.
 
         Parameters
@@ -193,6 +230,21 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return self
 
     def _transform(self, X, fitting):
+        # [FUNCTION DOC]
+        # HELPER: Shared implementation of fit_transform (fitting=True) and transform.
+        # Asserts the C int is 4 bytes. Uses empty vocab when fitting, else the fitted
+        # one. Wraps a single Mapping in a list. For each sample, maps each (f, v) to a
+        # column name as in fit (strings become "f=v" with value 1), registers new names if
+        # fitting, and appends (index, dtype(value)) only for names in vocab (unknown
+        # features silently dropped); appends the running nnz to indptr per sample.
+        # Builds a CSR array of shape (n_samples, len(vocab)). If fitting and sort, sorts
+        # names, renumbers vocab and permutes the columns accordingly. Sorts indices if
+        # sparse, else converts to dense.
+        # Outputs: CSR array (API-aligned via _align_api_if_sparse) or dense ndarray.
+        # Exceptions: AssertionError on platforms with non-32-bit int; TypeError for
+        # unsupported value types; ValueError("Sample sequence X is empty.") when X has no
+        # samples; ValueError/TypeError from dtype casting.
+        # Side effects: when fitting, sets feature_names_ and vocabulary_.
         # Sanity check: Python's array has no way of explicitly requesting the
         # signed 32-bit integers that scipy.sparse needs, so we use the next
         # best thing: typecode "i" (int). However, if that gives larger or
@@ -293,6 +345,10 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits and transforms in a single pass by delegating to _transform with
+        # fitting=True (no need to materialize X twice). Outputs: 2-D array or CSR array.
+        # Side effects: sets feature_names_ and vocabulary_.
         """Learn a list of feature name -> indices mappings and transform X.
 
         Like fit(X) followed by transform(X), but does not require
@@ -318,6 +374,15 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return self._transform(X, fitting=True)
 
     def inverse_transform(self, X, dict_type=dict):
+        # [FUNCTION DOC]
+        # Reconstructs per-sample dicts from a matrix. Validates X as 2-D (CSR/CSC
+        # accepted, others converted), creates n_samples empty dict_type objects, then for
+        # each nonzero entry (sparse: via nonzero(); dense: by scanning) stores
+        # feature_names_[j] -> X[i, j].
+        # Outputs: list of dict_type instances.
+        # Exceptions: NotFittedError if not fitted; IndexError if X has more columns than
+        # feature_names_; validation errors from check_array.
+        # Side effects: none.
         """Transform array or sparse matrix X back to feature mappings.
 
         X must have been produced by this DictVectorizer's transform or
@@ -361,6 +426,10 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return dicts
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state then delegates to _transform with fitting=False; unseen
+        # features are ignored. Outputs: 2-D dense array or CSR array.
+        # Exceptions: NotFittedError; TypeError/ValueError as in _transform.
         """Transform feature->value dicts to array or sparse matrix.
 
         Named features not encountered during fit or fit_transform will be
@@ -381,6 +450,10 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return self._transform(X, fitting=False)
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns feature_names_ as an object ndarray, converting all names to str if any
+        # name is not already a string. input_features is ignored.
+        # Exceptions: NotFittedError if not fitted.
         """Get output feature names for transformation.
 
         Parameters
@@ -401,6 +474,13 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return np.asarray(feature_names, dtype=object)
 
     def restrict(self, support, indices=False):
+        # [FUNCTION DOC]
+        # Keeps only the selected features. Converts a boolean mask to indices (unless
+        # indices=True), builds a new vocabulary numbering the kept names in the order of
+        # support, and sets feature_names_ ordered by the new indices.
+        # Inputs: support - boolean mask or index list; indices - bool. Outputs: self.
+        # Exceptions: NotFittedError; IndexError for out-of-range indices.
+        # Side effects: replaces vocabulary_ and feature_names_ in place.
         """Restrict the features to those in support using feature selection.
 
         This function modifies the estimator in-place.
@@ -451,6 +531,9 @@ class DictVectorizer(TransformerMixin, BaseEstimator):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the base tags: input is dicts (dict=True) and not a 2-D array.
+        # Outputs: the modified Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.dict = True
         tags.input_tags.two_d_array = False

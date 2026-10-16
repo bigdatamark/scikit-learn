@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Generic implementation of default_dtype (public) based on the namespace
+#   inspection API.
 """Array-agnostic implementations for inspection functions."""
 
 from typing import Literal
@@ -15,6 +18,14 @@ def default_dtype(
     *,
     device: Device | None = None,
 ) -> DType:
+    # [FUNCTION DOC]
+    # Returns xp.__array_namespace_info__().default_dtypes(device=device)[kind].
+    # Inputs: xp - namespace; kind - one of 'real floating', 'complex floating',
+    #   'integral', 'indexing'; device - optional.
+    # Outputs: dtype object of the namespace.
+    # Exceptions: ValueError for an unknown kind; AssertionError (only when assertions
+    #   are enabled) if the namespace's dict keys are not exactly the four standard
+    #   kinds.
     """
     Return the default dtype for the given namespace and device.
 

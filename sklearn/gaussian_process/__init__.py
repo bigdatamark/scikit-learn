@@ -1,3 +1,8 @@
+# [PACKAGE DOC]
+# Public package for Gaussian process models.
+# Exposes GaussianProcessClassifier (from _gpc), GaussianProcessRegressor (from _gpr)
+# and the kernels submodule via __all__.
+# Import-time side effects: imports the kernels, _gpc and _gpr modules; no global state.
 """Gaussian process based regression and classification."""
 
 # Authors: The scikit-learn developers

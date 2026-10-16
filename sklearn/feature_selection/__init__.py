@@ -1,3 +1,14 @@
+# [PACKAGE DOC]
+# Public entry point of the feature selection package. It only re-exports names
+# implemented in private submodules: the SelectorMixin base (from _base),
+# SelectFromModel (_from_model), mutual_info_classif / mutual_info_regression
+# (_mutual_info), RFE and RFECV (_rfe), SequentialFeatureSelector (_sequential),
+# the univariate selectors SelectKBest, SelectPercentile, SelectFpr, SelectFdr,
+# SelectFwe, GenericUnivariateSelect plus their scoring functions chi2, f_classif,
+# f_oneway, f_regression, r_regression (_univariate_selection), and
+# VarianceThreshold (_variance_threshold). __all__ lists exactly these names.
+# Side effects at import: importing all submodules, which pulls in metrics,
+# model_selection, neighbors and preprocessing; no global state is modified.
 """Feature selection algorithms.
 
 These include univariate filter selection methods and the recursive feature elimination

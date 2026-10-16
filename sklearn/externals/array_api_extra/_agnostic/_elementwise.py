@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Generic array API implementations of elementwise functions: apply_where
+#   (public), isclose, nan_to_num, sinc, angle (public), deg2rad and rad2deg.
 """Array-agnostic implementations for element-wise functions."""
 
 import typing
@@ -31,6 +34,9 @@ def apply_where(  # numpydoc ignore=GL08
     kwargs: dict[str, Array] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array: ...
+    # [FUNCTION DOC]
+    # Typing overload for apply_where with f2 given (no fill_value). No runtime
+    #   behaviour.
 
 
 @typing.overload
@@ -44,6 +50,9 @@ def apply_where(  # numpydoc ignore=GL08
     kwargs: dict[str, Array] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array: ...
+    # [FUNCTION DOC]
+    # Typing overload for apply_where with fill_value given (no f2). No runtime
+    #   behaviour.
 
 
 def apply_where(  # numpydoc ignore=PR01,PR02
@@ -57,6 +66,17 @@ def apply_where(  # numpydoc ignore=PR01,PR02
     kwargs: dict[str, Array] | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Validates that exactly one of f2/fill_value is given, packs args (single array or
+    #   tuple) followed by kwargs values into one positional list remembering the kwarg
+    #   keys, infers xp from cond, fill_value and args if not given, then broadcasts
+    #   cond, args (and fill_value unless it is a Python scalar or None) to a common
+    #   shape. On Dask runs _apply_where per chunk via map_blocks with the chunk (meta)
+    #   namespace; otherwise calls _apply_where directly.
+    # Exceptions: TypeError when both or neither of f2 and fill_value are given;
+    #   broadcasting errors from xp.
+    # KNOWN ISSUE: the docstring says f2 receives arg[cond], but the code passes the
+    #   elements where cond is False.
     """
     Run one of two elementwise functions depending on a condition.
 
@@ -153,6 +173,17 @@ def _apply_where(  # numpydoc ignore=PR01,RT01
     kwkeys: list[str],
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Core of apply_where (one Dask chunk or a whole array). Splits trailing
+    #   args back into kwargs by kwkeys. If the backend lacks boolean indexing (e.g. JAX
+    #   jit), evaluates f1 and f2 (or uses fill_value) on all elements and combines with
+    #   where. Otherwise evaluates f1 only on cond-masked elements and f2 only on ~cond
+    #   elements; the output dtype is the promotion of f1's result with fill_value or
+    #   f2's result; output starts as a full/astype copy of fill_value or an empty array
+    #   filled at ~cond with f2 results, then cond positions are set with f1 results via
+    #   at().set.
+    # Outputs: array of cond's shape. Side effects: none on inputs (at() copies where
+    #   needed).
     """Helper of `apply_where`. On Dask, this runs on a single chunk."""
 
     nargs = len(args) - len(kwkeys)
@@ -199,6 +230,18 @@ def isclose(
     equal_nan: bool = False,
     xp: ArrayNamespace,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Generic isclose. Converts a, b to arrays with asarrays. For
+    #   floating/complex inputs uses apply_where: where either is infinite the result is
+    #   True only if both are infinite with the same sign, elsewhere abs(a-b) <= atol +
+    #   rtol*abs(b); NaN pairs become True if equal_nan. For bool inputs returns a==b,
+    #   or all True when atol or rtol >= 1. For integers truncates atol to int and
+    #   compares abs(a-b) to atol plus abs(b) integer-divided by int(1/rtol), skipping
+    #   the relative term when rtol is 0 or 1/rtol exceeds b's dtype max.
+    # Outputs: bool array of broadcast shape.
+    # KNOWN ISSUE: for unsigned integer dtypes a-b wraps around when b > a, so abs(a-b)
+    #   can be huge and close values compare False; the integer relative tolerance is an
+    #   approximation (floor division).
     """See docstring in `array_api_extra._elementwise`."""
     a, b = _helpers.asarrays(a, b, xp=xp)
 
@@ -244,6 +287,14 @@ def nan_to_num(  # numpydoc ignore=PR01,RT01
     *,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Generic nan_to_num. Complex input: processes real and imaginary parts
+    #   separately and recombines with 1j. Numeric input: replaces NaN with fill_value,
+    #   +inf with the dtype's finfo max and -inf with finfo min. Other dtypes (bool) are
+    #   returned unchanged.
+    # Outputs: new array (input returned as-is for non-numeric).
+    # KNOWN ISSUE: integer dtypes count as numeric, so they reach finfo, which raises
+    #   for integer dtypes unless the public wrapper filters them out beforehand.
     """See docstring in `array_api_extra._elementwise`."""
 
     def perform_replacements(  # numpydoc ignore=PR01,RT01
@@ -251,6 +302,10 @@ def nan_to_num(  # numpydoc ignore=PR01,RT01
         fill_value: float,
         xp: ArrayNamespace,
     ) -> Array:
+        # [FUNCTION DOC]
+        # HELPER: Replaces NaN with fill_value, positive infinities with
+        #   finfo(dtype).max and negative infinities with finfo(dtype).min (sign
+        #   determined via signbit) using where.
         """Internal function to perform the replacements."""
         x = xp.where(xp.isnan(x), fill_value, x)
 
@@ -279,6 +334,10 @@ def nan_to_num(  # numpydoc ignore=PR01,RT01
 
 
 def sinc(x: Array, /, *, xp: ArrayNamespace) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Generic normalised sinc: replaces zeros of x with the dtype's machine
+    #   epsilon (so sin(y)/y tends to 1), multiplies by pi and returns sin(y)/y.
+    #   Requires a real floating dtype (finfo).
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._elementwise`."""
 
@@ -292,6 +351,12 @@ def sinc(x: Array, /, *, xp: ArrayNamespace) -> Array:
 
 
 def angle(z: Array, /, *, deg: bool = False, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Angle (argument) of z via atan2(imag, real). Complex inputs use their parts; real
+    #   floats use zero imaginary part; other dtypes are first cast to the namespace's
+    #   default real floating dtype on z's device. Converts to degrees when deg is True.
+    # Inputs: z - array; deg - bool; xp - optional namespace (inferred from z).
+    # Outputs: real floating array in (-pi, pi] (or degrees).
     """
     Return the angle of the complex argument.
 
@@ -340,12 +405,16 @@ def angle(z: Array, /, *, deg: bool = False, xp: ArrayNamespace | None = None) -
 
 
 def deg2rad(x: Array, /, *, xp: ArrayNamespace) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Converts degrees to radians by multiplying by pi/180.
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._elementwise`."""
     return x * xp.pi / 180
 
 
 def rad2deg(x: Array, /, *, xp: ArrayNamespace) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Converts radians to degrees by multiplying by 180/pi.
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._elementwise`."""
     return x * 180 / xp.pi

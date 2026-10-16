@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines FeatureHasher, a stateless transformer implementing the hashing trick:
+# feature names are hashed with signed 32-bit MurmurHash3 (via the Cython
+# _hashing_fast.transform) into a fixed number of sparse columns.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,11 +18,17 @@ from sklearn.utils._param_validation import Interval, StrOptions
 
 
 def _iteritems(d):
+    # [FUNCTION DOC]
+    # HELPER: Returns an iterator over key/value pairs of a mapping, using a legacy
+    # iteritems method if present, else items. Input: d - mapping. Side effects: none.
     """Like d.iteritems, but accepts any collections.Mapping."""
     return d.iteritems() if hasattr(d, "iteritems") else d.items()
 
 
 class FeatureHasher(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateless hashing vectorizer. No fitted attributes; fit only triggers parameter
+    # validation through _fit_context. n_features is bounded to [1, int32 max].
     """Implements feature hashing, aka the hashing trick.
 
     This class turns sequences of symbolic feature names (strings) into
@@ -123,6 +133,8 @@ class FeatureHasher(TransformerMixin, BaseEstimator):
         dtype=np.float64,
         alternate_sign=True,
     ):
+        # [FUNCTION DOC]
+        # Stores n_features, input_type, dtype and alternate_sign unchanged.
         self.dtype = dtype
         self.input_type = input_type
         self.n_features = n_features
@@ -130,6 +142,10 @@ class FeatureHasher(TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X=None, y=None):
+        # [FUNCTION DOC]
+        # No-op apart from parameter validation performed by the _fit_context decorator.
+        # Inputs: X, y - ignored. Outputs: self.
+        # Exceptions: InvalidParameterError for invalid hyperparameters.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -151,6 +167,22 @@ class FeatureHasher(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, raw_X):
+        # [FUNCTION DOC]
+        # Hashes samples into a CSR array. Normalizes the input stream: "dict" yields
+        # each sample's items; "string" peeks the first sample, rejects it if it is a
+        # plain str, and maps every feature string f to the pair (f, 1); "pair" passes
+        # pairs through. Calls the Cython hashing transform (seed 0) which returns CSR
+        # indices, indptr and values, with the sign flipped per hash when alternate_sign.
+        # Builds a CSR array of shape (n_samples, n_features), sums duplicate entries
+        # (which also sorts indices) and returns it API-aligned.
+        # Inputs: raw_X - iterable (may be a generator) of samples.
+        # Outputs: CSR array/matrix of shape (n_samples, n_features), dtype self.dtype.
+        # Exceptions: ValueError for an empty sequence or a str first sample with
+        # input_type="string"; errors from the Cython code for non-numeric values.
+        # Side effects: consumes raw_X if it is an iterator. No parameter validation here.
+        # KNOWN ISSUE: with input_type="string" an empty raw_X makes next() raise
+        # StopIteration instead of the intended "Cannot vectorize empty sequence"
+        # ValueError; also only the first sample is checked for being a bare str.
         """Transform a sequence of instances to a scipy.sparse matrix.
 
         Parameters
@@ -198,6 +230,9 @@ class FeatureHasher(TransformerMixin, BaseEstimator):
         return _align_api_if_sparse(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: not 2-D array input; string input when input_type is "string", dict input
+        # when "dict"; requires_fit is False. Outputs: the modified Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.two_d_array = False
         if self.input_type == "string":
