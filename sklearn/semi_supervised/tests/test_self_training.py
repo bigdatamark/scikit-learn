@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for SelfTrainingClassifier. Module-level fixtures: an iris train/test
+# split; y_train_missing_labels keeps the first 50 training labels and sets the
+# rest to -1; y_train_missing_strings is the same with classes mapped to "A",
+# "B", "C" in an object array, unlabeled entries kept as integer -1.
 from math import ceil
 
 import numpy as np
@@ -39,6 +44,9 @@ y_train_missing_strings[y_train_missing_labels == -1] = -1
 
 
 def test_warns_k_best():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning when k_best exceeds the number of unlabeled samples and
+    # that everything gets labeled in one go (termination "all_labeled").
     st = SelfTrainingClassifier(KNeighborsClassifier(), criterion="k_best", k_best=1000)
     with pytest.warns(UserWarning, match="k_best is larger than"):
         st.fit(X_train, y_train_missing_labels)
@@ -52,6 +60,12 @@ def test_warns_k_best():
 )
 @pytest.mark.parametrize("selection_crit", ["threshold", "k_best"])
 def test_classification(estimator, selection_crit):
+    # [FUNCTION DOC]
+    # For KNN and LogisticRegression with both criteria, verifies numeric and string
+    # labels yield equivalent predictions, probabilities and termination condition;
+    # originally labeled samples have labeled_iter_ 0 and keep their labels; max
+    # labeled_iter_ <= n_iter_ <= max_iter; labeled_iter_ and transduction_ shapes
+    # match.
     estimator = clone(estimator)  # Avoid side effects from previous tests.
     # Check classification for various parameter settings.
     # Also assert that predictions for strings and numerical labels are equal.
@@ -94,6 +108,13 @@ def test_classification(estimator, selection_crit):
 
 
 def test_k_best():
+    # [FUNCTION DOC]
+    # With 1-NN, k_best=10, max_iter=None and a single labeled sample, verifies the
+    # number of iterations is ceil((n-1)/10), that each intermediate iteration
+    # labels exactly 10 samples, the last one the remainder, and termination is
+    # "all_labeled".
+    # KNOWN ISSUE: the remainder assertion assumes (n-1) is not a multiple of 10;
+    # otherwise the final iteration labels 10, not 0.
     st = SelfTrainingClassifier(
         KNeighborsClassifier(n_neighbors=1),
         criterion="k_best",
@@ -117,6 +138,10 @@ def test_k_best():
 
 
 def test_sanity_classification():
+    # [FUNCTION DOC]
+    # Verifies self-training a calibrated SVC on partly labeled data gives different
+    # and more accurate test predictions than the same estimator trained only on
+    # the samples beyond the first 50.
     estimator = CalibratedClassifierCV(SVC(gamma="scale"), ensemble=False)
     estimator.fit(X_train[n_labeled_samples:], y_train[n_labeled_samples:])
 
@@ -132,6 +157,9 @@ def test_sanity_classification():
 
 
 def test_none_iter():
+    # [FUNCTION DOC]
+    # Verifies with max_iter=None and threshold 0.55 that all samples get labeled in
+    # fewer than 10 iterations.
     # Check that the all samples were labeled after a 'reasonable' number of
     # iterations.
     st = SelfTrainingClassifier(KNeighborsClassifier(), threshold=0.55, max_iter=None)
@@ -150,6 +178,10 @@ def test_none_iter():
 )
 @pytest.mark.parametrize("y", [y_train_missing_labels, y_train_missing_strings])
 def test_zero_iterations(estimator, y):
+    # [FUNCTION DOC]
+    # Verifies max_iter=0 is equivalent to fitting the base estimator on the labeled
+    # subset only (same predictions), for numeric and string labels, and that the
+    # termination condition is "max_iter".
     estimator = clone(estimator)  # Avoid side effects from previous tests.
     # Check classification for zero iterations.
     # Fitting a SelfTrainingClassifier with zero iterations should give the
@@ -167,6 +199,9 @@ def test_zero_iterations(estimator, y):
 
 
 def test_prefitted_throws_error():
+    # [FUNCTION DOC]
+    # Verifies predict on an unfitted SelfTrainingClassifier raises NotFittedError
+    # even if the wrapped estimator was already fitted.
     # Test that passing a pre-fitted classifier and calling predict throws an
     # error
     knn = KNeighborsClassifier()
@@ -181,6 +216,9 @@ def test_prefitted_throws_error():
 
 @pytest.mark.parametrize("max_iter", range(1, 5))
 def test_labeled_iter(max_iter):
+    # [FUNCTION DOC]
+    # Verifies for max_iter 1..4 that exactly the 50 originally labeled samples
+    # have labeled_iter_ 0 and max labeled_iter_ <= n_iter_ <= max_iter.
     # Check that the amount of datapoints labeled in iteration 0 is equal to
     # the amount of labeled datapoints we passed.
     st = SelfTrainingClassifier(KNeighborsClassifier(), max_iter=max_iter)
@@ -194,6 +232,10 @@ def test_labeled_iter(max_iter):
 
 
 def test_no_unlabeled():
+    # [FUNCTION DOC]
+    # Verifies fully labeled y warns "y contains no unlabeled samples", reproduces
+    # the plain KNN predictions, sets all labeled_iter_ to 0 and terminates with
+    # "all_labeled".
     # Test that training on a fully labeled dataset produces the same results
     # as training the classifier by itself.
     knn = KNeighborsClassifier()
@@ -209,6 +251,9 @@ def test_no_unlabeled():
 
 
 def test_early_stopping():
+    # [FUNCTION DOC]
+    # Verifies that when no unlabeled prediction exceeds the threshold the loop
+    # stops after one iteration with termination "no_change".
     lr = LogisticRegression()
     st = SelfTrainingClassifier(lr)
     X_train_easy = [[1], [0], [1], [0.5]]
@@ -221,6 +266,9 @@ def test_early_stopping():
 
 
 def test_strings_dtype():
+    # [FUNCTION DOC]
+    # Verifies fitting with a unicode string label array raises ValueError mentioning
+    # dtype.
     clf = SelfTrainingClassifier(KNeighborsClassifier())
     X, y = make_blobs(n_samples=30, random_state=0, cluster_std=0.1)
     labels_multiclass = ["one", "two", "three"]
@@ -233,6 +281,9 @@ def test_strings_dtype():
 
 @pytest.mark.parametrize("verbose", [True, False])
 def test_verbose(capsys, verbose):
+    # [FUNCTION DOC]
+    # Verifies progress lines containing "iteration" are printed to stdout only when
+    # verbose is True (captured with capsys).
     clf = SelfTrainingClassifier(KNeighborsClassifier(), verbose=verbose)
     clf.fit(X_train, y_train_missing_labels)
 
@@ -245,6 +296,9 @@ def test_verbose(capsys, verbose):
 
 
 def test_verbose_k_best(capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose output with k_best=10 lists "added 10 new labels" for each
+    # intermediate iteration and the remainder count for the final iteration.
     st = SelfTrainingClassifier(
         KNeighborsClassifier(n_neighbors=1),
         criterion="k_best",
@@ -270,6 +324,9 @@ def test_verbose_k_best(capsys):
 
 
 def test_k_best_selects_best():
+    # [FUNCTION DOC]
+    # Verifies one k_best iteration adds exactly the 10 unlabeled samples on which a
+    # separately fitted LogisticRegression is most confident.
     # Tests that the labels added by st really are the 10 best labels.
     est = LogisticRegression(random_state=0)
     st = SelfTrainingClassifier(est, criterion="k_best", max_iter=1, k_best=10)
@@ -290,6 +347,10 @@ def test_k_best_selects_best():
 
 
 def test_estimator_meta_estimator():
+    # [FUNCTION DOC]
+    # Non-regression (#19119): a StackingClassifier exposing predict_proba works as
+    # the wrapped estimator; one built from SVCs (no predict_proba) makes fit raise
+    # AttributeError.
     # Check that a meta-estimator relying on an estimator implementing
     # `predict_proba` will work even if it does not expose this method before being
     # fitted.
@@ -326,6 +387,11 @@ def test_estimator_meta_estimator():
 
 
 def test_self_training_estimator_attribute_error():
+    # [FUNCTION DOC]
+    # Non-regression (#28108): fit with an SVC lacking predict_proba raises
+    # AttributeError naming predict_proba; decision_function on a wrapped
+    # DecisionTreeClassifier raises the meta-estimator AttributeError whose cause is
+    # the inner estimator's AttributeError.
     """Check that we raise the proper AttributeErrors when the `estimator`
     does not implement the `predict_proba` method, which is called from within
     `fit`, or `decision_function`, which is decorated with `available_if`.
@@ -363,6 +429,10 @@ def test_self_training_estimator_attribute_error():
     "method", ["decision_function", "predict_log_proba", "predict_proba", "predict"]
 )
 def test_routing_passed_metadata_not_supported(method):
+    # [FUNCTION DOC]
+    # Verifies that with metadata routing disabled, passing metadata to fit or to
+    # each prediction method (on an instance marked fitted via fitted_params_)
+    # raises ValueError saying it requires enable_metadata_routing=True.
     """Test that the right error message is raised when metadata is passed while
     not supported when `enable_metadata_routing=False`."""
     est = SelfTrainingClassifier(estimator=SimpleEstimator())

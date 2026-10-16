@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Kernel density estimation (KernelDensity) backed by KDTree/BallTree's
+# kernel_density routine, with log-density scoring and sampling for gaussian/tophat
+# kernels. TREE_DICT maps algorithm names to tree classes.
+# Side effects at import: none.
 """
 Kernel Density Estimation
 -------------------------
@@ -40,6 +45,9 @@ TREE_DICT = {"ball_tree": BallTree, "kd_tree": KDTree}
 # TODO: implement a brute force version for testing purposes
 # TODO: create a density estimation base class?
 class KernelDensity(BaseEstimator):
+    # [CLASS DOC]
+    # Estimator storing the (optionally weighted) training points in a tree_ and
+    # evaluating normalized log densities with a chosen kernel and bandwidth_.
     """Kernel Density Estimation.
 
     Read more in the :ref:`User Guide <kernel_density>`.
@@ -165,6 +173,10 @@ class KernelDensity(BaseEstimator):
         leaf_size=40,
         metric_params=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged (bandwidth, algorithm, kernel, metric, atol,
+        # rtol,
+        # breadth_first, leaf_size, metric_params).
         self.algorithm = algorithm
         self.bandwidth = bandwidth
         self.kernel = kernel
@@ -176,6 +188,19 @@ class KernelDensity(BaseEstimator):
         self.metric_params = metric_params
 
     def _choose_algorithm(self, algorithm, metric):
+        # [FUNCTION DOC]
+        # HELPER: Resolves the tree type. For "auto": kd_tree if the metric is a KDTree
+        # metric, else ball_tree if it is a BallTree metric. For an explicit algorithm,
+        # checks
+        # the metric is valid for that tree and returns it.
+        # Inputs: algorithm - "auto", "kd_tree" or "ball_tree"; metric - str.
+        # Outputs: "kd_tree" or "ball_tree".
+        # Exceptions: ValueError for a metric invalid for the explicit tree.
+        # KNOWN ISSUE: for "auto" with a metric valid for neither tree the function
+        # falls
+        # through and returns None, which later fails with a KeyError in fit instead of
+        # a
+        # clear error.
         # given the algorithm string + metric string, choose the optimal
         # algorithm to compute the result.
         if algorithm == "auto":
@@ -196,6 +221,22 @@ class KernelDensity(BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Chooses the tree algorithm; sets bandwidth_ from the float bandwidth or
+        # estimates it
+        # with Scott's rule n^(-1/(d+4)) or Silverman's rule (n(d+2)/4)^(-1/(d+4));
+        # validates X
+        # as C-ordered float64 and non-negative sample weights; builds tree_ with the
+        # metric,
+        # leaf_size, sample weights and metric_params.
+        # Inputs: X - (n_samples, n_features); y - ignored; sample_weight - optional
+        # (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError from _choose_algorithm or validation.
+        # Side effects: sets bandwidth_, tree_, n_features_in_.
+        # KNOWN ISSUE: the "scott"/"silverman" estimates read X.shape before X is
+        # validated,
+        # so a plain list X with a string bandwidth raises AttributeError.
         """Fit the Kernel Density model on the data.
 
         Parameters
@@ -250,6 +291,16 @@ class KernelDensity(BaseEstimator):
         return self
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Returns per-sample log density. Validates X, takes N as the number of training
+        # points
+        # (or the total sample weight), calls tree_.kernel_density with bandwidth_,
+        # kernel,
+        # atol scaled by N, rtol, breadth_first in log space, then subtracts log N so
+        # the
+        # result is a normalized density.
+        # Inputs: X - (n_queries, n_features). Outputs: array (n_queries,).
+        # Exceptions: NotFittedError; validation errors.
         """Compute the log-likelihood of each sample under the model.
 
         Parameters
@@ -288,6 +339,8 @@ class KernelDensity(BaseEstimator):
         return log_density
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # Total log-likelihood: sum of score_samples over X. Outputs: float.
         """Compute the total log-likelihood under the model.
 
         Parameters
@@ -310,6 +363,20 @@ class KernelDensity(BaseEstimator):
         return np.sum(self.score_samples(X))
 
     def sample(self, n_samples=1, random_state=None):
+        # [FUNCTION DOC]
+        # Draws random points from the fitted density. Picks training indices uniformly
+        # (or
+        # proportionally to sample weight via a cumulative-sum search). Gaussian kernel:
+        # add
+        # isotropic normal noise with std bandwidth_ to the chosen points. Tophat
+        # kernel: draw
+        # standard normal directions, rescale them with the regularized incomplete gamma
+        # function so radii are uniform in the d-ball of radius bandwidth_, and add
+        # them.
+        # Inputs: n_samples - int; random_state - seed/RandomState/None.
+        # Outputs: array (n_samples, n_features).
+        # Exceptions: NotImplementedError for other kernels; NotFittedError.
+        # Side effects: consumes randomness from random_state.
         """Generate random samples from the model.
 
         Currently, this is implemented only for gaussian and tophat kernels.

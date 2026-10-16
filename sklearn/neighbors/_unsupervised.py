@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# NearestNeighbors: the unsupervised estimator exposing kneighbors and
+# radius_neighbors queries (and their graphs) over a fitted training set.
+# Side effects at import: none.
 """Unsupervised nearest neighbors learner"""
 
 # Authors: The scikit-learn developers
@@ -8,6 +12,10 @@ from sklearn.neighbors._base import KNeighborsMixin, NeighborsBase, RadiusNeighb
 
 
 class NearestNeighbors(KNeighborsMixin, RadiusNeighborsMixin, NeighborsBase):
+    # [CLASS DOC]
+    # Plain neighbor-search estimator combining KNeighborsMixin, RadiusNeighborsMixin
+    # and
+    # NeighborsBase; it has no prediction logic of its own.
     """Unsupervised learner for implementing neighbor searches.
 
     Read more in the :ref:`User Guide <unsupervised_neighbors>`.
@@ -144,6 +152,10 @@ class NearestNeighbors(KNeighborsMixin, RadiusNeighborsMixin, NeighborsBase):
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyper-parameters (n_neighbors, radius, algorithm, leaf_size,
+        # metric, p,
+        # metric_params, n_jobs) to NeighborsBase.__init__.
         super().__init__(
             n_neighbors=n_neighbors,
             radius=radius,
@@ -160,6 +172,11 @@ class NearestNeighbors(KNeighborsMixin, RadiusNeighborsMixin, NeighborsBase):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits via NeighborsBase._fit without targets (y ignored).
+        # Inputs: X - array/sparse, precomputed distances, tree or fitted neighbors
+        # estimator.
+        # Outputs: self. Side effects: sets the fitted attributes described in _fit.
         """Fit the nearest neighbors estimator from the training dataset.
 
         Parameters
