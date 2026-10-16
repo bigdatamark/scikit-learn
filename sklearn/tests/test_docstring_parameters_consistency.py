@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests that shared parameter/attribute descriptions are written identically
+# across related public objects (bagging/isolation forest, stacking estimators,
+# and precision/recall/F-score metrics). Module-level lists
+# CLASS_DOCSTRING_CONSISTENCY_CASES and FUNCTION_DOCSTRING_CONSISTENCY_CASES hold
+# keyword-argument dicts for assert_docstring_consistency.
+# KNOWN ISSUE: the first class case passes ignore_types as ("max_samples"), which
+# is a plain string rather than a one-element tuple (missing trailing comma).
+
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -102,6 +111,10 @@ FUNCTION_DOCSTRING_CONSISTENCY_CASES = [
 @pytest.mark.parametrize("case", CLASS_DOCSTRING_CONSISTENCY_CASES)
 @skip_if_no_numpydoc
 def test_class_docstring_consistency(case):
+    # [FUNCTION DOC]
+    # Parametrized over CLASS_DOCSTRING_CONSISTENCY_CASES; forwards each case dict to
+    # assert_docstring_consistency, which raises if the selected docstring sections
+    # differ. Skipped when numpydoc is not installed.
     """Check docstrings parameters consistency between related classes."""
     assert_docstring_consistency(**case)
 
@@ -109,5 +122,9 @@ def test_class_docstring_consistency(case):
 @pytest.mark.parametrize("case", FUNCTION_DOCSTRING_CONSISTENCY_CASES)
 @skip_if_no_numpydoc
 def test_function_docstring_consistency(case):
+    # [FUNCTION DOC]
+    # Same as test_class_docstring_consistency but over
+    # FUNCTION_DOCSTRING_CONSISTENCY_CASES (metric functions), including a regex check
+    # on the shared "average" parameter description.
     """Check docstrings parameters consistency between related functions."""
     assert_docstring_consistency(**case)

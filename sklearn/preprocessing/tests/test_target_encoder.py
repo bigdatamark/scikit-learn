@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.preprocessing.TargetEncoder: fit_transform (cross-fitted)
+# and transform encodings checked against a naive reference implementation for
+# binary, continuous and multiclass targets; custom/unknown categories; input
+# errors; target type inference; feature names and set_output; constant edge
+# cases; leakage and overfitting behavior with/without internal CV; label
+# permutation invariance; read-only y; cv overlap validation; deprecations.
 import re
 import warnings
 
@@ -27,6 +34,18 @@ from sklearn.utils.multiclass import type_of_target
 
 
 def _encode_target(X_ordinal, y_numeric, n_categories, smooth):
+    # [FUNCTION DOC]
+    # HELPER: Reference target encoding for one feature. For smooth "auto": each
+    # category c with samples gets lambda*mean(y_c) + (1-lambda)*mean(y), where
+    # lambda = n_c / (n_c + var(y_c)/var(y)); categories without samples get the
+    # global mean. For a float smooth: (sum(y_c) + smooth*mean(y)) /
+    # (n_c + smooth).
+    # Inputs: X_ordinal - 1-D int array of category codes in [0, n_categories);
+    # y_numeric - 1-D numeric target; n_categories - int; smooth - "auto" or float.
+    # Outputs: float64 array (n_categories,) of encodings.
+    # KNOWN ISSUE: with a float smooth of 0 and an empty category the division is
+    # 0/0 (NaN plus RuntimeWarning); with "auto" a constant y gives var(y) = 0 and a
+    # division by zero.
     """Simple Python implementation of target encoding."""
     cur_encodings = np.zeros(n_categories, dtype=np.float64)
     y_mean = np.mean(y_numeric)
@@ -68,6 +87,14 @@ def _encode_target(X_ordinal, y_numeric, n_categories, smooth):
 @pytest.mark.parametrize("smooth", [5.0, "auto"])
 @pytest.mark.parametrize("target_type", ["binary", "continuous"])
 def test_encoding(categories, unknown_value, global_random_seed, smooth, target_type):
+    # [FUNCTION DOC]
+    # For int/float(with NaN)/object/"auto" categories, both smoothing modes and
+    # binary/continuous targets: builds a shuffled 90-sample single-feature
+    # dataset, computes expected cross-fitted encodings per (Stratified)KFold split
+    # with _encode_target, and verifies fit_transform matches, target_type_,
+    # classes_, encodings_ and target_mean_ are correct, and transform maps the
+    # three known categories to full-data encodings and an unknown value to the
+    # target mean.
     """Check encoding for binary and continuous targets.
 
     Compare the values returned by `TargetEncoder.fit_transform` against the
@@ -176,6 +203,12 @@ def test_encoding(categories, unknown_value, global_random_seed, smooth, target_
 def test_encoding_multiclass(
     global_random_seed, categories, unknown_values, target_labels, smooth
 ):
+    # [FUNCTION DOC]
+    # Verifies multiclass targets: each feature is expanded to one column per class
+    # (one-vs-rest binarized target), ordered feature-major. Checks fit_transform
+    # against per-split reference encodings, encodings_ (n_features * n_classes
+    # entries), classes_, and transform where a row of unknown categories maps to
+    # the per-class target means.
     """Check encoding for multiclass targets."""
     rng = np.random.RandomState(global_random_seed)
 
@@ -293,6 +326,13 @@ def test_encoding_multiclass(
 )
 @pytest.mark.parametrize("smooth", [4.0, "auto"])
 def test_custom_categories(X, categories, smooth):
+    # [FUNCTION DOC]
+    # Verifies user-supplied categories with a category absent from training gets
+    # the target mean as encoding, and an unseen input value transforms to the
+    # target mean.
+    # KNOWN ISSUE: passes the deprecated random_state=0 argument (see
+    # test_target_encoder_shuffle_random_state_deprecated), which emits a
+    # FutureWarning in this test.
     """Custom categories with unknown categories that are not in training data."""
     rng = np.random.RandomState(0)
     y = rng.uniform(low=-10, high=20, size=X.shape[0])
@@ -319,6 +359,9 @@ def test_custom_categories(X, categories, smooth):
     ],
 )
 def test_errors(y, msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError for y length mismatch with X, and for a
+    # multiclass-multioutput (2-D) target.
     """Check invalidate input."""
     X = np.array([[1, 0, 1]]).T
 
@@ -328,6 +371,10 @@ def test_errors(y, msg):
 
 
 def test_use_regression_target():
+    # [FUNCTION DOC]
+    # Verifies a float y with few unique values is inferred as "multiclass" (with a
+    # StratifiedKFold UserWarning about tiny classes), and target_type="continuous"
+    # overrides the inference.
     """Check inferred and specified `target_type` on regression target."""
     X = np.array([[0, 1, 0, 1, 0, 1]]).T
     y = np.array([1.0, 2.0, 3.0, 2.0, 3.0, 4.0])
@@ -360,6 +407,10 @@ def test_use_regression_target():
     ],
 )
 def test_feature_names_out_set_output(y, feature_names):
+    # [FUNCTION DOC]
+    # Verifies pandas output equals default output numerically and that feature
+    # names are the input names for binary targets and "<feature>_<class>" for
+    # multiclass targets, matching the DataFrame columns.
     """Check TargetEncoder works with set_output."""
     pd = pytest.importorskip("pandas")
 
@@ -383,6 +434,11 @@ def test_feature_names_out_set_output(y, feature_names):
 @pytest.mark.parametrize("smooth", [1.0, "auto"])
 @pytest.mark.parametrize("target_type", ["binary-ints", "binary-str", "continuous"])
 def test_multiple_features_quick(to_pandas, smooth, target_type):
+    # [FUNCTION DOC]
+    # Verifies two-feature encoding (numpy or pandas with an object column) for
+    # binary int, binary string and continuous targets: fit_transform and
+    # encodings_ match the reference, and unknown values in either feature map to
+    # the target mean in transform.
     """Check target encoder with multiple features."""
     X_ordinal = np.array(
         [[1, 1], [0, 1], [1, 1], [2, 1], [1, 0], [0, 1], [1, 0], [0, 0]], dtype=np.int64
@@ -475,6 +531,11 @@ def test_multiple_features_quick(to_pandas, smooth, target_type):
 )
 @pytest.mark.parametrize("smooth", ["auto", 4.0, 0.0])
 def test_constant_target_and_feature(y, y_mean, smooth):
+    # [FUNCTION DOC]
+    # Verifies with a constant feature and constant target (continuous, binary int,
+    # binary string) that all encodings, fit_transform outputs, target_mean_ and
+    # transform of known/unknown values equal the target mean, for smooth auto, 4
+    # and 0.
     """Check edge case where feature and target is constant."""
     X = np.array([[1] * 20]).T
     n_samples = X.shape[0]
@@ -497,6 +558,11 @@ def test_constant_target_and_feature(y, y_mean, smooth):
 def test_fit_transform_not_associated_with_y_if_ordinal_categorical_is_not(
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Verifies leak prevention: with y-sorted data and a random categorical
+    # feature, a random forest scores R2 < 0.1 on raw X and on encodings from
+    # shuffled inner KFold, but > 0.5 with non-shuffled KFold (fold-wise priors
+    # leak target information).
     cardinality = 30  # not too large, otherwise we need a very large n_samples
     n_samples = 3000
     rng = np.random.RandomState(global_random_seed)
@@ -543,6 +609,9 @@ def test_fit_transform_not_associated_with_y_if_ordinal_categorical_is_not(
 
 
 def test_smooth_zero():
+    # [FUNCTION DOC]
+    # Verifies with smooth=0 and unshuffled 2-fold CV that a category missing from a
+    # training fold is encoded as that fold's target mean.
     """Check edge case with zero smoothing and cv does not contain category."""
     X = np.array([[0, 0, 0, 0, 0, 1, 1, 1, 1, 1]]).T
     y = np.array([2.1, 4.3, 1.2, 3.1, 1.0, 9.0, 10.3, 14.2, 13.3, 15.0])
@@ -561,6 +630,9 @@ def test_smooth_zero():
 
 @pytest.mark.parametrize("smooth", [0.0, 1e3, "auto"])
 def test_invariance_of_encoding_under_label_permutation(smooth, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies fit_transform and transform outputs are unchanged when category codes
+    # are relabeled by a random permutation.
     # Check that the encoding does not depend on the integer of the value of
     # the integer labels. This is quite a trivial property but it is helpful
     # to understand the following test.
@@ -600,6 +672,13 @@ def test_invariance_of_encoding_under_label_permutation(smooth, global_random_se
 
 @pytest.mark.parametrize("smooth", [0.0, "auto"])
 def test_target_encoding_for_linear_regression(smooth, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies statistical behavior on 50k samples with an informative (permuted
+    # ordinal) feature, a shuffled copy and a near-unique ID feature: Ridge on raw
+    # features underfits (R2 < 0.1); pipeline with cross-fitted encoding
+    # generalizes (R2 > 0.5) with coef about 1 on the informative feature and small
+    # coefs elsewhere; encoding via fit then transform (no CV) overfits (train R2 >
+    # 0.7, test < 0.5) and puts more weight on the ID feature.
     # Check some expected statistical properties when fitting a linear
     # regression model on target encoded features depending on their relation
     # with that target.
@@ -713,6 +792,10 @@ def test_target_encoding_for_linear_regression(smooth, global_random_seed):
 
 
 def test_pandas_copy_on_write():
+    # [FUNCTION DOC]
+    # Non-regression (gh-27879): fitting with a read-only y from a pandas
+    # copy-on-write DataFrame works; on pandas < 4 the copy-on-write option is
+    # enabled explicitly with its deprecation warning suppressed.
     """
     Test target-encoder cython code when y is read-only.
 
@@ -744,6 +827,10 @@ def test_pandas_copy_on_write():
 
 
 def test_target_encoder_raises_cv_overlap(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies an iterable of KFold splits is accepted as cv, while ShuffleSplit
+    # splits (validation sets overlapping/not covering all samples) raise
+    # ValueError.
     """
     Test that `TargetEncoder` raises if `cv` has overlapping splits.
     """
@@ -764,6 +851,9 @@ def test_target_encoder_raises_cv_overlap(global_random_seed):
 
 # TODO(1.11): remove after deprecation
 def test_target_encoder_shuffle_random_state_deprecated():
+    # [FUNCTION DOC]
+    # Verifies passing shuffle or random_state emits the deprecation FutureWarning
+    # at fit_transform.
     X, y = make_regression(n_samples=100, n_features=3, random_state=0)
     msg = "`TargetEncoder.shuffle` and `TargetEncoder.random_state` are deprecated"
     with pytest.warns(FutureWarning, match=msg):
