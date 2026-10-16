@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.naive_bayes: GaussianNB, BernoulliNB, CategoricalNB, ComplementNB
+# and MultinomialNB. Covers fit/predict on toy data, priors, sample weights,
+# partial_fit equivalence, smoothing (alpha / force_alpha), hand-computed textbook
+# probabilities, degenerate one-class data, joint log-probabilities, tags and
+# GaussianNB array API compliance.
+# Module globals: DISCRETE_NAIVE_BAYES_CLASSES, ALL_NAIVE_BAYES_CLASSES, and a toy
+# dataset X (6 separable 2-D points) with labels y in {1, 2}.
 import re
 import warnings
 
@@ -40,6 +48,10 @@ y = np.array([1, 1, 1, 2, 2, 2])
 
 
 def get_random_normal_x_binary_y(global_random_seed):
+    # [FUNCTION DOC]
+    # HELPER: Returns a seeded random dataset: X1 of shape (10, 3) standard normal and
+    # y1 binary int labels (1 where another normal draw is positive).
+    # Inputs: global_random_seed - int seed for np.random.RandomState.
     # A bit more random tests
     rng = np.random.RandomState(global_random_seed)
     X1 = rng.normal(size=(10, 3))
@@ -48,6 +60,10 @@ def get_random_normal_x_binary_y(global_random_seed):
 
 
 def get_random_integer_x_three_classes_y(global_random_seed):
+    # [FUNCTION DOC]
+    # HELPER: Returns X2 of shape (6, 100) with random ints in [0, 5) and fixed labels
+    # y2 = [1, 1, 2, 2, 3, 3].
+    # Inputs: global_random_seed - int seed for np.random.RandomState.
     # Data is 6 random integer points in a 100 dimensional space classified to
     # three classes.
     rng = np.random.RandomState(global_random_seed)
@@ -57,6 +73,10 @@ def get_random_integer_x_three_classes_y(global_random_seed):
 
 
 def test_gnb():
+    # [FUNCTION DOC]
+    # Verifies GaussianNB predicts the toy training labels, that log of predict_proba
+    # matches predict_log_proba, and that partial_fit raises ValueError when y has
+    # labels absent from the given classes.
     # Gaussian Naive Bayes classification.
     # This checks that GaussianNB implements fit and predict and returns
     # correct values for a simple toy dataset.
@@ -79,6 +99,9 @@ def test_gnb():
 
 
 def test_gnb_prior(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies GaussianNB class_prior_ equals empirical frequencies (0.5/0.5) on the toy
+    # data and sums to 1 on random binary data.
     # Test whether class priors are properly set.
     clf = GaussianNB().fit(X, y)
     assert_array_almost_equal(np.array([3, 3]) / 6.0, clf.class_prior_, 8)
@@ -89,6 +112,10 @@ def test_gnb_prior(global_random_seed):
 
 
 def test_gnb_sample_weight(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies GaussianNB sample weights: unit weights change nothing; two partial_fit
+    # calls with half weights equal one fit with full weights; integer weights equal
+    # duplicating samples; and (gh-24140) weights zeroing out a class do not crash.
     """Test whether sample weights are properly used in GNB."""
     # Sample weights all being 1 should not change results
     sw = np.ones(6)
@@ -128,6 +155,8 @@ def test_gnb_sample_weight(global_random_seed):
 
 
 def test_gnb_neg_priors():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when priors contain a negative value.
     """Test whether an error is raised in case of negative priors"""
     clf = GaussianNB(priors=np.array([-1.0, 2.0]))
 
@@ -137,6 +166,9 @@ def test_gnb_neg_priors():
 
 
 def test_gnb_priors():
+    # [FUNCTION DOC]
+    # Verifies user-supplied priors are stored in class_prior_ and yield a known
+    # predict_proba for a point near the origin.
     """Test whether the class prior override is properly used"""
     clf = GaussianNB(priors=np.array([0.3, 0.7])).fit(X, y)
     assert_array_almost_equal(
@@ -148,6 +180,9 @@ def test_gnb_priors():
 
 
 def test_gnb_priors_sum_isclose():
+    # [FUNCTION DOC]
+    # Smoke test (issue #9633): fit succeeds with 10 priors whose float sum is only
+    # approximately 1 (including a zero prior).
     # test whether the class prior sum is properly tested"""
     X = np.array(
         [
@@ -171,6 +206,9 @@ def test_gnb_priors_sum_isclose():
 
 
 def test_gnb_wrong_nb_priors():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when the number of priors differs from the number
+    # of classes.
     """Test whether an error is raised if the number of prior is different
     from the number of class"""
     clf = GaussianNB(priors=np.array([0.25, 0.25, 0.25, 0.25]))
@@ -181,6 +219,8 @@ def test_gnb_wrong_nb_priors():
 
 
 def test_gnb_prior_greater_one():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when priors do not sum to 1.
     """Test if an error is raised if the sum of prior greater than one"""
     clf = GaussianNB(priors=np.array([2.0, 1.0]))
 
@@ -190,6 +230,9 @@ def test_gnb_prior_greater_one():
 
 
 def test_gnb_prior_large_bias():
+    # [FUNCTION DOC]
+    # Verifies a strongly skewed prior (0.01, 0.99) makes a point near the boundary be
+    # predicted as class 2.
     """Test if good prediction when class prior favor largely one class"""
     clf = GaussianNB(priors=np.array([0.01, 0.99]))
     clf.fit(X, y)
@@ -197,6 +240,9 @@ def test_gnb_prior_large_bias():
 
 
 def test_gnb_check_update_with_no_data():
+    # [FUNCTION DOC]
+    # Verifies GaussianNB._update_mean_variance returns the previous mean and variance
+    # unchanged when given an empty batch.
     """Test when the partial fit is called without any data"""
     # Create an empty array
     prev_points = 100
@@ -209,6 +255,10 @@ def test_gnb_check_update_with_no_data():
 
 
 def test_gnb_partial_fit(global_dtype):
+    # [FUNCTION DOC]
+    # Verifies partial_fit (one call, and two calls on even/odd rows) gives the same
+    # class_prior_, theta_ and var_ as fit, with dtypes preserved as the input dtype.
+    # Inputs: global_dtype - parametrized float dtype fixture.
     X_ = X.astype(global_dtype)
     clf = GaussianNB().fit(X_, y)
     clf_pf = GaussianNB().partial_fit(X_, y, np.unique(y))
@@ -228,6 +278,9 @@ def test_gnb_partial_fit(global_dtype):
 
 
 def test_gnb_naive_bayes_scale_invariance():
+    # [FUNCTION DOC]
+    # Verifies GaussianNB predictions on iris are unchanged when X is scaled by 1e-10,
+    # 1 and 1e10.
     # Scaling the data should not change the prediction results
     iris = load_iris()
     X, y = iris.data, iris.target
@@ -238,6 +291,9 @@ def test_gnb_naive_bayes_scale_invariance():
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_prior(DiscreteNaiveBayes, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies discrete NB estimators learn a uniform log prior for balanced 3-class data.
+    # Inputs: DiscreteNaiveBayes - estimator class; global_random_seed - seed fixture.
     # Test whether class priors are properly set.
     X2, y2 = get_random_integer_x_three_classes_y(global_random_seed)
     clf = DiscreteNaiveBayes().fit(X2, y2)
@@ -248,6 +304,11 @@ def test_discretenb_prior(DiscreteNaiveBayes, global_random_seed):
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_partial_fit(DiscreteNaiveBayes):
+    # [FUNCTION DOC]
+    # Verifies partial_fit (single call, and one sample per call) yields the same
+    # class_count_ and feature_count_ as fit; for CategoricalNB compares
+    # category_count_ (exactly for one call, by shape/row sums for incremental calls)
+    # and checks hand-computed category counts.
     clf1 = DiscreteNaiveBayes()
     clf1.fit([[0, 1], [1, 0], [1, 1]], [0, 1, 1])
 
@@ -298,6 +359,9 @@ def test_discretenb_partial_fit(DiscreteNaiveBayes):
 
 @pytest.mark.parametrize("NaiveBayes", ALL_NAIVE_BAYES_CLASSES)
 def test_NB_partial_fit_no_first_classes(NaiveBayes, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies every NB estimator raises ValueError when classes is omitted on the first
+    # partial_fit, and when a later call passes a different classes array.
     # classes is required for first call to partial fit
     X2, y2 = get_random_integer_x_three_classes_y(global_random_seed)
 
@@ -316,6 +380,10 @@ def test_NB_partial_fit_no_first_classes(NaiveBayes, global_random_seed):
 
 
 def test_discretenb_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies BernoulliNB / MultinomialNB predict_proba shapes and row sums for a
+    # binary case (labels 0 and 2) and a 3-class case, and that exp(class_log_prior_)
+    # sums to 1.
     # Test discrete NB classes' probability scores
 
     # The 100s below distinguish Bernoulli from multinomial.
@@ -350,6 +418,8 @@ def test_discretenb_predict_proba():
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_uniform_prior(DiscreteNaiveBayes):
+    # [FUNCTION DOC]
+    # Verifies fit_prior=False with no class_prior gives a uniform prior.
     # Test whether discrete NB classes fit a uniform prior
     # when fit_prior=False and class_prior=None
 
@@ -362,6 +432,10 @@ def test_discretenb_uniform_prior(DiscreteNaiveBayes):
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_provide_prior(DiscreteNaiveBayes):
+    # [FUNCTION DOC]
+    # Verifies a given class_prior is used, and that ValueError is raised when the
+    # number of classes mismatches the prior or partial_fit is later given different
+    # classes.
     # Test whether discrete NB classes use provided prior
 
     clf = DiscreteNaiveBayes(class_prior=[0.5, 0.5])
@@ -381,6 +455,9 @@ def test_discretenb_provide_prior(DiscreteNaiveBayes):
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_provide_prior_with_partial_fit(DiscreteNaiveBayes):
+    # [FUNCTION DOC]
+    # Verifies class_log_prior_ after two partial_fit calls on a 60/40 iris split
+    # equals that of fit on all data, for both class_prior=None and an explicit prior.
     # Test whether discrete NB classes use provided prior
     # when using partial_fit
 
@@ -402,6 +479,9 @@ def test_discretenb_provide_prior_with_partial_fit(DiscreteNaiveBayes):
 
 @pytest.mark.parametrize("DiscreteNaiveBayes", DISCRETE_NAIVE_BAYES_CLASSES)
 def test_discretenb_sample_weight_multiclass(DiscreteNaiveBayes):
+    # [FUNCTION DOC]
+    # Verifies normalized sample weights are honoured by fit and by three successive
+    # partial_fit calls, via expected predictions on a 4-sample dataset.
     # check shape consistency for number of samples at fit time
     X = [
         [0, 0, 1],
@@ -431,6 +511,12 @@ def test_discretenb_degenerate_one_class_case(
     use_partial_fit,
     train_on_single_class_y,
 ):
+    # [FUNCTION DOC]
+    # Non-regression (#18974): with fit or partial_fit on binary or single-class data,
+    # the training point is predicted correctly and per-class attributes (classes_,
+    # class_count_, class_log_prior_, feature_count_, feature_log_prob_) have first
+    # axis length equal to the number of classes; list-valued attributes are checked
+    # element-wise and missing ones skipped.
     # Most array attributes of a discrete naive Bayes classifier should have a
     # first-axis length equal to the number of classes. Exceptions include:
     # ComplementNB.feature_all_, CategoricalNB.n_categories_.
@@ -479,6 +565,11 @@ def test_discretenb_degenerate_one_class_case(
 @pytest.mark.parametrize("kind", ("dense", "sparse"))
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_mnnb(kind, global_random_seed, csr_container):
+    # [FUNCTION DOC]
+    # Verifies MultinomialNB on dense or CSR data: ValueError for negative X, perfect
+    # training predictions, log-proba consistency, and identical probabilities from
+    # three-chunk partial_fit and from a single partial_fit.
+    # Inputs: kind - "dense" or "sparse"; csr_container - sparse constructor.
     # Test Multinomial Naive Bayes classification.
     # This checks that MultinomialNB implements fit and predict and returns
     # correct values for a simple toy dataset.
@@ -534,6 +625,10 @@ def test_mnnb(kind, global_random_seed, csr_container):
 
 
 def test_mnb_prior_unobserved_targets():
+    # [FUNCTION DOC]
+    # Verifies MultinomialNB partial_fit with a declared but unobserved class emits no
+    # RuntimeWarning (treated as error) and predicts correctly, then correctly learns
+    # the new class once a sample for it arrives.
     # test smoothing of prior for yet unobserved targets
 
     # Create toy training data
@@ -563,6 +658,9 @@ def test_mnb_prior_unobserved_targets():
 
 
 def test_bnb():
+    # [FUNCTION DOC]
+    # Verifies BernoulliNB(alpha=1) reproduces the class prior, feature probabilities
+    # and predict_proba from the IR-book China/Japan toy example.
     # Tests that BernoulliNB when alpha=1.0 gives the same values as
     # those given for the toy example in Manning, Raghavan, and
     # Schuetze's "Introduction to Information Retrieval" book:
@@ -610,6 +708,9 @@ def test_bnb():
 
 
 def test_bnb_feature_log_prob():
+    # [FUNCTION DOC]
+    # Regression (#4268): BernoulliNB feature_log_prob_ equals log(feature_count + 1)
+    # minus log(class_count + 2) per class.
     # Test for issue #4268.
     # Tests that the feature log prob value computed by BernoulliNB when
     # alpha=1.0 is equal to the expression given in Manning, Raghavan,
@@ -633,6 +734,11 @@ def test_bnb_feature_log_prob():
 
 
 def test_cnb():
+    # [FUNCTION DOC]
+    # Verifies ComplementNB: ValueError for negative X; feature_count_, class_count_,
+    # feature_all_ match hand counts; feature_log_prob_ equals negative log complement
+    # probabilities (Rennie et al. 2003), and their per-class normalization when
+    # norm=True.
     # Tests ComplementNB when alpha=1.0 for the toy example in Manning,
     # Raghavan, and Schuetze's "Introduction to Information Retrieval" book:
     # https://nlp.stanford.edu/IR-book/html/htmledition/the-bernoulli-model-1.html
@@ -704,6 +810,11 @@ def test_cnb():
 
 
 def test_categoricalnb(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies CategoricalNB: perfect training predictions; n_categories_ is max value
+    # plus one; ValueError for negative X in predict and fit; alpha smoothing gives the
+    # expected predict_proba; category_count_ has one entry per feature; and sample
+    # weights (scaled by several factors) flip the prediction as expected.
     # Check the ability to predict the training set.
     clf = CategoricalNB()
     X2, y2 = get_random_integer_x_three_classes_y(global_random_seed)
@@ -792,6 +903,11 @@ def test_categoricalnb(global_random_seed):
 def test_categoricalnb_with_min_categories(
     min_categories, exp_X1_count, exp_X2_count, new_X, exp_n_categories_
 ):
+    # [FUNCTION DOC]
+    # Verifies min_categories (int, list, or smaller than observed) sets per-feature
+    # category_count_ shapes, n_categories_, and allows predicting unseen categories.
+    # Inputs: parametrized min_categories, expected count arrays, new_X and expected
+    # n_categories_.
     X_n_categories = np.array([[0, 0], [0, 1], [0, 0], [1, 1]])
     y_n_categories = np.array([1, 1, 2, 2])
     expected_prediction = np.array([1])
@@ -813,6 +929,8 @@ def test_categoricalnb_with_min_categories(
     ],
 )
 def test_categoricalnb_min_categories_errors(min_categories, error_msg):
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when min_categories has an invalid shape.
     X = np.array([[0, 0], [0, 1], [0, 0], [1, 1]])
     y = np.array([1, 1, 2, 2])
 
@@ -823,6 +941,10 @@ def test_categoricalnb_min_categories_errors(min_categories, error_msg):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_alpha(csr_container):
+    # [FUNCTION DOC]
+    # Verifies alpha=0 with force_alpha=False warns and clips alpha to 1e-10 for
+    # BernoulliNB, MultinomialNB and CategoricalNB (fit and partial_fit, dense and
+    # CSR), with predict_proba free of NaNs and equal to expected values.
     # Setting alpha=0 should not output nan results when p(x_i|y_j)=0 is a case
     X = np.array([[1, 0], [1, 1]])
     y = np.array([0, 1])
@@ -865,6 +987,10 @@ def test_alpha(csr_container):
 
 
 def test_alpha_vector():
+    # [FUNCTION DOC]
+    # Verifies array alpha in MultinomialNB: per-feature pseudo-counts give expected
+    # feature_log_prob_ and predict_proba; negative entries raise ValueError; entries
+    # below 1e-10 are clipped by _check_alpha; wrong length raises ValueError.
     X = np.array([[1, 0], [1, 1]])
     y = np.array([0, 1])
 
@@ -905,6 +1031,9 @@ def test_alpha_vector():
 
 
 def test_check_accuracy_on_digits():
+    # [FUNCTION DOC]
+    # Non-regression accuracy thresholds of 10-fold cross_val_score on digits (all
+    # classes and 3-vs-8) for MultinomialNB, BernoulliNB (on X > 4) and GaussianNB.
     # Non regression test to make sure that any further refactoring / optim
     # of the NB models do not harm the performance on a slightly non-linearly
     # separable dataset
@@ -938,6 +1067,13 @@ def test_check_accuracy_on_digits():
 
 
 def test_check_alpha():
+    # [FUNCTION DOC]
+    # Regression (#10772): _check_alpha returns alpha unchanged (scalar or array) when
+    # force_alpha=True, and with force_alpha=False warns and clips values below
+    # 1e-10. n_features_in_ is set manually for array alpha.
+    # KNOWN ISSUE: the scalar force_alpha=False check is duplicated verbatim.
+    # KNOWN ISSUE: the docstring says alpha is used only if alpha < _ALPHA_MIN and
+    # force_alpha is True; the code keeps any alpha when force_alpha is True.
     """The provided value for alpha must only be
     used if alpha < _ALPHA_MIN and force_alpha is True.
 
@@ -976,6 +1112,9 @@ def test_check_alpha():
 
 @pytest.mark.parametrize("Estimator", ALL_NAIVE_BAYES_CLASSES)
 def test_predict_joint_proba(Estimator, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies predict_log_proba equals predict_joint_log_proba normalized by its
+    # row-wise logsumexp, for every NB estimator.
     X2, y2 = get_random_integer_x_three_classes_y(global_random_seed)
     est = Estimator().fit(X2, y2)
     jll = est.predict_joint_log_proba(X2)
@@ -986,6 +1125,8 @@ def test_predict_joint_proba(Estimator, global_random_seed):
 
 @pytest.mark.parametrize("Estimator", ALL_NAIVE_BAYES_CLASSES)
 def test_categorical_input_tag(Estimator):
+    # [FUNCTION DOC]
+    # Verifies only CategoricalNB declares the categorical input tag.
     tags = Estimator().__sklearn_tags__()
     if Estimator is CategoricalNB:
         assert tags.input_tags.categorical
@@ -1002,6 +1143,12 @@ def test_categorical_input_tag(Estimator):
 def test_gnb_array_api_compliance(
     use_str_y, use_sample_weight, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies GaussianNB under array_api_dispatch matches NumPy results: fitted
+    # attributes, predict, predict_proba and predict_log_proba have the input dtype and
+    # device and equal values; string labels are kept as NumPy arrays.
+    # Inputs: use_str_y, use_sample_weight - bools; array_namespace, device_name,
+    # dtype_name - combination from yield_namespace_device_dtype_combinations.
     """Tests that :class:`GaussianNB` works correctly with array API inputs."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     X_np = X.astype(dtype_name)

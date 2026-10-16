@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.multioutput: MultiOutputRegressor, MultiOutputClassifier,
+# ClassifierChain and RegressorChain. Covers equivalence with per-target fitting,
+# partial_fit, sample weights, sparse inputs, predict_proba delegation, chain
+# ordering / cross-validated chains, fit-param propagation, verbosity and errors.
+# Module-level side effect: loads iris and builds a 3-output target y (original
+# target plus two shuffled copies) with globals X, y, y1..y3, n_samples,
+# n_features, n_outputs, n_classes and classes shared by many tests.
 import re
 
 import numpy as np
@@ -58,6 +66,10 @@ from sklearn.utils.fixes import (
 
 
 def test_multi_target_regression():
+    # [FUNCTION DOC]
+    # Verifies MultiOutputRegressor(GradientBoostingRegressor) predictions equal those of
+    # three independently fitted GradientBoostingRegressors, one per target column, on a
+    # 50/50 split of a 3-target make_regression dataset.
     X, y = datasets.make_regression(n_targets=3, random_state=0)
     X_train, y_train = X[:50], y[:50]
     X_test, y_test = X[50:], y[50:]
@@ -76,6 +88,13 @@ def test_multi_target_regression():
 
 
 def test_multi_target_regression_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies two partial_fit calls (first/second half of training data) on
+    # MultiOutputRegressor(SGDRegressor) give the same predictions as per-target
+    # SGDRegressors updated the same way; also checks partial_fit is not exposed when
+    # the base estimator (Lasso) lacks it.
+    # KNOWN ISSUE: passes the Lasso class rather than an instance; works only because
+    # the hasattr check inspects the class attribute.
     X, y = datasets.make_regression(n_targets=3, random_state=0)
     X_train, y_train = X[:50], y[:50]
     X_test, y_test = X[50:], y[50:]
@@ -99,6 +118,8 @@ def test_multi_target_regression_partial_fit():
 
 
 def test_multi_target_regression_one_target():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError ("at least two dimensions") when y is 1-D.
     # Test multi target regression raises
     X, y = datasets.make_regression(n_targets=1, random_state=0)
     rgr = MultiOutputRegressor(GradientBoostingRegressor(random_state=0))
@@ -117,6 +138,10 @@ def test_multi_target_regression_one_target():
     + BSR_CONTAINERS,
 )
 def test_multi_target_sparse_regression(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies MultiOutputRegressor(Lasso) predictions are identical when trained and
+    # evaluated on dense data versus each sparse container type.
+    # Inputs: sparse_container - parametrized scipy sparse matrix/array constructor.
     X, y = datasets.make_regression(n_targets=3, random_state=0)
     X_train, y_train = X[:50], y[:50]
     X_test = X[50:]
@@ -133,6 +158,10 @@ def test_multi_target_sparse_regression(sparse_container):
 
 
 def test_multi_target_sample_weights_api():
+    # [FUNCTION DOC]
+    # Verifies fit with sample weights raises ValueError when the base estimator
+    # (OrthogonalMatchingPursuit) does not support them, and succeeds with
+    # GradientBoostingRegressor.
     X = [[1, 2, 3], [4, 5, 6]]
     y = [[3.141, 2.718], [2.718, 3.141]]
     w = [0.8, 0.6]
@@ -148,6 +177,9 @@ def test_multi_target_sample_weights_api():
 
 
 def test_multi_target_sample_weight_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies sample weights reach the base estimator in partial_fit: two models trained
+    # with different weight vectors must give different first predictions.
     # weighted regressor
     X = [[1, 2, 3], [4, 5, 6]]
     y = [[3.141, 2.718], [2.718, 3.141]]
@@ -164,6 +196,9 @@ def test_multi_target_sample_weight_partial_fit():
 
 
 def test_multi_target_sample_weights():
+    # [FUNCTION DOC]
+    # Verifies weighting a sample by 2 in fit is equivalent to duplicating it, by
+    # comparing predictions of a weighted and an unweighted-with-repeats model.
     # weighted regressor
     Xw = [[1, 2, 3], [4, 5, 6]]
     yw = [[3.141, 2.718], [2.718, 3.141]]
@@ -199,6 +234,10 @@ classes = list(map(np.unique, (y1, y2, y3)))
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_multi_output_classification_partial_fit_parallelism():
+    # [FUNCTION DOC]
+    # Verifies that with n_jobs=4, a second partial_fit call replaces the per-output
+    # estimators with new objects (when more than one CPU is available), i.e. the
+    # parallel implementation does not mutate shared estimators in place.
     sgd_linear_clf = SGDClassifier(loss="log_loss", random_state=1, max_iter=5)
     mor = MultiOutputClassifier(sgd_linear_clf, n_jobs=4)
     mor.partial_fit(X, y, classes)
@@ -212,6 +251,9 @@ def test_multi_output_classification_partial_fit_parallelism():
 
 # check multioutput has predict_proba
 def test_hasattr_multi_output_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies MultiOutputClassifier exposes predict_proba only when the base
+    # SGDClassifier loss supports it (absent for hinge, present for log_loss).
     # default SGDClassifier has loss='hinge'
     # which does not expose a predict_proba method
     sgd_linear_clf = SGDClassifier(random_state=1, max_iter=5)
@@ -228,11 +270,18 @@ def test_hasattr_multi_output_predict_proba():
 
 # check predict_proba passes
 def test_multi_output_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies predict_proba works when the base estimator is a GridSearchCV whose best
+    # SGDClassifier has predict_proba, and that with hinge loss calling predict_proba
+    # raises AttributeError whose chained causes come from SGDClassifier and its loss.
     sgd_linear_clf = SGDClassifier(random_state=1, max_iter=5)
     param = {"loss": ("hinge", "log_loss", "modified_huber")}
 
     # inner function for custom scoring
     def custom_scorer(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Custom scorer for the grid search: returns 1.0 if the estimator has
+        # predict_proba, else 0.0, so probabilistic losses are preferred.
         if hasattr(estimator, "predict_proba"):
             return 1.0
         else:
@@ -270,6 +319,10 @@ def test_multi_output_predict_proba():
 
 
 def test_multi_output_classification_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies MultiOutputClassifier.partial_fit over two halves yields predictions of
+    # shape (n_samples, n_outputs) matching cloned SGDClassifiers partially fitted on
+    # each column separately after each step.
     # test if multi_target initializes correctly with base estimator and fit
     # assert predictions work as expected for predict
 
@@ -301,6 +354,8 @@ def test_multi_output_classification_partial_fit():
 
 
 def test_multi_output_classification_partial_fit_no_first_classes_exception():
+    # [FUNCTION DOC]
+    # Verifies the first partial_fit without classes raises ValueError.
     sgd_linear_clf = SGDClassifier(loss="log_loss", random_state=1, max_iter=5)
     multi_target_linear = MultiOutputClassifier(sgd_linear_clf)
     msg = "classes must be passed on the first call to partial_fit."
@@ -309,6 +364,12 @@ def test_multi_output_classification_partial_fit_no_first_classes_exception():
 
 
 def test_multi_output_classification():
+    # [FUNCTION DOC]
+    # Verifies MultiOutputClassifier(RandomForestClassifier) predict / predict_proba
+    # shapes, that argmax of probabilities equals predictions, and that results equal
+    # forests fitted per column.
+    # KNOWN ISSUE: the comment mentions score and "prodict_proba" (typo); score is not
+    # tested.
     # test if multi_target initializes correctly with base estimator and fit
     # assert predictions work as expected for predict, prodict_proba and score
 
@@ -338,6 +399,10 @@ def test_multi_output_classification():
 
 
 def test_multiclass_multioutput_estimator():
+    # [FUNCTION DOC]
+    # Verifies MultiOutputClassifier wrapping OneVsRestClassifier(LinearSVC) predicts
+    # the same as per-column fitted clones.
+    # KNOWN ISSUE: inline comment refers to "forest" though the estimator is an SVC.
     # test to check meta of meta estimators
     svc = LinearSVC(random_state=0)
     multi_class_svc = OneVsRestClassifier(svc)
@@ -356,6 +421,10 @@ def test_multiclass_multioutput_estimator():
 
 
 def test_multiclass_multioutput_estimator_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies predict_proba of MultiOutputClassifier(LogisticRegression) on a tiny
+    # random dataset with string labels (2 and 3 classes) matches hard-coded reference
+    # probabilities per output.
     seed = 542
 
     # make test deterministic
@@ -401,6 +470,9 @@ def test_multiclass_multioutput_estimator_predict_proba():
 
 
 def test_multi_output_classification_sample_weights():
+    # [FUNCTION DOC]
+    # Verifies sample weight 2 equals sample duplication for
+    # MultiOutputClassifier(RandomForestClassifier) via equal test predictions.
     # weighted classifier
     Xw = [[1, 2, 3], [4, 5, 6]]
     yw = [[3, 2], [2, 3]]
@@ -421,6 +493,10 @@ def test_multi_output_classification_sample_weights():
 
 
 def test_multi_output_classification_partial_fit_sample_weights():
+    # [FUNCTION DOC]
+    # Verifies sample weight 2 equals sample duplication for
+    # MultiOutputClassifier(SGDClassifier, tol=None).
+    # KNOWN ISSUE: name says partial_fit but the test calls fit only.
     # weighted classifier
     Xw = [[1, 2, 3], [4, 5, 6], [1.5, 2.5, 3.5]]
     yw = [[3, 2], [2, 3], [3, 2]]
@@ -440,6 +516,10 @@ def test_multi_output_classification_partial_fit_sample_weights():
 
 
 def test_multi_output_exceptions():
+    # [FUNCTION DOC]
+    # Verifies errors: NotFittedError for score before fit, ValueError when scoring
+    # with a different number of outputs, and ValueError "Unknown label type" for a
+    # continuous target.
     # NotFittedError when fit is not done but score, predict and
     # and predict_proba are called
     moc = MultiOutputClassifier(LinearSVC(random_state=0))
@@ -461,6 +541,10 @@ def test_multi_output_exceptions():
 
 @pytest.mark.parametrize("response_method", ["predict_proba", "predict"])
 def test_multi_output_not_fitted_error(response_method):
+    # [FUNCTION DOC]
+    # Verifies predict / predict_proba on an unfitted MultiOutputClassifier raise
+    # NotFittedError.
+    # Inputs: response_method - parametrized method name.
     """Check that we raise the proper error when the estimator is not fitted"""
     moc = MultiOutputClassifier(LogisticRegression())
     with pytest.raises(NotFittedError):
@@ -468,6 +552,10 @@ def test_multi_output_not_fitted_error(response_method):
 
 
 def test_multi_output_delegate_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies predict_proba availability is delegated to the base estimator both
+    # before and after fit, and that without it AttributeError is raised with the
+    # base estimator's AttributeError as its cause.
     """Check the behavior for the delegation of predict_proba to the underlying
     estimator"""
 
@@ -497,6 +585,11 @@ def test_multi_output_delegate_predict_proba():
 
 
 def generate_multilabel_dataset_with_correlations():
+    # [FUNCTION DOC]
+    # HELPER: Builds a correlated multilabel dataset by generating a 16-class
+    # make_classification problem (1000 samples, 100 features, random_state=0) and
+    # encoding each class integer as 4 binary digits.
+    # Outputs: X of shape (1000, 100); Y_multi int array of shape (1000, 4).
     # Generate a multilabel data set from a multiclass dataset as a way of
     # by representing the integer number of the original class using a binary
     # encoding.
@@ -510,6 +603,10 @@ def generate_multilabel_dataset_with_correlations():
 
 @pytest.mark.parametrize("chain_method", ["predict", "decision_function"])
 def test_classifier_chain_fit_and_predict_with_linear_svc(chain_method):
+    # [FUNCTION DOC]
+    # Verifies ClassifierChain(LinearSVC) predictions equal decision_function >= 0, have
+    # Y's shape, and that predict_proba is not exposed.
+    # Inputs: chain_method - parametrized method used to feed earlier outputs forward.
     # Fit classifier chain and verify predict performance using LinearSVC
     X, Y = generate_multilabel_dataset_with_correlations()
     classifier_chain = ClassifierChain(
@@ -529,6 +626,9 @@ def test_classifier_chain_fit_and_predict_with_linear_svc(chain_method):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_classifier_chain_fit_and_predict_with_sparse_data(csr_container):
+    # [FUNCTION DOC]
+    # Verifies ClassifierChain(LogisticRegression) predicts identically on sparse CSR
+    # and dense inputs.
     # Fit classifier chain with sparse data
     X, Y = generate_multilabel_dataset_with_correlations()
     X_sparse = csr_container(X)
@@ -543,6 +643,10 @@ def test_classifier_chain_fit_and_predict_with_sparse_data(csr_container):
 
 
 def test_classifier_chain_vs_independent_models():
+    # [FUNCTION DOC]
+    # Verifies a single ClassifierChain achieves a higher sample-averaged Jaccard score
+    # than OneVsRestClassifier on correlated labels (600/400 split).
+    # KNOWN ISSUE: the comment speaks of an ensemble of chains, but one chain is used.
     # Verify that an ensemble of classifier chains (each of length
     # N) can achieve a higher Jaccard similarity score than N independent
     # models
@@ -571,6 +675,11 @@ def test_classifier_chain_vs_independent_models():
 )
 @pytest.mark.parametrize("response_method", ["predict_proba", "predict_log_proba"])
 def test_classifier_chain_fit_and_predict(chain_method, response_method):
+    # [FUNCTION DOC]
+    # Verifies ClassifierChain predictions have Y's shape, each link's coef_ size grows
+    # by one feature per previous link, thresholding probabilities (exp of log-probs)
+    # at 0.5 equals predict, and the chain is a ClassifierMixin.
+    # Inputs: chain_method, response_method - parametrized method names.
     # Fit classifier chain and verify predict performance
     X, Y = generate_multilabel_dataset_with_correlations()
     chain = ClassifierChain(LogisticRegression(), chain_method=chain_method)
@@ -591,6 +700,9 @@ def test_classifier_chain_fit_and_predict(chain_method, response_method):
 
 
 def test_regressor_chain_fit_and_predict():
+    # [FUNCTION DOC]
+    # Verifies RegressorChain(Ridge) prediction shape and that each link's coef_ size
+    # grows by one per previous link.
     # Fit regressor chain and verify Y and estimator coefficients shape
     X, Y = generate_multilabel_dataset_with_correlations()
     chain = RegressorChain(Ridge())
@@ -604,6 +716,9 @@ def test_regressor_chain_fit_and_predict():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_base_chain_fit_and_predict_with_sparse_data_and_cv(csr_container):
+    # [FUNCTION DOC]
+    # Verifies ClassifierChain and RegressorChain with cv=3 fit and predict on sparse
+    # input with the correct output shape.
     # Fit base chain with sparse data cross_val_predict
     X, Y = generate_multilabel_dataset_with_correlations()
     X_sparse = csr_container(X)
@@ -618,6 +733,11 @@ def test_base_chain_fit_and_predict_with_sparse_data_and_cv(csr_container):
 
 
 def test_base_chain_random_order():
+    # [FUNCTION DOC]
+    # Verifies order="random" produces a 4-element permutation in order_, and a chain
+    # fitted with that fixed order produces identical coefficients.
+    # KNOWN ISSUE: the check that order differs from range(4) compares the string
+    # "random" as a character list, so it is trivially true.
     # Fit base chain with random order
     X, Y = generate_multilabel_dataset_with_correlations()
     for chain in [ClassifierChain(LogisticRegression()), RegressorChain(Ridge())]:
@@ -646,6 +766,11 @@ def test_base_chain_random_order():
     ],
 )
 def test_base_chain_crossval_fit_and_predict(chain_type, chain_method):
+    # [FUNCTION DOC]
+    # Verifies a chain fitted with cv=3 gives predictions of the same shape that differ
+    # from the non-cv chain, with Jaccard > 0.4 (classifier) or MSE < 0.25 (regressor).
+    # Inputs: chain_type - "classifier" or "regressor"; chain_method - method name
+    # (unused for regressor).
     # Fit chain with cross_val_predict and verify predict
     # performance
     X, Y = generate_multilabel_dataset_with_correlations()
@@ -677,6 +802,10 @@ def test_base_chain_crossval_fit_and_predict(chain_type, chain_method):
     ],
 )
 def test_multi_output_classes_(estimator):
+    # [FUNCTION DOC]
+    # Verifies classes_ is a list of per-output class arrays matching the iris-derived
+    # classes for native and wrapped multioutput classifiers.
+    # Inputs: estimator - parametrized estimator, cloned before fitting.
     # Tests classes_ attribute of multioutput classifiers
     # RandomForestClassifier supports multioutput out-of-the-box
     estimator = clone(estimator).fit(X, y)
@@ -687,13 +816,23 @@ def test_multi_output_classes_(estimator):
 
 
 class DummyRegressorWithFitParams(DummyRegressor):
+    # [CLASS DOC]
+    # HELPER: DummyRegressor that records extra fit keyword arguments in _fit_params.
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # HELPER: Stores fit_params on self._fit_params and delegates to DummyRegressor.fit.
+        # Outputs: self.
         self._fit_params = fit_params
         return super().fit(X, y, sample_weight)
 
 
 class DummyClassifierWithFitParams(DummyClassifier):
+    # [CLASS DOC]
+    # HELPER: DummyClassifier that records extra fit keyword arguments in _fit_params.
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # HELPER: Stores fit_params on self._fit_params and delegates to DummyClassifier.fit.
+        # Outputs: self.
         self._fit_params = fit_params
         return super().fit(X, y, sample_weight)
 
@@ -712,6 +851,10 @@ class DummyClassifierWithFitParams(DummyClassifier):
     ],
 )
 def test_multioutput_estimator_with_fit_params(estimator, dataset):
+    # [FUNCTION DOC]
+    # Verifies extra fit kwargs passed to MultiOutputClassifier / MultiOutputRegressor
+    # are forwarded to every sub-estimator.
+    # Inputs: estimator - parametrized meta-estimator; dataset - (X, y) tuple.
     estimator = clone(estimator)  # Avoid side effects from shared instances
     X, y = dataset
     some_param = np.zeros_like(X)
@@ -721,13 +864,20 @@ def test_multioutput_estimator_with_fit_params(estimator, dataset):
 
 
 def test_regressor_chain_w_fit_params():
+    # [FUNCTION DOC]
+    # Verifies RegressorChain forwards sample_weight to every link's fit (same object).
     # Make sure fit_params are properly propagated to the sub-estimators
     rng = np.random.RandomState(0)
     X, y = datasets.make_regression(n_targets=3, random_state=0)
     weight = rng.rand(y.shape[0])
 
     class MySGD(SGDRegressor):
+        # [CLASS DOC]
+        # HELPER: SGDRegressor that records the sample_weight fit param as sample_weight_.
         def fit(self, X, y, **fit_params):
+            # [FUNCTION DOC]
+            # HELPER: Stores fit_params["sample_weight"] (KeyError if absent) and fits.
+            # KNOWN ISSUE: does not return self, unlike the estimator fit contract.
             self.sample_weight_ = fit_params["sample_weight"]
             super().fit(X, y, **fit_params)
 
@@ -748,6 +898,10 @@ def test_regressor_chain_w_fit_params():
 # FIXME: we should move this test in `estimator_checks` once we are able
 # to construct meta-estimator instances
 def test_support_missing_values(MultiOutputEstimator, Estimator):
+    # [FUNCTION DOC]
+    # Smoke test: meta-estimators wrapping a SimpleImputer pipeline fit and score on X
+    # with ~1% NaNs, i.e. NaN validation is left to the inner pipeline.
+    # Inputs: MultiOutputEstimator, Estimator - parametrized classes.
     # smoke test to check that pipeline MultioutputEstimators are letting
     # the validation of missing values to
     # the underlying pipeline, regressor or classifier
@@ -762,6 +916,9 @@ def test_support_missing_values(MultiOutputEstimator, Estimator):
 
 @pytest.mark.parametrize("order_type", [list, np.array, tuple])
 def test_classifier_chain_tuple_order(order_type):
+    # [FUNCTION DOC]
+    # Verifies ClassifierChain accepts order as list, array or tuple and predicts the
+    # training point correctly.
     X = [[1, 2, 3], [4, 5, 6], [1.5, 2.5, 3.5]]
     y = [[3, 2], [2, 3], [3, 2]]
     order = order_type([1, 0])
@@ -777,6 +934,9 @@ def test_classifier_chain_tuple_order(order_type):
 
 
 def test_classifier_chain_tuple_invalid_order():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError "invalid order" when order is not a permutation of
+    # the output indices.
     X = [[1, 2, 3], [4, 5, 6], [1.5, 2.5, 3.5]]
     y = [[3, 2], [2, 3], [3, 2]]
     order = tuple([1, 2])
@@ -788,6 +948,9 @@ def test_classifier_chain_tuple_invalid_order():
 
 
 def test_classifier_chain_verbose(capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose ClassifierChain prints one "[Chain] (i of 3) Processing order k"
+    # line per link to stdout (captured via capsys).
     X, y = make_multilabel_classification(
         n_samples=100, n_features=5, n_classes=3, n_labels=3, random_state=0
     )
@@ -810,6 +973,8 @@ def test_classifier_chain_verbose(capsys):
 
 
 def test_regressor_chain_verbose(capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose RegressorChain prints progress lines following order [1, 0, 2].
     X, y = make_regression(n_samples=125, n_targets=3, random_state=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
@@ -829,6 +994,9 @@ def test_regressor_chain_verbose(capsys):
 
 
 def test_multioutputregressor_ducktypes_fitted_estimator():
+    # [FUNCTION DOC]
+    # Non-regression (#16549): MultiOutputRegressor wrapping a StackingRegressor (which
+    # has predict only after fit) can predict after fitting without error.
     """Test that MultiOutputRegressor checks the fitted estimator for
     predict. Non-regression test for #16549."""
     X, y = load_linnerud(return_X_y=True)
@@ -848,6 +1016,10 @@ def test_multioutputregressor_ducktypes_fitted_estimator():
     "Cls, method", [(ClassifierChain, "fit"), (MultiOutputClassifier, "partial_fit")]
 )
 def test_fit_params_no_routing(Cls, method):
+    # [FUNCTION DOC]
+    # Verifies passing unrequested metadata (test=1) to fit/partial_fit raises
+    # ValueError when metadata routing is disabled.
+    # Inputs: Cls - meta-estimator class; method - method name to call.
     """Check that we raise an error when passing metadata not requested by the
     underlying classifier.
     """
@@ -859,6 +1031,9 @@ def test_fit_params_no_routing(Cls, method):
 
 
 def test_multioutput_regressor_has_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies accessing partial_fit on MultiOutputRegressor(LinearRegression) raises
+    # AttributeError naming MultiOutputRegressor.
     # Test that an unfitted MultiOutputRegressor handles available_if for
     # partial_fit correctly
     est = MultiOutputRegressor(LinearRegression())
