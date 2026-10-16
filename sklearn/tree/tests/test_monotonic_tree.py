@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for monotonicity constraints (monotonic_cst) in single decision/extra trees
+# and the forest ensembles built on them: prediction monotonicity on shifted
+# inputs, error messages for unsupported settings, and structural checks that node
+# values respect monotonic bounds, plus self-tests of those structural checkers.
 import numpy as np
 import pytest
 
@@ -49,6 +54,15 @@ def test_monotonic_constraints_classifications(
     global_random_seed,
     csc_container,
 ):
+    # [FUNCTION DOC]
+    # Fits a binary classifier on 900 of 1000 make_classification samples with
+    # increasing constraint on feature 0 and decreasing on feature 1, using either the
+    # depth-first builder or best-first (max_leaf_nodes set), optionally with ~50% NaNs
+    # or a sparse CSC training matrix. Checks probabilities lie in [0, 1] and sum to 1,
+    # and that shifting feature 0 (resp. 1) by +/-10 on the test set moves the
+    # positive-class probability in the constrained direction.
+    # Inputs: parametrized estimator class, sparse/missing flags, builder flag, CSC
+    # container and global_random_seed fixture. Forests use 5 estimators.
     n_samples = 1000
     n_samples_train = 900
     X, y = make_classification(
@@ -129,6 +143,11 @@ def test_monotonic_constraints_regressions(
     global_random_seed,
     csc_container,
 ):
+    # [FUNCTION DOC]
+    # Regression analogue of the classification test: fits on make_regression data with
+    # +1 on feature 0 and -1 on feature 1 for absolute_error and squared_error; checks
+    # predictions do not decrease when feature 0 is increased by 10 and do not increase
+    # when feature 1 is increased by 10. Best-first variant uses max_depth=8.
     n_samples = 1000
     n_samples_train = 900
     # Build a regression task using 5 informative features
@@ -189,6 +208,9 @@ def test_monotonic_constraints_regressions(
 
 @pytest.mark.parametrize("TreeClassifier", TREE_BASED_CLASSIFIER_CLASSES)
 def test_multiclass_raises(TreeClassifier):
+    # [FUNCTION DOC]
+    # Checks that fitting a classifier with monotonic_cst on a 3-class target raises
+    # ValueError about multiclass classification.
     X, y = make_classification(
         n_samples=100, n_features=5, n_classes=3, n_informative=3, random_state=0
     )
@@ -205,6 +227,10 @@ def test_multiclass_raises(TreeClassifier):
 
 @pytest.mark.parametrize("TreeClassifier", TREE_BASED_CLASSIFIER_CLASSES)
 def test_multiple_output_raises(TreeClassifier):
+    # [FUNCTION DOC]
+    # Checks that fitting a classifier with monotonic_cst on a 2d (multi-output) target
+    # raises ValueError about multiple output (raised before the shape mismatch between
+    # the 2-element constraint and 5 features is checked).
     X = [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]]
     y = [[1, 0, 1, 0, 1], [1, 0, 1, 0, 1]]
 
@@ -218,6 +244,9 @@ def test_multiple_output_raises(TreeClassifier):
 
 @pytest.mark.parametrize("TreeClassifier", TREE_BASED_CLASSIFIER_CLASSES)
 def test_bad_monotonic_cst_raises(TreeClassifier):
+    # [FUNCTION DOC]
+    # Checks ValueError messages for monotonic_cst with the wrong length, with values
+    # outside {-1, 0, 1}, and with a non-integer value (0.8 shown in the message).
     X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
     y = [1, 0, 1, 0, 1]
 
@@ -243,6 +272,13 @@ def test_bad_monotonic_cst_raises(TreeClassifier):
 
 
 def assert_1d_reg_tree_children_monotonic_bounded(tree_, monotonic_sign):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that, for a 1-feature regression tree, each split node's children
+    # values are ordered according to monotonic_sign (1 increasing, -1 decreasing), and
+    # that the inner grandchildren (right child of left child, left child of right child,
+    # when those children are splits) are bounded by the mean of the two children values.
+    # Inputs: tree_ - fitted Tree object; monotonic_sign - 1 or -1 (0 checks nothing).
+    # Exceptions: AssertionError on violation.
     values = tree_.value
     for i in range(tree_.node_count):
         if tree_.children_left[i] > i and tree_.children_right[i] > i:
@@ -270,6 +306,9 @@ def assert_1d_reg_tree_children_monotonic_bounded(tree_, monotonic_sign):
 
 
 def test_assert_1d_reg_tree_children_monotonic_bounded():
+    # [FUNCTION DOC]
+    # Verifies the 1d checker detects violations: an unconstrained tree fit on a sine
+    # wave fails the check for both +1 and -1.
     X = np.linspace(-1, 1, 7).reshape(-1, 1)
     y = np.sin(2 * np.pi * X.ravel())
 
@@ -283,6 +322,11 @@ def test_assert_1d_reg_tree_children_monotonic_bounded():
 
 
 def assert_1d_reg_monotonic(clf, monotonic_sign, min_x, max_x, n_steps):
+    # [FUNCTION DOC]
+    # HELPER: Predicts on n_steps evenly spaced points in [min_x, max_x] and asserts
+    # consecutive predictions are non-decreasing (sign 1) or non-increasing (sign -1).
+    # Inputs: clf - fitted 1-feature regressor; monotonic_sign; min_x, max_x - floats;
+    # n_steps - int. Exceptions: AssertionError on violation.
     X_grid = np.linspace(min_x, max_x, n_steps).reshape(-1, 1)
     y_pred_grid = clf.predict(X_grid)
     if monotonic_sign == 1:
@@ -293,6 +337,9 @@ def assert_1d_reg_monotonic(clf, monotonic_sign, min_x, max_x, n_steps):
 
 @pytest.mark.parametrize("TreeRegressor", TREE_REGRESSOR_CLASSES)
 def test_1d_opposite_monotonicity_cst_data(TreeRegressor):
+    # [FUNCTION DOC]
+    # Checks that fitting increasing data with a decreasing constraint (and vice versa)
+    # yields a single-leaf tree predicting the target mean, which is 0.
     # Check that positive monotonic data with negative monotonic constraint
     # yield constant predictions, equal to the average of target values
     X = np.linspace(-2, 2, 10).reshape(-1, 1)
@@ -322,6 +369,11 @@ def test_1d_tree_nodes_values(
     criterion,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Fits a 1-feature regressor on uniform random data under a monotonic constraint
+    # (both builders, both criteria, optional 20% NaNs) and verifies both the structural
+    # bounds via assert_1d_reg_tree_children_monotonic_bounded and monotone predictions
+    # on a 100-point grid over the observed feature range.
     # Adaptation from test_nodes_values in test_monotonic_constraints.py
     # in sklearn.ensemble._hist_gradient_boosting
     # Build a single tree with only one feature, and make sure the node
@@ -372,6 +424,16 @@ def test_1d_tree_nodes_values(
 
 
 def assert_nd_reg_tree_children_monotonic_bounded(tree_, monotonic_cst):
+    # [FUNCTION DOC]
+    # HELPER: Traverses node ids in increasing order (parents precede children) carrying
+    # per-node lower/upper bounds initialised to -inf/inf. Asserts each node value lies
+    # within its bounds (compared in float32 to tolerate rounding). For split nodes on an
+    # unconstrained feature, children inherit the parent bounds; for +1 features asserts
+    # left value <= right value and bounds the left child above and the right child below
+    # by the mean of the two children values; -1 features are symmetric.
+    # Inputs: tree_ - fitted single-output regression Tree; monotonic_cst - sequence of
+    # -1/0/1 per feature. Exceptions: AssertionError on violation; ValueError for an
+    # invalid constraint value.
     upper_bound = np.full(tree_.node_count, np.inf)
     lower_bound = np.full(tree_.node_count, -np.inf)
     for i in range(tree_.node_count):
@@ -442,6 +504,10 @@ def assert_nd_reg_tree_children_monotonic_bounded(tree_, monotonic_cst):
 
 
 def test_assert_nd_reg_tree_children_monotonic_bounded():
+    # [FUNCTION DOC]
+    # Verifies the n-d checker: on a sine fit it fails for +1 and -1 but passes for 0,
+    # and on cubic data it fails for the constraint opposite to the data trend in both
+    # sign directions.
     # Check that assert_nd_reg_tree_children_monotonic_bounded can detect
     # non-monotonic tree predictions.
     X = np.linspace(0, 2 * np.pi, 30).reshape(-1, 1)
@@ -486,6 +552,10 @@ def test_nd_tree_nodes_values(
     criterion,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Fits a 2-feature regressor with a constraint on feature 0 only (both builders, both
+    # criteria, optional 20% NaNs) and checks node values with
+    # assert_nd_reg_tree_children_monotonic_bounded.
     # Build tree with several features, and make sure the nodes
     # values respect the monotonicity constraints.
 

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Common metadata-routing tests run over a table of meta-estimators (METAESTIMATORS),
+# each described by a dict of settings (see the docstring after the list). For every
+# entry, builds the meta-estimator with consuming/non-consuming sub-estimators,
+# scorers and CV splitters that record received metadata in a _Registry, then checks
+# default requests, missing-request errors, correct forwarding, and routing to
+# scorers and splitters. Import time: builds a fixed random dataset (seed 42) with
+# multiclass, binary and multi-output targets plus metadata, sample_weight and groups
+# arrays; enables experimental halving search and iterative imputer.
 import copy
 import re
 
@@ -525,6 +534,20 @@ UNSUPPORTED_ESTIMATORS = [
 
 
 def get_init_args(metaestimator_info, sub_estimator_consumes):
+    # [FUNCTION DOC]
+    # HELPER: Builds constructor kwargs for one METAESTIMATORS entry. Starts from a copy
+    # of init_args; if the entry has a sub-estimator, creates a registry and a
+    # Consuming{Regressor,Classifier} bound to it (or a NonConsuming one when
+    # sub_estimator_consumes is False) under estimator_name; if scorer_name is set, adds a
+    # ConsumingScorer with its own registry; if cv_name is set, adds a ConsumingSplitter
+    # (or the GroupKFold-derived variant for TargetEncoder) with its own registry; reads
+    # filter_registry and validates its values are slices.
+    # Inputs: metaestimator_info - dict entry; sub_estimator_consumes - bool.
+    # Outputs: (kwargs, (estimator, estimator_registry, filter_registry), (scorer,
+    # scorer_registry), (cv, cv_registry)); unused parts are None.
+    # Exceptions: ValueError for an unknown sub-estimator type; TypeError for non-slice
+    # filter_registry values.
+    # KNOWN ISSUE: docstring omits filter_registry from the returned estimator tuple.
     """Get the init args for a metaestimator
 
     This is a helper function to get the init args for a metaestimator from
@@ -610,6 +633,10 @@ def get_init_args(metaestimator_info, sub_estimator_consumes):
 
 
 def filter_metadata_in_routing_methods(estimator_routing_methods):
+    # [FUNCTION DOC]
+    # HELPER: Normalizes estimator_routing_methods into a dict method -> list of metadata
+    # keys; plain strings map to ["sample_weight", "metadata"], tuples give their own list.
+    # Outputs: dict.
     """Process estimator_routing_methods and return a dict.
 
     Parameters
@@ -636,6 +663,13 @@ def filter_metadata_in_routing_methods(estimator_routing_methods):
 
 
 def set_requests(obj, *, method_mapping, methods, metadata_name, value=True):
+    # [FUNCTION DOC]
+    # HELPER: For each caller in methods and each callee mapped from it (identity when not
+    # in method_mapping), calls obj.set_<callee>_request with metadata_name=value; for
+    # classifiers with callee partial_fit also requests classes=True.
+    # Inputs: obj - estimator/scorer; method_mapping - dict caller -> list of callees;
+    # methods - list of callers; metadata_name - str; value - request value, default True.
+    # Outputs: None. Side effects: mutates obj's requests.
     """Call `set_{method}_request` on a list of methods from the sub-estimator.
 
     Parameters
@@ -672,6 +706,13 @@ def set_requests(obj, *, method_mapping, methods, metadata_name, value=True):
 
 
 def _get_callee_from_caller(instance, estimator_name, caller):
+    # [FUNCTION DOC]
+    # HELPER: Looks up, in the meta-estimator's routing for child estimator_name, the first
+    # callee mapped from caller.
+    # Inputs: instance - meta-estimator; estimator_name - child key in the router; caller -
+    # method name.
+    # Outputs: callee method name.
+    # Exceptions: KeyError when the caller is not mapped.
     """Helper function to extract `callee` via the router of a routing instance.
 
     Parameters
@@ -695,6 +736,9 @@ def _get_callee_from_caller(instance, estimator_name, caller):
 @pytest.mark.parametrize("estimator", UNSUPPORTED_ESTIMATORS)
 @config_context(enable_metadata_routing=True)
 def test_unsupported_estimators_get_metadata_routing(estimator):
+    # [FUNCTION DOC]
+    # Verifies get_metadata_routing raises NotImplementedError for meta-estimators without
+    # routing support (AdaBoost classifier/regressor).
     """Test that get_metadata_routing is not implemented on meta-estimators for
     which we haven't implemented routing yet."""
     with pytest.raises(NotImplementedError):
@@ -704,6 +748,10 @@ def test_unsupported_estimators_get_metadata_routing(estimator):
 @pytest.mark.parametrize("estimator", UNSUPPORTED_ESTIMATORS)
 @config_context(enable_metadata_routing=True)
 def test_unsupported_estimators_fit_with_metadata(estimator):
+    # [FUNCTION DOC]
+    # Verifies fit with sample_weight raises NotImplementedError for unsupported
+    # meta-estimators; a TypeError (sample_weight not accepted) is converted to
+    # NotImplementedError so the test passes.
     """Test that fit raises NotImplementedError when metadata routing is
     enabled and a metadata is passed on meta-estimators for which we haven't
     implemented routing yet."""
@@ -718,6 +766,9 @@ def test_unsupported_estimators_fit_with_metadata(estimator):
 
 @config_context(enable_metadata_routing=True)
 def test_registry_copy():
+    # [FUNCTION DOC]
+    # Verifies _Registry instances are distinct but copy and deepcopy return the same
+    # object.
     # test that _Registry is not copied into a new instance.
     a = _Registry()
     b = _Registry()
@@ -729,6 +780,9 @@ def test_registry_copy():
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_default_request(metaestimator):
+    # [FUNCTION DOC]
+    # Verifies a freshly built meta-estimator's routing is a MetadataRouter with empty
+    # requests (ignoring the splitter's default groups request when a CV is present).
     # Check that by default request is empty and the right type
     metaestimator_class = metaestimator["metaestimator"]
     kwargs, *_ = get_init_args(metaestimator, sub_estimator_consumes=True)
@@ -746,6 +800,12 @@ def test_default_request(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_error_on_missing_requests_for_sub_estimator(metaestimator):
+    # [FUNCTION DOC]
+    # For meta-estimators with a sub-estimator, verifies that passing each metadata key to
+    # each routing method raises UnsetMetadataPassedError naming the sub-estimator method
+    # when the sub-estimator has not set a request. For non-fit methods the instance is
+    # first fitted with the request set, then the requests are reset to None before the
+    # call. Methods are called with y, falling back to without y on TypeError.
     # Test that a UnsetMetadataPassedError is raised when the sub-estimator's
     # requests are not set
     if "estimator" not in metaestimator:
@@ -807,6 +867,12 @@ def test_error_on_missing_requests_for_sub_estimator(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_setting_request_on_sub_estimator_removes_error(metaestimator):
+    # [FUNCTION DOC]
+    # For meta-estimators with a sub-estimator, verifies that after requesting each key on
+    # the sub-estimator (and on scorer/splitter if present) the routing method runs and
+    # every registered sub-estimator (optionally filtered by filter_registry) recorded the
+    # metadata for the mapped callee, comparing exactly, as subset, or by key only per
+    # preserves_metadata.
     # When the metadata is explicitly requested on the sub-estimator, there
     # should be no errors.
     if "estimator" not in metaestimator:
@@ -884,6 +950,10 @@ def test_setting_request_on_sub_estimator_removes_error(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_non_consuming_estimator_works(metaestimator):
+    # [FUNCTION DOC]
+    # Regression (issue 28239): with a non-consuming sub-estimator and no requests set,
+    # every routing method runs without routing errors (classifiers get classes requested
+    # for partial_fit).
     # Test that when a non-consuming estimator is given, the meta-estimator
     # works w/o setting any requests.
     # Regression test for https://github.com/scikit-learn/scikit-learn/issues/28239
@@ -893,6 +963,10 @@ def test_non_consuming_estimator_works(metaestimator):
         return
 
     def set_request(estimator, method_name):
+        # [FUNCTION DOC]
+        # HELPER: Requests classes for partial_fit when the estimator is a classifier and the
+        # method is partial_fit; otherwise does nothing.
+        # Side effects: mutates estimator's requests.
         # e.g. call set_fit_request on estimator
         if is_classifier(estimator) and method_name == "partial_fit":
             estimator.set_partial_fit_request(classes=True)
@@ -924,6 +998,10 @@ def test_non_consuming_estimator_works(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_metadata_is_routed_correctly_to_scorer(metaestimator):
+    # [FUNCTION DOC]
+    # For meta-estimators with a scorer, verifies sample_weight requested on the scorer is
+    # routed: after calling each scorer routing method, every registered scorer recorded
+    # sample_weight (as a subset, since CV splits it) in consuming_metric.
     """Test that any requested metadata is correctly routed to the underlying
     scorers in CV estimators.
     """
@@ -972,6 +1050,10 @@ def test_metadata_is_routed_correctly_to_scorer(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_metadata_is_routed_correctly_to_splitter(metaestimator):
+    # [FUNCTION DOC]
+    # For meta-estimators with a CV splitter, verifies groups and metadata requested on the
+    # splitter are routed to its split method for each cv routing method, with
+    # sub-estimator and scorer requests set to False.
     """Test that any requested metadata is correctly routed to the underlying
     splitters in CV estimators.
     """
@@ -1007,6 +1089,11 @@ def test_metadata_is_routed_correctly_to_splitter(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_metadata_routed_to_sub_estimator_in_pipeline(metaestimator):
+    # [FUNCTION DOC]
+    # Non-regression (issue 30527): for meta-estimators with a sub-estimator that are
+    # transformers, uses them as the first step of a Pipeline with a non-consuming final
+    # step and verifies sample_weight reaches the sub-estimator's fit (via fit_transform
+    # routing). Returns early for non-transformers.
     """Check that sample_weight is routed to a sub-estimator when the
     meta-estimator is an intermediate (transformer) step of a ``Pipeline``.
 
@@ -1061,6 +1148,10 @@ def test_metadata_routed_to_sub_estimator_in_pipeline(metaestimator):
 @pytest.mark.parametrize("metaestimator", METAESTIMATORS, ids=METAESTIMATOR_IDS)
 @config_context(enable_metadata_routing=True)
 def test_metadata_routed_to_group_splitter(metaestimator):
+    # [FUNCTION DOC]
+    # Regression (PR 29634): for CV meta-estimators, uses GroupKFold as both inner cv and
+    # cross_validate splitter with groups passed through params, ensuring no "groups
+    # should not be None" ValueError is raised. No explicit assertions.
     """Test that groups are routed correctly if group splitter of CV estimator is used
     within cross_validate. Regression test for issue described in PR #29634 to test that
     `ValueError: The 'groups' parameter should not be None.` is not raised."""
