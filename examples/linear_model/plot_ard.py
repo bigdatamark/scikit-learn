@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Compares OLS, BayesianRidge and ARDRegression on synthetic
+# data with few informative features (coefficient heatmap and marginal log-likelihood
+# traces), then on a 1-D polynomial regression task with predictive std bands.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ====================================
 Comparing Linear Bayesian Regressors

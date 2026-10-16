@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On covtype (download), compares LinearSVC on raw features,
+# LinearSVC on PolynomialCountSketch features for several n_components, and a
+# kernelized SVC with polynomial kernel, recording accuracy and training time and
+# plotting accuracy versus time.
+# Side effects: network download (cached), figures, printed results.
 """
 ======================================================
 Scalable learning with polynomial kernel approximation

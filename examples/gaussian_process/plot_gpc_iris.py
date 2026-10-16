@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits GaussianProcessClassifier with isotropic and
+# anisotropic RBF kernels on the first two iris features and plots the predicted class
+# probabilities over a mesh grid as RGB images with training points.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =====================================================
 Gaussian process classification (GPC) on iris dataset

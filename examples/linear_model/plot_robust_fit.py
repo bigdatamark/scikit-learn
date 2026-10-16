@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits OLS, TheilSen, RANSAC and HuberRegressor (with cubic
+# PolynomialFeatures) on sin-shaped data corrupted by outliers in X or y, plotting
+# each fit with its test MSE.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 Robust linear estimator fitting
 ===============================

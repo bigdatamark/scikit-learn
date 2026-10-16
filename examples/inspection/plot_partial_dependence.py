@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On the OpenML bike-sharing dataset, fits an MLPRegressor
+# pipeline and a HistGradientBoostingRegressor, then draws one-way/two-way partial
+# dependence and ICE plots (including categorical features and a 3-D surface) with
+# PartialDependenceDisplay and partial_dependence, timing each.
+# Side effects: network download (cached), figures, printed timings.
 """
 ===============================================================
 Partial Dependence and Individual Conditional Expectation Plots

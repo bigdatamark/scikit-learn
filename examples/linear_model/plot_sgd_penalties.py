@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Draws the unit-norm contours of the L1, L2 and elastic-net
+# penalties in 2-D.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==============
 SGD: Penalties

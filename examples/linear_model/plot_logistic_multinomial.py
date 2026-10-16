@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On anisotropically transformed 3-class blobs, compares
+# multinomial LogisticRegression with one-vs-rest logistic regression, plotting
+# decision boundaries and per-class hyperplanes.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints training accuracies.
 """
 ======================================================================
 Decision Boundaries of Multinomial and One-vs-Rest Logistic Regression
@@ -113,6 +119,17 @@ for model, title, ax in [
 # We also visualize the hyperplanes that correspond to the line when the probability
 # estimate for a class is 0.5.
 def plot_hyperplanes(classifier, X, ax, colors):
+    # [FUNCTION DOC]
+    # HELPER: Sets ax limits to the data range of X's two features and for each class
+    # draws the dashed line where that class's linear score w.x + b is zero
+    # (probability 0.5), gathering coef/intercept from each sub-estimator if
+    # classifier is a OneVsRestClassifier.
+    # Inputs: classifier - fitted linear classifier on 2 features; X - array (n, 2);
+    # ax - Axes; colors - iterable of colors (zipped, so extra classes beyond colors
+    # are skipped).
+    # Outputs: (handles, labels) from ax.get_legend_handles_labels().
+    # Exceptions: division by zero (inf) if a second coefficient is 0.
+    # Side effects: draws on ax.
     xmin, xmax = X[:, 0].min(), X[:, 0].max()
     ymin, ymax = X[:, 1].min(), X[:, 1].max()
     ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))

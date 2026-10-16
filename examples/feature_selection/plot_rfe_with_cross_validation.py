@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Uses RFECV with LogisticRegression and StratifiedKFold on
+# make_classification data with 3 informative features to choose the number of
+# features automatically, prints the optimum and plots mean test accuracy (with std
+# error bars) versus number of selected features.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints to stdout.
 """
 ===================================================
 Recursive feature elimination with cross-validation

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On standardized digits (0-4 vs 5-9), fits LogisticRegression
+# with L1, L2 and elastic-net penalties for several C values, printing sparsity and
+# score, and displays the coefficient vectors as 8x8 images.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints to stdout.
 """
 ==============================================
 L1 Penalty and Sparsity in Logistic Regression

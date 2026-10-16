@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On iris restricted to two classes, computes an L1
+# LogisticRegression regularization path over C values starting at l1_min_c (warm
+# start) and plots coefficients versus log10(C).
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==============================================
 Regularization path of L1- Logistic Regression

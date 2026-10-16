@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. On a subsample of vectorized 20newsgroups, trains
+# L1-penalized multinomial LogisticRegression and one-vs-rest (saga) for increasing
+# max_iter, recording accuracy, density and time, and plots accuracy versus training
+# time.
+# Side effects: dataset download (cached), figures, printed progress;
+# ConvergenceWarnings ignored.
 """
 ====================================================
 Multiclass sparse logistic regression on 20newgroups

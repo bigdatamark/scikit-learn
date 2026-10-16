@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Loads two MNIST classes and compares SGDClassifier with no
+# stopping criterion, training-loss stopping and validation-score early stopping
+# across max_iter values, plotting train/test score, n_iter_ and fit time.
+# Side effects: network download (cached), figures; ConvergenceWarnings suppressed in
+# fit_and_score.
 """
 =============================================
 Early stopping of Stochastic Gradient Descent
@@ -56,6 +62,14 @@ from sklearn.utils._testing import ignore_warnings
 
 
 def load_mnist(n_samples=None, class_0="0", class_1="8"):
+    # [FUNCTION DOC]
+    # HELPER: Fetches MNIST from OpenML as arrays, keeps samples labelled class_0 or
+    # class_1 (string labels), shuffles with random_state=42 and truncates to
+    # n_samples if given.
+    # Inputs: n_samples - int or None; class_0, class_1 - str labels, default '0' and
+    # '8'.
+    # Outputs: (X, y) with X of shape (n, 784) and y string labels.
+    # Side effects: network download (cached).
     """Load MNIST, select two classes, shuffle and return only n_samples."""
     # Load data from http://openml.org/d/554
     mnist = fetch_openml("mnist_784", version=1, as_frame=False)
@@ -71,6 +85,14 @@ def load_mnist(n_samples=None, class_0="0", class_1="8"):
 
 @ignore_warnings(category=ConvergenceWarning)
 def fit_and_score(estimator, max_iter, X_train, X_test, y_train, y_test):
+    # [FUNCTION DOC]
+    # HELPER: Sets max_iter and random_state=0 on estimator, fits it on the training
+    # set while timing, and scores on train and test.
+    # Inputs: estimator - SGDClassifier-like; max_iter - int; X_train, X_test,
+    # y_train, y_test.
+    # Outputs: (fit_time seconds, n_iter_, train_score, test_score).
+    # Side effects: mutates and fits estimator in place; ConvergenceWarning suppressed
+    # by decorator.
     """Fit the estimator on the train set and score it on both sets"""
     estimator.set_params(max_iter=max_iter)
     estimator.set_params(random_state=0)

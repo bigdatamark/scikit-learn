@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Fits Lasso on the same data in dense and scipy sparse
+# format, comparing fit times and verifying coefficients match; repeats on mostly-zero
+# data.
+# Side effects: prints timings and coefficient distances.
 """
 ==============================
 Lasso on dense and sparse data

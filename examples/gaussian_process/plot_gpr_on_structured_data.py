@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Defines a custom SequenceKernel on variable-length strings
+# (convolutional kernel counting matching character pairs) and uses it for a
+# similarity-matrix plot, GaussianProcessRegressor on string inputs, and
+# GaussianProcessClassifier on string inputs.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==========================================================================
 Gaussian processes on discrete data structures
@@ -50,21 +57,36 @@ from sklearn.gaussian_process.kernels import GenericKernelMixin, Hyperparameter,
 
 
 class SequenceKernel(GenericKernelMixin, Kernel):
+    # [CLASS DOC]
+    # Kernel on sequences: the similarity of two sequences is the sum over all
+    # character pairs (one from each) of 1 if equal, else baseline_similarity. Single
+    # hyperparameter baseline_similarity; non-stationary.
+    # Works on arbitrary objects (GenericKernelMixin) so X can be a list of strings.
     """
     A minimal (but valid) convolutional kernel for sequences of variable
     lengths."""
 
     def __init__(self, baseline_similarity=0.5, baseline_similarity_bounds="fixed"):
+        # [FUNCTION DOC]
+        # Stores baseline_similarity (float, default 0.5) and its bounds (default
+        # 'fixed', i.e. not optimized) without validation.
         self.baseline_similarity = baseline_similarity
         self.baseline_similarity_bounds = baseline_similarity_bounds
 
     @property
     def hyperparameter_baseline_similarity(self):
+        # [FUNCTION DOC]
+        # Property returning the numeric Hyperparameter spec for baseline_similarity
+        # using the stored bounds; discovered by Kernel.hyperparameters.
         return Hyperparameter(
             "baseline_similarity", "numeric", self.baseline_similarity_bounds
         )
 
     def _f(self, s1, s2):
+        # [FUNCTION DOC]
+        # HELPER: Kernel value of two sequences: double loop over characters, adding
+        # 1.0 for equal pairs and baseline_similarity otherwise.
+        # Outputs: float. Cost is O(len(s1) * len(s2)).
         """
         kernel value between a pair of sequences
         """
@@ -73,12 +95,26 @@ class SequenceKernel(GenericKernelMixin, Kernel):
         )
 
     def _g(self, s1, s2):
+        # [FUNCTION DOC]
+        # HELPER: Derivative of _f with respect to baseline_similarity: number of
+        # unequal character pairs.
+        # Outputs: float.
+        # KNOWN ISSUE: Kernel.theta is log-transformed, so the gradient w.r.t.
+        # log(baseline_similarity) should be multiplied by baseline_similarity; this
+        # returns the raw derivative. Harmless here since bounds are 'fixed'.
         """
         kernel derivative between a pair of sequences
         """
         return sum([0.0 if c1 == c2 else 1.0 for c1 in s1 for c2 in s2])
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Computes the kernel matrix between sequences X and Y (Y defaults to X).
+        # Inputs: X, Y - sequences of sequences; eval_gradient - bool.
+        # Outputs: array (len(X), len(Y)); if eval_gradient, also gradient array of
+        # shape (len(X), len(Y), 1) built from _g.
+        # Note: unlike the base Kernel API, no error is raised when eval_gradient is
+        # used with Y given.
         if Y is None:
             Y = X
 
@@ -91,12 +127,20 @@ class SequenceKernel(GenericKernelMixin, Kernel):
             return np.array([[self._f(x, y) for y in Y] for x in X])
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Returns the kernel diagonal: _f of each sequence with itself, as a 1-D array
+        # of length len(X).
         return np.array([self._f(x, x) for x in X])
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # Returns False: the kernel is not translation invariant.
         return False
 
     def clone_with_theta(self, theta):
+        # [FUNCTION DOC]
+        # Returns a sklearn clone of the kernel with theta (log-transformed
+        # hyperparameter vector) set to the given value; self is unchanged.
         cloned = clone(self)
         cloned.theta = theta
         return cloned

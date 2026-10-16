@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Samples 2-D design points, labels them by whether g(x) > 0,
+# fits GaussianProcessClassifier with a ConstantKernel times squared DotProduct kernel
+# and plots the predicted probability map with iso-probability contours and the true
+# decision boundary.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints the learned kernel; seeded RNG.
 """
 =================================================================
 Iso-probability lines for Gaussian Processes classification (GPC)
@@ -24,6 +31,12 @@ lim = 8
 
 
 def g(x):
+    # [FUNCTION DOC]
+    # HELPER: True latent function whose sign defines classes: 5 - x2 - 0.5 * x1
+    # squared.
+    # Inputs: x - array of shape (n_points, 2).
+    # Outputs: 1-D array of shape (n_points,).
+    # Side effects: none.
     """The function to predict (classification will then consist in predicting
     whether g(x) <= 0 or not)"""
     return 5.0 - x[:, 1] - 0.5 * x[:, 0] ** 2.0

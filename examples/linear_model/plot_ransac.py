@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Adds outliers to a linear regression dataset, fits
+# LinearRegression and RANSACRegressor, prints true and estimated coefficients and
+# plots both lines with inlier/outlier masks.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ===========================================
 Robust linear model estimation using RANSAC

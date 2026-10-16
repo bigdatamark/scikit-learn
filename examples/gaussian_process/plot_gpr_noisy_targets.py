@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits GaussianProcessRegressor with an RBF kernel to a few
+# samples of x*sin(x), first noise-free, then with heteroscedastic noise passed
+# through alpha, and plots mean predictions with 95% confidence intervals.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 =========================================================
 Gaussian Processes regression: basic introductory example

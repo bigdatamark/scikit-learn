@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Builds an ANOVA SelectKBest(k=3) plus LinearSVC pipeline on
+# make_classification data, fits it, prints a classification_report on a held-out
+# split and inspects the selected features' coefficients via inverse_transform.
+# Side effects: prints to stdout.
 """
 ==================
 Pipeline ANOVA SVM

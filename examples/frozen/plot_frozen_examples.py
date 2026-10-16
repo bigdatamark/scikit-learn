@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Demonstrates FrozenEstimator: wraps an already-fitted
+# LogisticRegression so that FixedThresholdClassifier and CalibratedClassifierCV can
+# reuse it without refitting, comparing Brier score loss before and after calibration.
+# Side effects: prints to stdout.
 """
 ===================================
 Examples of Using `FrozenEstimator`

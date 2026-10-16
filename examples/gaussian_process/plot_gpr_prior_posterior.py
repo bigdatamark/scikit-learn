@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. For several kernels (RBF, RationalQuadratic, ExpSineSquared,
+# DotProduct, Matern) draws samples from the GaussianProcessRegressor prior and, after
+# fitting to a few random points, from the posterior, plotting both with the predicted
+# mean and +/- one std band; prints initial and learned kernels.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==========================================================================
 Illustration of prior and posterior Gaussian process for different kernels
@@ -34,6 +41,15 @@ import numpy as np
 
 
 def plot_gpr_samples(gpr_model, n_samples, ax):
+    # [FUNCTION DOC]
+    # HELPER: On 100 grid points in [0, 5], gets the mean and std predicted by
+    # gpr_model and n_samples sampled functions (prior if unfitted, posterior
+    # otherwise), plots each sample as a dashed line, the mean as a black line and a
+    # +/- 1 std shaded band, and sets y limits to [-3, 3].
+    # Inputs: gpr_model - GaussianProcessRegressor; n_samples - int; ax - matplotlib
+    # Axes.
+    # Outputs: None.
+    # Side effects: draws on ax; sample_y uses the model's random_state.
     """Plot samples drawn from the Gaussian process model.
 
     If the Gaussian process model is not trained then the drawn samples are

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. On breast cancer data, shows that permutation importance
+# underestimates correlated features, then clusters features by Spearman correlation
+# (hierarchical clustering, Ward linkage), keeps one feature per cluster, and retrains
+# a RandomForestClassifier to recompute importances.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints accuracies.
 """
 =================================================================
 Permutation Importance with Multicollinear or Correlated Features
@@ -36,6 +43,15 @@ from sklearn.utils.fixes import parse_version
 
 
 def plot_permutation_importance(clf, X, y, ax):
+    # [FUNCTION DOC]
+    # HELPER: Computes permutation_importance of clf on (X, y) with 10 repeats
+    # (random_state=42, n_jobs=2), sorts features by mean importance and draws a
+    # horizontal boxplot of importances per feature on ax with a dashed line at 0;
+    # picks matplotlib keyword names (tick_labels/labels, orientation/vert) by
+    # matplotlib version.
+    # Inputs: clf - fitted estimator; X - DataFrame; y - targets; ax - Axes.
+    # Outputs: ax.
+    # Side effects: draws on ax; parallel computation.
     result = permutation_importance(clf, X, y, n_repeats=10, random_state=42, n_jobs=2)
     perm_sorted_idx = result.importances_mean.argsort()
 

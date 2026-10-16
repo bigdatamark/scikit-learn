@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Trains gradient boosting, random forest and linear
+# regression on the diabetes dataset, combines them in a VotingRegressor, and plots
+# the first 20 predictions of each model and of the ensemble.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =================================================
 Plot individual and voting regression predictions

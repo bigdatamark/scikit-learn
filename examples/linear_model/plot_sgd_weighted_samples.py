@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits SGDClassifier on random 2-D points with and without
+# per-sample weights (larger for a few points) and plots both decision boundaries with
+# marker sizes proportional to weights.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 =====================
 SGD: Weighted samples

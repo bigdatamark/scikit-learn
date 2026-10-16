@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits LinearRegression with and without positive=True on data
+# with non-negative true coefficients, prints test R2 for each and scatters the two
+# coefficient sets against each other.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ==========================
 Non-negative least squares

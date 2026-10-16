@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits SGDClassifier (one-vs-all) on the first two
+# standardized iris features and plots decision regions plus each class's one-vs-rest
+# hyperplane.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded shuffling.
 """
 ========================================
 Plot multi-class SGD on the iris dataset
@@ -74,7 +80,17 @@ intercept = clf.intercept_
 
 
 def plot_hyperplane(c, color):
+    # [FUNCTION DOC]
+    # HELPER: Plots the dashed one-vs-rest hyperplane of class c between xmin and
+    # xmax.
+    # Inputs: c - class index into coef/intercept; color - matplotlib color.
+    # Outputs: None.
+    # Side effects: draws on the current pyplot axes; reads module globals coef,
+    # intercept, xmin, xmax.
     def line(x0):
+        # [FUNCTION DOC]
+        # HELPER: Solves the hyperplane equation for the second feature given first-
+        # feature value x0 using class c's coefficients and intercept.
         return (-(x0 * coef[c, 0]) - intercept[c]) / coef[c, 1]
 
     plt.plot([xmin, xmax], [line(xmin), line(xmax)], ls="--", color=color)

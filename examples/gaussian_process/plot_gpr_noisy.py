@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Shows how GaussianProcessRegressor with RBF + WhiteKernel
+# estimates noise level: fits from two different initial hyperparameter settings that
+# converge to different local optima, then plots predictions and the log-marginal-
+# likelihood surface over length-scale and noise level.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =========================================================================
 Ability of Gaussian process regression (GPR) to estimate data noise-level
@@ -23,6 +30,12 @@ import numpy as np
 
 
 def target_generator(X, add_noise=False):
+    # [FUNCTION DOC]
+    # HELPER: Computes 0.5 + sin(3X) and optionally adds Gaussian noise (std 0.3) from
+    # a fresh RandomState(1).
+    # Inputs: X - array of shape (n_samples, 1); add_noise - bool, default False.
+    # Outputs: 1-D array of shape (n_samples,) (squeezed).
+    # Side effects: none; noise is deterministic because the seed is fixed per call.
     target = 0.5 + np.sin(3 * X)
     if add_noise:
         rng = np.random.RandomState(1)

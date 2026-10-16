@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Simulates wages driven by an unobserved 'ability' confounder
+# that also drives education, fits LinearRegression with and without the confounder,
+# and shows the omitted-variable bias on the education coefficient.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints scores and coefficients; seeded RNG.
 """
 ===================================================
 Failure of Machine Learning to infer causal effects

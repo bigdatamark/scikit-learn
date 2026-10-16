@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits LassoLarsIC (AIC and BIC) in a StandardScaler pipeline
+# on diabetes data, rescales criteria to Zou et al.'s definition and plots both
+# criteria along the regularization path with the selected alpha.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==============================================
 Lasso model selection via information criteria
@@ -58,6 +64,12 @@ lasso_lars_ic = make_pipeline(StandardScaler(), LassoLarsIC(criterion="aic")).fi
 # log-likelihood of a linear model. You can refer to
 # :ref:`mathematical detail section for the User Guide <lasso_lars_ic>`.
 def zou_et_al_criterion_rescaling(criterion, n_samples, noise_variance):
+    # [FUNCTION DOC]
+    # HELPER: Converts scikit-learn's AIC/BIC values to Zou et al.'s definition by
+    # subtracting n_samples * log(2 pi noise_variance) and n_samples.
+    # Inputs: criterion - array of criterion values along the path; n_samples - int;
+    # noise_variance - float.
+    # Outputs: array of the same shape.
     """Rescale the information criterion to follow the definition of Zou et al."""
     return criterion - n_samples * np.log(2 * np.pi * noise_variance) - n_samples
 

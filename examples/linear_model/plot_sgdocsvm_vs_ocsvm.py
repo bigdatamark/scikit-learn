@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Compares kernel OneClassSVM with SGDOneClassSVM on Nystroem-
+# approximated features on a 2-D Gaussian toy dataset, plotting learned frontiers and
+# printing train/test/outlier error counts.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ====================================================================
 One-Class SVM versus One-Class SVM using Stochastic Gradient Descent

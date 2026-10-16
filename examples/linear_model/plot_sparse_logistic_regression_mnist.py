@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Fits L1 multinomial LogisticRegression (saga) on a subsample
+# of standardized MNIST, prints sparsity and test score and shows the per-class
+# coefficient images.
+# Side effects: network download (cached), figures, printed results.
 """
 =====================================================
 MNIST classification using multinomial logistic + L1

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits a DecisionTreeRegressor and an MLPRegressor pipeline on
+# diabetes data and demonstrates the PartialDependenceDisplay plotting API: plotting
+# on given axes, reusing display objects, and overlaying curves of two models.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =========================================
 Advanced Plotting With Partial Dependence

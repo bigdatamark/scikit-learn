@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Runs recursive feature elimination (RFE, one pixel per step)
+# with a MinMaxScaler plus LogisticRegression pipeline on the digits dataset and
+# displays the pixel ranking as an 8x8 heatmap.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =============================
 Recursive feature elimination

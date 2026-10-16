@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On California housing (subsampled), removes one value per
+# row at random and compares cross-validated MSE of a BayesianRidge pipeline after
+# SimpleImputer (mean, median) and IterativeImputer with different estimators
+# (BayesianRidge, RandomForest, Nystroem+Ridge, KNN), plotting a horizontal bar chart.
+# Side effects: dataset download (cached), figures; seeded RNG.
 """
 =========================================================
 Imputing missing values with variants of IterativeImputer
@@ -75,6 +81,14 @@ n_samples, n_features = X_full.shape
 
 
 def compute_score_for(X, y, imputer=None):
+    # [FUNCTION DOC]
+    # HELPER: Builds a pipeline RobustScaler -> (optional imputer) -> BayesianRidge
+    # and returns its cross-validated negative MSE scores with N_SPLITS folds (module
+    # global).
+    # Inputs: X, y - data (X may contain NaN only if imputer given); imputer -
+    # transformer or None.
+    # Outputs: array of shape (N_SPLITS,) of negative MSE values.
+    # Side effects: none besides fitting clones.
     # We scale data before imputation and training a target estimator,
     # because our target estimator and some of the imputers assume
     # that the features have similar scales.

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Downloads the Mauna Loa CO2 dataset from OpenML, aggregates
+# it to monthly averages with polars, builds a composite kernel (long-term RBF,
+# seasonal RBF*ExpSineSquared, RationalQuadratic irregularities, RBF+WhiteKernel
+# noise), fits GaussianProcessRegressor on the mean-centred target and extrapolates to
+# the current date with uncertainty bands.
+# Side effects: network download (cached), figures, prints the fitted kernel and its
+# log-marginal likelihood; depends on today's date.
 """
 ====================================================================================
 Forecasting of CO2 level on Mona Loa dataset using Gaussian process regression (GPR)

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script (module docstring follows the license header). On French MTPL
+# frequency and severity tables (OpenML), models pure premium either as
+# PoissonRegressor frequency times GammaRegressor severity or directly with
+# TweedieRegressor, evaluating with several metrics, observed-vs-predicted plots per
+# feature and Lorenz curves.
+# Side effects: network download (cached), figures, printed tables.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -57,6 +64,13 @@ from sklearn.metrics import (
 
 
 def load_mtpl2(n_samples=None):
+    # [FUNCTION DOC]
+    # HELPER: Fetches freMTPL2freq (OpenML 41214) indexed by integer IDpol and
+    # freMTPL2sev (41215) summed per IDpol, left-joins them, fills missing ClaimAmount
+    # with 0, strips single quotes from object-dtype columns, and returns the first
+    # n_samples rows (all if None).
+    # Outputs: pandas DataFrame.
+    # Side effects: network download (cached).
     """Fetch the French Motor Third-Party Liability Claims dataset.
 
     Parameters
@@ -96,6 +110,16 @@ def plot_obs_pred(
     ax=None,
     fill_legend=False,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Groups df by feature level, computes weight-weighted averages of the
+    # observed column and the predicted values per level, plots them as points on ax,
+    # and fills a green area proportional to the total weight per level (scaled to 80%
+    # of max value).
+    # Inputs: df - DataFrame; feature, weight, observed - column names; predicted -
+    # array/Series aligned to df; y_label, title - optional str; ax - Axes or None;
+    # fill_legend - bool.
+    # Outputs: None.
+    # Side effects: draws on ax (or a new axes via pandas).
     """Plot observed and predicted - aggregated per feature level.
 
     Parameters
@@ -151,6 +175,16 @@ def score_estimator(
     weights,
     tweedie_powers=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Evaluates estimator on train and test with D2 (estimator.score, skipped
+    # if absent), MAE, MSE and optional mean Tweedie deviance for each power, all
+    # weighted by df[weights]. If estimator is a 2-tuple, predictions are the product
+    # of the frequency and severity models' predictions.
+    # Inputs: X_train, X_test - feature matrices; df_train, df_test - DataFrames with
+    # target and weights columns; target, weights - column names; tweedie_powers -
+    # list of float or None.
+    # Outputs: DataFrame indexed by metric with 'train' and 'test' columns, rounded to
+    # 4 decimals.
     """Evaluate an estimator on train and test sets with different metrics"""
 
     metrics = [
@@ -649,6 +683,12 @@ from sklearn.metrics import auc
 
 
 def lorenz_curve(y_true, y_pred, exposure):
+    # [FUNCTION DOC]
+    # HELPER: Orders samples by increasing prediction and returns cumulative exposure
+    # share and cumulative claim amount share (pure premium times exposure), each
+    # normalized to end at 1.
+    # Inputs: y_true, y_pred, exposure - array-likes of length n_samples.
+    # Outputs: (cumulative_exposure, cumulative_claim_amount) float arrays.
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     exposure = np.asarray(exposure)
 

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On diabetes data with added random features, selects Lasso
+# alpha via LassoLarsIC (AIC/BIC), LassoCV (coordinate descent) and LassoLarsCV,
+# timing each and plotting criteria and per-fold MSE curves.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints timings; seeded RNG.
 """
 =================================================
 Lasso model selection: AIC-BIC / cross-validation
@@ -85,6 +91,12 @@ alpha_bic = lasso_lars_ic[-1].alpha_
 # %%
 # We can check which value of `alpha` leads to the minimum AIC and BIC.
 def highlight_min(x):
+    # [FUNCTION DOC]
+    # HELPER: pandas Styler callback: for a column, returns a list of CSS strings with
+    # 'font-weight: bold' at positions equal to the minimum and empty strings
+    # elsewhere.
+    # Inputs: x - pandas Series.
+    # Outputs: list of str of length len(x).
     x_min = x.min()
     return ["font-weight: bold" if v == x_min else "" for v in x]
 

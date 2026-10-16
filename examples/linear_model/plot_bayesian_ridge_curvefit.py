@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits BayesianRidge on a 3rd-degree Vandermonde expansion of
+# noisy sin(2 pi x) samples with two different initial (alpha, lambda) settings and
+# plots fitted curves with predictive std and log-marginal likelihood.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ============================================
 Curve Fitting with Bayesian Ridge Regression
@@ -36,6 +42,8 @@ import numpy as np
 
 
 def func(x):
+    # [FUNCTION DOC]
+    # HELPER: Target function sin(2 pi x), elementwise on an array.
     return np.sin(2 * np.pi * x)
 
 

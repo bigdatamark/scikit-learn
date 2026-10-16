@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Appends noisy uninformative features to iris, scores
+# features with SelectKBest/f_classif (plotting -log10 p-values), then compares
+# LinearSVC weights with and without univariate selection inside a MinMaxScaler
+# pipeline, printing accuracies and plotting the weights.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints to stdout.
 """
 ============================
 Univariate Feature Selection

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits LinearRegression on a single diabetes feature, reports
+# MSE/R2 and plots the fit; then compares OLS and Ridge on tiny noisy datasets to show
+# Ridge's lower variance.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints metrics; seeded RNG.
 """
 ===========================================
 Ordinary Least Squares and Ridge Regression

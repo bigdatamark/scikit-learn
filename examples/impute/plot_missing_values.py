@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Introduces missing values into diabetes and California
+# housing data, then compares cross-validated MSE of RandomForestRegressor using no
+# imputation (full data), zero, mean, KNN and iterative imputation, plotting bar
+# charts per dataset.
+# Side effects: dataset download (cached), figures; seeded RNG.
 """
 ====================================================
 Imputing missing values before building an estimator
@@ -57,6 +63,14 @@ y_california = y_california[:300]
 
 
 def add_missing_values(X_full, y_full, rng):
+    # [FUNCTION DOC]
+    # HELPER: Marks 75% of rows (randomly shuffled) as incomplete and sets one
+    # randomly chosen feature per selected row to NaN.
+    # Inputs: X_full - float array (n_samples, n_features); y_full - target array; rng
+    # - np.random.RandomState (consumed).
+    # Outputs: (X_missing, y_missing) copies; y is copied unchanged.
+    # Side effects: advances rng; inputs not modified.
+    # KNOWN ISSUE: X must be floating point, otherwise assigning NaN fails.
     n_samples, n_features = X_full.shape
 
     # Add missing values in 75% of the lines
@@ -104,6 +118,12 @@ N_SPLITS = 4
 
 
 def get_score(X, y, imputer=None):
+    # [FUNCTION DOC]
+    # HELPER: Cross-validates (N_SPLITS folds, global)
+    # RandomForestRegressor(random_state=0), optionally preceded by imputer in a
+    # pipeline, with neg_mean_squared_error.
+    # Inputs: X, y - data; imputer - transformer or None.
+    # Outputs: tuple (mean, std) of the negative MSE fold scores.
     regressor = RandomForestRegressor(random_state=0)
     if imputer is not None:
         estimator = make_pipeline(imputer, regressor)

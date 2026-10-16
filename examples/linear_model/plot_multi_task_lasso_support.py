@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Generates multi-task data whose coefficients share a support
+# and vary sinusoidally over tasks, fits independent Lasso per task and
+# MultiTaskLasso, and plots the recovered supports and one feature's coefficient over
+# time.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 =============================================
 Joint feature selection with multi-task Lasso

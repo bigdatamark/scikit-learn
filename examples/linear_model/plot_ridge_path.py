@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Fits Ridge on a 10x10 Hilbert matrix for 200 alphas and
+# plots each coefficient versus alpha on a reversed log axis.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ===========================================================
 Plot Ridge coefficients as a function of the regularization

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Generates a sparse coded signal, recovers it with
+# OrthogonalMatchingPursuit (noise-free, noisy) and OrthogonalMatchingPursuitCV, and
+# stem-plots recovered versus true coefficients.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded data.
 """
 ===========================
 Orthogonal Matching Pursuit

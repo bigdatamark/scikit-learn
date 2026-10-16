@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script (module docstring follows the license header). On French MTPL
+# claims (OpenML), models claim frequency with DummyRegressor, Ridge, PoissonRegressor
+# and HistGradientBoostingRegressor(loss='poisson'), scoring with exposure-weighted
+# MSE/MAE/Poisson deviance, and compares calibration by risk group and ranking power
+# via Lorenz curves and Gini.
+# Side effects: network download (cached), figures, printed metrics.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -164,6 +171,14 @@ from sklearn.metrics import (
 
 
 def score_estimator(estimator, df_test):
+    # [FUNCTION DOC]
+    # HELPER: Predicts on df_test and prints exposure-weighted MSE and MAE of
+    # Frequency, then mean Poisson deviance restricted to positive predictions
+    # (printing a warning count if some predictions are non-positive).
+    # Inputs: estimator - fitted model accepting the DataFrame; df_test - DataFrame
+    # with 'Frequency' and 'Exposure' columns.
+    # Outputs: None.
+    # Side effects: prints to stdout.
     """Score an estimator on the test set."""
     y_pred = estimator.predict(df_test)
 
@@ -391,6 +406,18 @@ from sklearn.utils import gen_even_slices
 
 
 def _mean_frequency_by_risk_group(y_true, y_pred, sample_weight=None, n_bins=100):
+    # [FUNCTION DOC]
+    # HELPER: Sorts samples by y_pred, splits them into n_bins near-equal contiguous
+    # slices (gen_even_slices) and computes weighted averages of y_pred and y_true in
+    # each slice.
+    # Inputs: y_true, y_pred - arrays (n_samples,); sample_weight - array
+    # (n_samples,); n_bins - int, default 100.
+    # Outputs: bin_centers (evenly spaced in (0, 1)), y_true_bin, y_pred_bin, each of
+    # shape (n_bins,).
+    # KNOWN ISSUE: sample_weight defaults to None but is indexed unconditionally, so
+    # calling without weights raises TypeError.
+    # KNOWN ISSUE: docstring says y_true_bin is 'average y_pred'; it is the average of
+    # y_true.
     """Compare predictions and observations for bins ordered by y_pred.
 
     We order the samples by ``y_pred`` and split it in bins.
@@ -493,6 +520,14 @@ from sklearn.metrics import auc
 
 
 def lorenz_curve(y_true, y_pred, exposure):
+    # [FUNCTION DOC]
+    # HELPER: Orders samples by increasing predicted risk and returns the cumulative
+    # share of exposure and of claims (frequency times exposure), each normalized to
+    # end at 1.
+    # Inputs: y_true - observed frequencies; y_pred - predictions; exposure - weights;
+    # all length n_samples.
+    # Outputs: (cumulated_exposure, cumulated_claims), float arrays of length
+    # n_samples.
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     exposure = np.asarray(exposure)
 

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On Titanic (OpenML) with two added random features, fits a
+# RandomForestClassifier pipeline and contrasts impurity-based (MDI) importances with
+# permutation importances on train and test sets, then repeats with a less overfitting
+# forest.
+# Side effects: network download (cached), figures, printed accuracies; seeded RNG.
 """
 ================================================================
 Permutation Importance vs Random Forest Feature Importance (MDI)
@@ -187,6 +193,14 @@ orientation_dict = (
 
 
 def plot_importances_box(importances, title):
+    # [FUNCTION DOC]
+    # HELPER: Draws a new figure with a horizontal boxplot of each column of
+    # importances (whiskers at 10 IQR), a vertical dashed line at 0 and the given
+    # title.
+    # Inputs: importances - DataFrame (n_repeats, n_features); title - str.
+    # Outputs: None.
+    # Side effects: creates a figure; relies on module globals orientation_dict and
+    # tick_labels_parameter_name for matplotlib version compatibility.
     fig, ax = plt.subplots()
     ax.boxplot(
         importances.values,

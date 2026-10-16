@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Generates a noisy sine signal, fits Ridge, KernelRidge
+# (ExpSineSquared kernel, hyperparameters tuned via RandomizedSearchCV) and
+# GaussianProcessRegressor (ExpSineSquared + WhiteKernel, hyperparameters by marginal
+# likelihood), timing fits and plotting predictions and GPR uncertainty to compare the
+# two kernel approaches.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints timings; seeded randomness.
 """
 ==========================================================
 Comparison of kernel ridge and Gaussian process regression

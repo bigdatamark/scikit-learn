@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Generates heteroscedastic-normal and asymmetric-Pareto noisy
+# datasets, fits QuantileRegressor for several quantiles, plots prediction intervals,
+# then compares QuantileRegressor (median) and LinearRegression by cross-validated MAE
+# and MSE.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; prints CV results; seeded RNG.
 """
 ===================
 Quantile regression

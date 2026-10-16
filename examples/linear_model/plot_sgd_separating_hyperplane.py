@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example script. Fits a hinge-loss SGDClassifier on two separable blobs and
+# contours the decision function at -1, 0, 1 to show the max-margin hyperplane.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =========================================
 SGD: Maximum margin separating hyperplane

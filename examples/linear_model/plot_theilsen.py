@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Compares OLS, TheilSenRegressor and RANSACRegressor on data
+# with outliers only in y and then in X, plotting the fitted lines and timing each
+# fit.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ====================
 Theil-Sen Regression

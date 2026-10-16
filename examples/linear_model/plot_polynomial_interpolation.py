@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Approximates x*sin(x) from noisy-free sampled points using
+# Ridge on PolynomialFeatures of increasing degree and on SplineTransformer features,
+# plots the B-spline basis, then shows periodic splines extrapolating a periodic
+# function g.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ===================================
 Polynomial and Spline interpolation
@@ -52,6 +59,8 @@ from sklearn.preprocessing import PolynomialFeatures, SplineTransformer
 
 
 def f(x):
+    # [FUNCTION DOC]
+    # HELPER: Ground truth x * sin(x), elementwise.
     """Function to be approximated by polynomial interpolation."""
     return x * np.sin(x)
 
@@ -166,6 +175,8 @@ plt.show()
 
 # %%
 def g(x):
+    # [FUNCTION DOC]
+    # HELPER: Periodic ground truth sin(x) - 0.7 cos(3x), elementwise.
     """Function to be approximated by periodic spline interpolation."""
     return np.sin(x) - 0.7 * np.cos(x * 3)
 

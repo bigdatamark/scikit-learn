@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Plots convex surrogate losses supported by SGDClassifier
+# (zero-one, hinge, perceptron, log, squared hinge, modified Huber) as a function of
+# the margin y*f(x).
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ==========================
 SGD: convex loss functions
@@ -16,6 +22,11 @@ import numpy as np
 
 
 def modified_huber_loss(y_true, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Modified Huber loss of margin z = y_true * y_pred: 0 when z >= 1, (1 -
+    # z) squared when -1 <= z < 1, and -4z when z < -1.
+    # Inputs: y_true - scalar or array of +/-1; y_pred - float array.
+    # Outputs: float array of the same shape as z.
     z = y_pred * y_true
     loss = -4 * z
     loss[z >= -1] = (1 - z[z >= -1]) ** 2

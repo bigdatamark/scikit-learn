@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Adds strong outliers to 1-D regression data and plots
+# HuberRegressor fits for several epsilon values against a Ridge fit to show
+# robustness.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 =======================================================
 HuberRegressor vs Ridge on dataset with strong outliers

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. On the diabetes data, ranks features by the absolute
+# coefficients of RidgeCV, selects features with SelectFromModel (threshold slightly
+# above the third-largest importance) and with forward/backward
+# SequentialFeatureSelector, timing each and printing the selected names; then a
+# breast-cancer section compares selection effects with LogisticRegression scoring.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints timing and results.
 """
 ============================================
 Model-based and sequential feature selection

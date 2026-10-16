@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example script. Builds several heterogeneous classifiers (logistic
+# regression on polynomial, spline and Nystroem features) on a small synthetic 2-D
+# dataset, combines them in a soft VotingClassifier with weights, and visualizes the
+# predicted class probabilities of each member and of the ensemble with
+# DecisionBoundaryDisplay.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ===============================================================
 Visualizing the probabilistic predictions of a VotingClassifier

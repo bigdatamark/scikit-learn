@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Fits GaussianProcessClassifier with an RBF kernel on 1-D
+# data, once with fixed initial hyperparameters and once with optimized ones, prints
+# log-marginal-likelihood, accuracy and log-loss, and plots predicted probabilities
+# plus the log-marginal-likelihood landscape over kernel parameters.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures and prints to stdout.
 """
 ====================================================================
 Probabilistic predictions with Gaussian process classification (GPC)

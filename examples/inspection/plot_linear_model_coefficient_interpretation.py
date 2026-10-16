@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. On the OpenML CPS wages data, fits Ridge/RidgeCV/LassoCV
+# pipelines with one-hot encoding and a log-transformed target, then discusses
+# coefficient interpretation pitfalls: scaling, conditional dependence, coefficient
+# variability under cross-validation, correlated features and regularization.
+# Side effects: network download (cached), many figures and printed tables.
 """
 ======================================================================
 Common pitfalls in the interpretation of coefficients of linear models

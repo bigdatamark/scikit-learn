@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Generates a sparse, time-series-like regression problem,
+# fits Lasso, ARDRegression and ElasticNet, reports test R2 and plots estimated versus
+# true coefficients (heatmap and stem plots).
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ==================================
 L1-based models for Sparse Signals

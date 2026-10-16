@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Shows how to fit ElasticNet with sample weights and a
+# precomputed Gram matrix: centres X with weighted mean, rescales by sqrt of
+# normalized weights, computes the Gram matrix and passes it to fit along with
+# sample_weight.
+# Side effects: none besides computation; seeded data.
 """
 ==========================================================================
 Fitting an Elastic Net with a precomputed Gram Matrix and Weighted Samples

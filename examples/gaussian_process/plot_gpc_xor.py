@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits GaussianProcessClassifier on random XOR-labelled 2-D
+# data with an RBF kernel and a DotProduct-squared kernel and displays predicted
+# probabilities with decision contours for each.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; seeded RNG.
 """
 ========================================================================
 Illustration of Gaussian process classification (GPC) on the XOR dataset

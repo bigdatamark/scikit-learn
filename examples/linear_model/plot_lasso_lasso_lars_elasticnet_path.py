@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Computes regularization paths on diabetes data with
+# lasso_path, lars_path and enet_path (including positive-constrained variants) and
+# plots coefficients versus -log10(alpha) for pairwise comparisons.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 ========================================
 Lasso, Lasso-LARS, and Elastic Net paths

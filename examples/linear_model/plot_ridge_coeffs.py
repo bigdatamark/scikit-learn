@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example script. Fits Ridge over a logspace of alphas on make_regression
+# data, recording coefficients and training MSE versus true coefficients, and plots
+# coefficient paths and error curves.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures.
 """
 =========================================================
 Ridge coefficients as a function of the L2 Regularization

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example script. Generates 3 uniform features where the target depends
+# linearly on x1, non-linearly on x2 and not at all on x3, computes univariate F-test
+# scores (f_regression) and mutual information (mutual_info_regression), normalizes
+# each by its max and plots target versus each feature with both scores in the titles.
+# Side effects: script runs top-level code on import/execution; creates matplotlib
+# figures; uses a seeded RNG.
 """
 ===========================================
 Comparison of F-test and mutual information
