@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Image feature extraction utilities: building pixel/voxel adjacency graphs
+# (img_to_graph weighted by intensity gradients, grid_to_graph unweighted
+# connectivity) and extracting/reconstructing 2-D patches (extract_patches_2d,
+# reconstruct_from_patches_2d, PatchExtractor). Voxels are numbered in C order
+# over an (n_x, n_y, n_z) grid; graphs connect 6-neighbours (2-D: 4-neighbours).
 """Utilities to extract features from images."""
 
 # Authors: The scikit-learn developers
@@ -34,6 +40,13 @@ from sklearn.utils.validation import validate_data
 
 
 def _make_edges_3d(n_x, n_y, n_z=1):
+    # [FUNCTION DOC]
+    # HELPER: Builds the edge list of a 3-D grid lattice. Numbers voxels 0..N-1 in C
+    # order on shape (n_x, n_y, n_z) and concatenates edges between each voxel and its
+    # next neighbour along z, then y, then x.
+    # Inputs: n_x, n_y, n_z - positive ints (n_z default 1).
+    # Outputs: int array of shape (2, n_edges); row 0 source, row 1 target (source
+    # index always smaller). Side effects: none.
     """Returns a list of edges for a 3D image.
 
     Parameters
@@ -54,6 +67,12 @@ def _make_edges_3d(n_x, n_y, n_z=1):
 
 
 def _compute_gradient_3d(edges, img):
+    # [FUNCTION DOC]
+    # HELPER: For each edge, decodes both endpoint voxel indices back to (x, y, z)
+    # coordinates of img and returns the absolute difference of their intensities.
+    # Inputs: edges - (2, n_edges) int array; img - 3-D array.
+    # Outputs: 1-D array of length n_edges with img's dtype (unsigned dtypes may wrap
+    # before abs). Side effects: none.
     _, n_y, n_z = img.shape
     gradient = np.abs(
         img[
@@ -74,6 +93,14 @@ def _compute_gradient_3d(edges, img):
 
 
 def _mask_edges_weights(mask, edges, weights=None):
+    # [FUNCTION DOC]
+    # HELPER: Keeps only edges whose two endpoints are both inside the boolean mask,
+    # then renumbers vertices to consecutive indices among masked voxels (via
+    # searchsorted on the flat nonzero positions of the mask).
+    # Inputs: mask - boolean array over the grid; edges - (2, n_edges); weights -
+    # optional per-edge array filtered alongside.
+    # Outputs: renumbered edges, or (edges, weights) when weights is given.
+    # Side effects: none. Assumes mask is boolean (indexes with mask.ravel()).
     """Apply a mask to edges (weighted or not)"""
     inds = np.arange(mask.size)
     inds = inds[mask.ravel()]
@@ -96,6 +123,22 @@ def _mask_edges_weights(mask, edges, weights=None):
 def _to_graph(
     n_x, n_y, n_z, mask=None, img=None, return_as=sparse.coo_array, dtype=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Common graph builder. Creates grid edges; dtype defaults to int (no
+    # image) or img's dtype. With an image: weights are intensity gradients, the
+    # diagonal holds voxel intensities (restricted to the mask if given). Without an
+    # image: mask is cast to bool, edges are masked, weights and diagonal are ones.
+    # Assembles a symmetric COO array of shape (n_voxels, n_voxels) containing each
+    # edge in both directions plus the diagonal, then returns a dense ndarray if
+    # return_as is np.ndarray, otherwise return_as applied to the COO array
+    # (API-aligned).
+    # Inputs: n_x, n_y, n_z - grid sizes; mask - optional; img - optional array;
+    # return_as - class; dtype - optional.
+    # Outputs: adjacency matrix (dense or sparse).
+    # KNOWN ISSUE: in the image branch the mask is not cast to bool (unlike the
+    # no-image branch) and the diagonal is taken with img.squeeze() indexed by mask,
+    # so a non-boolean mask or a mask whose shape differs from the squeezed image
+    # behaves incorrectly.
     """Auxiliary function for img_to_graph and grid_to_graph"""
     edges = _make_edges_3d(n_x, n_y, n_z)
 
@@ -150,6 +193,12 @@ def _to_graph(
     prefer_skip_nested_validation=True,
 )
 def img_to_graph(img, *, mask=None, return_as=sparse.coo_array, dtype=None):
+    # [FUNCTION DOC]
+    # Gradient-weighted pixel graph. Promotes img to 3-D, takes its shape as the
+    # grid and delegates to _to_graph with the image so edge weights are absolute
+    # intensity differences and the diagonal holds intensities.
+    # Inputs/Outputs: see docstring. Exceptions: InvalidParameterError from
+    # validate_params for wrong argument types.
     """Graph of the pixel-to-pixel gradient connections.
 
     Edges are weighted with the gradient values.
@@ -204,6 +253,10 @@ def img_to_graph(img, *, mask=None, return_as=sparse.coo_array, dtype=None):
     prefer_skip_nested_validation=True,
 )
 def grid_to_graph(n_x, n_y, n_z=1, *, mask=None, return_as=sparse.coo_array, dtype=int):
+    # [FUNCTION DOC]
+    # Unweighted grid connectivity graph: delegates to _to_graph without an image so
+    # edges and diagonal entries are 1 (in dtype). Inputs/Outputs: see docstring.
+    # Exceptions: InvalidParameterError for non-positive sizes or wrong types.
     """Graph of the pixel-to-pixel connections.
 
     Edges exist if 2 voxels are connected.
@@ -255,6 +308,15 @@ def grid_to_graph(n_x, n_y, n_z=1, *, mask=None, return_as=sparse.coo_array, dty
 
 
 def _compute_n_patches(i_h, i_w, p_h, p_w, max_patches=None):
+    # [FUNCTION DOC]
+    # HELPER: Computes how many patches to extract. all_patches is
+    # (i_h - p_h + 1) * (i_w - p_w + 1). If max_patches is falsy, returns all_patches;
+    # an int returns min(max_patches, all_patches); a real in (0, 1) returns the
+    # truncated fraction of all_patches.
+    # Outputs: int. Exceptions: ValueError for any other truthy value (e.g. a
+    # float >= 1 or a negative float).
+    # KNOWN ISSUE: a negative integer max_patches is returned unchanged rather than
+    # rejected (public callers guard against it via parameter validation).
     """Compute the number of patches that will be extracted in an image.
 
     Read more in the :ref:`User Guide <image_feature_extraction>`.
@@ -292,6 +354,15 @@ def _compute_n_patches(i_h, i_w, p_h, p_w, max_patches=None):
 
 
 def _extract_patches(arr, patch_shape=8, extraction_step=1):
+    # [FUNCTION DOC]
+    # HELPER: Builds a zero-copy strided view of all patches of an n-D array. Scalars
+    # for patch_shape/extraction_step are broadcast to every dimension. The view's
+    # shape is (number of patch positions per dimension, computed as
+    # (dim - patch) // step + 1) followed by patch_shape; its strides are the strides
+    # of the step-sliced array followed by the original strides.
+    # Outputs: 2n-D ndarray view sharing memory with arr (writes alias).
+    # Side effects: none; no bounds checking (patch larger than arr yields invalid
+    # shapes).
     """Extracts patches of any n-dimensional array in place using strides.
 
     Given an n-dimensional array it will return a 2n-dimensional array with
@@ -364,6 +435,20 @@ def _extract_patches(arr, patch_shape=8, extraction_step=1):
     prefer_skip_nested_validation=True,
 )
 def extract_patches_2d(image, patch_size, *, max_patches=None, random_state=None):
+    # [FUNCTION DOC]
+    # Extracts 2-D patches from one image. Validates patch fits the image, checks the
+    # array (allow_nd), reshapes to (h, w, channels), builds a strided view of all
+    # patches with full channel depth, computes n_patches; if max_patches is given,
+    # draws n_patches random top-left positions independently with replacement from
+    # the random state and gathers them, otherwise takes all positions in row-major
+    # order. Copies into shape (n, p_h, p_w, channels) and drops the channel axis when
+    # there is a single channel.
+    # Outputs: new ndarray of patches (same dtype as image).
+    # Exceptions: ValueError if patch height/width exceed the image's;
+    # InvalidParameterError for invalid argument types/values.
+    # Side effects: consumes random numbers from random_state when sampling.
+    # KNOWN ISSUE: error messages say "should be less than" but patches equal to
+    # the image size are accepted; random sampling may return duplicate patches.
     """Reshape a 2D image into a collection of patches.
 
     The resulting patches are allocated in a dedicated array.
@@ -466,6 +551,16 @@ def extract_patches_2d(image, patch_size, *, max_patches=None, random_state=None
     prefer_skip_nested_validation=True,
 )
 def reconstruct_from_patches_2d(patches, image_size):
+    # [FUNCTION DOC]
+    # Inverse of exhaustive extract_patches_2d. Allocates a float64 zero image of
+    # image_size, adds each patch at consecutive positions in row-major order over the
+    # (n_h, n_w) grid of positions, then divides each pixel by the number of patches
+    # that covered it, computed as the product over both axes of the minimum of
+    # (index + 1, patch size, number of positions, size - index).
+    # Outputs: float64 ndarray of shape image_size.
+    # Exceptions: broadcasting errors if patch and image channel layouts mismatch.
+    # Side effects: none. Extra patches beyond n_h * n_w are ignored by zip; fewer
+    # patches leave regions under-filled but still divided.
     """Reconstruct the image from all of its patches.
 
     Patches are assumed to overlap and the image is constructed by filling in
@@ -528,6 +623,10 @@ def reconstruct_from_patches_2d(patches, image_size):
 
 
 class PatchExtractor(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateless transformer applying extract_patches_2d to every image of a batch;
+    # validation happens only in fit (via _fit_context) and data validation in
+    # transform with reset=False.
     """Extracts patches from a collection of images.
 
     Read more in the :ref:`User Guide <image_feature_extraction>`.
@@ -591,12 +690,17 @@ class PatchExtractor(TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, *, patch_size=None, max_patches=None, random_state=None):
+        # [FUNCTION DOC]
+        # Stores patch_size, max_patches and random_state unchanged.
         self.patch_size = patch_size
         self.max_patches = max_patches
         self.random_state = random_state
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # No-op apart from parameter validation by the _fit_context decorator.
+        # Inputs: X, y - ignored. Outputs: self.
         """Only validate the parameters of the estimator.
 
         This method allows to: (i) validate the parameters of the estimator  and
@@ -621,6 +725,21 @@ class PatchExtractor(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X (n-D allowed, at least one sample/feature, no reset of
+        # n_features_in_), resolves the random state once, picks patch_size (default
+        # (height // 10, width // 10), else must have length 2), reshapes images to
+        # (n, h, w, channels), and fills a preallocated float64 array of shape
+        # (n_imgs * n_patches, p_h, p_w[, channels]) with each image's patches from
+        # extract_patches_2d (sharing the same RandomState so each image gets different
+        # random positions).
+        # Outputs: float64 ndarray of patches (channel axis only when channels > 1).
+        # Exceptions: ValueError if patch_size length is not 2, or from
+        # extract_patches_2d/validation.
+        # Side effects: none on self.
+        # KNOWN ISSUE: the default patch size can be 0 for images smaller than 10 pixels
+        # in a dimension; n_imgs/img_height/img_width are computed twice redundantly; the
+        # output is always float64 regardless of input dtype.
         """Transform the image samples in `X` into a matrix of patch data.
 
         Parameters
@@ -685,6 +804,8 @@ class PatchExtractor(TransformerMixin, BaseEstimator):
         return patches
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: accepts 3-D arrays, not 2-D arrays; requires_fit is False.
         tags = super().__sklearn_tags__()
         tags.input_tags.two_d_array = False
         tags.input_tags.three_d_array = True

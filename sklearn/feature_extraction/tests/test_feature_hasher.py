@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for FeatureHasher and the underlying Cython hashing transform: input
+# types (dict, pair, string), seeds, signs, collisions, zero handling and the
+# stateless/no-fit behaviour.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -8,6 +12,9 @@ from sklearn.utils.fixes import SCIPY_VERSION_BELOW_1_12
 
 
 def test_feature_hasher_dicts():
+    # [FUNCTION DOC]
+    # Checks the default input_type is "dict" and that hashing dicts gives the same
+    # matrix as hashing the same items via input_type="pair" from a generator.
     feature_hasher = FeatureHasher(n_features=16)
     assert "dict" == feature_hasher.input_type
 
@@ -19,6 +26,11 @@ def test_feature_hasher_dicts():
 
 
 def test_feature_hasher_strings():
+    # [FUNCTION DOC]
+    # For several power-of-two n_features, hashes mixed byte/unicode string samples
+    # from a generator without sign alternation and checks the shape, per-row sums
+    # (4 and 3, counting the duplicate "foo") using the row indexing style supported
+    # by the installed scipy, and total nnz 6 (byte and str "foo" collide).
     # mix byte and Unicode strings; note that "foo" is a duplicate in row 0
     raw_X = [
         ["foo", "bar", "baz", "foo".encode("ascii")],
@@ -50,6 +62,9 @@ def test_feature_hasher_strings():
 
 @pytest.mark.parametrize("input_type", ["list", "generator"])
 def test_feature_hasher_single_string(input_type):
+    # [FUNCTION DOC]
+    # Non-regression (gh-13199): for a list and a generator of plain strings,
+    # input_type="string" transform raises ValueError about single-string samples.
     """FeatureHasher raises error when a sample is a single string.
 
     Non-regression test for gh-13199.
@@ -65,6 +80,10 @@ def test_feature_hasher_single_string(input_type):
 
 
 def test_hashing_transform_seed():
+    # [FUNCTION DOC]
+    # Calls the Cython transform directly: default seed equals seed=0 (same indices
+    # and indptr), while seed=1 yields different indices (asserted via an expected
+    # AssertionError from assert_array_equal).
     # check the influence of the seed when computing the hashes
     raw_X = [
         ["foo", "bar", "baz", "foo".encode("ascii")],
@@ -86,6 +105,9 @@ def test_hashing_transform_seed():
 
 
 def test_feature_hasher_pairs():
+    # [FUNCTION DOC]
+    # Hashes (name, value) pairs and checks the absolute nonzero values per row equal
+    # the input magnitudes, i.e. no collisions at n_features=16 for these names.
     raw_X = (
         iter(d.items())
         for d in [{"foo": 1, "bar": 2}, {"baz": 3, "quux": 4, "foo": -1}]
@@ -99,6 +121,9 @@ def test_feature_hasher_pairs():
 
 
 def test_feature_hasher_pairs_with_string_values():
+    # [FUNCTION DOC]
+    # Checks pair input with string values hashes "name=value" with value 1 (sign
+    # ignored), and that identical string-valued samples give identical rows.
     raw_X = (
         iter(d.items())
         for d in [{"foo": 1, "bar": "a"}, {"baz": "abc", "quux": 4, "foo": -1}]
@@ -120,6 +145,9 @@ def test_feature_hasher_pairs_with_string_values():
 
 
 def test_hash_empty_input():
+    # [FUNCTION DOC]
+    # Checks empty samples (list, tuple, empty iterator) with input_type="string"
+    # give all-zero rows of the right shape.
     n_features = 16
     raw_X = [[], (), iter(range(0))]
 
@@ -130,12 +158,17 @@ def test_hash_empty_input():
 
 
 def test_hasher_zeros():
+    # [FUNCTION DOC]
+    # Checks a zero-valued feature produces no stored entry in the CSR output.
     # Assert that no zeros are materialized in the output.
     X = FeatureHasher().transform([{"foo": 0}])
     assert X.data.shape == (0,)
 
 
 def test_hasher_alternate_sign():
+    # [FUNCTION DOC]
+    # Checks alternate_sign=True produces both negative and positive values and
+    # alternate_sign=False only positive values for a list of characters.
     X = [list("Thequickbrownfoxjumped")]
 
     Xt = FeatureHasher(alternate_sign=True, input_type="string").fit_transform(X)
@@ -146,6 +179,9 @@ def test_hasher_alternate_sign():
 
 
 def test_hash_collisions():
+    # [FUNCTION DOC]
+    # With n_features=1 all tokens collide: with alternating signs the absolute sum
+    # is smaller than the token count (cancellation); without, it equals the count.
     X = [list("Thequickbrownfoxjumped")]
 
     Xt = FeatureHasher(
@@ -162,6 +198,8 @@ def test_hash_collisions():
 
 
 def test_feature_hasher_requires_fit_tag():
+    # [FUNCTION DOC]
+    # Checks __sklearn_tags__ reports requires_fit as False.
     """Test that FeatureHasher has requires_fit=False tag."""
     hasher = FeatureHasher()
     tags = hasher.__sklearn_tags__()
@@ -169,6 +207,8 @@ def test_feature_hasher_requires_fit_tag():
 
 
 def test_feature_hasher_transform_without_fit():
+    # [FUNCTION DOC]
+    # Checks transform works on an unfitted FeatureHasher and returns shape (2, 10).
     """Test that FeatureHasher can transform without fitting."""
     hasher = FeatureHasher(n_features=10)
     data = [{"dog": 1, "cat": 2}, {"dog": 2, "run": 5}]

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for DictVectorizer: round trips, sorting, one-hot and iterable string
+# values, error messages, restriction via feature selection, determinism, and
+# dense/sparse equivalence.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +22,11 @@ from sklearn.feature_selection import SelectKBest, chi2
 @pytest.mark.parametrize("sort", (True, False))
 @pytest.mark.parametrize("iterable", (True, False))
 def test_dictvectorizer(sparse, dtype, sort, iterable):
+    # [FUNCTION DOC]
+    # Over sparse/dtype/sort/iterator-input combinations, fit_transform on three dicts
+    # must give a (3, 5) matrix of the requested sparsity summing to 14, invert back
+    # to the original dicts, equal transform's output, and have sorted feature names
+    # when sort is set.
     D = [{"foo": 1, "bar": 3}, {"bar": 4, "baz": 2}, {"bar": 1, "quux": 1, "quuux": 2}]
 
     v = DictVectorizer(sparse=sparse, dtype=dtype, sort=sort)
@@ -41,6 +50,10 @@ def test_dictvectorizer(sparse, dtype, sort, iterable):
 
 
 def test_feature_selection():
+    # [FUNCTION DOC]
+    # Builds two dicts with 20 constant "useless" features and two discriminative
+    # ones; after SelectKBest(chi2, k=2) and restrict (with indices and with a mask)
+    # only useful1 and useful2 remain as output names.
     # make two feature dicts with two useful features and a bunch of useless
     # ones, in terms of chi2
     d1 = dict([("useless%d" % i, 10) for i in range(20)], useful1=1, useful2=20)
@@ -56,6 +69,10 @@ def test_feature_selection():
 
 
 def test_one_of_k():
+    # [FUNCTION DOC]
+    # Checks string values are one-hot encoded as "version=<v>" (5 columns), that
+    # inverse_transform yields the expanded names, and that the bare "version" key is
+    # not a feature.
     D_in = [
         {"version": "1", "ham": 2},
         {"version": "2", "spam": 0.3},
@@ -74,6 +91,10 @@ def test_one_of_k():
 
 
 def test_iterable_value():
+    # [FUNCTION DOC]
+    # Checks a list of strings as a value is counted per element (repeated "1" gives
+    # 2), matches the expected dense matrix, inverse_transform returns counts and
+    # feature names are sorted as expected.
     D_names = ["ham", "spam", "version=1", "version=2", "version=3"]
     X_expected = [
         [2.0, 0.0, 2.0, 1.0, 0.0],
@@ -99,6 +120,9 @@ def test_iterable_value():
 
 
 def test_iterable_not_string_error():
+    # [FUNCTION DOC]
+    # Checks fit raises TypeError with the exact message when an iterable value
+    # contains a non-string element.
     error_value = (
         "Unsupported type <class 'int'> in iterable value. "
         "Only iterables of string are supported."
@@ -111,6 +135,8 @@ def test_iterable_not_string_error():
 
 
 def test_mapping_error():
+    # [FUNCTION DOC]
+    # Checks fit raises TypeError with the exact message when a value is a dict.
     error_value = (
         "Unsupported value type <class 'dict'> "
         "for foo: {'one': 1, 'three': 3}.\n"
@@ -128,6 +154,10 @@ def test_mapping_error():
 
 
 def test_unseen_or_no_features():
+    # [FUNCTION DOC]
+    # For sparse and dense modes: transform of a dict with only unseen features and
+    # of an empty dict gives a (1, 2) zero row; transform of an empty list raises
+    # ValueError mentioning "empty".
     D = [{"camelot": 0, "spamalot": 1}]
     for sparse in [True, False]:
         v = DictVectorizer(sparse=sparse).fit(D)
@@ -147,6 +177,9 @@ def test_unseen_or_no_features():
 
 
 def test_deterministic_vocabulary(global_random_seed):
+    # [FUNCTION DOC]
+    # Fits on two dicts with identical items but different insertion order (shuffled
+    # with the global seed) and checks the vocabularies are identical.
     # Generate equal dictionaries with different memory layouts
     items = [("%03d" % i, i) for i in range(1000)]
     rng = Random(global_random_seed)
@@ -162,6 +195,8 @@ def test_deterministic_vocabulary(global_random_seed):
 
 
 def test_n_features_in():
+    # [FUNCTION DOC]
+    # Checks DictVectorizer has no n_features_in_ attribute before or after fit.
     # For vectorizers, n_features_in_ does not make sense and does not exist.
     dv = DictVectorizer()
     assert not hasattr(dv, "n_features_in_")
@@ -171,6 +206,10 @@ def test_n_features_in():
 
 
 def test_dictvectorizer_dense_sparse_equivalence():
+    # [FUNCTION DOC]
+    # Non-regression (#19978): with iterable string values and an unseen feature,
+    # dense and sparse vectorizers give the same fit_transform and transform results
+    # (sparse vs dense types verified) and the same inverse_transform output.
     """Check the equivalence between between sparse and dense DictVectorizer.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/19978
@@ -211,6 +250,9 @@ def test_dictvectorizer_dense_sparse_equivalence():
 
 
 def test_dict_vectorizer_unsupported_value_type():
+    # [FUNCTION DOC]
+    # Non-regression (#19489): fit_transform raises TypeError "Unsupported value
+    # Type" for a value of an arbitrary user class.
     """Check that we raise an error when the value associated to a feature
     is not supported.
 
@@ -219,6 +261,8 @@ def test_dict_vectorizer_unsupported_value_type():
     """
 
     class A:
+        # [CLASS DOC]
+        # HELPER: Empty user-defined class whose instances serve as an unsupported value.
         pass
 
     vectorizer = DictVectorizer(sparse=True)
@@ -229,6 +273,9 @@ def test_dict_vectorizer_unsupported_value_type():
 
 
 def test_dict_vectorizer_get_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks integer feature keys are returned by get_feature_names_out as an
+    # object ndarray of strings ["1", "2", "3"].
     """Check that integer feature names are converted to strings in
     feature_names_out."""
 
@@ -250,6 +297,9 @@ def test_dict_vectorizer_get_feature_names_out():
     ],
 )
 def test_dict_vectorizer_not_fitted_error(method, input):
+    # [FUNCTION DOC]
+    # Parametrized over transform, inverse_transform and restrict: calling them on an
+    # unfitted DictVectorizer raises NotFittedError.
     """Check that unfitted DictVectorizer instance raises NotFittedError.
 
     This should be part of the common test but currently they test estimator accepting

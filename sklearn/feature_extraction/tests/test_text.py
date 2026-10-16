@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.feature_extraction.text: accent stripping, word/char/char_wb
+# analyzers, CountVectorizer, HashingVectorizer, TfidfTransformer and
+# TfidfVectorizer (vocabulary handling, stop words, df thresholds, idf, norms,
+# dtypes, pickling, sparse containers, grid search integration, warnings and error
+# messages). Defines small food-themed corpora (JUNK_FOOD_DOCS, NOTJUNK_FOOD_DOCS,
+# ALL_FOOD_DOCS) shared across tests.
 import pickle
 import re
 import uuid
@@ -61,22 +68,36 @@ ALL_FOOD_DOCS = JUNK_FOOD_DOCS + NOTJUNK_FOOD_DOCS
 
 
 def uppercase(s):
+    # [FUNCTION DOC]
+    # HELPER: Custom preprocessor: strips accents (unicode normalization) then
+    # uppercases. Input: s - str. Output: str.
     return strip_accents_unicode(s).upper()
 
 
 def strip_eacute(s):
+    # [FUNCTION DOC]
+    # HELPER: Custom preprocessor replacing "é" by "e". Input: s - str. Output: str.
     return s.replace("é", "e")
 
 
 def split_tokenize(s):
+    # [FUNCTION DOC]
+    # HELPER: Custom tokenizer splitting on whitespace. Output: list of str.
     return s.split()
 
 
 def lazy_analyze(s):
+    # [FUNCTION DOC]
+    # HELPER: Custom analyzer ignoring its input and returning the single token
+    # "the_ultimate_feature". Output: one-element list.
     return ["the_ultimate_feature"]
 
 
 def test_strip_accents():
+    # [FUNCTION DOC]
+    # Checks strip_accents_unicode on Latin accented letters, an Arabic alef with
+    # hamza, mixed text, pre-decomposed characters, lone combining marks (removed
+    # entirely) and multiple combining marks on one base letter.
     # check some classical latin accentuated symbols
     a = "àáâãäåçèéêë"
     expected = "aaaaaaceeee"
@@ -113,6 +134,9 @@ def test_strip_accents():
 
 
 def test_to_ascii():
+    # [FUNCTION DOC]
+    # Checks strip_accents_ascii on Latin accented letters and mixed text, and that a
+    # character without ASCII equivalent (Arabic alef with hamza) is dropped.
     # check some classical latin accentuated symbols
     a = "àáâãäåçèéêë"
     expected = "aaaaaaceeee"
@@ -135,6 +159,11 @@ def test_to_ascii():
 
 @pytest.mark.parametrize("Vectorizer", (CountVectorizer, HashingVectorizer))
 def test_word_analyzer_unigrams(Vectorizer):
+    # [FUNCTION DOC]
+    # For CountVectorizer and HashingVectorizer, checks the default word analyzer
+    # output: ascii accent stripping with default token pattern (2+ word chars,
+    # lowercased), input="file" reading a StringIO, a custom preprocessor (which
+    # replaces lowercasing), and a custom whitespace tokenizer keeping punctuation.
     wa = Vectorizer(strip_accents="ascii").build_analyzer()
     text = "J'ai mangé du kangourou  ce midi, c'était pas très bon."
     expected = [
@@ -196,6 +225,9 @@ def test_word_analyzer_unigrams(Vectorizer):
 
 
 def test_word_analyzer_unigrams_and_bigrams():
+    # [FUNCTION DOC]
+    # Checks a word analyzer with ngram_range=(1, 2) yields all unigrams followed by
+    # all bigrams in document order.
     wa = CountVectorizer(
         analyzer="word", strip_accents="unicode", ngram_range=(1, 2)
     ).build_analyzer()
@@ -226,6 +258,9 @@ def test_word_analyzer_unigrams_and_bigrams():
 
 
 def test_unicode_decode_error():
+    # [FUNCTION DOC]
+    # Checks the word and char analyzers raise UnicodeDecodeError when given UTF-8
+    # bytes with encoding="ascii" and the default strict decode_error.
     # decode_error default to strict, so this should fail
     # First, encode (as bytes) a unicode string.
     text = "J'ai mangé du kangourou  ce midi, c'était pas très bon."
@@ -245,6 +280,9 @@ def test_unicode_decode_error():
 
 
 def test_char_ngram_analyzer():
+    # [FUNCTION DOC]
+    # Checks char analyzer (3-6 grams) output: whitespace normalized to single spaces,
+    # first and last five n-grams match expectations; also works with input="file".
     cnga = CountVectorizer(
         analyzer="char", strip_accents="unicode", ngram_range=(3, 6)
     ).build_analyzer()
@@ -271,6 +309,9 @@ def test_char_ngram_analyzer():
 
 
 def test_char_wb_ngram_analyzer():
+    # [FUNCTION DOC]
+    # Checks char_wb analyzer pads each word with spaces and only builds n-grams inside
+    # those padded words (first/last expected n-grams), also for file input.
     cnga = CountVectorizer(
         analyzer="char_wb", strip_accents="unicode", ngram_range=(3, 6)
     ).build_analyzer()
@@ -291,6 +332,9 @@ def test_char_wb_ngram_analyzer():
 
 
 def test_word_ngram_analyzer():
+    # [FUNCTION DOC]
+    # Checks word 3-6 gram analyzer first and last n-grams (ordered by n then
+    # position), and that a file input gives the same result as the raw string.
     cnga = CountVectorizer(
         analyzer="word", strip_accents="unicode", ngram_range=(3, 6)
     ).build_analyzer()
@@ -314,6 +358,10 @@ def test_word_ngram_analyzer():
 
 
 def test_countvectorizer_custom_vocabulary():
+    # [FUNCTION DOC]
+    # For dict, list, iterator and defaultdict vocabularies: fit keeps the mapping
+    # (Mappings) or the term set (sequences), transform has one column per term, and
+    # inverse_transform works on an unfitted vectorizer given a fixed vocabulary.
     vocab = {"pizza": 0, "beer": 1}
     terms = set(vocab.keys())
 
@@ -335,6 +383,9 @@ def test_countvectorizer_custom_vocabulary():
 
 
 def test_countvectorizer_custom_vocabulary_pipeline():
+    # [FUNCTION DOC]
+    # Checks a fixed list vocabulary in a CountVectorizer+TfidfTransformer pipeline
+    # is preserved and determines the output width.
     what_we_like = ["pizza", "beer"]
     pipe = Pipeline(
         [
@@ -348,6 +399,9 @@ def test_countvectorizer_custom_vocabulary_pipeline():
 
 
 def test_countvectorizer_custom_vocabulary_repeated_indices():
+    # [FUNCTION DOC]
+    # Checks a vocabulary mapping two terms to the same index raises ValueError
+    # "Vocabulary contains repeated indices" on fit.
     vocab = {"pizza": 0, "beer": 0}
     msg = "Vocabulary contains repeated indices"
     with pytest.raises(ValueError, match=msg):
@@ -356,6 +410,9 @@ def test_countvectorizer_custom_vocabulary_repeated_indices():
 
 
 def test_countvectorizer_custom_vocabulary_gap_index():
+    # [FUNCTION DOC]
+    # Checks a vocabulary whose indices do not start at 0 raises ValueError
+    # "doesn't contain index" on fit.
     vocab = {"pizza": 1, "beer": 2}
     with pytest.raises(ValueError, match="doesn't contain index"):
         vect = CountVectorizer(vocabulary=vocab)
@@ -363,6 +420,9 @@ def test_countvectorizer_custom_vocabulary_gap_index():
 
 
 def test_countvectorizer_stop_words():
+    # [FUNCTION DOC]
+    # Checks get_stop_words: "english" returns ENGLISH_STOP_WORDS, unknown strings
+    # raise ValueError, and a list is returned as a set.
     cv = CountVectorizer()
     cv.set_params(stop_words="english")
     assert cv.get_stop_words() == ENGLISH_STOP_WORDS
@@ -378,6 +438,9 @@ def test_countvectorizer_stop_words():
 
 
 def test_countvectorizer_empty_vocabulary():
+    # [FUNCTION DOC]
+    # Checks ValueError "empty vocabulary" for an empty fixed vocabulary and for a
+    # corpus consisting only of English stop words.
     with pytest.raises(ValueError, match="empty vocabulary"):
         vect = CountVectorizer(vocabulary=[])
         vect.fit(["foo"])
@@ -389,6 +452,9 @@ def test_countvectorizer_empty_vocabulary():
 
 
 def test_fit_countvectorizer_twice():
+    # [FUNCTION DOC]
+    # Checks refitting on a different corpus replaces the vocabulary (different
+    # number of columns).
     cv = CountVectorizer()
     X1 = cv.fit_transform(ALL_FOOD_DOCS[:5])
     X2 = cv.fit_transform(ALL_FOOD_DOCS[5:])
@@ -396,6 +462,9 @@ def test_fit_countvectorizer_twice():
 
 
 def test_countvectorizer_custom_token_pattern():
+    # [FUNCTION DOC]
+    # Non-regression (#12971): a token_pattern with one capturing group uses the
+    # captured group as the token, giving the expected feature names.
     """Check `get_feature_names_out()` when a custom token pattern is passed.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/12971
@@ -415,6 +484,9 @@ def test_countvectorizer_custom_token_pattern():
 
 
 def test_countvectorizer_custom_token_pattern_with_several_group():
+    # [FUNCTION DOC]
+    # Non-regression (#12971): a token_pattern with two capturing groups makes fit
+    # raise ValueError "More than 1 capturing group".
     """Check that we raise an error if token pattern capture several groups.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/12971
@@ -434,6 +506,10 @@ def test_countvectorizer_custom_token_pattern_with_several_group():
 
 
 def test_countvectorizer_uppercase_in_vocab():
+    # [FUNCTION DOC]
+    # Non-regression (#21251): with lowercase=True and a vocabulary containing
+    # uppercase, fit warns (UserWarning) but transform does not (warnings turned into
+    # errors to verify).
     # Check that the check for uppercase in the provided vocabulary is only done at fit
     # time and not at transform time (#21251)
     vocabulary = ["Sample", "Upper", "Case", "Vocabulary"]
@@ -455,6 +531,9 @@ def test_countvectorizer_uppercase_in_vocab():
 
 
 def test_tf_transformer_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks TfidfTransformer.get_feature_names_out returns the input feature names
+    # unchanged.
     """Check get_feature_names_out for TfidfTransformer"""
     X = [[1, 1, 1], [1, 1, 0], [1, 0, 0]]
     tr = TfidfTransformer(smooth_idf=True, norm="l2").fit(X)
@@ -465,6 +544,9 @@ def test_tf_transformer_feature_names_out():
 
 
 def test_tf_idf_smoothing():
+    # [FUNCTION DOC]
+    # With smooth_idf=True and l2 norm, checks tf-idf values are non-negative, rows
+    # have unit l2 norm, and an all-zero column does not cause problems.
     X = [[1, 1, 1], [1, 1, 0], [1, 0, 0]]
     tr = TfidfTransformer(smooth_idf=True, norm="l2")
     tfidf = tr.fit_transform(X).toarray()
@@ -488,6 +570,10 @@ def test_tf_idf_smoothing():
     ),
 )
 def test_tfidf_no_smoothing():
+    # [FUNCTION DOC]
+    # With smooth_idf=False, checks non-negativity and unit norms, and that an
+    # all-zero column emits a "divide by zero" RuntimeWarning (xfail on WASM, which
+    # lacks floating-point exceptions).
     X = [[1, 1, 1], [1, 1, 0], [1, 0, 0]]
     tr = TfidfTransformer(smooth_idf=False, norm="l2")
     tfidf = tr.fit_transform(X).toarray()
@@ -507,6 +593,9 @@ def test_tfidf_no_smoothing():
 
 
 def test_sublinear_tf():
+    # [FUNCTION DOC]
+    # Checks sublinear_tf (1 + log tf) without idf or norm: value 1 for tf=1,
+    # increasing but less than the raw count for tf=2 and 3.
     X = [[1], [2], [3]]
     tr = TfidfTransformer(sublinear_tf=True, use_idf=False, norm=None)
     tfidf = tr.fit_transform(X).toarray()
@@ -518,6 +607,20 @@ def test_sublinear_tf():
 
 
 def test_vectorizer():
+    # [FUNCTION DOC]
+    # End-to-end check of CountVectorizer, TfidfTransformer and TfidfVectorizer on the
+    # food corpus: max_df=0.5 removes frequent words ("the", "copyright"), counts in
+    # train/test documents are as expected, a vectorizer with a fixed copied vocabulary
+    # behaves the same, tf-idf rows are l2-normalized with non-negative values, the
+    # idf_ is consistent between TfidfTransformer and TfidfVectorizer (and settable),
+    # use_idf=False gives normalized raw tf, invalid norm raises ValueError, and
+    # inverse/feature name outputs have the expected length; empty documents raise.
+    # KNOWN ISSUE: inline comments are misleading: the "build a vectorizer v1" comment
+    # builds v2, and "the" is excluded by max_df thresholding, not by a fixed stop
+    # word list (no stop_words are set).
+    # KNOWN ISSUE: near the end the test assigns a string to v3.set_params instead of
+    # calling it, so the analyzer is never set to an invalid type; build_analyzer
+    # still raises ValueError only because strip_accents is left at the invalid value.
     # raw documents as an iterator
     train_data = iter(ALL_FOOD_DOCS[:-1])
     test_data = [ALL_FOOD_DOCS[-1]]
@@ -621,6 +724,10 @@ def test_vectorizer():
 
 
 def test_tfidf_vectorizer_setters():
+    # [FUNCTION DOC]
+    # Checks TfidfVectorizer forwards norm, use_idf, smooth_idf and sublinear_tf to
+    # its internal _tfidf transformer at fit time only: changing them on the
+    # vectorizer has no effect on _tfidf until the next fit.
     norm, use_idf, smooth_idf, sublinear_tf = "l2", False, False, False
     tv = TfidfVectorizer(
         norm=norm, use_idf=use_idf, smooth_idf=smooth_idf, sublinear_tf=sublinear_tf
@@ -650,6 +757,11 @@ def test_tfidf_vectorizer_setters():
 
 
 def test_hashing_vectorizer():
+    # [FUNCTION DOC]
+    # Checks HashingVectorizer default output shape and dtype, random-sign values
+    # strictly inside (-1, 1) with both signs present, unit l2 row norms; then with
+    # bigrams and l1 norm: more nonzeros than unigrams but fewer than twice as many,
+    # bounded values and unit l1 row norms.
     v = HashingVectorizer()
     X = v.transform(ALL_FOOD_DOCS)
     token_nnz = X.nnz
@@ -688,6 +800,11 @@ def test_hashing_vectorizer():
 
 
 def test_feature_names():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out raises ValueError before fit, that the learned
+    # names (max_df=0.5) are the expected sorted list as an object ndarray consistent
+    # with vocabulary_, and that a fixed list vocabulary yields the same names without
+    # fitting and sets fixed_vocabulary_.
     cv = CountVectorizer(max_df=0.5)
 
     # test for Value error on unfitted/empty vocabulary
@@ -760,6 +877,9 @@ def test_feature_names():
 
 @pytest.mark.parametrize("Vectorizer", (CountVectorizer, TfidfVectorizer))
 def test_vectorizer_max_features(Vectorizer):
+    # [FUNCTION DOC]
+    # For CountVectorizer and TfidfVectorizer, checks max_features=4 with max_df=0.6
+    # keeps the 4 most frequent remaining terms.
     expected_vocabulary = {"burger", "beer", "salad", "pizza"}
 
     # test bounded number of extracted features
@@ -769,6 +889,9 @@ def test_vectorizer_max_features(Vectorizer):
 
 
 def test_count_vectorizer_max_features():
+    # [FUNCTION DOC]
+    # Regression (0.14): with max_features of 1, 3 and None on the junk corpus, the
+    # most frequent term "the" (count 7) is always kept and identified via argmax.
     # Regression test: max_features didn't work correctly in 0.14.
 
     cv_1 = CountVectorizer(max_features=1)
@@ -795,6 +918,10 @@ def test_count_vectorizer_max_features():
 
 
 def test_vectorizer_max_df():
+    # [FUNCTION DOC]
+    # Checks max_df on char analyzer: 1.0 keeps all 6 chars, while 0.5 (float
+    # proportion, threshold 1.5 docs) and 1 (absolute count) both drop "a" and "e",
+    # leaving 4 terms.
     test_data = ["abc", "dea", "eat"]
     vect = CountVectorizer(analyzer="char", max_df=1.0)
     vect.fit(test_data)
@@ -813,6 +940,9 @@ def test_vectorizer_max_df():
 
 
 def test_vectorizer_min_df():
+    # [FUNCTION DOC]
+    # Checks min_df on char analyzer: 1 keeps all 6, integer 2 keeps only "a" and
+    # "e", proportion 0.8 (threshold 2.4 docs) keeps only "a".
     test_data = ["abc", "dea", "eat"]
     vect = CountVectorizer(analyzer="char", min_df=1)
     vect.fit(test_data)
@@ -831,6 +961,9 @@ def test_vectorizer_min_df():
 
 
 def test_count_binary_occurrences():
+    # [FUNCTION DOC]
+    # Checks CountVectorizer char counts, binary=True clipping counts to 1, and that
+    # dtype=np.float32 sets the output dtype.
     # by default multiple occurrences are counted as longs
     test_data = ["aaabc", "abbde"]
     vect = CountVectorizer(analyzer="char", max_df=1.0)
@@ -851,6 +984,11 @@ def test_count_binary_occurrences():
 
 
 def test_hashed_binary_occurrences():
+    # [FUNCTION DOC]
+    # Checks HashingVectorizer (no sign alternation, no norm) gives per-row maximum
+    # counts 3 and 2, binary=True gives max 1, and the dtype is float64 by default and
+    # when set explicitly.
+    # KNOWN ISSUE: comment "counted as longs" is inaccurate; values are float64.
     # by default multiple occurrences are counted as longs
     test_data = ["aaabc", "abbde"]
     vect = HashingVectorizer(alternate_sign=False, analyzer="char", norm=None)
@@ -878,6 +1016,10 @@ def test_hashed_binary_occurrences():
 
 @pytest.mark.parametrize("Vectorizer", (CountVectorizer, TfidfVectorizer))
 def test_vectorizer_inverse_transform(Vectorizer):
+    # [FUNCTION DOC]
+    # For CountVectorizer and TfidfVectorizer, checks inverse_transform returns a
+    # list whose per-document term sets equal the analyzer's unique tokens, that
+    # fit_transform outputs CSR, and that dense and CSC inputs give the same result.
     # raw documents
     data = ALL_FOOD_DOCS
     vectorizer = Vectorizer()
@@ -909,6 +1051,12 @@ def test_vectorizer_inverse_transform(Vectorizer):
 
 
 def test_count_vectorizer_pipeline_grid_selection():
+    # [FUNCTION DOC]
+    # Grid-searches ngram_range and LinearSVC loss in a CountVectorizer pipeline on a
+    # train split (random_state=0, 20% test, cv=3) and checks perfect test
+    # predictions, best CV score 1.0 and that ngram_range (1, 1) is selected.
+    # KNOWN ISSUE: the inline comment says the bigram model is chosen, while the
+    # assertion expects (1, 1) (first of tied candidates).
     # raw documents
     data = JUNK_FOOD_DOCS + NOTJUNK_FOOD_DOCS
 
@@ -945,6 +1093,11 @@ def test_count_vectorizer_pipeline_grid_selection():
 
 
 def test_vectorizer_pipeline_grid_selection():
+    # [FUNCTION DOC]
+    # Same as the count-vectorizer grid test with TfidfVectorizer and an extra norm
+    # grid (10% test split, default cv): perfect predictions, best score 1.0, chosen
+    # ngram_range (1, 1), norm "l2" and no fixed vocabulary.
+    # KNOWN ISSUE: same misleading bigram comment as the CountVectorizer variant.
     # raw documents
     data = JUNK_FOOD_DOCS + NOTJUNK_FOOD_DOCS
 
@@ -984,6 +1137,9 @@ def test_vectorizer_pipeline_grid_selection():
 
 
 def test_vectorizer_pipeline_cross_validation():
+    # [FUNCTION DOC]
+    # Checks 3-fold cross_val_score of a TfidfVectorizer + LinearSVC pipeline is 1.0
+    # on every fold.
     # raw documents
     data = JUNK_FOOD_DOCS + NOTJUNK_FOOD_DOCS
 
@@ -997,6 +1153,10 @@ def test_vectorizer_pipeline_cross_validation():
 
 
 def test_vectorizer_unicode():
+    # [FUNCTION DOC]
+    # Checks CountVectorizer tokenizes a Cyrillic sentence into 12 features and that
+    # HashingVectorizer (no norm, no sign) gives the same nnz and same sorted counts
+    # (no collisions).
     # tests that the count vectorizer works with cyrillic.
     document = (
         "Машинное обучение — обширный подраздел искусственного "
@@ -1021,6 +1181,9 @@ def test_vectorizer_unicode():
 
 
 def test_tfidf_vectorizer_with_fixed_vocabulary():
+    # [FUNCTION DOC]
+    # Smoke test: TfidfVectorizer with a fixed list vocabulary gives the same result
+    # for fit_transform and transform and reports fixed_vocabulary_.
     # non regression smoke test for inheritance issues
     vocabulary = ["pizza", "celeri"]
     vect = TfidfVectorizer(vocabulary=vocabulary)
@@ -1031,6 +1194,10 @@ def test_tfidf_vectorizer_with_fixed_vocabulary():
 
 
 def test_pickling_vectorizer():
+    # [FUNCTION DOC]
+    # Pickles and unpickles a range of fitted and unfitted vectorizers (including
+    # custom preprocessors/analyzers/strip_accents callables) and checks type,
+    # get_params and fit_transform output are preserved.
     instances = [
         HashingVectorizer(),
         HashingVectorizer(norm="l1"),
@@ -1066,6 +1233,9 @@ def test_pickling_vectorizer():
     ],
 )
 def test_pickling_built_processors(factory):
+    # [FUNCTION DOC]
+    # Non-regression (#12833): analyzers, preprocessors and tokenizers built by
+    # CountVectorizer can be pickled and give identical output after round trip.
     """Tokenizers cannot be pickled
     https://github.com/scikit-learn/scikit-learn/issues/12833
     """
@@ -1079,6 +1249,10 @@ def test_pickling_built_processors(factory):
 
 
 def test_countvectorizer_vocab_sets_when_pickling():
+    # [FUNCTION DOC]
+    # For 100 random 5-word set vocabularies, checks a pickled-then-unpickled
+    # CountVectorizer yields the same feature names as the original after fit
+    # (set ordering preserved through pickling).
     # ensure that vocabulary of type set is coerced to a list to
     # preserve iteration ordering after deserialization
     rng = np.random.RandomState(0)
@@ -1107,6 +1281,9 @@ def test_countvectorizer_vocab_sets_when_pickling():
 
 
 def test_countvectorizer_vocab_dicts_when_pickling():
+    # [FUNCTION DOC]
+    # For 100 random 5-word dict vocabularies with indices 0..4, checks a pickled
+    # round-trip CountVectorizer yields the same feature names after fit.
     rng = np.random.RandomState(0)
     vocab_words = np.array(
         [
@@ -1136,6 +1313,9 @@ def test_countvectorizer_vocab_dicts_when_pickling():
 
 
 def test_pickling_transformer():
+    # [FUNCTION DOC]
+    # Checks a fitted TfidfTransformer survives pickling: same type and identical
+    # fit_transform output on the count matrix.
     X = CountVectorizer().fit_transform(JUNK_FOOD_DOCS)
     orig = TfidfTransformer().fit(X)
     s = pickle.dumps(orig)
@@ -1145,6 +1325,9 @@ def test_pickling_transformer():
 
 
 def test_transformer_idf_setter():
+    # [FUNCTION DOC]
+    # Checks assigning idf_ from a fitted TfidfTransformer to a fresh one makes its
+    # transform match the original.
     X = CountVectorizer().fit_transform(JUNK_FOOD_DOCS)
     orig = TfidfTransformer().fit(X)
     copy = TfidfTransformer()
@@ -1153,6 +1336,10 @@ def test_transformer_idf_setter():
 
 
 def test_tfidf_vectorizer_setter():
+    # [FUNCTION DOC]
+    # Checks setting idf_ on a TfidfVectorizer with a fixed vocabulary reproduces the
+    # original transform, and that setting idf_ with use_idf=False raises ValueError
+    # with the documented message.
     orig = TfidfVectorizer(use_idf=True)
     orig.fit(JUNK_FOOD_DOCS)
     copy = TfidfVectorizer(vocabulary=orig.vocabulary_, use_idf=True)
@@ -1169,6 +1356,9 @@ def test_tfidf_vectorizer_setter():
 
 
 def test_tfidfvectorizer_invalid_idf_attr():
+    # [FUNCTION DOC]
+    # Checks setting an idf_ whose length differs from the vocabulary size raises
+    # ValueError.
     vect = TfidfVectorizer(use_idf=True)
     vect.fit(JUNK_FOOD_DOCS)
     copy = TfidfVectorizer(vocabulary=vect.vocabulary_, use_idf=True)
@@ -1179,6 +1369,8 @@ def test_tfidfvectorizer_invalid_idf_attr():
 
 
 def test_non_unique_vocab():
+    # [FUNCTION DOC]
+    # Checks a list vocabulary with duplicate terms makes fit raise ValueError.
     vocab = ["a", "b", "c", "a", "a"]
     vect = CountVectorizer(vocabulary=vocab)
     with pytest.raises(ValueError):
@@ -1186,12 +1378,18 @@ def test_non_unique_vocab():
 
 
 def test_hashingvectorizer_nan_in_docs():
+    # [FUNCTION DOC]
+    # Checks HashingVectorizer.fit_transform raises ValueError with an explicit
+    # message when a document is np.nan.
     # np.nan can appear when using pandas to load text fields from a csv file
     # with missing values.
     message = "np.nan is an invalid document, expected byte or unicode string."
     exception = ValueError
 
     def func():
+        # [FUNCTION DOC]
+        # HELPER: Builds a default HashingVectorizer and fits it on a corpus containing
+        # np.nan, which is expected to raise.
         hv = HashingVectorizer()
         hv.fit_transform(["hello world", np.nan, "hello hello"])
 
@@ -1200,6 +1398,9 @@ def test_hashingvectorizer_nan_in_docs():
 
 
 def test_tfidfvectorizer_binary():
+    # [FUNCTION DOC]
+    # Non-regression: TfidfVectorizer honours binary=True (without idf and norm)
+    # in both fit_transform and transform, giving 0/1 counts.
     # Non-regression test: TfidfVectorizer used to ignore its "binary" param.
     v = TfidfVectorizer(binary=True, use_idf=False, norm=None)
     assert v.binary
@@ -1211,12 +1412,17 @@ def test_tfidfvectorizer_binary():
 
 
 def test_tfidfvectorizer_export_idf():
+    # [FUNCTION DOC]
+    # Checks TfidfVectorizer.idf_ exposes the internal _tfidf.idf_ values.
     vect = TfidfVectorizer(use_idf=True)
     vect.fit(JUNK_FOOD_DOCS)
     assert_array_almost_equal(vect.idf_, vect._tfidf.idf_)
 
 
 def test_vectorizer_vocab_clone():
+    # [FUNCTION DOC]
+    # Checks a clone of a TfidfVectorizer with a fixed vocabulary learns the same
+    # vocabulary_ as the original after fitting.
     vect_vocab = TfidfVectorizer(vocabulary=["the"])
     vect_vocab_clone = clone(vect_vocab)
     vect_vocab.fit(ALL_FOOD_DOCS)
@@ -1228,6 +1434,10 @@ def test_vectorizer_vocab_clone():
     "Vectorizer", (CountVectorizer, TfidfVectorizer, HashingVectorizer)
 )
 def test_vectorizer_string_object_as_input(Vectorizer):
+    # [FUNCTION DOC]
+    # For Count, Tfidf and Hashing vectorizers, checks fit_transform, fit and
+    # transform raise ValueError when given a single string instead of an iterable of
+    # documents.
     message = "Iterable over raw text documents expected, string object received."
     vec = Vectorizer()
 
@@ -1244,6 +1454,9 @@ def test_vectorizer_string_object_as_input(Vectorizer):
 
 @pytest.mark.parametrize("X_dtype", [np.float32, np.float64])
 def test_tfidf_transformer_type(X_dtype):
+    # [FUNCTION DOC]
+    # Checks TfidfTransformer preserves float32/float64 dtype of a random sparse
+    # input.
     X = _sparse_random_array((10, 20000), dtype=X_dtype, random_state=42)
     X_trans = TfidfTransformer().fit_transform(X)
     assert X_trans.dtype == X.dtype
@@ -1253,6 +1466,9 @@ def test_tfidf_transformer_type(X_dtype):
     "csc_container, csr_container", product(CSC_CONTAINERS, CSR_CONTAINERS)
 )
 def test_tfidf_transformer_sparse(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # For every CSC/CSR container pair, checks TfidfTransformer gives numerically
+    # equal results and the same output format for CSC and CSR inputs.
     X = _sparse_random_array((10, 20000), dtype=np.float64, random_state=42)
     X_csc = csc_container(X)
     X_csr = csr_container(X)
@@ -1273,6 +1489,9 @@ def test_tfidf_transformer_sparse(csc_container, csr_container):
     ],
 )
 def test_tfidf_vectorizer_type(vectorizer_dtype, output_dtype, warning_expected):
+    # [FUNCTION DOC]
+    # Checks TfidfVectorizer warns (UserWarning about 'dtype') and outputs float64
+    # for integer dtypes, and outputs float32/float64 without warning for float dtypes.
     X = np.array(["numpy", "scipy", "sklearn"])
     vectorizer = TfidfVectorizer(dtype=vectorizer_dtype)
 
@@ -1296,6 +1515,10 @@ def test_tfidf_vectorizer_type(vectorizer_dtype, output_dtype, warning_expected)
     ],
 )
 def test_vectorizers_invalid_ngram_range(vec):
+    # [FUNCTION DOC]
+    # For each vectorizer constructed with ngram_range=(2, 1), checks fit and
+    # fit_transform (and transform for HashingVectorizer) raise ValueError with the
+    # "lower boundary larger than the upper boundary" message.
     # vectorizers could be initialized with invalid ngram range
     # test for raising error message
     invalid_range = vec.ngram_range
@@ -1316,6 +1539,11 @@ def test_vectorizers_invalid_ngram_range(vec):
 
 
 def _check_stop_words_consistency(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Calls the estimator's private _check_stop_words_consistency with its
+    # stop words, preprocessor and tokenizer. Outputs: True (consistent), False
+    # (inconsistent, warns), "error" (check failed), or None (already checked for this
+    # stop list).
     stop_words = estimator.get_stop_words()
     tokenize = estimator.build_tokenizer()
     preprocess = estimator.build_preprocessor()
@@ -1323,6 +1551,11 @@ def _check_stop_words_consistency(estimator):
 
 
 def test_vectorizer_stop_words_inconsistent():
+    # [FUNCTION DOC]
+    # For each vectorizer: stop words whose tokenization yields tokens not in the list
+    # trigger a UserWarning listing them on fit; after deleting the cached
+    # _stop_words_id the helper warns and returns False; refitting does not warn
+    # again and the helper returns None (cached); a new stop list warns again.
     lstr = r"\['and', 'll', 've'\]"
     message = (
         "Your stop_words may be inconsistent with your "
@@ -1353,6 +1586,9 @@ def test_vectorizer_stop_words_inconsistent():
 @skip_if_32bit
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_countvectorizer_sort_features_64bit_sparse_indices(csr_container):
+    # [FUNCTION DOC]
+    # Checks CountVectorizer._sort_features keeps int64 indices dtype of a CSR
+    # matrix whose indices/indptr were forced to int64 (skipped on 32-bit).
     """
     Check that CountVectorizer._sort_features preserves the dtype of its sparse
     feature matrix.
@@ -1380,6 +1616,11 @@ def test_countvectorizer_sort_features_64bit_sparse_indices(csr_container):
     "Estimator", [CountVectorizer, TfidfVectorizer, HashingVectorizer]
 )
 def test_stop_word_validation_custom_preprocessor(Estimator):
+    # [FUNCTION DOC]
+    # Checks the stop-word consistency helper returns True for defaults, "error" then
+    # None (cached) when a preprocessor expects dicts, "error" for a subclass
+    # overriding build_preprocessor, and True with a custom regex tokenizer; also that
+    # fit_transform still works with the dict-based preprocessor.
     data = [{"text": "some text"}]
 
     vec = Estimator()
@@ -1392,7 +1633,12 @@ def test_stop_word_validation_custom_preprocessor(Estimator):
     vec.fit_transform(data)
 
     class CustomEstimator(Estimator):
+        # [CLASS DOC]
+        # HELPER: Subclass of the parametrized estimator whose preprocessor extracts
+        # the "text" field from dict documents.
         def build_preprocessor(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns a preprocessor that indexes a document by "text".
             return lambda x: x["text"]
 
     vec = CustomEstimator(stop_words=["and"])
@@ -1415,6 +1661,10 @@ def test_stop_word_validation_custom_preprocessor(Estimator):
     ],
 )
 def test_callable_analyzer_error(Estimator, input_type, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Checks a callable analyzer with input="filename" raises FileNotFoundError and
+    # with input="file" raises AttributeError (str has no read), since documents are
+    # decoded/opened before calling the analyzer.
     data = ["this is text, not file or filename"]
     with pytest.raises(err_type, match=err_msg):
         Estimator(analyzer=lambda x: x.split(), input=input_type).fit_transform(data)
@@ -1433,6 +1683,10 @@ def test_callable_analyzer_error(Estimator, input_type, err_type, err_msg):
 )
 @pytest.mark.parametrize("input_type", ["file", "filename"])
 def test_callable_analyzer_change_behavior(Estimator, analyzer, input_type):
+    # [FUNCTION DOC]
+    # Checks callable analyzers that themselves open or read the document raise
+    # FileNotFoundError or AttributeError with input "file"/"filename", for every
+    # vectorizer.
     data = ["this is text, not file or filename"]
     with pytest.raises((FileNotFoundError, AttributeError)):
         Estimator(analyzer=analyzer, input=input_type).fit_transform(data)
@@ -1442,8 +1696,13 @@ def test_callable_analyzer_change_behavior(Estimator, analyzer, input_type):
     "Estimator", [CountVectorizer, TfidfVectorizer, HashingVectorizer]
 )
 def test_callable_analyzer_reraise_error(tmpdir, Estimator):
+    # [FUNCTION DOC]
+    # Checks an exception raised inside a custom analyzer propagates unchanged when
+    # the input is a real file object (created in tmpdir).
     # check if a custom exception from the analyzer is shown to the user
     def analyzer(doc):
+        # [FUNCTION DOC]
+        # HELPER: Analyzer that always raises Exception("testing").
         raise Exception("testing")
 
     f = tmpdir.join("file.txt")
@@ -1542,6 +1801,11 @@ def test_unused_parameters_warn(
     ovrd_name,
     ovrd_msg,
 ):
+    # [FUNCTION DOC]
+    # For each vectorizer and each combination where a parameter is overridden by
+    # another (e.g. stop_words or tokenizer with a char analyzer, token_pattern with a
+    # tokenizer, preprocessor or ngram_range with a callable analyzer), checks fit
+    # emits the "The parameter ... will not be used since ..." UserWarning.
     train_data = JUNK_FOOD_DOCS
     # setting parameter and checking for corresponding warning messages
     vect = Vectorizer()
@@ -1570,6 +1834,11 @@ def test_unused_parameters_warn(
     ),
 )
 def test_n_features_in(Vectorizer, X):
+    # [FUNCTION DOC]
+    # Checks CountVectorizer and HashingVectorizer have no n_features_in_ before or
+    # after fit.
+    # KNOWN ISSUE: HashingVectorizer is fitted on a list of dicts rather than text;
+    # this only passes because its fit does not analyze the documents.
     # For vectorizers, n_features_in_ does not make sense
     vectorizer = Vectorizer()
     assert not hasattr(vectorizer, "n_features_in_")
@@ -1578,6 +1847,9 @@ def test_n_features_in(Vectorizer, X):
 
 
 def test_tie_breaking_sample_order_invariance():
+    # [FUNCTION DOC]
+    # Non-regression (#17939): with max_features=1 and tied counts, the kept term
+    # does not depend on document order.
     # Checks the sample order invariance when setting max_features
     # non-regression test for #17939
     vec = CountVectorizer(max_features=1)
@@ -1587,6 +1859,9 @@ def test_tie_breaking_sample_order_invariance():
 
 
 def test_nonnegative_hashing_vectorizer_result_indices():
+    # [FUNCTION DOC]
+    # Non-regression (PR 19035): hashed indices are non-negative for an input whose
+    # hash would be the minimum int32 value.
     # add test for pr 19035
     hashing = HashingVectorizer(n_features=1000000, ngram_range=(2, 3))
     indices = hashing.transform(["22pcs efuture"]).indices
@@ -1597,6 +1872,8 @@ def test_nonnegative_hashing_vectorizer_result_indices():
     "Estimator", [CountVectorizer, TfidfVectorizer, TfidfTransformer, HashingVectorizer]
 )
 def test_vectorizers_do_not_have_set_output(Estimator):
+    # [FUNCTION DOC]
+    # Checks the text vectorizers and TfidfTransformer do not expose set_output.
     """Check that vectorizers do not define set_output."""
     est = Estimator()
     assert not hasattr(est, "set_output")
@@ -1604,6 +1881,11 @@ def test_vectorizers_do_not_have_set_output(Estimator):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_tfidf_transformer_copy(csr_container):
+    # [FUNCTION DOC]
+    # Checks TfidfTransformer.transform with copy=True leaves the input unchanged and
+    # returns a new object, while copy=False modifies the input in place, returning
+    # the same object (or, if the sparse API is realigned, a new object sharing
+    # indptr/indices/data buffers).
     """Check the behaviour of TfidfTransformer.transform with the copy parameter."""
     X = _sparse_random_array((10, 20000), dtype=np.float64, random_state=42)
     X_csr = csr_container(X)
@@ -1634,6 +1916,9 @@ def test_tfidf_transformer_copy(csr_container):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_tfidf_vectorizer_preserve_dtype_idf(dtype):
+    # [FUNCTION DOC]
+    # Non-regression (#30016): idf_ dtype follows the vectorizer dtype (float32 or
+    # float64) on a large corpus of random UUID strings.
     """Check that `idf_` has the same dtype as the input data.
 
     Non-regression test for:
@@ -1645,6 +1930,8 @@ def test_tfidf_vectorizer_preserve_dtype_idf(dtype):
 
 
 def test_hashing_vectorizer_requires_fit_tag():
+    # [FUNCTION DOC]
+    # Checks HashingVectorizer tags report requires_fit as False.
     """Test that HashingVectorizer has requires_fit=False tag."""
     vectorizer = HashingVectorizer()
     tags = vectorizer.__sklearn_tags__()
@@ -1652,6 +1939,8 @@ def test_hashing_vectorizer_requires_fit_tag():
 
 
 def test_hashing_vectorizer_transform_without_fit():
+    # [FUNCTION DOC]
+    # Checks HashingVectorizer.transform works without fit and returns shape (2, 10).
     """Test that HashingVectorizer can transform without fitting."""
     vectorizer = HashingVectorizer(n_features=10)
     corpus = ["This is test", "Another test"]

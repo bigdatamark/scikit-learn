@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.feature_extraction.image: pixel graphs (img_to_graph,
+# grid_to_graph) including masks and connectivity, 2-D patch extraction and
+# reconstruction, PatchExtractor, and the strided _extract_patches helper. Uses the
+# raccoon_face_fxt fixture from the shared conftest.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +23,10 @@ from sklearn.utils._testing import assert_allclose
 
 
 def test_img_to_graph():
+    # [FUNCTION DOC]
+    # Builds x and y coordinate grids (shifted negative) and checks their gradient
+    # graphs have equal nnz and identical positive (gradient) entries, since unit
+    # steps give gradient 1 along each axis; negative entries are the diagonal.
     x, y = np.mgrid[:4, :4] - 10
     grad_x = img_to_graph(x)
     grad_y = img_to_graph(y)
@@ -31,6 +40,10 @@ def test_img_to_graph():
 
 
 def test_img_to_graph_sparse():
+    # [FUNCTION DOC]
+    # With a mask containing an isolated pixel and a 2-pixel column, checks the
+    # dense gradient graph equals the expected 3x3 matrix (diagonal = intensities,
+    # off-diagonal = absolute difference), verifying masked vertex renumbering.
     # Check that the edges are in the right position
     #  when using a sparse image with a singleton component
     mask = np.zeros((2, 3), dtype=bool)
@@ -46,6 +59,14 @@ def test_img_to_graph_sparse():
 
 
 def test_grid_to_graph():
+    # [FUNCTION DOC]
+    # Checks grid_to_graph: a mask with two isolated vertices (no edges) yields two
+    # connected components; vertex ordering after masking matches an expected matrix;
+    # an int16 mask works (one component); and the dtype argument (bool, int,
+    # float64) controls the output dtype.
+    # KNOWN ISSUE: the last two blocks pass a 2x2 mask for a 2x2x2 grid; it only works
+    # because the mask is flattened and edges to vertices beyond its length are
+    # dropped, so the test does not really exercise a full 3-D mask.
     # Checking that the function works with graphs containing no edges
     size = 2
     roi_size = 1
@@ -82,6 +103,9 @@ def test_grid_to_graph():
 
 
 def test_connect_regions(raccoon_face_fxt):
+    # [FUNCTION DOC]
+    # For two thresholds on a 4x subsampled face, checks the number of connected
+    # components of img_to_graph with the threshold mask equals ndimage.label's count.
     face = raccoon_face_fxt
     # subsample by 4 to reduce run time
     face = face[::4, ::4]
@@ -92,6 +116,9 @@ def test_connect_regions(raccoon_face_fxt):
 
 
 def test_connect_regions_with_grid(raccoon_face_fxt):
+    # [FUNCTION DOC]
+    # Same component-count check using grid_to_graph on the face shape, once with the
+    # default dtype and once with dtype=None.
     face = raccoon_face_fxt
 
     # subsample by 4 to reduce run time
@@ -108,6 +135,9 @@ def test_connect_regions_with_grid(raccoon_face_fxt):
 
 @pytest.fixture
 def downsampled_face(raccoon_face_fxt):
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning the raccoon face downsampled 4x per axis by summing
+    # 2x2 blocks twice, converted to float32 and divided by 16 (block mean).
     face = raccoon_face_fxt
     face = face[::2, ::2] + face[1::2, ::2] + face[::2, 1::2] + face[1::2, 1::2]
     face = face[::2, ::2] + face[1::2, ::2] + face[::2, 1::2] + face[1::2, 1::2]
@@ -118,6 +148,9 @@ def downsampled_face(raccoon_face_fxt):
 
 @pytest.fixture
 def orange_face(downsampled_face):
+    # [FUNCTION DOC]
+    # HELPER: Fixture building a 3-channel float64 image from the downsampled face,
+    # each channel being 256 minus the face scaled by 1, 1/2 and 1/4.
     face = downsampled_face
     face_color = np.zeros(face.shape + (3,))
     face_color[:, :, 0] = 256 - face
@@ -127,6 +160,9 @@ def orange_face(downsampled_face):
 
 
 def _make_images(face):
+    # [FUNCTION DOC]
+    # HELPER: Stacks three copies of face offset by 0, 1 and 2 into a float64 array
+    # of shape (3,) + face.shape. Side effects: none.
     # make a collection of faces
     images = np.zeros((3,) + face.shape)
     images[0] = face
@@ -137,10 +173,15 @@ def _make_images(face):
 
 @pytest.fixture
 def downsampled_face_collection(downsampled_face):
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning _make_images applied to the downsampled face.
     return _make_images(downsampled_face)
 
 
 def test_extract_patches_all(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks exhaustive 16x16 patch extraction on a grayscale image returns all
+    # (i_h - 15) * (i_w - 15) patches with the channel axis dropped.
     face = downsampled_face
     i_h, i_w = face.shape
     p_h, p_w = 16, 16
@@ -150,6 +191,9 @@ def test_extract_patches_all(downsampled_face):
 
 
 def test_extract_patches_all_color(orange_face):
+    # [FUNCTION DOC]
+    # Same as test_extract_patches_all on the 3-channel image; the channel axis (3)
+    # must be kept.
     face = orange_face
     i_h, i_w = face.shape[:2]
     p_h, p_w = 16, 16
@@ -159,6 +203,9 @@ def test_extract_patches_all_color(orange_face):
 
 
 def test_extract_patches_all_rect(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks exhaustive extraction with a rectangular 16x12 patch on a cropped image
+    # gives the expected count and shape.
     face = downsampled_face
     face = face[:, 32:97]
     i_h, i_w = face.shape
@@ -170,6 +217,10 @@ def test_extract_patches_all_rect(downsampled_face):
 
 
 def test_extract_patches_max_patches(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks max_patches=100 returns 100 patches, max_patches=0.5 returns the
+    # truncated half of all patches, and 2.0 or -1.0 raise ValueError (parameter
+    # validation).
     face = downsampled_face
     i_h, i_w = face.shape
     p_h, p_w = 16, 16
@@ -188,6 +239,9 @@ def test_extract_patches_max_patches(downsampled_face):
 
 
 def test_extract_patch_same_size_image(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks a patch equal to the whole image with max_patches=2 yields exactly one
+    # patch (max_patches clipped to the available count).
     face = downsampled_face
     # Request patches of the same size as image
     # Should return just the single patch a.k.a. the image
@@ -196,6 +250,8 @@ def test_extract_patch_same_size_image(downsampled_face):
 
 
 def test_extract_patches_less_than_max_patches(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks an integer max_patches above the available count returns all patches.
     face = downsampled_face
     i_h, i_w = face.shape
     p_h, p_w = 3 * i_h // 4, 3 * i_w // 4
@@ -207,6 +263,9 @@ def test_extract_patches_less_than_max_patches(downsampled_face):
 
 
 def test_reconstruct_patches_perfect(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks exhaustive extraction followed by reconstruct_from_patches_2d recovers
+    # the grayscale image to almost-equal precision.
     face = downsampled_face
     p_h, p_w = 16, 16
 
@@ -216,6 +275,8 @@ def test_reconstruct_patches_perfect(downsampled_face):
 
 
 def test_reconstruct_patches_perfect_color(orange_face):
+    # [FUNCTION DOC]
+    # Same perfect-reconstruction check for the 3-channel image.
     face = orange_face
     p_h, p_w = 16, 16
 
@@ -234,6 +295,9 @@ def test_reconstruct_patches_perfect_color(orange_face):
     ],
 )
 def test_reconstruct_patches_edge_patch_size(image_size, patch_size):
+    # [FUNCTION DOC]
+    # Non-regression (#10910): random images where a patch dimension equals the image
+    # dimension (with and without channels) are reconstructed exactly (assert_allclose).
     """Check that reconstruct_from_patches_2d works when a patch dimension
     equals the corresponding image dimension.
 
@@ -247,6 +311,8 @@ def test_reconstruct_patches_edge_patch_size(image_size, patch_size):
 
 
 def test_patch_extractor_fit(downsampled_face_collection, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks PatchExtractor.fit returns the estimator itself.
     faces = downsampled_face_collection
     extr = PatchExtractor(
         patch_size=(8, 8), max_patches=100, random_state=global_random_seed
@@ -255,6 +321,9 @@ def test_patch_extractor_fit(downsampled_face_collection, global_random_seed):
 
 
 def test_patch_extractor_max_patches(downsampled_face_collection, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks PatchExtractor output count is n_images * max_patches for an int, and
+    # n_images * truncated fraction of all patches for a float.
     faces = downsampled_face_collection
     i_h, i_w = faces.shape[1:3]
     p_h, p_w = 8, 8
@@ -281,6 +350,9 @@ def test_patch_extractor_max_patches(downsampled_face_collection, global_random_
 def test_patch_extractor_max_patches_default(
     downsampled_face_collection, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Checks the default patch size (height // 10, width // 10) gives (19, 25) patches
+    # for the downsampled face collection, with 100 patches per image.
     faces = downsampled_face_collection
     extr = PatchExtractor(max_patches=100, random_state=global_random_seed)
     patches = extr.transform(faces)
@@ -288,6 +360,8 @@ def test_patch_extractor_max_patches_default(
 
 
 def test_patch_extractor_all_patches(downsampled_face_collection, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks exhaustive PatchExtractor extraction count and shape on grayscale images.
     faces = downsampled_face_collection
     i_h, i_w = faces.shape[1:3]
     p_h, p_w = 8, 8
@@ -298,6 +372,9 @@ def test_patch_extractor_all_patches(downsampled_face_collection, global_random_
 
 
 def test_patch_extractor_color(orange_face, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks exhaustive PatchExtractor extraction on 3-channel images keeps the
+    # channel axis.
     faces = _make_images(orange_face)
     i_h, i_w = faces.shape[1:3]
     p_h, p_w = 8, 8
@@ -308,6 +385,11 @@ def test_patch_extractor_color(orange_face, global_random_seed):
 
 
 def test_extract_patches_strided():
+    # [FUNCTION DOC]
+    # Table-driven test of _extract_patches on 1-D, 2-D and 3-D arange arrays with
+    # various patch sizes and steps: the leading (position) dimensions of the view
+    # must match the expected counts and the last patch must equal the slice of the
+    # image starting at the expected corner.
     image_shapes_1D = [(10,), (10,), (11,), (10,)]
     patch_sizes_1D = [(1,), (2,), (3,), (8,)]
     patch_steps_1D = [(1,), (1,), (4,), (2,)]
@@ -355,6 +437,9 @@ def test_extract_patches_strided():
 
 
 def test_extract_patches_square(downsampled_face):
+    # [FUNCTION DOC]
+    # Checks an integer patch_shape is broadcast to all dimensions, giving a 4-D
+    # view of shape (i_h - p + 1, i_w - p + 1, p, p).
     # test same patch size for all dimensions
     face = downsampled_face
     i_h, i_w = face.shape
@@ -365,6 +450,9 @@ def test_extract_patches_square(downsampled_face):
 
 
 def test_width_patch():
+    # [FUNCTION DOC]
+    # Checks extract_patches_2d raises ValueError when the patch is taller or wider
+    # than the image.
     # width and height of the patch should be less than the image
     x = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     with pytest.raises(ValueError):
@@ -374,6 +462,9 @@ def test_width_patch():
 
 
 def test_patch_extractor_wrong_input(orange_face):
+    # [FUNCTION DOC]
+    # Checks PatchExtractor.transform raises ValueError with an informative message
+    # when patch_size has three elements.
     """Check that an informative error is raised if the patch_size is not valid."""
     faces = _make_images(orange_face)
     err_msg = "patch_size must be a tuple of two integers"
