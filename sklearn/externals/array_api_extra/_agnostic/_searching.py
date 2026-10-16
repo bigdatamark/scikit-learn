@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# HELPER: Generic array API implementation of searchsorted via vectorised binary search.
 """Array-agnostic implementations for searching functions."""
 
 import math
@@ -18,6 +20,17 @@ def searchsorted(
     side: Literal["left", "right"] = "left",
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Finds insertion indices of x2 into the last axis of sorted x1 (batched,
+    #   NaNs sorted last). Starts with lower bounds 0 and upper bounds equal to the
+    #   number of non-NaN elements per row, then runs a fixed floor(log2(len))+1
+    #   bisection steps (JIT friendly): take the midpoint, gather x1 there with
+    #   take_along_axis, and move the upper or lower bound depending on x2 <= x0 (left)
+    #   or x2 < x0 (right). Values that compare before the row minimum get 0; for side
+    #   right NaN queries get the row length. Result cast to the default integral dtype.
+    # Inputs: x1 - sorted array (..., N); x2 - queries with batch dims matching x1; side
+    #   - 'left' or 'right'.
+    # Outputs: integer array shaped like x2 (all zeros if N is 0).
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._searching`."""
     a = xp.full(x2.shape, 0, device=_compat.device(x1))

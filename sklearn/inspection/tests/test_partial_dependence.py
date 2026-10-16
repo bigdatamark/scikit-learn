@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests for sklearn.inspection.partial_dependence and its private helpers
+# (_grid_from_X, _partial_dependence_brute, _partial_dependence_recursion): output
+# shapes,
+# grid construction, equivalence of brute vs recursion methods, input type support
+# (lists, DataFrames, pipelines, column transformers), custom grid values, sample
+# weights
+# and error handling. Module-level fixtures: toy X/y, generated datasets paired with
+# their expected number of targets, and the iris dataset (loaded at import time).
 """
 Testing for the partial dependence module.
 """
@@ -91,6 +100,13 @@ iris = load_iris()
 def test_output_shape(
     Estimator, method, data, grid_resolution, features, kind, use_custom_values
 ):
+    # [FUNCTION DOC]
+    # Verifies partial_dependence output shapes for many estimator/method/dataset
+    # combinations: average has shape (n_targets, grid sizes...), individual has shape
+    # (n_targets, n_samples, grid sizes...), and grid_values has shape (n_features,
+    # grid).
+    # With use_custom_values, the grid is the first 5 sample values of each feature.
+    # Estimators with n_estimators are reduced to 2 for speed.
     # Check that partial_dependence has consistent output shape for different
     # kinds of estimators:
     # - classifiers with binary and multiclass settings
@@ -144,6 +160,16 @@ def test_output_shape(
 
 
 def test_grid_from_X():
+    # [FUNCTION DOC]
+    # Checks _grid_from_X: with few unique values the grid is the cartesian product of
+    # the
+    # unique values; with more uniques than grid_resolution, each axis has
+    # grid_resolution
+    # points; a feature with fewer uniques uses them; custom_values override the axis
+    # for
+    # their feature regardless of grid_resolution and determine the dtype (result type
+    # of X
+    # and the custom values, object when strings are involved).
     # tests for _grid_from_X: sanity check for output, and for shapes.
 
     # Make sure that the grid is a cartesian product of the input (it will use
@@ -245,6 +271,9 @@ def test_grid_from_X():
     ],
 )
 def test_grid_from_X_with_categorical(grid_resolution):
+    # [FUNCTION DOC]
+    # Verifies that for a categorical pandas column, _grid_from_X uses all 5 categories
+    # regardless of grid_resolution (2 or 100) and ignores percentiles.
     """Check that `_grid_from_X` always sample from categories and does not
     depend from the percentiles.
     """
@@ -265,6 +294,19 @@ def test_grid_from_X_with_categorical(grid_resolution):
 
 @pytest.mark.parametrize("grid_resolution", [3, 100])
 def test_grid_from_X_heterogeneous_type(grid_resolution):
+    # [FUNCTION DOC]
+    # Verifies _grid_from_X on a DataFrame mixing a categorical and a numeric column:
+    # with
+    # grid_resolution 3 the numeric axis is resampled to 3 points; with 100 each axis
+    # uses
+    # its unique values; the grid is their cartesian product.
+    # KNOWN ISSUE: the docstring is a copy of the previous test's and only describes the
+    # categorical part. The asserted axis order (axes[0] compared with nunique of "num"
+    # for
+    # resolution 3, both axes compared with nunique of "cat" for resolution 100) does
+    # not
+    # match the column order and only passes because the counts happen to coincide (both
+    # columns have 5 unique values).
     """Check that `_grid_from_X` always sample from categories and does not
     depend from the percentiles.
     """
@@ -309,6 +351,11 @@ def test_grid_from_X_heterogeneous_type(grid_resolution):
     ],
 )
 def test_grid_from_X_error(grid_resolution, percentiles, err_msg):
+    # [FUNCTION DOC]
+    # Verifies _grid_from_X raises ValueError with specific messages for percentiles
+    # that are
+    # too close, of wrong length or type, outside [0, 1], or not increasing, and for
+    # grid_resolution <= 1.
     X = np.asarray([[1, 2], [3, 4]])
     is_categorical = [False]
     with pytest.raises(ValueError, match=err_msg):
@@ -327,6 +374,13 @@ def test_grid_from_X_error(grid_resolution, percentiles, err_msg):
     ],
 )
 def test_partial_dependence_helpers(est, method, target_feature):
+    # [FUNCTION DOC]
+    # Verifies, for linear and gradient boosting regressors, that the brute and
+    # recursion
+    # helpers give the average prediction obtained by manually fixing the target feature
+    # to
+    # 0.5 and to 123 over all samples (rtol 1e-3 for brute, 1e-1 for recursion). y is
+    # centered since recursion ignores the GBDT init estimator.
     # Check that what is returned by _partial_dependence_brute or
     # _partial_dependence_recursion is equivalent to manually setting a target
     # feature to a given value, and computing the average prediction over all
@@ -374,6 +428,14 @@ def test_partial_dependence_helpers(est, method, target_feature):
 
 @pytest.mark.parametrize("seed", range(1))
 def test_recursion_decision_tree_vs_forest_and_gbdt(seed):
+    # [FUNCTION DOC]
+    # Builds a single decision tree, a one-tree random forest (no bootstrap) and a one-
+    # stage
+    # GBDT with equivalent random states; if their trees are identical (allowed to
+    # differ
+    # only on 32-bit platforms, which ends the test early), verifies the recursion
+    # partial
+    # dependence is identical for all three on each feature.
     # Make sure that the recursion method gives the same results on a
     # DecisionTreeRegressor and a GradientBoostingRegressor or a
     # RandomForestRegressor with 1 tree and equivalent parameters.
@@ -451,6 +513,12 @@ def test_recursion_decision_tree_vs_forest_and_gbdt(seed):
 )
 @pytest.mark.parametrize("target_feature", (0, 1, 2, 3, 4, 5))
 def test_recursion_decision_function(est, target_feature):
+    # [FUNCTION DOC]
+    # Verifies that for GBDT and HGBT binary classifiers, recursion and brute methods
+    # with
+    # response_method="decision_function" give the same average (atol 1e-7); balanced
+    # classes
+    # make the init prediction zero.
     # Make sure the recursion method (implicitly uses decision_function) has
     # the same result as using brute method with
     # response_method=decision_function
@@ -493,6 +561,11 @@ def test_recursion_decision_function(est, target_feature):
 )
 @pytest.mark.parametrize("power", (1, 2))
 def test_partial_dependence_easy_target(est, power):
+    # [FUNCTION DOC]
+    # For a target equal to one feature (power 1) or its square (power 2), verifies the
+    # partial dependence over a 1000-point grid is fitted by a polynomial regression of
+    # that
+    # degree with R^2 > 0.99, for several regressors.
     # If the target y only depends on one feature in an obvious way (linear or
     # quadratic) then the partial dependence for that feature should reflect
     # it.
@@ -535,6 +608,9 @@ def test_partial_dependence_easy_target(est, power):
     ),
 )
 def test_multiclass_multioutput(Estimator):
+    # [FUNCTION DOC]
+    # Verifies partial_dependence raises ValueError for classifiers fitted on
+    # multiclass-multioutput targets.
     # Make sure error is raised for multiclass-multioutput classifiers
 
     # make multiclass-multioutput dataset
@@ -551,7 +627,15 @@ def test_multiclass_multioutput(Estimator):
 
 
 class NoPredictProbaNoDecisionFunction(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal classifier exposing only fit with a fixed classes_ attribute and
+    # no
+    # predict_proba or decision_function.
+    # KNOWN ISSUE: this class is not referenced anywhere in the module (dead test
+    # helper).
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Sets classes_ to [0, 1] and returns self; ignores X and y.
         # simulate that we have some classes
         self.classes_ = [0, 1]
         return self
@@ -610,6 +694,15 @@ class NoPredictProbaNoDecisionFunction(ClassifierMixin, BaseEstimator):
     ],
 )
 def test_partial_dependence_error(estimator, params, err_msg):
+    # [FUNCTION DOC]
+    # Fits each estimator (clone) on a classification dataset and verifies
+    # partial_dependence
+    # raises ValueError with the expected message for invalid combinations: non-
+    # predictor
+    # estimator, response_method with a regressor, non-decision_function response with
+    # recursion (explicit or auto), recursion with individual/both kinds, recursion on
+    # an
+    # unsupported estimator, and a 2-d custom grid.
     X, y = make_classification(random_state=0)
     estimator = clone(estimator).fit(X, y)
 
@@ -622,6 +715,9 @@ def test_partial_dependence_error(estimator, params, err_msg):
 )
 @pytest.mark.parametrize("features", [-1, 10000])
 def test_partial_dependence_unknown_feature_indices(estimator, features):
+    # [FUNCTION DOC]
+    # Verifies ValueError "all features must be in" for out-of-range integer feature
+    # indices (-1 and 10000).
     X, y = make_classification(random_state=0)
     estimator = clone(estimator).fit(X, y)
 
@@ -634,6 +730,10 @@ def test_partial_dependence_unknown_feature_indices(estimator, features):
     "estimator", [LinearRegression(), GradientBoostingClassifier(random_state=0)]
 )
 def test_partial_dependence_unknown_feature_string(estimator):
+    # [FUNCTION DOC]
+    # Verifies ValueError when a string feature is not a DataFrame column; skipped
+    # without
+    # pandas.
     pd = pytest.importorskip("pandas")
     X, y = make_classification(random_state=0)
     df = pd.DataFrame(X)
@@ -649,6 +749,8 @@ def test_partial_dependence_unknown_feature_string(estimator):
     "estimator", [LinearRegression(), GradientBoostingClassifier(random_state=0)]
 )
 def test_partial_dependence_X_list(estimator):
+    # [FUNCTION DOC]
+    # Smoke test that a Python list of rows is accepted as X.
     # check that array-like objects are accepted
     X, y = make_classification(random_state=0)
     estimator = clone(estimator).fit(X, y)
@@ -656,6 +758,12 @@ def test_partial_dependence_X_list(estimator):
 
 
 def test_warning_recursion_non_constant_init():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning about a non-constant init predictor is emitted for a GBDT
+    # with a
+    # DummyClassifier init when using recursion; repeated twice to ensure the warning is
+    # not
+    # shown only once.
     # make sure that passing a non-constant init parameter to a GBDT and using
     # recursion method yields a warning.
 
@@ -674,6 +782,12 @@ def test_warning_recursion_non_constant_init():
 
 
 def test_partial_dependence_sample_weight_of_fitted_estimator():
+    # [FUNCTION DOC]
+    # Non-regression test for issue 13193: a GBDT fitted with weights strongly favouring
+    # the
+    # y = x samples must produce a partial dependence on x that correlates with the grid
+    # at
+    # more than 0.99.
     # Test near perfect correlation between partial dependence and diagonal
     # when sample weights emphasize y = x predictions
     # non-regression test for #13193
@@ -700,6 +814,10 @@ def test_partial_dependence_sample_weight_of_fitted_estimator():
 
 
 def test_hist_gbdt_sw_not_supported():
+    # [FUNCTION DOC]
+    # Verifies NotImplementedError when requesting partial dependence of an HGBT
+    # regressor
+    # fitted with sample weights.
     # TODO: remove/fix when PDP supports HGBT with sample weights
     clf = HistGradientBoostingRegressor(random_state=1)
     clf.fit(X, y, sample_weight=np.ones(len(X)))
@@ -711,6 +829,12 @@ def test_hist_gbdt_sw_not_supported():
 
 
 def test_partial_dependence_pipeline():
+    # [FUNCTION DOC]
+    # Verifies partial dependence of a scaler + dummy classifier pipeline equals that of
+    # the
+    # classifier on pre-scaled data, and that the pipeline grid equals the classifier
+    # grid
+    # mapped back through the scaler's scale and mean.
     # check that the partial dependence support pipeline
     iris = load_iris()
 
@@ -749,6 +873,10 @@ def test_partial_dependence_pipeline():
 def test_partial_dependence_binary_model_grid_resolution(
     features, grid_resolution, n_vals_expected
 ):
+    # [FUNCTION DOC]
+    # Verifies the number of averaged values equals grid_resolution for a dummy
+    # classifier
+    # on a DataFrame with 10 distinct values per column.
     pd = pytest.importorskip("pandas")
     model = DummyClassifier()
 
@@ -783,6 +911,10 @@ def test_partial_dependence_binary_model_grid_resolution(
 def test_partial_dependence_binary_model_custom_values(
     features, custom_values, n_vals_expected
 ):
+    # [FUNCTION DOC]
+    # Verifies custom_values (4, 2 or 1 values) determine the number of averaged values
+    # for a
+    # dummy binary classifier, overriding grid_resolution.
     pd = pytest.importorskip("pandas")
     model = DummyClassifier()
 
@@ -812,6 +944,11 @@ def test_partial_dependence_binary_model_custom_values(
 def test_partial_dependence_pipeline_custom_values(
     features, custom_values, n_vals_expected
 ):
+    # [FUNCTION DOC]
+    # Verifies custom_values (including string categories and a two-feature product)
+    # work
+    # with an imputer + one-hot + dummy pipeline on held-out data containing a missing
+    # value; checks the number of averaged values.
     pd = pytest.importorskip("pandas")
     pl = make_pipeline(
         SimpleImputer(strategy="most_frequent"), OneHotEncoder(), DummyClassifier()
@@ -862,6 +999,11 @@ def test_partial_dependence_pipeline_custom_values(
     ids=["features-integer", "features-string"],
 )
 def test_partial_dependence_dataframe(estimator, preprocessor, features):
+    # [FUNCTION DOC]
+    # Verifies partial dependence through a pipeline (optional column transformer) on a
+    # DataFrame, with integer or string features, equals that computed directly on the
+    # preprocessed data (column transformer reorders the target columns to 0 and 1), and
+    # that grid_values map back through the StandardScaler when present.
     # check that the partial dependence support dataframe and pipeline
     # including a column transformer
     pd = pytest.importorskip("pandas")
@@ -942,6 +1084,12 @@ def test_partial_dependence_dataframe(estimator, preprocessor, features):
     ],
 )
 def test_partial_dependence_feature_type(features, custom_values, expected_pd_shape):
+    # [FUNCTION DOC]
+    # Verifies all supported feature specifications (int, str, lists, boolean mask) with
+    # and
+    # without custom_values yield the expected average shape and number of grid axes.
+    # Custom values keyed by index when features are strings are ignored ("incorrect"
+    # case).
     # check all possible features type supported in PDP
     pd = pytest.importorskip("pandas")
     df = pd.DataFrame(iris.data, columns=iris.feature_names)
@@ -976,6 +1124,8 @@ def test_partial_dependence_feature_type(features, custom_values, expected_pd_sh
     ],
 )
 def test_partial_dependence_unfitted(estimator):
+    # [FUNCTION DOC]
+    # Verifies NotFittedError for an unfitted pipeline and an unfitted bare estimator.
     X = iris.data
     preprocessor = make_column_transformer(
         (StandardScaler(), [0, 2]), (RobustScaler(), [1, 3])
@@ -995,6 +1145,9 @@ def test_partial_dependence_unfitted(estimator):
     ],
 )
 def test_kind_average_and_average_of_individual(Estimator, data):
+    # [FUNCTION DOC]
+    # Verifies the average kind equals the mean over samples of the individual (ICE)
+    # kind.
     est = Estimator()
     (X, y), n_targets = data
     est.fit(X, y)
@@ -1013,6 +1166,8 @@ def test_kind_average_and_average_of_individual(Estimator, data):
     ],
 )
 def test_partial_dependence_kind_individual_ignores_sample_weight(Estimator, data):
+    # [FUNCTION DOC]
+    # Verifies ICE curves and grid values are unaffected by sample_weight.
     """Check that `sample_weight` does not have any effect on reported ICE."""
     est = Estimator()
     (X, y), n_targets = data
@@ -1038,6 +1193,10 @@ def test_partial_dependence_kind_individual_ignores_sample_weight(Estimator, dat
 )
 @pytest.mark.parametrize("non_null_weight_idx", [0, 1, -1])
 def test_partial_dependence_non_null_weight_idx(estimator, non_null_weight_idx):
+    # [FUNCTION DOC]
+    # Verifies that with weights all zero except one sample, the weighted average
+    # partial
+    # dependence equals that sample's ICE curve for each output, for several pipelines.
     """Check that if we pass a `sample_weight` of zeros with only one index with
     sample weight equals one, then the average `partial_dependence` with this
     `sample_weight` is equal to the individual `partial_dependence` of the
@@ -1076,6 +1235,8 @@ def test_partial_dependence_non_null_weight_idx(estimator, non_null_weight_idx):
     ],
 )
 def test_partial_dependence_equivalence_equal_sample_weight(Estimator, data):
+    # [FUNCTION DOC]
+    # Verifies sample_weight None, all-ones and all-twos give the same averages.
     """Check that `sample_weight=None` is equivalent to having equal weights."""
 
     est = Estimator()
@@ -1093,6 +1254,8 @@ def test_partial_dependence_equivalence_equal_sample_weight(Estimator, data):
 
 
 def test_partial_dependence_sample_weight_size_error():
+    # [FUNCTION DOC]
+    # Verifies ValueError when sample_weight length differs from X.
     """Check that we raise an error when the size of `sample_weight` is not
     consistent with `X` and `y`.
     """
@@ -1108,6 +1271,8 @@ def test_partial_dependence_sample_weight_size_error():
 
 
 def test_partial_dependence_sample_weight_with_recursion():
+    # [FUNCTION DOC]
+    # Verifies ValueError when sample_weight is used with method="recursion".
     """Check that we raise an error when `sample_weight` is provided with
     `"recursion"` method.
     """
@@ -1123,6 +1288,10 @@ def test_partial_dependence_sample_weight_with_recursion():
 
 
 def test_mixed_type_categorical():
+    # [FUNCTION DOC]
+    # Verifies ValueError "contains mixed data types" for an object column mixing
+    # strings
+    # and NaN (np.unique sorting fails).
     """Check that we raise a proper error when a column has mixed types and
     the sorting of `np.unique` will fail."""
     X = np.array(["A", "B", "C", np.nan], dtype=object).reshape(-1, 1)
@@ -1139,6 +1308,10 @@ def test_mixed_type_categorical():
 
 
 def test_reject_array_with_integer_dtype():
+    # [FUNCTION DOC]
+    # Verifies ValueError for integer-typed numeric columns in a numpy array when
+    # treated as
+    # numerical features, and no error when the integer column is declared categorical.
     X = np.arange(8).reshape(4, 2)
     y = np.array([0, 1, 0, 1])
     clf = DummyClassifier()
@@ -1161,6 +1334,9 @@ def test_reject_array_with_integer_dtype():
 
 
 def test_reject_pandas_with_integer_dtype():
+    # [FUNCTION DOC]
+    # Same as the array version for a DataFrame: integer column 'c' is rejected as a
+    # numerical feature, accepted when categorical; float column 'a' is fine.
     pd = pytest.importorskip("pandas")
     X = pd.DataFrame(
         {
@@ -1188,6 +1364,10 @@ def test_reject_pandas_with_integer_dtype():
 
 
 def test_partial_dependence_empty_categorical_features():
+    # [FUNCTION DOC]
+    # Verifies ValueError with guidance to use None when categorical_features is an
+    # empty
+    # list.
     """Check that we raise the proper exception when `categorical_features`
     is an empty list"""
     clf = make_pipeline(StandardScaler(), LogisticRegression())

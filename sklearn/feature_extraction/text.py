@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Text vectorization: turns raw documents (strings, bytes, filenames or file objects)
+#   into sparse document-term matrices. Provides module-level preprocessing helpers
+#   (accent stripping, tag stripping, analyzer chaining), the shared _VectorizerMixin
+#   (decoding, tokenization, n-gram generation, stop word and vocabulary validation),
+#   and four public estimators: HashingVectorizer (stateless hashing trick via
+#   FeatureHasher), CountVectorizer (learned vocabulary, token counts), TfidfTransformer
+#   (count matrix to tf-idf) and TfidfVectorizer (CountVectorizer followed by an
+#   internal TfidfTransformer). Sparse outputs are built as scipy CSR arrays and passed
+#   through _align_api_if_sparse so their container type follows the global sparse
+#   config. Side effects at import: compiles nothing at module level besides the class
+#   attribute regex in _VectorizerMixin; no global state is modified.
 """Utilities to build feature vectors from text documents."""
 
 # Authors: The scikit-learn developers
@@ -50,6 +62,14 @@ __all__ = [
 
 
 def _preprocess(doc, accent_function=None, lower=False):
+    # [FUNCTION DOC]
+    # HELPER: Applies optional lowercasing and then an optional accent function to one
+    #   doc.
+    # Inputs: doc - str; accent_function - callable str to str or None; lower - bool,
+    #   lowercase first when True.
+    # Outputs: the transformed str (the original object if both steps are disabled).
+    # Exceptions: none raised directly; errors from accent_function propagate.
+    # Side effects: none.
     """Chain together an optional series of text preprocessing steps to
     apply to a document.
 
@@ -84,6 +104,17 @@ def _analyze(
     decoder=None,
     stop_words=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs the full analysis chain for a single document. Order: decoder (if
+    #   given); then either the custom analyzer alone, or preprocessor, tokenizer and
+    #   ngrams in that order, each only when not None. ngrams is called with stop_words
+    #   as a second argument only when stop_words is not None.
+    # Inputs: doc - raw document; analyzer, tokenizer, ngrams, preprocessor, decoder -
+    #   callables or None; stop_words - collection or None.
+    # Outputs: whatever the last applied step returned, normally a list of str tokens or
+    #   n-grams (or the decoded str if no other step is given).
+    # Exceptions: propagates errors from the callables.
+    # Side effects: none of its own (decoder may read files).
     """Chain together an optional series of text processing steps to go from
     a single document to ngrams, with or without tokenizing or preprocessing.
 
@@ -123,6 +154,15 @@ def _analyze(
 
 
 def strip_accents_unicode(s):
+    # [FUNCTION DOC]
+    # Removes combining characters after NFKD unicode normalization. Fast path: if the
+    #   string encodes to strict ASCII it is returned unchanged. Otherwise normalize to
+    #   NFKD and join all characters that are not combining marks.
+    # Inputs: s - str.
+    # Outputs: str without combining accents (characters without a decomposition, e.g.
+    #   non-Latin letters, are kept).
+    # Exceptions: none in normal use.
+    # Side effects: none.
     """Transform accentuated unicode symbols into their simple counterpart.
 
     Warning: the python-level loop and join operations make this
@@ -155,6 +195,14 @@ def strip_accents_unicode(s):
 
 
 def strip_accents_ascii(s):
+    # [FUNCTION DOC]
+    # NFKD-normalizes the string, encodes it to ASCII dropping every non-encodable
+    #   character, and decodes back to str. Characters with no ASCII decomposition are
+    #   removed entirely, not just their accents.
+    # Inputs: s - str.
+    # Outputs: ASCII-only str.
+    # Exceptions: none.
+    # Side effects: none.
     """Transform accentuated unicode symbols into ascii or nothing.
 
     Warning: this solution is only suited for languages that have a direct
@@ -179,6 +227,14 @@ def strip_accents_ascii(s):
 
 
 def strip_tags(s):
+    # [FUNCTION DOC]
+    # Replaces every substring matching an opening angle bracket, one or more non-
+    #   closing characters, and a closing angle bracket with a single space. The regex
+    #   is compiled on every call.
+    # Inputs: s - str.
+    # Outputs: str with tags replaced by spaces.
+    # Exceptions: none.
+    # Side effects: none.
     """Basic regexp based HTML / XML tag stripper function.
 
     For serious HTML/XML preprocessing you should rather use an external
@@ -198,6 +254,13 @@ def strip_tags(s):
 
 
 def _check_stop_list(stop):
+    # [FUNCTION DOC]
+    # HELPER: Resolves the stop_words parameter to a concrete collection.
+    # Inputs: stop - "english", any other str, None, or an iterable of str.
+    # Outputs: ENGLISH_STOP_WORDS frozenset for "english"; None for None; a frozenset of
+    #   the given items for any other collection.
+    # Exceptions: ValueError for any str other than "english".
+    # Side effects: none.
     if stop == "english":
         return ENGLISH_STOP_WORDS
     elif isinstance(stop, str):
@@ -209,11 +272,30 @@ def _check_stop_list(stop):
 
 
 class _VectorizerMixin:
+    # [CLASS DOC]
+    # HELPER: Mixin holding tokenization and validation logic shared by
+    #   HashingVectorizer and CountVectorizer (and thus TfidfVectorizer). Relies on the
+    #   host estimator to define the attributes input, encoding, decode_error,
+    #   strip_accents, lowercase, preprocessor, tokenizer, token_pattern, stop_words,
+    #   ngram_range, analyzer and, for vocabulary helpers, vocabulary. The class
+    #   attribute _white_spaces is a regex matching runs of two or more whitespace
+    #   characters, used by the char analyzers.
     """Provides common code for text vectorizers (tokenization logic)."""
 
     _white_spaces = re.compile(r"\s\s+")
 
     def decode(self, doc):
+        # [FUNCTION DOC]
+        # Converts one input item into a str according to self.input: "filename" opens
+        #   the path in binary mode and reads it; "file" calls the object's read method;
+        #   "content" uses the item as is. Bytes are then decoded with self.encoding and
+        #   self.decode_error.
+        # Inputs: doc - path, file-like object, bytes or str.
+        # Outputs: str (non-bytes, non-str content is returned unchanged).
+        # Exceptions: ValueError if the item is the np.nan object; UnicodeDecodeError
+        #   with decode_error "strict"; OSError from file access.
+        # Side effects: file I/O for the "filename" and "file" modes (file objects are
+        #   read to exhaustion but not closed).
         """Decode the input into a string of unicode symbols.
 
         The decoding strategy depends on the vectorizer parameters.
@@ -246,6 +328,20 @@ class _VectorizerMixin:
         return doc
 
     def _word_ngrams(self, tokens, stop_words=None):
+        # [FUNCTION DOC]
+        # HELPER: Removes stop words from a token list, then builds word n-grams for
+        #   self.ngram_range (min_n, max_n). If max_n is 1 the filtered tokens are
+        #   returned as is. Otherwise the output starts with the unigrams when min_n is
+        #   1 (and min_n is bumped to 2), then for each n from min_n to min(max_n,
+        #   number of tokens) appends every contiguous window of n tokens joined with
+        #   single spaces.
+        # Inputs: tokens - list of str; stop_words - collection or None.
+        # Outputs: list of str (unigrams first, then increasing n).
+        # KNOWN ISSUE: when max_n is 1, min_n is never checked, so ngram_range (0, 1) or
+        #   similar silently yields unigrams; range validation is left to
+        #   _validate_ngram_range.
+        # Exceptions: none.
+        # Side effects: none.
         """Turn tokens into a sequence of n-grams after stop words filtering"""
         # handle stop words
         if stop_words is not None:
@@ -276,6 +372,15 @@ class _VectorizerMixin:
         return tokens
 
     def _char_ngrams(self, text_document):
+        # [FUNCTION DOC]
+        # HELPER: Collapses runs of two or more whitespace characters into one space,
+        #   then emits all character n-grams of the whole string for n in
+        #   self.ngram_range, in order of increasing n and position (single characters
+        #   first when min_n is 1). n larger than the text length produces nothing.
+        # Inputs: text_document - str.
+        # Outputs: list of str.
+        # Exceptions: none.
+        # Side effects: none.
         """Tokenize text_document into a sequence of character n-grams"""
         # normalize white spaces
         text_document = self._white_spaces.sub(" ", text_document)
@@ -299,6 +404,17 @@ class _VectorizerMixin:
         return ngrams
 
     def _char_wb_ngrams(self, text_document):
+        # [FUNCTION DOC]
+        # HELPER: Character n-grams restricted to words. After collapsing whitespace
+        #   runs, each whitespace-split word is padded with one space on each side; for
+        #   each n in ngram_range, emit the window at offset 0 and then slide by one
+        #   while the window end is before the padded word end. If a word is shorter
+        #   than n (only offset 0 emitted) the loop over larger n stops, so a short
+        #   padded word is counted only once.
+        # Inputs: text_document - str.
+        # Outputs: list of str n-grams, grouped per word.
+        # Exceptions: none.
+        # Side effects: none.
         """Whitespace sensitive char-n-gram tokenization.
 
         Tokenize text_document into a sequence of character n-grams
@@ -327,6 +443,14 @@ class _VectorizerMixin:
         return ngrams
 
     def build_preprocessor(self):
+        # [FUNCTION DOC]
+        # Returns self.preprocessor if set. Otherwise picks the accent function from
+        #   self.strip_accents (falsy -> none, callable -> itself, "ascii" or "unicode"
+        #   -> the module helper) and returns _preprocess partially applied with that
+        #   function and lower set to self.lowercase.
+        # Outputs: callable taking a str and returning a str.
+        # Exceptions: ValueError for an unknown strip_accents string.
+        # Side effects: none.
         """Return a function to preprocess the text before tokenization.
 
         Returns
@@ -354,6 +478,16 @@ class _VectorizerMixin:
         return partial(_preprocess, accent_function=strip_accents, lower=self.lowercase)
 
     def build_tokenizer(self):
+        # [FUNCTION DOC]
+        # Returns self.tokenizer if set; otherwise compiles self.token_pattern and
+        #   returns its findall method (so with one capturing group, the group content
+        #   is the token).
+        # Outputs: callable str -> list of str.
+        # Exceptions: ValueError if the pattern has more than one capturing group.
+        # KNOWN ISSUE: if tokenizer is None and token_pattern is None (allowed by the
+        #   parameter constraints), compiling None raises a TypeError instead of a clear
+        #   error.
+        # Side effects: none.
         """Return a function that splits a string into a sequence of tokens.
 
         Returns
@@ -374,6 +508,11 @@ class _VectorizerMixin:
         return token_pattern.findall
 
     def get_stop_words(self):
+        # [FUNCTION DOC]
+        # Resolves self.stop_words via _check_stop_list.
+        # Outputs: frozenset of str or None.
+        # Exceptions: ValueError for unknown str.
+        # Side effects: none.
         """Build or fetch the effective stop words list.
 
         Returns
@@ -384,6 +523,18 @@ class _VectorizerMixin:
         return _check_stop_list(self.stop_words)
 
     def _check_stop_words_consistency(self, stop_words, preprocess, tokenize):
+        # [FUNCTION DOC]
+        # HELPER: Checks that each stop word, once run through preprocess and tokenize,
+        #   only yields tokens that are themselves stop words. Skipped (returns None)
+        #   when the object id of self.stop_words equals the cached self._stop_words_id,
+        #   i.e. the same list was already checked.
+        # Inputs: stop_words - resolved collection or None; preprocess, tokenize -
+        #   callables.
+        # Outputs: True if consistent, False if not, None if previously checked, the
+        #   string "error" if any exception occurred during the check.
+        # Exceptions: none propagate (all are caught).
+        # Side effects: sets self._stop_words_id; emits a UserWarning listing the sorted
+        #   inconsistent tokens.
         """Check if stop words are consistent
 
         Returns
@@ -423,6 +574,16 @@ class _VectorizerMixin:
             return "error"
 
     def build_analyzer(self):
+        # [FUNCTION DOC]
+        # Builds the per-document analysis callable as _analyze partially applied,
+        #   always with decoder set to self.decode. Callable analyzer: only analyzer and
+        #   decoder. "char" or "char_wb": preprocessor plus the matching char n-gram
+        #   method. "word": preprocessor, tokenizer, _word_ngrams and resolved stop
+        #   words, after running the stop word consistency check.
+        # Outputs: callable doc -> list of features.
+        # Exceptions: ValueError for an unknown analyzer string; errors from
+        #   build_preprocessor or build_tokenizer.
+        # Side effects: may warn and set _stop_words_id through the consistency check.
         """Return a callable to process input data.
 
         The callable handles preprocessing, tokenization, and n-grams generation.
@@ -474,6 +635,15 @@ class _VectorizerMixin:
             )
 
     def _validate_vocabulary(self):
+        # [FUNCTION DOC]
+        # HELPER: Normalizes a user-supplied self.vocabulary. A set is sorted first; any
+        #   non-Mapping iterable becomes a dict term -> position. A Mapping must have
+        #   unique indices that cover exactly 0..len-1.
+        # Outputs: none.
+        # Exceptions: ValueError on duplicate terms, repeated indices, missing indices,
+        #   or an empty vocabulary.
+        # Side effects: sets self.fixed_vocabulary_ (True when a vocabulary was given,
+        #   else False) and, when given, self.vocabulary_ as a new dict.
         vocabulary = self.vocabulary
         if vocabulary is not None:
             if isinstance(vocabulary, set):
@@ -504,6 +674,12 @@ class _VectorizerMixin:
             self.fixed_vocabulary_ = False
 
     def _check_vocabulary(self):
+        # [FUNCTION DOC]
+        # HELPER: Ensures a vocabulary is available before transform-like operations. If
+        #   vocabulary_ is missing, validates the user vocabulary (which may set it).
+        # Exceptions: NotFittedError if no vocabulary was fitted or provided; ValueError
+        #   if vocabulary_ is empty.
+        # Side effects: may set fixed_vocabulary_ and vocabulary_.
         """Check if vocabulary is empty or missing (not fitted)"""
         if not hasattr(self, "vocabulary_"):
             self._validate_vocabulary()
@@ -514,6 +690,10 @@ class _VectorizerMixin:
             raise ValueError("Vocabulary is empty")
 
     def _validate_ngram_range(self):
+        # [FUNCTION DOC]
+        # HELPER: Raises ValueError when the first element of ngram_range exceeds the
+        #   second. No other checks (non-positive values are not rejected here). No side
+        #   effects.
         """Check validity of ngram_range parameter"""
         min_n, max_m = self.ngram_range
         if min_n > max_m:
@@ -523,6 +703,15 @@ class _VectorizerMixin:
             )
 
     def _warn_for_unused_params(self):
+        # [FUNCTION DOC]
+        # HELPER: Emits UserWarnings for parameter combinations where a parameter is
+        #   ignored: token_pattern with a tokenizer; preprocessor with a callable
+        #   analyzer; non-default ngram_range with a callable analyzer; and, when
+        #   analyzer is not "word", any of stop_words, a non-default token_pattern, or
+        #   tokenizer.
+        # Outputs: none.
+        # Exceptions: none.
+        # Side effects: warnings only.
         if self.tokenizer is not None and self.token_pattern is not None:
             warnings.warn(
                 "The parameter 'token_pattern' will not be used"
@@ -568,6 +757,12 @@ class _VectorizerMixin:
 class HashingVectorizer(
     TransformerMixin, _VectorizerMixin, BaseEstimator, auto_wrap_output_keys=None
 ):
+    # [CLASS DOC]
+    # Stateless vectorizer: each document is analyzed with the mixin analyzer and the
+    #   features are hashed into n_features columns by a FeatureHasher built on demand
+    #   from n_features, dtype and alternate_sign. Optionally binarizes and row-
+    #   normalizes. No fitted attributes are stored; fit and partial_fit only validate
+    #   parameters.
     r"""Convert a collection of text documents to a matrix of token occurrences.
 
     It turns a collection of text documents into a scipy.sparse matrix holding
@@ -791,6 +986,10 @@ class HashingVectorizer(
         alternate_sign=True,
         dtype=np.float64,
     ):
+        # [FUNCTION DOC]
+        # Stores every constructor parameter unchanged as an attribute (scikit-learn
+        #   convention, no validation here).
+        # Side effects: sets attributes only.
         self.input = input
         self.encoding = encoding
         self.decode_error = decode_error
@@ -810,6 +1009,11 @@ class HashingVectorizer(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # No-op apart from the parameter validation done by the _fit_context decorator.
+        # Inputs: X, y - ignored.
+        # Outputs: self.
+        # Side effects: none beyond validation.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -832,6 +1036,14 @@ class HashingVectorizer(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates parameters (via decorator), rejects a single string, warns for
+        #   unused parameters, checks ngram_range and calls fit on a fresh FeatureHasher
+        #   (which only validates its own parameters).
+        # Inputs: X - iterable of documents; y - ignored.
+        # Outputs: self.
+        # Exceptions: ValueError if X is a str or ngram_range is inverted.
+        # Side effects: warnings; no attributes stored.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -863,6 +1075,14 @@ class HashingVectorizer(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Rejects a str input, checks ngram_range, analyzes every document, hashes the
+        #   feature lists with a fresh FeatureHasher, sets all stored values to 1 if
+        #   binary, and normalizes rows with self.norm if not None.
+        # Inputs: X - iterable of documents.
+        # Outputs: sparse matrix (n_samples, n_features) of self.dtype.
+        # Exceptions: ValueError for str input or inverted ngram_range; analyzer errors.
+        # Side effects: none (parameters are not validated here).
         """Transform a sequence of documents to a document-term matrix.
 
         Parameters
@@ -893,6 +1113,11 @@ class HashingVectorizer(
         return _align_api_if_sparse(X)
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Calls fit then transform on X.
+        # Inputs: X - documents; y - passed to fit, ignored.
+        # Outputs: sparse document-term matrix.
+        # Side effects: as fit.
         """Transform a sequence of documents to a document-term matrix.
 
         Parameters
@@ -913,6 +1138,10 @@ class HashingVectorizer(
         return self.fit(X, y).transform(X)
 
     def _get_hasher(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds a new FeatureHasher with input_type "string" and the
+        #   vectorizer's n_features, dtype and alternate_sign.
+        # Outputs: unfitted FeatureHasher.
         return FeatureHasher(
             n_features=self.n_features,
             input_type="string",
@@ -921,6 +1150,9 @@ class HashingVectorizer(
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks input as strings (not 2D arrays) and requires_fit False.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.string = True
         tags.input_tags.two_d_array = False
@@ -929,6 +1161,15 @@ class HashingVectorizer(
 
 
 def _document_frequency(X):
+    # [FUNCTION DOC]
+    # HELPER: Number of documents containing each feature. For CSR input counts column
+    #   index occurrences with bincount (length n_features); otherwise assumes CSC and
+    #   takes the differences of indptr.
+    # Inputs: X - CSR or CSC sparse matrix.
+    # Outputs: 1D int array of length n_features.
+    # KNOWN ISSUE: any non-CSR input (e.g. COO or dense) is treated as CSC; callers must
+    #   guarantee the format.
+    # Side effects: none.
     """Count the number of non-zero values for each feature in sparse X."""
     if sp.issparse(X) and X.format == "csr":
         return np.bincount(X.indices, minlength=X.shape[1])
@@ -937,6 +1178,12 @@ def _document_frequency(X):
 
 
 class CountVectorizer(_VectorizerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Vectorizer with an explicit vocabulary mapping terms to column indices. Fitting
+    #   counts features per document, optionally prunes by document frequency and
+    #   max_features, and sorts the vocabulary alphabetically. Fitted attributes:
+    #   vocabulary_ (dict term -> int) and fixed_vocabulary_ (bool). The metadata
+    #   request class attributes mark raw_documents as unused for routing.
     r"""Convert a collection of text documents to a matrix of token counts.
 
     This implementation produces a sparse representation of the counts using
@@ -1183,6 +1430,9 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         binary=False,
         dtype=np.int64,
     ):
+        # [FUNCTION DOC]
+        # Stores every constructor parameter unchanged as an attribute.
+        # Side effects: sets attributes only.
         self.input = input
         self.encoding = encoding
         self.decode_error = decode_error
@@ -1202,6 +1452,14 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         self.dtype = dtype
 
     def _sort_features(self, X, vocabulary):
+        # [FUNCTION DOC]
+        # HELPER: Renumbers the vocabulary so terms are in sorted order and remaps the
+        #   column indices of X in place accordingly.
+        # Inputs: X - CSR matrix whose columns follow the old indices; vocabulary -
+        #   dict.
+        # Outputs: the same X object with remapped indices.
+        # Side effects: mutates vocabulary values and X.indices in place. Indices within
+        #   a row are not re-sorted afterwards.
         """Sort features by name
 
         Returns a reordered matrix and modifies the vocabulary in place
@@ -1216,6 +1474,20 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         return X
 
     def _limit_features(self, X, vocabulary, high=None, low=None, limit=None):
+        # [FUNCTION DOC]
+        # HELPER: Prunes features whose document frequency is above high or below low;
+        #   then, if more than limit remain, keeps the limit features with the largest
+        #   total counts. Vocabulary entries are deleted or renumbered to the compacted
+        #   column positions.
+        # Inputs: X - CSR count matrix; vocabulary - dict; high, low - absolute document
+        #   counts or None; limit - int or None.
+        # Outputs: the column-subset of X.
+        # Exceptions: ValueError if no term survives.
+        # Side effects: mutates vocabulary in place.
+        # KNOWN ISSUE: the early exit when all three bounds are None returns a tuple of
+        #   X and an empty set, while every other path returns only the matrix.
+        #   fit_transform always passes non-None bounds, so the tuple branch is
+        #   effectively dead.
         """Remove too rare or too common features.
 
         Prune features that are non zero in more samples than high or less
@@ -1255,6 +1527,19 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         return X[:, kept_indices]
 
     def _count_vocab(self, raw_documents, fixed_vocab):
+        # [FUNCTION DOC]
+        # HELPER: Builds the CSR count matrix in one pass. With fixed_vocab, uses
+        #   vocabulary_ and drops unknown features; otherwise grows a dict that assigns
+        #   the next index to each new feature. Per document, counts feature indices,
+        #   appending columns and counts to flat buffers and the row boundary to indptr.
+        #   Uses int64 indices if the number of stored values exceeds the int32 maximum,
+        #   otherwise int32. Indices are sorted per row.
+        # Inputs: raw_documents - iterable; fixed_vocab - bool.
+        # Outputs: tuple (vocabulary dict, sparse matrix (n_docs, len(vocabulary)) of
+        #   self.dtype).
+        # Exceptions: ValueError on empty learned vocabulary, or when 64-bit indexing
+        #   would be needed on 32-bit Python.
+        # Side effects: none on self (decoder may read files).
         """Create sparse feature matrix, and vocabulary where fixed_vocab=False"""
         if fixed_vocab:
             vocabulary = self.vocabulary_
@@ -1320,6 +1605,11 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         return vocabulary, _align_api_if_sparse(X)
 
     def fit(self, raw_documents, y=None):
+        # [FUNCTION DOC]
+        # Learns the vocabulary by calling fit_transform and discarding the matrix.
+        # Inputs: raw_documents - iterable; y - ignored.
+        # Outputs: self.
+        # Side effects: as fit_transform.
         """Learn a vocabulary dictionary of all tokens in the raw documents.
 
         Parameters
@@ -1340,6 +1630,21 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, raw_documents, y=None):
+        # [FUNCTION DOC]
+        # Rejects str input; validates ngram_range, warns about unused parameters and
+        #   validates any user vocabulary. Warns once if a fixed vocabulary contains
+        #   uppercase letters while lowercase is True. Counts the vocabulary, binarizes
+        #   if requested. When the vocabulary is learned: converts max_df / min_df to
+        #   absolute counts (floats are multiplied by the number of documents), errors
+        #   if max count < min count, then prunes with _limit_features. Sorting is done
+        #   before pruning when max_features is set (so ties in total count are broken
+        #   alphabetically) and after pruning otherwise.
+        # Inputs: raw_documents - iterable of documents; y - ignored.
+        # Outputs: sparse count matrix (n_docs, n_terms).
+        # Exceptions: ValueError for str input, inconsistent max_df/min_df, empty
+        #   vocabulary, or no term left after pruning.
+        # Side effects: sets vocabulary_ and fixed_vocabulary_; warnings. Deliberately
+        #   does not call transform so TfidfVectorizer can override transform.
         """Learn the vocabulary dictionary and return document-term matrix.
 
         This is equivalent to fit followed by transform, but more efficiently
@@ -1407,6 +1712,13 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         return _align_api_if_sparse(X)
 
     def transform(self, raw_documents):
+        # [FUNCTION DOC]
+        # Rejects str input, ensures a vocabulary exists, counts with the fixed
+        #   vocabulary (unknown terms ignored) and binarizes if requested.
+        # Inputs: raw_documents - iterable.
+        # Outputs: sparse matrix (n_docs, len(vocabulary_)).
+        # Exceptions: ValueError for str input or empty vocabulary; NotFittedError.
+        # Side effects: may set vocabulary_ from a user vocabulary.
         """Transform documents to document-term matrix.
 
         Extract token counts out of raw text documents using the vocabulary
@@ -1435,6 +1747,15 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         return _align_api_if_sparse(X)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # For each row of X returns the terms whose columns are nonzero. Builds the
+        #   inverse vocabulary by ordering terms by index. Sparse rows are sliced (with
+        #   a 2D index on SciPy below 1.12); dense rows use the flat nonzero positions.
+        # Inputs: X - array-like or sparse (n_samples, n_features), converted to CSR.
+        # Outputs: list of n_samples 1D arrays of str.
+        # Exceptions: NotFittedError / ValueError from vocabulary checks, check_array
+        #   errors.
+        # Side effects: none.
         """Return terms per document with nonzero entries in X.
 
         Parameters
@@ -1473,6 +1794,10 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
             ]
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns the vocabulary terms ordered by column index as an object array.
+        # Inputs: input_features - ignored.
+        # Exceptions: NotFittedError if no vocabulary.
         """Get output feature names for transformation.
 
         Parameters
@@ -1492,6 +1817,9 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
         )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks input as strings rather than 2D arrays.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.string = True
         tags.input_tags.two_d_array = False
@@ -1499,6 +1827,9 @@ class CountVectorizer(_VectorizerMixin, BaseEstimator):
 
 
 def _make_int_array():
+    # [FUNCTION DOC]
+    # HELPER: Returns an empty array.array of C int (type code "i"), later viewed as
+    #   np.intc, used as a growable buffer for count values.
     """Construct an array.array of a type suitable for scipy.sparse indices."""
     return array.array(str("i"))
 
@@ -1506,6 +1837,9 @@ def _make_int_array():
 class TfidfTransformer(
     OneToOneFeatureMixin, TransformerMixin, BaseEstimator, auto_wrap_output_keys=None
 ):
+    # [CLASS DOC]
+    # Converts a count matrix into tf or tf-idf weights. Fitted attribute idf_ (only
+    #   when use_idf). One-to-one feature mapping, so feature names pass through.
     """Transform a count matrix to a normalized tf or tf-idf representation.
 
     Tf means term-frequency while tf-idf means term-frequency times inverse
@@ -1642,6 +1976,8 @@ class TfidfTransformer(
     }
 
     def __init__(self, *, norm="l2", use_idf=True, smooth_idf=True, sublinear_tf=False):
+        # [FUNCTION DOC]
+        # Stores norm, use_idf, smooth_idf and sublinear_tf as attributes.
         self.norm = norm
         self.use_idf = use_idf
         self.smooth_idf = smooth_idf
@@ -1649,6 +1985,17 @@ class TfidfTransformer(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR/CSC accepted; large sparse rejected on 32-bit) and converts
+        #   dense input to CSR. Computation dtype is X's dtype if float32/float64, else
+        #   float64. If use_idf: document frequencies df per feature; when smooth_idf,
+        #   add 1 to every df and to the sample count n; idf_ is the natural log of n
+        #   divided by df, plus 1.
+        # Inputs: X - (n_samples, n_features) counts; y - ignored.
+        # Outputs: self.
+        # Side effects: sets idf_ (if use_idf) and n_features_in_ / feature_names_in_.
+        #   Features with zero df and smooth_idf False produce infinite idf (division by
+        #   zero).
         """Learn the idf vector (global term weights).
 
         Parameters
@@ -1696,6 +2043,15 @@ class TfidfTransformer(
         return self
 
     def transform(self, X, copy=True):
+        # [FUNCTION DOC]
+        # Validates X as CSR float64/float32 (copy controlled by copy), converts dense
+        #   to CSR. If sublinear_tf, replaces each stored value v by log(v) plus 1. If
+        #   idf_ exists, multiplies each stored value by the idf of its column.
+        #   Normalizes rows when norm is not None.
+        # Inputs: X - (n_samples, n_features); copy - bool, default True.
+        # Outputs: sparse float matrix of the same shape.
+        # Exceptions: NotFittedError; ValueError on feature count mismatch.
+        # Side effects: with copy False, the input's data may be modified in place.
         """Transform a count matrix to a tf or tf-idf representation.
 
         Parameters
@@ -1739,6 +2095,8 @@ class TfidfTransformer(
         return _align_api_if_sparse(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse input support and that float64/float32 dtypes are preserved.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         # FIXME: np.float16 could be preserved if _inplace_csr_row_normalize_l2
@@ -1748,6 +2106,10 @@ class TfidfTransformer(
 
 
 class TfidfVectorizer(CountVectorizer):
+    # [CLASS DOC]
+    # CountVectorizer followed by a TfidfTransformer stored in the private attribute
+    #   _tfidf, created at fit time from norm, use_idf, smooth_idf and sublinear_tf. The
+    #   idf_ property proxies to that transformer.
     r"""Convert a collection of raw documents to a matrix of TF-IDF features.
 
     Equivalent to :class:`CountVectorizer` followed by
@@ -1979,6 +2341,10 @@ class TfidfVectorizer(CountVectorizer):
         smooth_idf=True,
         sublinear_tf=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards the CountVectorizer parameters to the parent constructor and stores
+        #   the four tf-idf parameters.
+        # Side effects: sets attributes only.
         super().__init__(
             input=input,
             encoding=encoding,
@@ -2008,6 +2374,10 @@ class TfidfVectorizer(CountVectorizer):
 
     @property
     def idf_(self):
+        # [FUNCTION DOC]
+        # Getter: returns the idf_ vector of the inner transformer.
+        # Exceptions: NotFittedError if _tfidf does not exist; AttributeError from the
+        #   transformer if use_idf was False.
         """Inverse document frequency vector, only defined if `use_idf=True`.
 
         Returns
@@ -2023,6 +2393,15 @@ class TfidfVectorizer(CountVectorizer):
 
     @idf_.setter
     def idf_(self, value):
+        # [FUNCTION DOC]
+        # Setter: allows assigning a precomputed idf vector. Creates the inner
+        #   transformer if missing, validates any user vocabulary, checks that the
+        #   length matches vocabulary_, then sets the transformer's idf_.
+        # Exceptions: ValueError if use_idf is False or the length does not match.
+        # Side effects: may create _tfidf, set fixed_vocabulary_ and vocabulary_.
+        # KNOWN ISSUE: the use_idf error message says "user_idf"; the length error
+        #   message formats len(self.vocabulary) instead of len(self.vocabulary_), which
+        #   raises TypeError when vocabulary is None (fitted vocabulary).
         if not self.use_idf:
             raise ValueError("`idf_` cannot be set when `user_idf=False`.")
         if not hasattr(self, "_tfidf"):
@@ -2045,6 +2424,11 @@ class TfidfVectorizer(CountVectorizer):
         self._tfidf.idf_ = value
 
     def _check_params(self):
+        # [FUNCTION DOC]
+        # HELPER: Warns (UserWarning) when dtype is not one of FLOAT_DTYPES.
+        # KNOWN ISSUE: the message says the dtype will be converted to float64, but
+        #   nothing in this class performs that conversion; the inner TfidfTransformer
+        #   validation does.
         if self.dtype not in FLOAT_DTYPES:
             warnings.warn(
                 "Only {} 'dtype' should be used. {} 'dtype' will "
@@ -2054,6 +2438,13 @@ class TfidfVectorizer(CountVectorizer):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, raw_documents, y=None):
+        # [FUNCTION DOC]
+        # Checks dtype, warns about unused parameters, creates a fresh inner
+        #   TfidfTransformer, learns the vocabulary and counts via
+        #   CountVectorizer.fit_transform, and fits the transformer on the counts.
+        # Inputs: raw_documents - iterable; y - ignored.
+        # Outputs: self.
+        # Side effects: sets vocabulary_, fixed_vocabulary_ and _tfidf; warnings.
         """Learn vocabulary and idf from training set.
 
         Parameters
@@ -2082,6 +2473,12 @@ class TfidfVectorizer(CountVectorizer):
         return self
 
     def fit_transform(self, raw_documents, y=None):
+        # [FUNCTION DOC]
+        # Same as fit (without the extra unused-parameter warning call, which the parent
+        #   fit_transform already does) but also returns the tf-idf transform of the
+        #   counts, computed in place on the count matrix (copy False).
+        # Outputs: sparse tf-idf matrix (n_docs, n_terms).
+        # Side effects: as fit.
         """Learn vocabulary and idf, return document-term matrix.
 
         This is equivalent to fit followed by transform, but more efficiently
@@ -2114,6 +2511,11 @@ class TfidfVectorizer(CountVectorizer):
         return self._tfidf.transform(X, copy=False)
 
     def transform(self, raw_documents):
+        # [FUNCTION DOC]
+        # Requires a fitted vectorizer, counts with the fixed vocabulary, then applies
+        #   the inner transformer in place on the fresh count matrix.
+        # Outputs: sparse tf-idf matrix.
+        # Exceptions: NotFittedError.
         """Transform documents to document-term matrix.
 
         Uses the vocabulary and document frequencies (df) learned by fit (or
@@ -2135,6 +2537,8 @@ class TfidfVectorizer(CountVectorizer):
         return self._tfidf.transform(X, copy=False)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # String input tags as in the parent and _skip_test True (common tests skipped).
         tags = super().__sklearn_tags__()
         tags.input_tags.string = True
         tags.input_tags.two_d_array = False

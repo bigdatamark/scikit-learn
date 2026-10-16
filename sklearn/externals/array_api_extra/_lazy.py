@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements lazy_apply: runs an arbitrary eager function on the inputs of lazy backends
+#   (Dask via dask.delayed, jitted JAX via jax.pure_callback) or directly on eager
+#   backends, returning arrays of declared shape/dtype in the input namespace.
 """Tools for lazy backends."""
 
 import functools
@@ -25,6 +29,9 @@ def lazy_apply(  # type: ignore[valid-type]
     xp: ArrayNamespace | None = None,
     **kwargs: P.kwargs,  # pyright: ignore[reportGeneralTypeIssues]
 ) -> Array: ...  # numpydoc ignore=GL08
+    # [FUNCTION DOC]
+    # Typing overload for single-output lazy_apply (shape is one tuple, dtype one
+    #   dtype). No runtime behaviour.
 
 
 @typing.overload  # pyrefly: ignore[invalid-param-spec]
@@ -37,6 +44,9 @@ def lazy_apply(  # type: ignore[valid-type]
     xp: ArrayNamespace | None = None,
     **kwargs: P.kwargs,  # pyright: ignore[reportGeneralTypeIssues]
 ) -> tuple[Array, ...]: ...  # numpydoc ignore=GL08
+    # [FUNCTION DOC]
+    # Typing overload for multi-output lazy_apply (shape and dtype are sequences). No
+    #   runtime behaviour.
 
 
 def lazy_apply(  # type: ignore[valid-type]  # pyrefly: ignore[invalid-param-spec]  # numpydoc ignore=GL07,SA04
@@ -48,6 +58,23 @@ def lazy_apply(  # type: ignore[valid-type]  # pyrefly: ignore[invalid-param-spe
     xp: ArrayNamespace | None = None,
     **kwargs: P.kwargs,  # pyright: ignore[reportGeneralTypeIssues]
 ) -> Array | tuple[Array, ...]:
+    # [FUNCTION DOC]
+    # Requires at least one non-None, non-scalar argument; infers xp from args.
+    #   Normalises output spec: shape None means one output with the broadcast shape of
+    #   the array args; a tuple of ints/None means one output; otherwise a sequence of
+    #   shapes means multi-output. dtype None means result_type of all non-None args for
+    #   every output; for multi-output dtype must be a sequence, for single output it
+    #   must not be. Dispatch: Dask wraps the function in a pure dask.delayed call on
+    #   all args (finalising them into single chunks) and builds each output with
+    #   from_delayed (None dims become NaN, meta of the first array arg); jitted JAX
+    #   requires fully known shapes and uses jax.pure_callback with ShapeDtypeStructs
+    #   and kwargs bound via partial; eager backends call the wrapper directly.
+    # Inputs: func; args - arrays, Python scalars or None; shape, dtype as above;
+    #   as_numpy - convert array args to NumPy before calling func; xp; kwargs forwarded
+    #   to func.
+    # Outputs: a single array, or a tuple of arrays for multi-output.
+    # Exceptions: ValueError for no array argument, shape/dtype count mismatches, or
+    #   unknown dims under jax.jit.
     """
     Lazily apply an eager function.
 
@@ -295,6 +322,15 @@ def _lazy_apply_wrapper(  # numpydoc ignore=PR01,RT01
     multi_output: bool,
     xp: ArrayNamespace,
 ) -> Callable[..., tuple[Array, ...]]:
+    # [FUNCTION DOC]
+    # HELPER: Builds the callable actually executed (eagerly or inside the lazy graph):
+    #   it optionally converts array args to NumPy, calls func, and converts each output
+    #   back to xp arrays on the device of the first array argument, always returning a
+    #   tuple.
+    # Inputs: func; as_numpy; multi_output - whether func returns a sequence; xp -
+    #   namespace for outputs.
+    # Outputs: wrapper function (named after func via functools.wraps, which also sets
+    #   Dask graph keys).
     """
     Helper of `lazy_apply`.
 
@@ -311,6 +347,13 @@ def _lazy_apply_wrapper(  # numpydoc ignore=PR01,RT01
     def wrapper(
         *args: Array | complex | None, **kwargs: Any
     ) -> tuple[Array, ...]:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Records the device of the first non-None non-scalar arg, converts
+        #   array args to NumPy when as_numpy, calls func with args and kwargs, and
+        #   wraps the result(s) with xp.asarray on that device.
+        # Outputs: tuple of arrays. Exceptions: AssertionError if there is no array
+        #   argument or if a multi-output func returns a non-sequence (only with
+        #   assertions enabled).
         args_list = []
         device = None
         for arg in args:

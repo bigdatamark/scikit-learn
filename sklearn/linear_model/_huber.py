@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Implements HuberRegressor, an L2-regularized linear regression that is robust to
+#   outliers, using the concomitant-scale Huber loss of Huber/Owen minimized with scipy
+#   L-BFGS-B over coefficients, optional intercept and a scale sigma.
+# Contains the private objective/gradient function _huber_loss_and_gradient and the
+#   estimator class.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -17,6 +23,28 @@ from sklearn.utils.validation import _check_sample_weight, validate_data
 
 
 def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Objective and gradient of the scaled Huber loss used by HuberRegressor.fit
+    #   as the L-BFGS-B callback.
+    # Behavior: unpack w as coef (first n_features), optional intercept (w[-2], present
+    #   iff len(w) is n_features + 2) and sigma (w[-1]). Residual r = y - X coef -
+    #   intercept. Samples with abs(r) > epsilon * sigma are outliers. Loss = sum(sw) *
+    #   sigma + sum over inliers of sw * r^2 / sigma + sum over outliers of (2 * epsilon *
+    #   sw * abs(r) - sigma * sw * epsilon^2) + alpha * ||coef||^2. Gradient: coef part is
+    #   -2/sigma * inlier weighted residuals times X_inliers, minus 2 epsilon times signed
+    #   outlier weights times X_outliers, plus 2 alpha coef; sigma part is sum(sw) -
+    #   epsilon^2 * outlier weight sum - inlier squared loss / sigma^2; intercept part is
+    #   -2/sigma * sum of inlier weighted residuals - 2 epsilon * sum of signed outlier
+    #   weights.
+    # Inputs: w - 1d float array (n_features+1 or n_features+2); X - dense or CSR
+    #   (n_samples, n_features); y - (n_samples,); epsilon, alpha - floats; sample_weight
+    #   - (n_samples,) array.
+    # Outputs: tuple (loss float, grad 1d array with same length as w).
+    # Exceptions: none raised directly.
+    # Side effects: none.
+    # KNOWN ISSUE: sample_weight defaults to None but the code always indexes and sums
+    #   it, so calling without weights would fail; callers always pass an array. Whether
+    #   an intercept is fit is inferred only from len(w).
     """Returns the Huber loss and the gradient.
 
     Parameters
@@ -127,6 +155,11 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
 
 
 class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Public estimator. Stores hyperparameters in __init__; fit runs L-BFGS-B on
+    #   _huber_loss_and_gradient and sets coef_, intercept_, scale_, n_iter_, outliers_.
+    #   Prediction and scoring come from LinearModel and RegressorMixin. Declares sparse
+    #   input support via tags.
     """L2-regularized linear regression model that is robust to outliers.
 
     The Huber Regressor optimizes the squared loss for the samples where
@@ -267,6 +300,10 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         fit_intercept=True,
         tol=1e-05,
     ):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters epsilon, max_iter, alpha, warm_start,
+        #   fit_intercept, tol unchanged on self (sklearn convention; validation happens
+        #   in fit via _parameter_constraints).
         self.epsilon = epsilon
         self.max_iter = max_iter
         self.alpha = alpha
@@ -276,6 +313,28 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the model. Steps: validate X (dense or CSR, float64/float32) and numeric
+        #   y; build sample_weight (ones if None). Initial parameters are the previous
+        #   coef_, intercept_, scale_ when warm_start and already fitted, otherwise zeros
+        #   with sigma set to 1. Bounds are unbounded except sigma, which is bounded below
+        #   by 10 * machine epsilon. Minimize with L-BFGS-B (maxiter=max_iter, gtol=tol).
+        #   Then split the solution into coef_, intercept_ (0.0 if no intercept) and
+        #   scale_, and mark outliers_ as samples whose absolute residual exceeds scale_ *
+        #   epsilon.
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight optional
+        #   (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError if the optimizer status is 2 (abnormal termination);
+        #   validation errors from validate_data / _check_sample_weight / parameter
+        #   constraints.
+        # Side effects: sets coef_, intercept_, scale_, n_iter_, outliers_,
+        #   n_features_in_ (and feature_names_in_); may emit ConvergenceWarning via
+        #   _check_optimize_result.
+        # KNOWN ISSUE: with warm_start and fit_intercept=False, the warm-start vector
+        #   always includes intercept_ (0.0), giving n_features+2 parameters, so the loss
+        #   function fits an intercept anyway while intercept_ is then reported as 0.0 and
+        #   the coefficients were fit jointly with a hidden intercept.
         """Fit the model according to the given training data.
 
         Parameters
@@ -358,6 +417,9 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns the parent estimator tags with input_tags.sparse set to True,
+        #   advertising CSR input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags

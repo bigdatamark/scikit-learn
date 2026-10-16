@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# HELPER: Generic array API implementations of cov, nanmin, nanmax, nansum and nanmean.
 """Array-agnostic implementations for statistical functions."""
 
 import math
@@ -20,6 +22,23 @@ def cov(
     aweights: Array | None = None,
     xp: ArrayNamespace,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Covariance of the rows of m (variables) over its last axis (observations).
+    #   Result dtype is float64 for integer input, else the promotion of m with float64.
+    #   m is promoted to at least 2-D and copied in that dtype. Weights must be 1-D with
+    #   length equal to the number of observations (unknown None/NaN lengths are not
+    #   checked). Combined weight w is fweights*aweights (either alone if only one
+    #   given). Mean is plain or weighted; normaliser fact is N - correction without
+    #   weights, sum(w) - correction with only fweights, or sum(w) -
+    #   correction*sum(w*aweights)/sum(w) with aweights. For eager arrays a non-positive
+    #   fact (real part for complex) emits a warning and fact becomes 0. Returns
+    #   (weighted centred m) times the conjugate transpose of centred m divided by fact,
+    #   with all length-1 axes squeezed.
+    # Exceptions: ValueError for non-1-D weights or length mismatch.
+    # Side effects: RuntimeWarning "Degrees of freedom <= 0 for slice"; inputs are not
+    #   modified.
+    # KNOWN ISSUE: squeezing every length-1 axis also drops batch dimensions of size 1,
+    #   and fact = 0 yields inf/NaN results rather than an error.
     """See docstring in `array_api_extra._statistical`."""
     # NB: no `xp.asarray(m)` here. The delegation layer already guarantees `m`
     # is an array (it calls `array_namespace(m)` and reads `m.ndim`), and on
@@ -117,6 +136,10 @@ def nanmin(  # numpydoc ignore=PR01,RT01
     axis: int | tuple[int, ...] | None,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Minimum ignoring NaN: replaces NaN with +inf, reduces with xp.min over
+    #   axis, then sets slices that were all-NaN back to NaN (only if any exist; this
+    #   data-dependent check materialises lazy arrays).
     """See docstring in `array_api_extra._statistical`."""
     mask = xp.isnan(a)
     x = xp.min(xp.where(mask, xp.full_like(a, +xp.inf), a), axis=axis)
@@ -134,6 +157,9 @@ def nanmax(  # numpydoc ignore=PR01,RT01
     axis: int | tuple[int, ...] | None,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Maximum ignoring NaN: replaces NaN with -inf, reduces with xp.max, then
+    #   restores NaN for all-NaN slices.
     """See docstring in `array_api_extra._statistical`."""
     mask = xp.isnan(a)
     x = xp.max(xp.where(mask, xp.full_like(a, -xp.inf), a), axis=axis)
@@ -151,6 +177,9 @@ def nansum(  # numpydoc ignore=PR01,RT01
     axis: int | tuple[int, ...] | None,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Sum ignoring NaN: replaces NaN with zero and sums over axis (all-NaN
+    #   slices give 0).
     """See docstring in `array_api_extra._statistical`."""
     mask = xp.isnan(a)
     return xp.sum(xp.where(mask, xp.zeros_like(a), a), axis=axis)
@@ -163,6 +192,10 @@ def nanmean(  # numpydoc ignore=PR01,RT01
     axis: int | tuple[int, ...] | None,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Mean ignoring NaN: nansum divided by the count of non-NaN elements (count
+    #   computed in a's dtype then cast to the sum's dtype, with zero counts replaced by
+    #   1 to avoid division by zero); slices with no valid elements become NaN.
     """See docstring in `array_api_extra._statistical`."""
     mask = xp.isnan(a)
     sum_ = nansum(a, axis=axis, xp=xp)

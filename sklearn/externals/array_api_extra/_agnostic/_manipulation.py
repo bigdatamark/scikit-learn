@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Generic array API implementations of atleast_nd, broadcast_shapes, expand_dims
+#   and pad used by array_api_extra._manipulation.
 """Array-agnostic implementations for manipulation functions."""
 
 import math
@@ -12,6 +15,9 @@ __all__ = ["atleast_nd", "broadcast_shapes", "expand_dims", "pad"]
 
 
 def atleast_nd(x: Array, /, *, ndim: int, xp: ArrayNamespace) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Recursively prepends a size-1 axis (xp.expand_dims at axis 0) until x has
+    #   at least ndim dimensions; returns x unchanged if it already does.
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._manipulation`."""
 
@@ -26,6 +32,17 @@ def atleast_nd(x: Array, /, *, ndim: int, xp: ArrayNamespace) -> Array:
 def broadcast_shapes(  # numpydoc ignore=PR01,RT01
     *shapes: tuple[float | None, ...],
 ) -> tuple[int | None, ...]:
+    # [FUNCTION DOC]
+    # HELPER: Computes the broadcast shape of several shape tuples without arrays.
+    #   Right-aligns shapes; for each output axis collects the sizes present, records
+    #   whether any is unknown (None or NaN, as used by Dask), discards 1/None/NaN, and
+    #   requires at most one remaining distinct size. Output size is None if any input
+    #   was unknown, else the remaining size, else 1. No shapes gives ().
+    # Exceptions: ValueError when two different non-1 known sizes meet on an axis.
+    # KNOWN ISSUE: NaN detection relies on set membership finding the math.nan object by
+    #   identity; a different NaN float object (e.g. from Dask arithmetic) is neither
+    #   detected nor removed and can trigger a spurious mismatch or be returned as the
+    #   size.
     """See docstring in `array_api_extra._manipulation`."""
     if not shapes:
         return ()  # Match NumPy output
@@ -51,6 +68,10 @@ def broadcast_shapes(  # numpydoc ignore=PR01,RT01
 def expand_dims(
     a: Array, /, *, axis: tuple[int, ...] = (0,), xp: ArrayNamespace
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Inserts size-1 axes at each position of axis, applying xp.expand_dims one
+    #   axis at a time in ascending sorted order (so positions refer to the output
+    #   array). Validation is done by the public wrapper.
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._manipulation`."""
     for i in sorted(axis):
@@ -65,6 +86,13 @@ def pad(
     constant_values: complex = 0,
     xp: ArrayNamespace,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Constant padding. Normalises pad_width to one (before, after) pair per
+    #   axis, computes the padded shape and the slice that addresses the original data,
+    #   allocates a full array of constant_values with x's dtype/device and writes x
+    #   into that slice with at().set.
+    # Exceptions: ValueError if a per-axis entry is not a 2-tuple; errors from
+    #   eager_shape for unknown shapes.
     """See docstring in `array_api_extra._manipulation`."""
     pad_width_seq = _helpers.normalize_pad_width(pad_width, x.ndim)
 

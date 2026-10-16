@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Public delegation layer for elementwise functions (deg2rad, rad2deg, isclose,
+#   nan_to_num, sinc): validates dtypes and dispatches to native
+#   NumPy/CuPy/JAX/PyTorch/Dask implementations when they exist, else to
+#   _agnostic._elementwise.
 """Delegation layer for element-wise functions."""
 
 from . import _agnostic
@@ -8,6 +13,12 @@ __all__ = ["deg2rad", "isclose", "nan_to_num", "rad2deg", "sinc"]
 
 
 def deg2rad(x: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp; integer input is cast to the default real floating dtype; non-numeric-
+    #   floating dtypes are rejected. Uses xp.deg2rad on JAX, or on
+    #   NumPy/CuPy/PyTorch/Dask for non-complex input; otherwise multiplies by pi/180
+    #   generically.
+    # Exceptions: TypeError for dtypes other than integral, real or complex floating.
     """
     Convert angles from degrees to radians.
 
@@ -55,6 +66,9 @@ def deg2rad(x: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
 
 
 def rad2deg(x: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Mirror of deg2rad converting radians to degrees (xp.rad2deg natively, else
+    #   multiply by 180/pi). Same dtype handling and TypeError.
     """
     Convert angles from radians to degrees.
 
@@ -110,6 +124,11 @@ def isclose(
     equal_nan: bool = False,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp from a and b. NumPy, CuPy, Dask and JAX use their native isclose
+    #   directly; PyTorch first converts Python scalars with asarrays then uses
+    #   torch.isclose; other backends use the generic implementation.
+    # Outputs: boolean array of broadcast shape.
     """
     Return a boolean array where two arrays are element-wise equal within a tolerance.
 
@@ -202,6 +221,13 @@ def nan_to_num(
     fill_value: float = 0.0,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Rejects complex fill values, infers xp, converts x (possibly a Python scalar) to
+    #   an array, then uses native nan_to_num(nan=fill_value) on CuPy, JAX, NumPy and
+    #   PyTorch (infinities go to dtype max/min), else the generic implementation.
+    # Exceptions: TypeError for complex fill_value.
+    # KNOWN ISSUE: on backends routed to the generic path (e.g. Dask, array-api-strict)
+    #   integer input reaches finfo in the generic implementation, which raises.
     """
     Replace NaN with zero and infinity with large finite numbers (default behaviour).
 
@@ -275,6 +301,11 @@ def nan_to_num(
 
 
 def sinc(x: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Normalised sinc. Requires a real floating dtype; uses native xp.sinc on NumPy,
+    #   CuPy, JAX, PyTorch and Dask, else the generic epsilon-substitution
+    #   implementation.
+    # Exceptions: ValueError for non-real-floating dtype.
     r"""
     Return the normalized sinc function.
 

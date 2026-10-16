@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Public delegation layer for index-generating functions (diag_indices, tril_indices,
+#   triu_indices, unravel_index): validates arguments and dispatches to native backend
+#   functions where possible, else to _agnostic._indexing.
 """Delegation layer for indexing functions."""
 
 from . import _agnostic
@@ -10,6 +14,12 @@ __all__ = ["diag_indices", "tril_indices", "triu_indices", "unravel_index"]
 def diag_indices(
     n: int, /, *, ndim: int = 2, device: Device | None = None, xp: ArrayNamespace
 ) -> tuple[Array, ...]:
+    # [FUNCTION DOC]
+    # Validates n >= 0 and ndim >= 1. When no device is requested, NumPy/CuPy/JAX use
+    #   native diag_indices; otherwise the generic version returns ndim copies of
+    #   arange(n) on device.
+    # Outputs: tuple of ndim 1-D integer arrays. Exceptions: ValueError for negative n
+    #   or ndim < 1.
     """
     Return the indices to access the main diagonal of an array.
 
@@ -67,6 +77,12 @@ def tril_indices(
     device: Device | None = None,
     xp: ArrayNamespace,
 ) -> tuple[Array, Array]:
+    # [FUNCTION DOC]
+    # Validates n and m non-negative. Without a device, NumPy/CuPy/JAX/Dask use native
+    #   tril_indices(n, k=offset, m=m); PyTorch calls torch.tril_indices(n, cols,
+    #   offset, device) and splits the 2xN result into a tuple; others use the generic
+    #   mask+nonzero version.
+    # Outputs: (rows, cols) integer arrays. Exceptions: ValueError for negative n or m.
     """
     Return the indices of the lower triangle of an ``(n, m)`` array.
 
@@ -139,6 +155,9 @@ def triu_indices(
     device: Device | None = None,
     xp: ArrayNamespace,
 ) -> tuple[Array, Array]:
+    # [FUNCTION DOC]
+    # Upper-triangle counterpart of tril_indices with identical validation and dispatch
+    #   (triu_indices natively / generic upper mask).
     """
     Return the indices of the upper triangle of an ``(n, m)`` array.
 
@@ -207,6 +226,12 @@ def unravel_index(
     *,
     xp: ArrayNamespace | None = None,
 ) -> tuple[Array, ...]:
+    # [FUNCTION DOC]
+    # Infers xp from indices; NumPy, CuPy, Dask, JAX and PyTorch use native
+    #   unravel_index; other backends use the generic remainder/division loop.
+    # Outputs: tuple of coordinate arrays, one per dim of shape.
+    # KNOWN ISSUE: the generic path performs no bounds checking, so out-of-range indices
+    #   silently wrap instead of raising as the native implementations do.
     """
     Convert a flat index or array of flat indices into a tuple of coordinate arrays.
 

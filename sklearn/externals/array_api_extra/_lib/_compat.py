@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# HELPER: Re-exports the array-api-compat helpers used by array-api-extra
+#   (array_namespace, device, the is_*_array / is_*_namespace predicates, is_lazy_array,
+#   is_writeable_array, size, to_device). Tries a vendoring package's
+#   _array_api_compat_vendor module three levels up first (letting projects such as
+#   scikit-learn redirect to their vendored copy) and falls back to the installed
+#   array_api_compat on ImportError.
 """Helpers from array-api-compat."""
 # Allow packages that vendor both `array-api-extra` and
 # `array-api-compat` to override the import location

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Explicit approximate feature maps for kernels, so linear models can emulate kernel
+# methods: PolynomialCountSketch (Tensor Sketch for polynomial kernels), RBFSampler
+# (random Fourier features), SkewedChi2Sampler (random features for the skewed chi2
+# kernel), AdditiveChi2Sampler (deterministic Fourier sampling of the additive chi2
+# kernel) and Nystroem (low-rank approximation from a random subset of training rows).
 """Approximate kernel feature maps based on Fourier transforms and count sketches."""
 
 # Authors: The scikit-learn developers
@@ -40,6 +46,16 @@ from sklearn.utils.validation import (
 class PolynomialCountSketch(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Transformer approximating the polynomial kernel feature map with Tensor Sketch:
+    # each
+    # input row is count-sketched `degree` times with independent hashes, and the
+    # sketches are
+    # multiplied in the Fourier domain to obtain a sketch of the degree-fold tensor
+    # product.
+    # Output dimension is n_components. Validated params: gamma >= 0, degree >= 1
+    # integer,
+    # coef0 real, n_components >= 1.
     """Polynomial kernel approximation via Tensor Sketch.
 
     Implements Tensor Sketch, which approximates the feature map
@@ -138,6 +154,8 @@ class PolynomialCountSketch(
     def __init__(
         self, *, gamma=1.0, degree=2, coef0=0.0, n_components=100, random_state=None
     ):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
         self.gamma = gamma
         self.degree = degree
         self.coef0 = coef0
@@ -146,6 +164,18 @@ class PolynomialCountSketch(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Draws the hash functions: validates X (csc sparse allowed), adds one extra
+        # input column
+        # when coef0 != 0 (for the constant term), then draws indexHash_ (integers in
+        # [0, n_components), shape (degree, n_features')) and bitHash_ (random +/-1,
+        # same shape)
+        # from random_state. y is ignored.
+        # Outputs: self. Side effects: sets indexHash_, bitHash_, _n_features_out,
+        # n_features_in_ and feature_names_in_; consumes the random state.
+        # KNOWN ISSUE: class docstring says bitHash_ has dtype float32, but
+        # random_state.choice
+        # on an integer list produces an integer array.
         """Fit the model with X.
 
         Initializes the internal variables. The method needs no information
@@ -182,6 +212,22 @@ class PolynomialCountSketch(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Computes the sketch: scales X by sqrt(gamma); if coef0 != 0 appends a column
+        # filled
+        # with sqrt(coef0) (sparse hstack in csc for sparse input); for each input
+        # column j and
+        # each degree index d, adds bitHash_[d, j] times column j into bucket
+        # indexHash_[d, j] of
+        # a (n_samples, degree, n_components) array; FFTs along the component axis,
+        # multiplies
+        # across the degree axis, inverse FFTs and keeps the real part.
+        # Outputs: dense float array (n_samples, n_components).
+        # Exceptions: NotFittedError; ValueError on feature-count mismatch.
+        # KNOWN ISSUE: the explicit feature-count check is effectively dead because
+        # validate_data with reset=False already rejects mismatched inputs; the
+        # docstring's
+        # "Returns the instance itself" is wrong (returns the transformed array).
         """Generate the feature map approximation for X.
 
         Parameters
@@ -245,12 +291,20 @@ class PolynomialCountSketch(
         return data_sketch
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class RBFSampler(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer implementing random Fourier features for the RBF kernel: projects X
+    # onto
+    # random Gaussian directions scaled by sqrt(2*gamma), adds random phase offsets,
+    # applies
+    # cosine and scales by sqrt(2/n_components). gamma may be "scale" or a float >= 0.
     """Approximate an RBF kernel feature map using random Fourier features.
 
     It implements a variant of Random Kitchen Sinks.[1]
@@ -343,12 +397,28 @@ class RBFSampler(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimato
     }
 
     def __init__(self, *, gamma=1.0, n_components=100, random_state=None):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
         self.gamma = gamma
         self.n_components = n_components
         self.random_state = random_state
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (csr sparse allowed). Resolves the effective gamma into
+        # self._gamma: for
+        # "scale", 1/(n_features * variance of all entries of X) (variance computed as
+        # mean of
+        # squares minus squared mean for sparse input), falling back to 1.0 when the
+        # variance is
+        # 0; otherwise the given value. Draws random_weights_ (n_features, n_components)
+        # from a
+        # normal scaled by sqrt(2*_gamma) and random_offset_ (n_components,) uniform in
+        # [0, 2pi);
+        # casts both to float32 when X is float32.
+        # Outputs: self. Side effects: sets _gamma, random_weights_, random_offset_,
+        # _n_features_out and feature metadata; consumes the random state.
         """Fit the model with X.
 
         Samples random projection according to n_features.
@@ -393,6 +463,13 @@ class RBFSampler(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimato
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns sqrt(2/n_components) times the cosine of (X times random_weights_ plus
+        # random_offset_), computed in place on the projection buffer.
+        # Outputs: dense array (n_samples, n_components) with dtype following the fitted
+        # weights. Exceptions: NotFittedError; ValueError on feature mismatch.
+        # KNOWN ISSUE: docstring "Returns the instance itself" is wrong; the array is
+        # returned.
         """Apply the approximate feature map to X.
 
         Parameters
@@ -416,6 +493,9 @@ class RBFSampler(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimato
         return projection
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: sparse input supported; float64 and float32 dtypes
+        # preserved.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
@@ -425,6 +505,15 @@ class RBFSampler(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimato
 class SkewedChi2Sampler(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Transformer approximating the skewed chi-squared kernel: shifts X by skewedness,
+    # takes
+    # the log, projects onto random weights drawn from the hyperbolic secant
+    # distribution,
+    # adds uniform phase offsets and applies a scaled cosine. Dense input only.
+    # KNOWN ISSUE: docstring gives random_offset_ shape (n_features, n_components) but
+    # fit
+    # creates shape (n_components,); its See Also also lists the class itself.
     """Approximate feature map for "skewed chi-squared" kernel.
 
     Read more in the :ref:`User Guide <skewed_chi_kernel_approx>`.
@@ -504,12 +593,24 @@ class SkewedChi2Sampler(
     }
 
     def __init__(self, *, skewedness=1.0, n_components=100, random_state=None):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
         self.skewedness = skewedness
         self.n_components = n_components
         self.random_state = random_state
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (dense). Draws a uniform (n_features, n_components) matrix and
+        # maps it
+        # through the inverse CDF of the hyperbolic secant distribution, (1/pi) times
+        # log(tan(pi/2 * u)), to get random_weights_; draws random_offset_
+        # (n_components,)
+        # uniform in [0, 2pi); casts to float32 when X is float32. y ignored.
+        # Outputs: self. Side effects: sets random_weights_, random_offset_,
+        # _n_features_out and
+        # feature metadata; consumes the random state.
         """Fit the model with X.
 
         Samples random projection according to n_features.
@@ -547,6 +648,15 @@ class SkewedChi2Sampler(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates a copy of X as float64/float32; adds skewedness and takes the
+        # natural log in
+        # place; projects with random_weights_, adds random_offset_, applies cosine in
+        # place and
+        # multiplies by sqrt(2/n_components).
+        # Outputs: array (n_samples, n_components).
+        # Exceptions: NotFittedError; ValueError if any entry is <= -skewedness.
+        # Side effects: none on the caller's X (copy=True).
         """Apply the approximate feature map to X.
 
         Parameters
@@ -577,12 +687,23 @@ class SkewedChi2Sampler(
         return projection
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: float64 and float32 dtypes preserved.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         return tags
 
 
 class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateless transformer giving a deterministic approximate feature map of the
+    # additive
+    # chi2 kernel by sampling its Fourier spectrum at sample_steps points spaced by
+    # sample_interval. Output has n_features * (2*sample_steps - 1) columns: one sqrt
+    # term
+    # then a cos and a sin term per extra step. Requires non-negative input; works with
+    # csr
+    # sparse input. requires_fit tag is False.
     """Approximate feature map for additive chi2 kernel.
 
     Uses sampling the fourier transform of the kernel characteristic
@@ -667,11 +788,20 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, *, sample_steps=2, sample_interval=None):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
         self.sample_steps = sample_steps
         self.sample_interval = sample_interval
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (csr allowed, non-negative) to record n_features_in_/feature names
+        # and
+        # checks parameters.
+        # Exceptions: ValueError when sample_interval is None and sample_steps is not 1,
+        # 2 or 3.
+        # Outputs: self.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -703,6 +833,19 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X (non-negative, csr allowed, no reset). Picks sample_interval: user
+        # value,
+        # or 0.8 / 0.5 / 0.4 for 1 / 2 / 3 steps (Vedaldi & Zisserman defaults).
+        # Dispatches to
+        # _transform_sparse or _transform_dense.
+        # Outputs: dense ndarray or sparse matrix (n_samples,
+        # n_features*(2*sample_steps-1)).
+        # Exceptions: ValueError if steps not in 1..3 and no interval; validation
+        # errors.
+        # KNOWN ISSUE: there is no check_is_fitted, so transform works without fit
+        # (intentional for this stateless estimator), but then n_features_in_ is not
+        # checked.
         """Apply approximate feature map to X.
 
         Parameters
@@ -749,6 +892,16 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
         return transf(X, self.sample_steps, sample_interval)
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Builds output names "<estname>_<feat>_sqrt" for every input feature, followed,
+        # for each
+        # step j from 1 to sample_steps-1, by "<estname>_<feat>_cos<j>" for all features
+        # then
+        # "<estname>_<feat>_sin<j>" for all features (matching transform's column
+        # order).
+        # Inputs: input_features or None (validated against names seen in fit).
+        # Outputs: object ndarray of names. Exceptions: NotFittedError if fit was not
+        # called.
         """Get output feature names for transformation.
 
         Parameters
@@ -781,6 +934,15 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _transform_dense(X, sample_steps, sample_interval):
+        # [FUNCTION DOC]
+        # HELPER: Dense feature map. Operates only on non-zero entries x (zeros stay
+        # zero).
+        # First block: sqrt(x * L) with L = sample_interval. For each j in 1..steps-1:
+        # factor
+        # sqrt(2 * x * L / cosh(pi * j * L)), then a block factor * cos(j * L * log x)
+        # and a block
+        # factor * sin(j * L * log x). Blocks are concatenated horizontally.
+        # Outputs: ndarray (n_samples, n_features * (2*steps-1)).
         non_zero = X != 0.0
         X_nz = X[non_zero]
 
@@ -807,6 +969,16 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _transform_sparse(X, sample_steps, sample_interval):
+        # [FUNCTION DOC]
+        # HELPER: Sparse equivalent of _transform_dense: computes the same formulas on
+        # the
+        # stored data of the csr input and builds csr arrays sharing copies of the
+        # input's
+        # indices/indptr (aligned to the configured sparse API), then hstacks them.
+        # Outputs: sparse matrix/array with the same column layout as the dense version.
+        # KNOWN ISSUE: explicitly stored zeros in X.data would give log(0) = -inf and
+        # NaN values,
+        # unlike the dense path which skips zeros.
         indices = X.indices.copy()
         indptr = X.indptr.copy()
 
@@ -849,6 +1021,9 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
         return sp.hstack(X_new)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: requires_fit False, positive-only input, sparse
+        # supported.
         tags = super().__sklearn_tags__()
         tags.requires_fit = False
         tags.input_tags.positive_only = True
@@ -857,6 +1032,15 @@ class AdditiveChi2Sampler(TransformerMixin, BaseEstimator):
 
 
 class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer approximating a kernel map with the Nystroem method: picks
+    # n_components
+    # random training rows as basis, computes the kernel among them, and maps new data
+    # by the
+    # kernel to the basis times the inverse square root of the basis kernel matrix.
+    # Supports array API inputs, csr sparse input, any pairwise kernel name,
+    # "precomputed" or
+    # a callable.
     """Approximate a kernel map using a subset of the training data.
 
     Constructs an approximate feature map for an arbitrary kernel
@@ -998,6 +1182,8 @@ class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator)
         random_state=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor arguments as attributes without validation.
         self.kernel = kernel
         self.gamma = gamma
         self.coef0 = coef0
@@ -1009,6 +1195,24 @@ class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator)
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (csr allowed); if n_components exceeds n_samples, emits a
+        # UserWarning and
+        # uses n_samples; draws a random permutation and takes the first n_components
+        # indices as
+        # basis (array API int64 on X's device); computes the basis kernel with
+        # pairwise_kernels (n_jobs, filtered parameters from _get_kernel_params);
+        # converts to a
+        # floating dtype; takes the SVD and clips singular values below 1e-12; sets
+        # normalization_ as U scaled by 1/sqrt(S) times V (inverse matrix square root).
+        # Outputs: self. Side effects: sets normalization_, components_,
+        # component_indices_,
+        # _n_features_out and feature metadata; warning; consumes the random state.
+        # KNOWN ISSUE: class docstring calls normalization_ the "square root" of the
+        # basis
+        # kernel, but it is the inverse square root; the later min(n_samples,
+        # n_components) is
+        # redundant after the if/else.
         """Fit estimator to data.
 
         Samples a subset of training points, computes kernel
@@ -1074,6 +1278,15 @@ class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator)
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Computes the kernel between X and components_ with the same kernel parameters,
+        # casts
+        # to a matching floating dtype on X's namespace/device, and multiplies by the
+        # transpose
+        # of normalization_.
+        # Outputs: array (n_samples, n_components_used).
+        # Exceptions: NotFittedError; ValueError on feature mismatch or bad kernel
+        # params.
         """Apply feature map to X.
 
         Computes an approximate feature map using the kernel
@@ -1108,6 +1321,18 @@ class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator)
         return embedded @ self.normalization_.T
 
     def _get_kernel_params(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds kernel keyword arguments. Starts from kernel_params (or an
+        # empty dict).
+        # For a named kernel, adds each of that kernel's KERNEL_PARAMS
+        # (gamma/degree/coef0) whose
+        # attribute is not None. For a callable or "precomputed" kernel, raises
+        # ValueError if any
+        # of gamma, coef0 or degree is set.
+        # Outputs: dict.
+        # KNOWN ISSUE: when kernel_params is a user dict and the kernel is named, the
+        # dict is
+        # mutated in place (the user's kernel_params gains gamma/degree/coef0 entries).
         params = self.kernel_params
         if params is None:
             params = {}
@@ -1130,6 +1355,9 @@ class Nystroem(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator)
         return params
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: array API support, sparse input, preserves
+        # float64/float32.
         tags = super().__sklearn_tags__()
         tags.array_api_support = True
         tags.input_tags.sparse = True

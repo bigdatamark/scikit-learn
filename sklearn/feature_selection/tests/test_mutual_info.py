@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for mutual information estimation: the private _compute_mi helper against
+#   closed-form values for discrete/discrete, continuous/continuous and mixed pairs, and
+#   the public mutual_info_classif / mutual_info_regression for feature ranking, option
+#   validation, symmetry, integer input, and n_jobs consistency.
 import numpy as np
 import pytest
 
@@ -13,6 +18,10 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 def test_compute_mi_dd():
+    # [FUNCTION DOC]
+    # Computes the MI of two short binary vectors by hand from marginal and joint
+    #   entropies and checks _compute_mi with both variables discrete matches exactly
+    #   (allclose).
     # In discrete case computations are straightforward and can be done
     # by hand on given vectors.
     x = np.array([0, 1, 1, 0, 0])
@@ -26,6 +35,10 @@ def test_compute_mi_dd():
 
 
 def test_compute_mi_cc(global_dtype):
+    # [FUNCTION DOC]
+    # Samples 1000 points from a bivariate normal with correlation 0.5 and checks the
+    #   k-NN MI estimate for n_neighbors 3, 5, 7 is within 10% relative tolerance of the
+    #   analytic value log(s1)+log(s2)-0.5*log(det(cov)). Inputs: global_dtype fixture.
     # For two continuous variables a good approach is to test on bivariate
     # normal distribution, where mutual information is known.
 
@@ -61,6 +74,12 @@ def test_compute_mi_cc(global_dtype):
 
 
 def test_compute_mi_cd(global_dtype):
+    # [FUNCTION DOC]
+    # For Bernoulli x with p in 0.3/0.5/0.7 and y uniform on (-1,1) or (0,2) depending
+    #   on x, checks the discrete-continuous MI estimate for several n_neighbors is within
+    #   10% of the analytic H(Y)-H(Y|X).
+    # KNOWN ISSUE: x is generated as uniform > p, so P(x=1) is 1-p rather than p; the
+    #   analytic formula is symmetric in p and 1-p, so the test still holds.
     # To test define a joint distribution as follows:
     # p(x, y) = p(x) p(y | x)
     # X ~ Bernoulli(p)
@@ -100,6 +119,10 @@ def test_compute_mi_cd(global_dtype):
 
 
 def test_compute_mi_cd_unique_label(global_dtype):
+    # [FUNCTION DOC]
+    # Checks that appending one sample whose discrete label occurs only once does not
+    #   change the discrete-continuous MI estimate.
+    # KNOWN ISSUE: uses the unseeded global np.random, so the data differ between runs.
     # Test that adding unique label doesn't change MI.
     n_samples = 100
     x = np.random.uniform(size=n_samples) > 0.5
@@ -120,6 +143,9 @@ def test_compute_mi_cd_unique_label(global_dtype):
 
 # We are going test that feature ordering by MI matches our expectations.
 def test_mutual_info_classif_discrete(global_dtype):
+    # [FUNCTION DOC]
+    # Checks mutual_info_classif with all-discrete features ranks a hand-built 5x3
+    #   matrix's features in order 0, 2, 1 by decreasing MI.
     X = np.array(
         [[0, 0, 0], [1, 1, 0], [2, 0, 1], [2, 0, 1], [2, 0, 1]], dtype=global_dtype
     )
@@ -132,6 +158,10 @@ def test_mutual_info_classif_discrete(global_dtype):
 
 
 def test_mutual_info_regression(global_dtype):
+    # [FUNCTION DOC]
+    # Builds correlated Gaussian data via a linear transform, uses the first variable as
+    #   target, and checks mutual_info_regression ranks features 1, 2, 0 and returns
+    #   float64 even for float32 input.
     # We generate sample from multivariate normal distribution, using
     # transformation from initially uncorrelated variables. The zero
     # variables after transformation is selected as the target vector,
@@ -154,6 +184,10 @@ def test_mutual_info_regression(global_dtype):
 
 
 def test_mutual_info_classif_mixed(global_dtype):
+    # [FUNCTION DOC]
+    # With two continuous and one discrete feature and a thresholded target, checks
+    #   ranking 2, 0, 1, that continuous-feature MI grows with n_neighbors, and that the
+    #   discrete feature's MI is unaffected by n_neighbors.
     # Here the target is discrete and there are two continuous and one
     # discrete feature. The idea of this test is clear from the code.
     rng = check_random_state(0)
@@ -179,6 +213,12 @@ def test_mutual_info_classif_mixed(global_dtype):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_mutual_info_options(global_dtype, csr_container):
+    # [FUNCTION DOC]
+    # For both MI functions checks validation errors (ValueError for sparse X with
+    #   continuous features, invalid string, or boolean mask with sparse; IndexError for
+    #   wrong-length mask or out-of-range indices) and that equivalent discrete_features
+    #   specifications ("auto" vs False on dense, "auto" vs True on sparse, mask vs
+    #   indices) give equal results while dense and sparse "auto" differ.
     X = np.array(
         [[0, 0, 0], [1, 1, 0], [2, 0, 1], [2, 0, 1], [2, 0, 1]], dtype=global_dtype
     )
@@ -213,6 +253,10 @@ def test_mutual_info_options(global_dtype, csr_container):
 
 @pytest.mark.parametrize("correlated", [True, False])
 def test_mutual_information_symmetry_classif_regression(correlated, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks MI is symmetric: mutual_info_classif with continuous feature c and discrete
+    #   target d equals mutual_info_regression with discrete feature d and continuous
+    #   target c, both for correlated and independent c.
     """Check that `mutual_info_classif` and `mutual_info_regression` are
     symmetric by switching the target `y` as `feature` in `X` and vice
     versa.
@@ -241,6 +285,9 @@ def test_mutual_information_symmetry_classif_regression(correlated, global_rando
 
 
 def test_mutual_info_regression_X_int_dtype(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression: checks mutual_info_regression gives the same result for integer X
+    #   and its float64 copy.
     """Check that results agree when X is integer dtype and float dtype.
 
     Non-regression test for Issue #26696.
@@ -263,6 +310,9 @@ def test_mutual_info_regression_X_int_dtype(global_random_seed):
     ],
 )
 def test_mutual_info_n_jobs(global_random_seed, mutual_info_func, data_generator):
+    # [FUNCTION DOC]
+    # Checks that n_jobs=1 and n_jobs=2 give identical results for both MI functions on
+    #   generated regression/classification data.
     """Check that results are consistent with different `n_jobs`."""
     X, y = data_generator(random_state=global_random_seed)
     single_job = mutual_info_func(X, y, random_state=global_random_seed, n_jobs=1)

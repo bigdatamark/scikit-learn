@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Bayesian linear regression estimators with Gamma hyperpriors: BayesianRidge (single
+#   shared weight precision lambda, evidence maximization via an SVD of X) and
+#   ARDRegression (per-feature precisions with pruning, Automatic Relevance
+#   Determination). Both use MacKay's fixed-point updates for the noise precision alpha
+#   and weight precisions.
 """
 Various bayesian regression
 """
@@ -24,6 +30,12 @@ from sklearn.utils.validation import _check_sample_weight, validate_data
 
 
 class BayesianRidge(RegressorMixin, LinearModel):
+    # [CLASS DOC]
+    # Bayesian ridge regression. fit centers (and weight-rescales) data, computes one
+    #   SVD of X, then alternates posterior-mean updates and MacKay hyperparameter updates
+    #   until coef changes less than tol in L1 norm. Fitted: coef_, intercept_, alpha_,
+    #   lambda_, sigma_ (posterior covariance), scores_ (if compute_score), n_iter_,
+    #   X_offset_, X_scale_.
     """Bayesian ridge regression.
 
     Fit a Bayesian ridge model. See the Notes section for details on this
@@ -200,6 +212,10 @@ class BayesianRidge(RegressorMixin, LinearModel):
         copy_X=True,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged: max_iter, tol, Gamma prior shape/rate
+        #   parameters alpha_1, alpha_2, lambda_1, lambda_2, optional initial alpha_init
+        #   and lambda_init, compute_score, fit_intercept, copy_X, verbose.
         self.max_iter = max_iter
         self.tol = tol
         self.alpha_1 = alpha_1
@@ -215,6 +231,28 @@ class BayesianRidge(RegressorMixin, LinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the model. Steps: validate X (float, writeable) and numeric y; compute
+        #   the (weighted) variance of y and sum of weights; center and rescale X and y by
+        #   sqrt of sample weights via _preprocess_data. Init alpha to 1/(var(y)+eps) and
+        #   lambda to 1 unless given. Compute SVD of X (full only if n_samples <
+        #   n_features) and squared singular values. Loop up to max_iter: compute
+        #   posterior mean coef and SSE with _update_coef_, optionally record log marginal
+        #   likelihood, compute effective number of parameters gamma as the sum of
+        #   alpha*eig / (lambda + alpha*eig), update lambda as (gamma + 2 lambda_1) /
+        #   (squared norm of coef + 2 lambda_2) and alpha as (sw_sum - gamma + 2 alpha_1)
+        #   / (SSE + 2 alpha_2); stop when the L1 change of coef is below tol (after the
+        #   first iteration). Then recompute coef_ with the final hyperparameters,
+        #   posterior covariance sigma_ from the full right singular vectors, and the
+        #   intercept.
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight optional.
+        # Outputs: self.
+        # Side effects: sets X_offset_, X_scale_, scores_ (list, converted to ndarray
+        #   only when compute_score), n_iter_, alpha_, lambda_, coef_, sigma_, intercept_;
+        #   prints convergence if verbose; may modify X in place when copy_X is False.
+        # KNOWN ISSUE: the final log-likelihood appended after the loop uses the loop's
+        #   last coef_ rather than the recomputed self.coef_ (while using the new sse_),
+        #   so it mixes values from two coefficient vectors.
         """Fit the model.
 
         Parameters
@@ -372,6 +410,15 @@ class BayesianRidge(RegressorMixin, LinearModel):
         return self
 
     def predict(self, X, return_std=False):
+        # [FUNCTION DOC]
+        # Predicts with the linear model; if return_std, also returns the predictive
+        #   standard deviation per sample: square root of the quadratic form of the
+        #   centered row with sigma_ plus 1/alpha_.
+        # Inputs: X (n_samples, n_features); return_std bool, default False.
+        # Outputs: y_mean (n_samples,) or tuple (y_mean, y_std).
+        # KNOWN ISSUE: the std branch uses raw X with plain subtraction and np.dot, so
+        #   it does not support sparse input, and ignores X_scale_ (fine only because it
+        #   is all ones here).
         """Predict using the linear model.
 
         In addition to the mean of the predictive distribution, also its
@@ -405,6 +452,14 @@ class BayesianRidge(RegressorMixin, LinearModel):
     def _update_coef_(
         self, X, y, n_samples, n_features, XT_y, U, Vh, eigen_vals_, alpha_, lambda_
     ):
+        # [FUNCTION DOC]
+        # HELPER: Computes the posterior mean of coef for given alpha_ and lambda_ using
+        #   the SVD: if n_samples > n_features, V diag(1/(eig + lambda/alpha)) V^T times
+        #   X^T y; otherwise X^T U diag(1/(eig + lambda/alpha)) U^T y (dual form). Also
+        #   returns the sum of squared residuals on the (preprocessed, weight-rescaled)
+        #   data.
+        # Outputs: (coef_ of shape (n_features,), sse_ float).
+        # Side effects: none.
         """Update posterior mean and compute corresponding sse (sum of squared errors).
 
         Posterior mean is given by coef_ = scaled_sigma_ * X.T * y where
@@ -430,6 +485,15 @@ class BayesianRidge(RegressorMixin, LinearModel):
     def _log_marginal_likelihood(
         self, n_samples, n_features, sw_sum, eigen_vals, alpha_, lambda_, coef, sse
     ):
+        # [FUNCTION DOC]
+        # HELPER: Computes the log marginal likelihood (evidence) for the current
+        #   alpha_, lambda_, coef and SSE, including the Gamma hyperprior terms. Log
+        #   determinant of the posterior covariance is minus the sum of logs of (lambda +
+        #   alpha * eigenvalue), padding eigenvalues with zeros up to n_features when
+        #   n_samples <= n_features. sw_sum replaces n_samples in the data terms to
+        #   account for weights.
+        # Outputs: float score.
+        # Side effects: none.
         """Log marginal likelihood."""
         alpha_1 = self.alpha_1
         alpha_2 = self.alpha_2
@@ -465,6 +529,11 @@ class BayesianRidge(RegressorMixin, LinearModel):
 
 
 class ARDRegression(RegressorMixin, LinearModel):
+    # [CLASS DOC]
+    # ARD regression: one precision per weight; features whose precision exceeds
+    #   threshold_lambda are pruned (coef set to 0) and excluded from later updates.
+    #   Posterior covariance is computed by direct inversion or the Woodbury identity
+    #   depending on the data shape.
     """Bayesian ARD regression.
 
     Fit the weights of a regression model, using an ARD prior. The weights of
@@ -625,6 +694,9 @@ class ARDRegression(RegressorMixin, LinearModel):
         copy_X=True,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged: max_iter, tol, alpha_1, alpha_2, lambda_1,
+        #   lambda_2, compute_score, threshold_lambda, fit_intercept, copy_X, verbose.
         self.max_iter = max_iter
         self.tol = tol
         self.fit_intercept = fit_intercept
@@ -639,6 +711,23 @@ class ARDRegression(RegressorMixin, LinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits the model. Steps: validate X, y (at least 2 samples); center via
+        #   _preprocess_data. Init alpha to 1/(var(y)+eps), all lambda to 1, all features
+        #   kept. Choose _update_sigma when n_samples >= n_features else
+        #   _update_sigma_woodbury. Loop up to max_iter: compute sigma for kept features,
+        #   set kept coefs to alpha * sigma X_keep^T y, compute SSE and gamma = 1 - lambda
+        #   * diag(sigma), update kept lambdas as (gamma + 2 lambda_1) / (coef^2 + 2
+        #   lambda_2) and alpha as (n_samples - sum gamma + 2 alpha_1) / (SSE + 2
+        #   alpha_2); prune features with lambda >= threshold_lambda (zero their coef);
+        #   optionally record the objective; stop on L1 coef change below tol or when no
+        #   feature is left. Finally recompute sigma and coef if features remain (else
+        #   sigma_ is an empty 0x0 array) and set the intercept.
+        # Inputs: X (n_samples, n_features); y (n_samples,).
+        # Outputs: self.
+        # Side effects: sets X_offset_, X_scale_, scores_ (stays a Python list),
+        #   n_iter_, coef_, alpha_, sigma_ (only kept features), lambda_, intercept_;
+        #   prints if verbose.
         """Fit the model according to the given training data and parameters.
 
         Iterative procedure to maximize the evidence
@@ -698,6 +787,10 @@ class ARDRegression(RegressorMixin, LinearModel):
         coef_old_ = None
 
         def update_coeff(X, y, coef_, alpha_, keep_lambda, sigma_):
+            # [FUNCTION DOC]
+            # HELPER: Sets the coefficients of kept features to alpha times sigma times
+            #   the kept columns of X transposed times y.
+            # Side effects: modifies coef_ in place and returns it.
             coef_[keep_lambda] = alpha_ * np.linalg.multi_dot(
                 [sigma_, X[:, keep_lambda].T, y]
             )
@@ -764,6 +857,12 @@ class ARDRegression(RegressorMixin, LinearModel):
         return self
 
     def _update_sigma_woodbury(self, X, alpha_, lambda_, keep_lambda):
+        # [FUNCTION DOC]
+        # HELPER: Posterior covariance for kept features when n_samples < n_features via
+        #   the Woodbury identity: inverts an (n_samples x n_samples) matrix (identity /
+        #   alpha plus X_keep Lambda^-1 X_keep^T) with pinvh and forms Lambda^-1 minus
+        #   Lambda^-1 X_keep^T (that inverse) X_keep Lambda^-1.
+        # Outputs: (n_kept, n_kept) array.
         # See slides as referenced in the docstring note
         # this function is used when n_samples < n_features and will invert
         # a matrix of shape (n_samples, n_samples) making use of the
@@ -782,6 +881,10 @@ class ARDRegression(RegressorMixin, LinearModel):
         return sigma_
 
     def _update_sigma(self, X, alpha_, lambda_, keep_lambda):
+        # [FUNCTION DOC]
+        # HELPER: Posterior covariance for kept features by pseudo-inverting
+        #   diag(lambda_keep) plus alpha times the Gram matrix of kept columns.
+        # Outputs: (n_kept, n_kept) array.
         # See slides as referenced in the docstring note
         # this function is used when n_samples >= n_features and will
         # invert a matrix of shape (n_features, n_features)
@@ -793,6 +896,13 @@ class ARDRegression(RegressorMixin, LinearModel):
         return sigma_
 
     def predict(self, X, return_std=False):
+        # [FUNCTION DOC]
+        # Predicts with the linear model; if return_std, also returns predictive std per
+        #   sample using only kept columns (lambda_ below threshold_lambda) of the
+        #   centered X with sigma_, plus 1/alpha_.
+        # Outputs: y_mean (n_samples,) or tuple (y_mean, y_std).
+        # KNOWN ISSUE: when every feature was pruned, sigma_ is 0x0 and the std is just
+        #   sqrt(1/alpha_); X must be dense for the std branch.
         """Predict using the linear model.
 
         In addition to the mean of the predictive distribution, also its

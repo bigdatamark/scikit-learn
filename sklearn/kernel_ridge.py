@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Kernel ridge regression estimator (KernelRidge): ridge regression solved in the dual,
+# where the Gram matrix is produced by sklearn.metrics.pairwise.pairwise_kernels and the
+# dual coefficients come from the shared Cholesky kernel solver of linear_model._ridge.
 """Kernel ridge regression."""
 
 # Authors: The scikit-learn developers
@@ -19,6 +23,17 @@ from sklearn.utils.validation import (
 
 
 class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator storing the training data and dual coefficients; prediction is the
+    # kernel
+    # between new samples and the training samples multiplied by dual_coef_.
+    # Hyper-parameters are validated via _parameter_constraints at fit time: alpha >= 0
+    # (scalar or array-like, one per target), kernel a name from
+    # PAIRWISE_KERNEL_FUNCTIONS,
+    # "precomputed" or a callable, gamma >= 0 or None, degree >= 0, coef0 any real,
+    # kernel_params dict or None.
+    # KNOWN ISSUE: docstring says alpha must be positive and defaults to 1.0, but the
+    # constraint allows alpha == 0 and the default in __init__ is the integer 1.
     """Kernel ridge regression.
 
     Kernel ridge regression (KRR) combines ridge regression (linear least
@@ -157,6 +172,9 @@ class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
         coef0=1,
         kernel_params=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor arguments unchanged as attributes (sklearn convention, no
+        # validation here). See class block for meanings and defaults.
         self.alpha = alpha
         self.kernel = kernel
         self.gamma = gamma
@@ -165,6 +183,17 @@ class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.kernel_params = kernel_params
 
     def _get_kernel(self, X, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Computes the kernel matrix between X and Y (Y=None means X with
+        # itself) using
+        # pairwise_kernels with metric=self.kernel and filter_params=True.
+        # Inputs: X, Y - arrays/sparse matrices of shape (n_a, n_features), (n_b,
+        # n_features).
+        # Parameters passed: kernel_params (or empty dict) for a callable kernel;
+        # otherwise gamma,
+        # degree and coef0 (filtered down to those the named kernel accepts).
+        # Outputs: array of shape (n_a, n_b); for "precomputed" X is returned as the
+        # kernel.
         if callable(self.kernel):
             params = self.kernel_params or {}
         else:
@@ -172,6 +201,9 @@ class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return pairwise_kernels(X, Y, metric=self.kernel, filter_params=True, **params)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: declares sparse input support and marks the estimator as
+        # pairwise when kernel == "precomputed". Returns the updated tags object.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.pairwise = self.kernel == "precomputed"
@@ -179,6 +211,25 @@ class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the model: validates X (csr/csc sparse allowed) and numeric, possibly
+        # multi-output
+        # y; validates sample_weight unless it is None or a Python float; computes K
+        # over X;
+        # converts alpha to a 1-d array; reshapes 1-d y to a column; solves (K +
+        # alpha*I) dual
+        # system with _solve_cholesky_kernel (copying K only when kernel is precomputed,
+        # since
+        # the solver may modify K in place and the user owns that matrix); ravels the
+        # result back
+        # to 1-d when y was 1-d.
+        # Outputs: self.
+        # Exceptions: parameter-validation errors via _fit_context; validation errors
+        # for bad X,
+        # y or sample_weight; errors from the solver if alpha length mismatches the
+        # targets.
+        # Side effects: sets dual_coef_, X_fit_ (stores a reference to the validated X),
+        # n_features_in_ and possibly feature_names_in_.
         """Fit Kernel Ridge regression model.
 
         Parameters
@@ -223,6 +274,13 @@ class KernelRidge(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts: checks fitted, validates X without resetting feature info, computes
+        # kernel
+        # between X and X_fit_ (shape n_samples x n_fit) and returns its matrix product
+        # with
+        # dual_coef_, giving shape (n_samples,) or (n_samples, n_targets).
+        # Exceptions: NotFittedError if unfitted; ValueError on feature count mismatch.
         """Predict using the kernel ridge model.
 
         Parameters

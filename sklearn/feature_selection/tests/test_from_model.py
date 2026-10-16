@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for SelectFromModel: threshold parsing ("mean", "median", scaled strings,
+#   defaults for L1 models), max_features (int, callable, validation, tie-breaking and
+#   interaction with threshold), prefit handling, partial_fit, sample_weight forwarding,
+#   multi-output coef norms, importance_getter, NaN/inf handling and tags, feature names,
+#   and sparse importances. Uses iris (data, y) loaded at import time as shared data.
 import re
 import warnings
 from unittest.mock import Mock
@@ -34,21 +40,34 @@ from sklearn.utils._testing import (
 
 
 class NaNTag(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Bare estimator whose tags declare allow_nan=True.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with input_tags.allow_nan set to True.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
 
 
 class NoNaNTag(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Bare estimator whose tags declare allow_nan=False.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with input_tags.allow_nan set to False.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = False
         return tags
 
 
 class NaNTagRandomForest(RandomForestClassifier):
+    # [CLASS DOC]
+    # HELPER: RandomForestClassifier subclass advertising allow_nan=True in its tags, so
+    #   the selector skips finiteness checks at transform.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the forest tags with input_tags.allow_nan set to True.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
@@ -59,6 +78,9 @@ data, y = iris.data, iris.target
 
 
 def test_invalid_input():
+    # [FUNCTION DOC]
+    # Checks that unparsable threshold strings are accepted at fit but make transform
+    #   raise ValueError.
     clf = SGDClassifier(
         alpha=0.1, max_iter=10, shuffle=True, random_state=None, tol=None
     )
@@ -70,6 +92,9 @@ def test_invalid_input():
 
 
 def test_input_estimator_unchanged():
+    # [FUNCTION DOC]
+    # Checks the user-passed estimator object remains the estimator attribute after fit
+    #   (the fitted model lives in estimator_).
     # Test that SelectFromModel fits on a clone of the estimator.
     est = RandomForestClassifier()
     transformer = SelectFromModel(estimator=est)
@@ -93,6 +118,9 @@ def test_input_estimator_unchanged():
     ],
 )
 def test_max_features_error(max_features, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Checks callables returning a float or a negative int for max_features make fit
+    #   raise TypeError / ValueError with the expected messages.
     err_msg = re.escape(err_msg)
     clf = RandomForestClassifier(n_estimators=5, random_state=0)
 
@@ -105,6 +133,10 @@ def test_max_features_error(max_features, err_type, err_msg):
 
 @pytest.mark.parametrize("max_features", [0, 2, data.shape[1], None])
 def test_inferred_max_features_integer(max_features):
+    # [FUNCTION DOC]
+    # For integer max_features (0, 2, n_features) checks max_features_ equals it and
+    #   output width matches; for None checks max_features_ is absent and all features are
+    #   kept.
     """Check max_features_ and output shape for integer max_features."""
     clf = RandomForestClassifier(n_estimators=5, random_state=0)
     transformer = SelectFromModel(
@@ -124,6 +156,9 @@ def test_inferred_max_features_integer(max_features):
     [lambda X: 1, lambda X: X.shape[1], lambda X: min(X.shape[1], 10000)],
 )
 def test_inferred_max_features_callable(max_features):
+    # [FUNCTION DOC]
+    # Checks a callable max_features is evaluated on X to set max_features_ and the
+    #   output width.
     """Check max_features_ and output shape for callable max_features."""
     clf = RandomForestClassifier(n_estimators=5, random_state=0)
     transformer = SelectFromModel(
@@ -136,6 +171,9 @@ def test_inferred_max_features_callable(max_features):
 
 @pytest.mark.parametrize("max_features", [lambda X: round(len(X[0]) / 2), 2])
 def test_max_features_array_like(max_features):
+    # [FUNCTION DOC]
+    # Checks max_features (int or callable on a list-of-lists X) works on non-array
+    #   input and output width equals max_features_.
     X = [
         [0.87, -1.34, 0.31],
         [-2.79, -0.02, -0.85],
@@ -157,6 +195,8 @@ def test_max_features_array_like(max_features):
     [lambda X: min(X.shape[1], 10000), lambda X: X.shape[1], lambda X: 1],
 )
 def test_max_features_callable_data(max_features):
+    # [FUNCTION DOC]
+    # Wraps the callable in a Mock and checks it is called with the training data X.
     """Tests that the callable passed to `fit` is called on X."""
     clf = RandomForestClassifier(n_estimators=50, random_state=0)
     m = Mock(side_effect=max_features)
@@ -166,14 +206,28 @@ def test_max_features_callable_data(max_features):
 
 
 class FixedImportanceEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator exposing a preset feature_importances_ array after fit.
     def __init__(self, importances):
+        # [FUNCTION DOC]
+        # HELPER: Stores the given importances sequence unchanged.
         self.importances = importances
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets feature_importances_ to an array of the stored importances; X, y
+        #   ignored.
+        # KNOWN ISSUE: returns None instead of self, so chaining fit(...).attr would
+        #   fail.
         self.feature_importances_ = np.array(self.importances)
 
 
 def test_max_features():
+    # [FUNCTION DOC]
+    # Checks max_features=n_features is equivalent to no limit, and that for Lasso,
+    #   selecting the top-k by max_features matches taking the k largest |coef_| (stable
+    #   sort) from an unrestricted fit, for every k up to the default-threshold output
+    #   width.
     # Test max_features parameter using various values
     X, y = datasets.make_classification(
         n_samples=1000,
@@ -217,6 +271,9 @@ def test_max_features():
 
 
 def test_max_features_tiebreak():
+    # [FUNCTION DOC]
+    # With fixed importances containing ties, checks max_features=k selects exactly the
+    #   first k features (ties broken by feature order).
     # Test if max_features can break tie among feature importance
     X, y = datasets.make_classification(
         n_samples=1000,
@@ -243,6 +300,9 @@ def test_max_features_tiebreak():
 
 
 def test_threshold_and_max_features():
+    # [FUNCTION DOC]
+    # Checks combining max_features=3 with threshold=0.04 keeps the intersection, i.e.
+    #   the minimum of each criterion's output width, and the selected columns match X.
     X, y = datasets.make_classification(
         n_samples=1000,
         n_features=10,
@@ -269,6 +329,9 @@ def test_threshold_and_max_features():
 
 @skip_if_32bit
 def test_feature_importances():
+    # [FUNCTION DOC]
+    # For "mean" and "median" thresholds with a random forest, checks transform keeps
+    #   exactly the features whose |importance| is strictly greater than the mean/median.
     X, y = datasets.make_classification(
         n_samples=1000,
         n_features=10,
@@ -294,6 +357,9 @@ def test_feature_importances():
 
 
 def test_sample_weight():
+    # [FUNCTION DOC]
+    # Checks sample_weight is forwarded to the estimator: up-weighting class 1 changes
+    #   the mask, and multiplying the weights by a constant does not.
     # Ensure sample weights are passed to underlying estimator
     X, y = datasets.make_classification(
         n_samples=100,
@@ -331,6 +397,9 @@ def test_sample_weight():
     ],
 )
 def test_coef_default_threshold(estimator):
+    # [FUNCTION DOC]
+    # For Lasso/ElasticNet variants with L1 penalty, checks the default threshold is
+    #   1e-5 on |coef_|.
     X, y = datasets.make_classification(
         n_samples=100,
         n_features=10,
@@ -351,6 +420,10 @@ def test_coef_default_threshold(estimator):
 
 @skip_if_32bit
 def test_2d_coef():
+    # [FUNCTION DOC]
+    # For a 4-class LogisticRegression, mean/median thresholds and norm_order 1, 2, inf,
+    #   checks importances are the column norms of coef_ of that order and selection
+    #   matches.
     X, y = datasets.make_classification(
         n_samples=1000,
         n_features=10,
@@ -382,6 +455,10 @@ def test_2d_coef():
 
 
 def test_partial_fit():
+    # [FUNCTION DOC]
+    # Checks repeated partial_fit reuses the same estimator_ object, that partial_fit
+    #   and fit on duplicated data give the same transform, and that partial_fit is
+    #   unavailable when the estimator lacks it.
     est = SGDClassifier(
         random_state=0, shuffle=False, max_iter=5, tol=None, learning_rate="pa1"
     )
@@ -402,6 +479,9 @@ def test_partial_fit():
 
 
 def test_calling_fit_reinitializes():
+    # [FUNCTION DOC]
+    # Checks fit re-clones the estimator so set_params(estimator__C=100) is reflected in
+    #   estimator_.
     est = LinearSVC(random_state=0)
     transformer = SelectFromModel(estimator=est)
     transformer.fit(data, y)
@@ -411,6 +491,11 @@ def test_calling_fit_reinitializes():
 
 
 def test_prefit():
+    # [FUNCTION DOC]
+    # Checks prefit=True with a fitted model transforms like prefit=False fitting, fit
+    #   with prefit copies rather than reuses the estimator, unfitted prefit estimators
+    #   raise NotFittedError in fit/partial_fit/transform, and fit/partial_fit with prefit
+    #   do not alter the copied coefficients.
     # Test all possible combinations of the prefit parameter.
 
     # Passing a prefit parameter with the selected model
@@ -454,6 +539,9 @@ def test_prefit():
 
 
 def test_prefit_max_features():
+    # [FUNCTION DOC]
+    # Checks prefit=True with callable max_features raises NotFittedError at transform
+    #   before fit, and a non-integer max_features raises ValueError at transform.
     """Check the interaction between `prefit` and `max_features`."""
     # case 1: an error should be raised at `transform` if `fit` was not called to
     # validate the attributes
@@ -479,6 +567,9 @@ def test_prefit_max_features():
 
 
 def test_get_feature_names_out_elasticnetcv():
+    # [FUNCTION DOC]
+    # Non-regression: with ElasticNetCV using several l1_ratio values,
+    #   get_feature_names_out equals the default x0..x4 names masked by get_support.
     """Check if ElasticNetCV works with a list of floats.
 
     Non-regression test for #30936."""
@@ -494,6 +585,9 @@ def test_get_feature_names_out_elasticnetcv():
 
 
 def test_prefit_get_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out raises NotFittedError on a prefit selector before fit
+    #   and returns ["x3"] after fit with max_features=1.
     """Check the interaction between prefit and the feature names."""
     clf = RandomForestClassifier(n_estimators=2, random_state=0)
     clf.fit(data, y)
@@ -513,6 +607,8 @@ def test_prefit_get_feature_names_out():
 
 
 def test_threshold_string():
+    # [FUNCTION DOC]
+    # Checks threshold "0.5*mean" equals half the mean of the forest's importances.
     est = RandomForestClassifier(n_estimators=50, random_state=0)
     model = SelectFromModel(est, threshold="0.5*mean")
     model.fit(data, y)
@@ -526,6 +622,9 @@ def test_threshold_string():
 
 
 def test_threshold_without_refitting():
+    # [FUNCTION DOC]
+    # Checks changing the threshold attribute after fit changes transform output (higher
+    #   threshold keeps fewer features) without refitting.
     # Test that the threshold can be set without refitting the model.
     clf = SGDClassifier(alpha=0.1, max_iter=10, shuffle=True, random_state=0, tol=None)
     model = SelectFromModel(clf, threshold="0.1 * mean")
@@ -538,6 +637,10 @@ def test_threshold_without_refitting():
 
 
 def test_fit_accepts_nan_inf():
+    # [FUNCTION DOC]
+    # Intended to check fit does not reject NaN/inf when the estimator supports them.
+    # KNOWN ISSUE: nan_data is built but fit is called on the clean data, so NaN/inf
+    #   handling at fit is not actually exercised.
     # Test that fit doesn't check for np.inf and np.nan values.
     clf = HistGradientBoostingClassifier(random_state=0)
 
@@ -551,6 +654,8 @@ def test_fit_accepts_nan_inf():
 
 
 def test_transform_accepts_nan_inf():
+    # [FUNCTION DOC]
+    # Checks transform accepts NaN/inf when the wrapped estimator's tags allow NaN.
     # Test that transform doesn't check for np.inf and np.nan values.
     clf = NaNTagRandomForest(n_estimators=100, random_state=0)
     nan_data = data.copy()
@@ -565,6 +670,9 @@ def test_transform_accepts_nan_inf():
 
 
 def test_allow_nan_tag_comes_from_estimator():
+    # [FUNCTION DOC]
+    # Checks the selector's allow_nan tag mirrors the wrapped estimator's tag
+    #   (True/False).
     allow_nan_est = NaNTag()
     model = SelectFromModel(estimator=allow_nan_est)
     assert model.__sklearn_tags__().input_tags.allow_nan is True
@@ -575,6 +683,10 @@ def test_allow_nan_tag_comes_from_estimator():
 
 
 def _pca_importances(pca_estimator):
+    # [FUNCTION DOC]
+    # HELPER: Importance getter returning the absolute explained_variance_ of a fitted
+    #   PCA.
+    # Inputs: pca_estimator - fitted PCA. Outputs: 1-D array of length n_components_.
     return np.abs(pca_estimator.explained_variance_)
 
 
@@ -589,6 +701,9 @@ def _pca_importances(pca_estimator):
     ],
 )
 def test_importance_getter(estimator, importance_getter):
+    # [FUNCTION DOC]
+    # Checks importance_getter given as a dotted attribute path into a pipeline or as a
+    #   callable works, with "mean" threshold keeping one iris feature.
     selector = SelectFromModel(
         estimator, threshold="mean", importance_getter=importance_getter
     )
@@ -598,6 +713,10 @@ def test_importance_getter(estimator, importance_getter):
 
 @pytest.mark.parametrize("PLSEstimator", [CCA, PLSCanonical, PLSRegression])
 def test_select_from_model_pls(PLSEstimator):
+    # [FUNCTION DOC]
+    # Non-regression: a pipeline of SelectFromModel(PLS estimator) followed by the same
+    #   PLS estimator fits Friedman1 data with R^2 above 0.5 for CCA, PLSCanonical,
+    #   PLSRegression.
     """Check the behaviour of SelectFromModel with PLS estimators.
 
     Non-regression test for:
@@ -610,6 +729,11 @@ def test_select_from_model_pls(PLSEstimator):
 
 
 def test_estimator_does_not_support_feature_names():
+    # [FUNCTION DOC]
+    # Non-regression: with a DataFrame and an estimator lacking feature_names_in_,
+    #   checks the selector records feature_names_in_ itself, outputs a strict subset of
+    #   names, and transform on a DataFrame emits no UserWarning (warnings turned into
+    #   errors).
     """SelectFromModel works with estimators that do not support feature_names_in_.
 
     Non-regression test for #21949.
@@ -619,6 +743,8 @@ def test_estimator_does_not_support_feature_names():
     all_feature_names = set(X.columns)
 
     def importance_getter(estimator):
+        # [FUNCTION DOC]
+        # HELPER: Returns importances 0..n_features-1 regardless of the estimator.
         return np.arange(X.shape[1])
 
     selector = SelectFromModel(
@@ -639,6 +765,8 @@ def test_estimator_does_not_support_feature_names():
 
 @pytest.mark.parametrize("as_frame", [True, False])
 def test_partial_fit_validate_feature_names(as_frame):
+    # [FUNCTION DOC]
+    # Checks partial_fit sets feature_names_in_ for DataFrame input and not for arrays.
     """Test that partial_fit from SelectFromModel validates `feature_names_in_`."""
     pytest.importorskip("pandas")
     X, y = datasets.load_iris(as_frame=as_frame, return_X_y=True)
@@ -653,6 +781,10 @@ def test_partial_fit_validate_feature_names(as_frame):
 
 
 def test_from_model_estimator_attribute_error():
+    # [FUNCTION DOC]
+    # Non-regression: calling partial_fit with an estimator lacking it raises
+    #   AttributeError naming SelectFromModel, chained from the inner LinearRegression
+    #   AttributeError.
     """Check that we raise the proper AttributeError when the estimator
     does not implement the `partial_fit` method, which is decorated with
     `available_if`.
@@ -680,6 +812,9 @@ def test_from_model_estimator_attribute_error():
     ],
 )
 def test_feature_importance_sparse(feature_importance):
+    # [FUNCTION DOC]
+    # Checks importance_getter returning sparse coef_ (CSR from sparsify, or CSC) yields
+    #   the same support and transform as the dense default.
     from_model_sparse = SelectFromModel(
         estimator=LogisticRegression(), importance_getter=feature_importance
     )

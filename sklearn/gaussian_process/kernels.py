@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Kernel library for Gaussian process regression and classification. Defines the
+# Hyperparameter spec namedtuple, the abstract Kernel base class (parameter
+# introspection, log-space theta/bounds handling, operator overloading for +, * and **),
+# mixins (normalized, stationary, generic-object), composite kernels (CompoundKernel,
+# Sum, Product, Exponentiation) and concrete kernels (ConstantKernel, WhiteKernel, RBF,
+# Matern, RationalQuadratic, ExpSineSquared, DotProduct, PairwiseKernel).
+# Hyperparameters are discovered by scanning for attributes named "hyperparameter_*";
+# theta is the log of the concatenated non-fixed hyperparameter values. Side effects at
+# import: wraps inspect.signature in an LRU cache (maxsize 32) stored in the
+# module-level name signature, used by Kernel.get_params.
 """A set of kernels that can be combined by operators and used in Gaussian processes."""
 
 # Kernels for Gaussian process regression and classification.
@@ -44,6 +55,15 @@ signature = lru_cache(maxsize=32)(inspect.signature)
 
 
 def _check_length_scale(X, length_scale):
+    # [FUNCTION DOC]
+    # HELPER: Validates a length_scale against the data X and normalizes it.
+    # Inputs: X - 2D array (n_samples, n_features); length_scale - scalar or 1D
+    # array-like.
+    # Outputs: length_scale squeezed and cast to float (0-d for isotropic, 1D
+    # otherwise).
+    # Exceptions: ValueError if the squeezed length_scale has more than one dimension,
+    # or if it is 1D and its length differs from X.shape[1].
+    # Side effects: none.
     length_scale = np.squeeze(length_scale).astype(float)
     if np.ndim(length_scale) > 1:
         raise ValueError("length_scale cannot be of dimension greater than 1")
@@ -60,6 +80,10 @@ class Hyperparameter(
         "Hyperparameter", ("name", "value_type", "bounds", "n_elements", "fixed")
     )
 ):
+    # [CLASS DOC]
+    # Immutable namedtuple describing one kernel hyperparameter (name, value_type,
+    # bounds, n_elements, fixed). Uses empty __slots__ so instances stay as compact as
+    # plain tuples.
     """A kernel hyperparameter's specification in form of a namedtuple.
 
     .. versionadded:: 0.18
@@ -126,6 +150,17 @@ class Hyperparameter(
     __slots__ = ()
 
     def __new__(cls, name, value_type, bounds, n_elements=1, fixed=None):
+        # [FUNCTION DOC]
+        # Constructs the tuple, normalizing bounds. Unless bounds is the string "fixed",
+        # bounds is converted to a 2D array; for vector-valued hyperparameters
+        # (n_elements > 1) a single bounds row is repeated n_elements times.
+        # Inputs: name (str), value_type (str), bounds (pair, array of pairs, or
+        # "fixed"), n_elements (int, default 1), fixed (bool or None; None means derive
+        # from bounds).
+        # Outputs: new Hyperparameter instance; fixed is True only if bounds == "fixed"
+        # when fixed was None.
+        # Exceptions: ValueError if n_elements > 1 and bounds has neither 1 nor
+        # n_elements rows.
         if not isinstance(bounds, str) or bounds != "fixed":
             bounds = np.atleast_2d(bounds)
             if n_elements > 1:  # vector-valued parameter
@@ -145,6 +180,13 @@ class Hyperparameter(
     # This is mainly a testing utility to check that two hyperparameters
     # are equal.
     def __eq__(self, other):
+        # [FUNCTION DOC]
+        # Field-wise equality used mainly in tests; bounds compared element-wise with
+        # all().
+        # Inputs: other - another Hyperparameter-like object. Outputs: bool.
+        # KNOWN ISSUE: overriding __eq__ without __hash__ makes instances unhashable,
+        # and an other object lacking these attributes raises AttributeError instead of
+        # returning False.
         return (
             self.name == other.name
             and self.value_type == other.value_type
@@ -155,6 +197,11 @@ class Hyperparameter(
 
 
 class Kernel(metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base class for all kernels. Subclasses must implement __call__, diag and
+    # is_stationary; hyperparameters are exposed through properties named
+    # "hyperparameter_<name>" returning Hyperparameter objects, and constructor
+    # arguments must be stored as same-named attributes so get_params/set_params work.
     """Base class for all kernels.
 
     .. versionadded:: 0.18
@@ -182,6 +229,15 @@ class Kernel(metaclass=ABCMeta):
     """
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Collects constructor parameters by inspecting the (cached) signature of the
+        # class __init__, skipping self and **kwargs, and reading each as an attribute
+        # of self.
+        # Inputs: deep - bool, default True (accepted for API compatibility).
+        # Outputs: dict mapping parameter name to current value.
+        # Exceptions: RuntimeError if __init__ declares *args.
+        # KNOWN ISSUE: deep is ignored here; nested parameters are only expanded by
+        # subclasses (KernelOperator, Exponentiation) that override this method.
         """Get parameters of this kernel.
 
         Parameters
@@ -221,6 +277,14 @@ class Kernel(metaclass=ABCMeta):
         return params
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # Sets parameters, supporting nested "<component>__<param>" keys which are
+        # forwarded to the sub-kernel's set_params (only the first "__" is split on).
+        # Inputs: **params - parameter names and values. Outputs: self.
+        # Exceptions: ValueError if a top-level name is not among get_params(deep=True)
+        # keys.
+        # Side effects: mutates self (setattr) or nested kernels in place. Returns
+        # immediately if params is empty.
         """Set the parameters of this kernel.
 
         The method works on simple kernels as well as on nested kernels.
@@ -261,6 +325,11 @@ class Kernel(metaclass=ABCMeta):
         return self
 
     def clone_with_theta(self, theta):
+        # [FUNCTION DOC]
+        # Returns a deep clone (sklearn.base.clone) of the kernel with theta replaced.
+        # Inputs: theta - ndarray (n_dims,) of log-transformed non-fixed
+        # hyperparameters.
+        # Outputs: new Kernel. Side effects: none on self.
         """Returns a clone of self with given hyperparameters theta.
 
         Parameters
@@ -274,11 +343,18 @@ class Kernel(metaclass=ABCMeta):
 
     @property
     def n_dims(self):
+        # [FUNCTION DOC]
+        # Number of non-fixed hyperparameter entries, i.e. the length of theta. Outputs:
+        # int.
         """Returns the number of non-fixed hyperparameters of the kernel."""
         return self.theta.shape[0]
 
     @property
     def hyperparameters(self):
+        # [FUNCTION DOC]
+        # Lists all Hyperparameter objects by reading every attribute of self whose name
+        # starts with "hyperparameter_" (in dir() order, i.e. alphabetical). Outputs:
+        # list.
         """Returns a list of all hyperparameter specifications."""
         r = [
             getattr(self, attr)
@@ -289,6 +365,10 @@ class Kernel(metaclass=ABCMeta):
 
     @property
     def theta(self):
+        # [FUNCTION DOC]
+        # Getter: concatenates the current values of all non-fixed hyperparameters (in
+        # the order of hyperparameters) and returns their natural log as a 1D array;
+        # empty array if none.
         """Returns the (flattened, log-transformed) non-fixed hyperparameters.
 
         Note that theta are typically the log-transformed values of the
@@ -313,6 +393,14 @@ class Kernel(metaclass=ABCMeta):
 
     @theta.setter
     def theta(self, theta):
+        # [FUNCTION DOC]
+        # Setter: walks non-fixed hyperparameters in order, consuming n_elements entries
+        # of theta for each, exponentiating them and assigning via set_params.
+        # Inputs: theta - 1D array of log-values.
+        # Exceptions: ValueError if theta length differs from the number of entries
+        # consumed (checked only after all hyperparameters are processed; too-short
+        # theta may raise an IndexError first).
+        # Side effects: mutates hyperparameter attributes of self (or nested kernels).
         """Sets the (flattened, log-transformed) non-fixed hyperparameters.
 
         Parameters
@@ -344,6 +432,9 @@ class Kernel(metaclass=ABCMeta):
 
     @property
     def bounds(self):
+        # [FUNCTION DOC]
+        # Returns log of the vertically stacked bounds of non-fixed hyperparameters,
+        # shape (n_dims, 2); empty array if all are fixed.
         """Returns the log-transformed bounds on the theta.
 
         Returns
@@ -362,29 +453,48 @@ class Kernel(metaclass=ABCMeta):
             return np.array([])
 
     def __add__(self, b):
+        # [FUNCTION DOC]
+        # Implements kernel + b; non-Kernel b is wrapped in ConstantKernel. Outputs: Sum
+        # kernel.
         if not isinstance(b, Kernel):
             return Sum(self, ConstantKernel(b))
         return Sum(self, b)
 
     def __radd__(self, b):
+        # [FUNCTION DOC]
+        # Implements b + kernel (reflected); non-Kernel b wrapped in ConstantKernel.
+        # Outputs: Sum.
         if not isinstance(b, Kernel):
             return Sum(ConstantKernel(b), self)
         return Sum(b, self)
 
     def __mul__(self, b):
+        # [FUNCTION DOC]
+        # Implements kernel * b; non-Kernel b wrapped in ConstantKernel. Outputs:
+        # Product.
         if not isinstance(b, Kernel):
             return Product(self, ConstantKernel(b))
         return Product(self, b)
 
     def __rmul__(self, b):
+        # [FUNCTION DOC]
+        # Implements b * kernel (reflected); non-Kernel b wrapped in ConstantKernel.
+        # Outputs: Product kernel.
         if not isinstance(b, Kernel):
             return Product(ConstantKernel(b), self)
         return Product(b, self)
 
     def __pow__(self, b):
+        # [FUNCTION DOC]
+        # Implements kernel ** b. Inputs: b - scalar exponent. Outputs: Exponentiation
+        # kernel.
         return Exponentiation(self, b)
 
     def __eq__(self, b):
+        # [FUNCTION DOC]
+        # Equality: same concrete type and every parameter from get_params equal
+        # (compared with any() over element-wise inequality, so arrays work). Outputs:
+        # bool.
         if type(self) != type(b):
             return False
         params_a = self.get_params()
@@ -395,16 +505,24 @@ class Kernel(metaclass=ABCMeta):
         return True
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Default repr: class name followed by the theta values formatted with 3
+        # significant digits. Outputs: str.
         return "{0}({1})".format(
             self.__class__.__name__, ", ".join(map("{0:.3g}".format, self.theta))
         )
 
     @abstractmethod
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Abstract: evaluates k(X, Y) (and optionally the gradient w.r.t. log
+        # hyperparameters). Must be implemented by subclasses.
         """Evaluate the kernel."""
 
     @abstractmethod
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Abstract: returns the diagonal of k(X, X) as a 1D array of length n_samples_X.
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -424,16 +542,28 @@ class Kernel(metaclass=ABCMeta):
 
     @abstractmethod
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # Abstract: returns whether the kernel is stationary (depends only on X - Y).
         """Returns whether the kernel is stationary."""
 
     @property
     def requires_vector_input(self):
+        # [FUNCTION DOC]
+        # Whether the kernel needs fixed-length feature vectors as input. Base default:
+        # True.
         """Returns whether the kernel is defined on fixed-length feature
         vectors or generic objects. Defaults to True for backward
         compatibility."""
         return True
 
     def _check_bounds_params(self):
+        # [FUNCTION DOC]
+        # Called after fitting a GP: for each non-fixed hyperparameter dimension, checks
+        # whether the current theta is numerically close (np.isclose) to its log lower
+        # or upper bound.
+        # Outputs: None.
+        # Side effects: emits a ConvergenceWarning per dimension close to a bound (lower
+        # bound checked first; at most one warning per dimension).
         """Called after fitting to warn if bounds may have been too tight."""
         list_close = np.isclose(self.bounds, np.atleast_2d(self.theta).T)
         idx = 0
@@ -465,12 +595,18 @@ class Kernel(metaclass=ABCMeta):
 
 
 class NormalizedKernelMixin:
+    # [CLASS DOC]
+    # Mixin for kernels with k(x, x) = 1, providing a constant-one diag.
     """Mixin for kernels which are normalized: k(X, X)=1.
 
     .. versionadded:: 0.18
     """
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Returns an array of ones of length X.shape[0].
+        # Inputs: X - array with a shape attribute. Outputs: float ndarray
+        # (n_samples_X,).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -491,17 +627,24 @@ class NormalizedKernelMixin:
 
 
 class StationaryKernelMixin:
+    # [CLASS DOC]
+    # Mixin marking a kernel as stationary.
     """Mixin for kernels which are stationary: k(X, Y)= f(X-Y).
 
     .. versionadded:: 0.18
     """
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # Always returns True.
         """Returns whether the kernel is stationary."""
         return True
 
 
 class GenericKernelMixin:
+    # [CLASS DOC]
+    # Mixin for kernels that accept generic objects (sequences, graphs) instead of
+    # vectors.
     """Mixin for kernels which operate on generic objects such as variable-
     length sequences, trees, and graphs.
 
@@ -510,11 +653,17 @@ class GenericKernelMixin:
 
     @property
     def requires_vector_input(self):
+        # [FUNCTION DOC]
+        # Always returns False (kernel does not require vector input).
         """Whether the kernel works only on fixed-length feature vectors."""
         return False
 
 
 class CompoundKernel(Kernel):
+    # [CLASS DOC]
+    # Kernel holding a list of sub-kernels; evaluation stacks each sub-kernel's output
+    # along a new last axis instead of combining them. Used internally (e.g. multi-class
+    # GPC).
     """Kernel which is composed of a set of other kernels.
 
     .. versionadded:: 0.18
@@ -541,9 +690,14 @@ class CompoundKernel(Kernel):
     """
 
     def __init__(self, kernels):
+        # [FUNCTION DOC]
+        # Stores the list of kernels. Inputs: kernels - list of Kernel instances.
         self.kernels = kernels
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns {"kernels": self.kernels}; deep is ignored (sub-kernel params not
+        # expanded).
         """Get parameters of this kernel.
 
         Parameters
@@ -561,6 +715,8 @@ class CompoundKernel(Kernel):
 
     @property
     def theta(self):
+        # [FUNCTION DOC]
+        # Getter: concatenation of each sub-kernel's theta, in list order.
         """Returns the (flattened, log-transformed) non-fixed hyperparameters.
 
         Note that theta are typically the log-transformed values of the
@@ -577,6 +733,13 @@ class CompoundKernel(Kernel):
 
     @theta.setter
     def theta(self, theta):
+        # [FUNCTION DOC]
+        # Setter: splits theta into consecutive equal-size chunks, one per sub-kernel.
+        # Inputs: theta - 1D array.
+        # Side effects: sets theta on each sub-kernel.
+        # KNOWN ISSUE: reads self.k1.n_dims but CompoundKernel has no k1 attribute, so
+        # this raises AttributeError; it also assumes all sub-kernels have the same
+        # n_dims.
         """Sets the (flattened, log-transformed) non-fixed hyperparameters.
 
         Parameters
@@ -590,6 +753,8 @@ class CompoundKernel(Kernel):
 
     @property
     def bounds(self):
+        # [FUNCTION DOC]
+        # Vertical stack of each sub-kernel's bounds, shape (total n_dims, 2).
         """Returns the log-transformed bounds on the theta.
 
         Returns
@@ -600,6 +765,15 @@ class CompoundKernel(Kernel):
         return np.vstack([kernel.bounds for kernel in self.kernels])
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Evaluates every sub-kernel on (X, Y) and stacks the results.
+        # Inputs: X, Y (Y may be None), eval_gradient - bool.
+        # Outputs: K of shape (n_X, n_Y, n_kernels); if eval_gradient, also the gradient
+        # with each sub-kernel's gradient given a trailing axis and concatenated along
+        # axis 3, shape (n_X, n_X, n_dims, n_kernels) (requires equal n_dims across
+        # sub-kernels).
+        # Exceptions: propagated from sub-kernels (e.g. ValueError for gradient with Y
+        # given).
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Note that this compound kernel returns the results of all simple kernel
@@ -643,6 +817,9 @@ class CompoundKernel(Kernel):
             return np.dstack([kernel(X, Y, eval_gradient) for kernel in self.kernels])
 
     def __eq__(self, b):
+        # [FUNCTION DOC]
+        # Equality: same type, same number of sub-kernels and pairwise-equal sub-kernels
+        # in order.
         if type(self) != type(b) or len(self.kernels) != len(b.kernels):
             return False
         return np.all(
@@ -650,15 +827,22 @@ class CompoundKernel(Kernel):
         )
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # True only if all sub-kernels are stationary.
         """Returns whether the kernel is stationary."""
         return np.all([kernel.is_stationary() for kernel in self.kernels])
 
     @property
     def requires_vector_input(self):
+        # [FUNCTION DOC]
+        # True if any sub-kernel requires vector input.
         """Returns whether the kernel is defined on discrete structures."""
         return np.any([kernel.requires_vector_input for kernel in self.kernels])
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Stacks the diagonals of each sub-kernel and transposes. Outputs: (n_samples_X,
+        # n_kernels).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to `np.diag(self(X))`; however,
@@ -679,16 +863,26 @@ class CompoundKernel(Kernel):
 
 
 class KernelOperator(Kernel):
+    # [CLASS DOC]
+    # Base class for binary kernel operators combining k1 and k2. Exposes nested
+    # parameters and hyperparameters with "k1__" / "k2__" prefixes and theta as k1's
+    # followed by k2's.
     """Base class for all kernel operators.
 
     .. versionadded:: 0.18
     """
 
     def __init__(self, k1, k2):
+        # [FUNCTION DOC]
+        # Stores the two operand kernels. Inputs: k1, k2 - Kernel instances.
         self.k1 = k1
         self.k2 = k2
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns {"k1", "k2"} plus, if deep, each operand's params prefixed by
+        # "k1__"/"k2__".
+        # Inputs: deep - bool, default True. Outputs: dict.
         """Get parameters of this kernel.
 
         Parameters
@@ -713,6 +907,10 @@ class KernelOperator(Kernel):
 
     @property
     def hyperparameters(self):
+        # [FUNCTION DOC]
+        # Builds Hyperparameter copies of k1's and k2's hyperparameters with names
+        # prefixed "k1__" / "k2__". Outputs: list of Hyperparameter.
+        # Note: fixed is re-derived from bounds rather than copied from the operand.
         """Returns a list of all hyperparameter."""
         r = [
             Hyperparameter(
@@ -737,6 +935,8 @@ class KernelOperator(Kernel):
 
     @property
     def theta(self):
+        # [FUNCTION DOC]
+        # Getter: k1.theta followed by k2.theta.
         """Returns the (flattened, log-transformed) non-fixed hyperparameters.
 
         Note that theta are typically the log-transformed values of the
@@ -753,6 +953,9 @@ class KernelOperator(Kernel):
 
     @theta.setter
     def theta(self, theta):
+        # [FUNCTION DOC]
+        # Setter: first k1.n_dims entries go to k1.theta, the rest to k2.theta.
+        # Side effects: mutates both operand kernels.
         """Sets the (flattened, log-transformed) non-fixed hyperparameters.
 
         Parameters
@@ -766,6 +969,8 @@ class KernelOperator(Kernel):
 
     @property
     def bounds(self):
+        # [FUNCTION DOC]
+        # Stack of k1.bounds and k2.bounds; if either is empty, returns the other alone.
         """Returns the log-transformed bounds on the theta.
 
         Returns
@@ -780,6 +985,9 @@ class KernelOperator(Kernel):
         return np.vstack((self.k1.bounds, self.k2.bounds))
 
     def __eq__(self, b):
+        # [FUNCTION DOC]
+        # Equality: same type and operands equal in either order (treats the operator as
+        # commutative, which also applies to subclasses).
         if type(self) != type(b):
             return False
         return (self.k1 == b.k1 and self.k2 == b.k2) or (
@@ -787,16 +995,24 @@ class KernelOperator(Kernel):
         )
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # True if both operands are stationary.
         """Returns whether the kernel is stationary."""
         return self.k1.is_stationary() and self.k2.is_stationary()
 
     @property
     def requires_vector_input(self):
+        # [FUNCTION DOC]
+        # True if either operand requires vector input.
+        # KNOWN ISSUE: docstring says "Returns whether the kernel is stationary", which
+        # does not match what is computed.
         """Returns whether the kernel is stationary."""
         return self.k1.requires_vector_input or self.k2.requires_vector_input
 
 
 class Sum(KernelOperator):
+    # [CLASS DOC]
+    # Sum of two kernels: k(X, Y) = k1(X, Y) + k2(X, Y).
     """The `Sum` kernel takes two kernels :math:`k_1` and :math:`k_2`
     and combines them via
 
@@ -836,6 +1052,12 @@ class Sum(KernelOperator):
     """
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Evaluates k1 + k2 on (X, Y).
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the gradients of k1 and k2
+        # stacked along the last axis (derivative of a sum is the sum's per-parameter
+        # derivatives).
+        # Exceptions: propagated from operands.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -871,6 +1093,8 @@ class Sum(KernelOperator):
             return self.k1(X, Y) + self.k2(X, Y)
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Sum of the operands' diagonals. Outputs: (n_samples_X,).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to `np.diag(self(X))`; however,
@@ -890,10 +1114,14 @@ class Sum(KernelOperator):
         return self.k1.diag(X) + self.k2.diag(X)
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "<k1> + <k2>".
         return "{0} + {1}".format(self.k1, self.k2)
 
 
 class Product(KernelOperator):
+    # [CLASS DOC]
+    # Product of two kernels: k(X, Y) = k1(X, Y) * k2(X, Y).
     """The `Product` kernel takes two kernels :math:`k_1` and :math:`k_2`
     and combines them via
 
@@ -934,6 +1162,12 @@ class Product(KernelOperator):
     """
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Evaluates k1 * k2 element-wise on (X, Y).
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the gradient by the product
+        # rule: k1's gradient times K2 stacked with k2's gradient times K1 along the
+        # last axis.
+        # Exceptions: propagated from operands.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -971,6 +1205,8 @@ class Product(KernelOperator):
             return self.k1(X, Y) * self.k2(X, Y)
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Product of the operands' diagonals. Outputs: (n_samples_X,).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -990,10 +1226,15 @@ class Product(KernelOperator):
         return self.k1.diag(X) * self.k2.diag(X)
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "<k1> * <k2>".
         return "{0} * {1}".format(self.k1, self.k2)
 
 
 class Exponentiation(Kernel):
+    # [CLASS DOC]
+    # Raises a base kernel to a fixed scalar power: k(X, Y) = kernel(X, Y) ** exponent.
+    # The exponent is not a hyperparameter; nested names use the "kernel__" prefix.
     """The Exponentiation kernel takes one base kernel and a scalar parameter
     :math:`p` and combines them via
 
@@ -1035,10 +1276,15 @@ class Exponentiation(Kernel):
     """
 
     def __init__(self, kernel, exponent):
+        # [FUNCTION DOC]
+        # Stores base kernel and exponent. Inputs: kernel - Kernel; exponent - float.
         self.kernel = kernel
         self.exponent = exponent
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns {"kernel", "exponent"} plus, if deep, base kernel params prefixed
+        # "kernel__".
         """Get parameters of this kernel.
 
         Parameters
@@ -1060,6 +1306,9 @@ class Exponentiation(Kernel):
 
     @property
     def hyperparameters(self):
+        # [FUNCTION DOC]
+        # Copies of the base kernel's hyperparameters renamed with the "kernel__"
+        # prefix.
         """Returns a list of all hyperparameter."""
         r = []
         for hyperparameter in self.kernel.hyperparameters:
@@ -1075,6 +1324,8 @@ class Exponentiation(Kernel):
 
     @property
     def theta(self):
+        # [FUNCTION DOC]
+        # Getter: delegates to the base kernel's theta.
         """Returns the (flattened, log-transformed) non-fixed hyperparameters.
 
         Note that theta are typically the log-transformed values of the
@@ -1091,6 +1342,9 @@ class Exponentiation(Kernel):
 
     @theta.setter
     def theta(self, theta):
+        # [FUNCTION DOC]
+        # Setter: assigns theta to the base kernel. Side effects: mutates the base
+        # kernel.
         """Sets the (flattened, log-transformed) non-fixed hyperparameters.
 
         Parameters
@@ -1102,6 +1356,8 @@ class Exponentiation(Kernel):
 
     @property
     def bounds(self):
+        # [FUNCTION DOC]
+        # Delegates to the base kernel's bounds.
         """Returns the log-transformed bounds on the theta.
 
         Returns
@@ -1112,11 +1368,19 @@ class Exponentiation(Kernel):
         return self.kernel.bounds
 
     def __eq__(self, b):
+        # [FUNCTION DOC]
+        # Equality: same type, equal base kernels and equal exponents.
         if type(self) != type(b):
             return False
         return self.kernel == b.kernel and self.exponent == b.exponent
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Evaluates the base kernel and raises it element-wise to exponent.
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the chain-rule gradient: the
+        # base gradient multiplied by exponent * K_base ** (exponent - 1).
+        # Side effects: the base kernel's gradient array is modified in place (it is
+        # freshly created by the base kernel, so no caller-visible effect).
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1153,6 +1417,8 @@ class Exponentiation(Kernel):
             return K**self.exponent
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Base kernel's diagonal raised to exponent. Outputs: (n_samples_X,).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -1172,19 +1438,28 @@ class Exponentiation(Kernel):
         return self.kernel.diag(X) ** self.exponent
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "<kernel> ** <exponent>".
         return "{0} ** {1}".format(self.kernel, self.exponent)
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # Delegates to the base kernel.
         """Returns whether the kernel is stationary."""
         return self.kernel.is_stationary()
 
     @property
     def requires_vector_input(self):
+        # [FUNCTION DOC]
+        # Delegates to the base kernel.
         """Returns whether the kernel is defined on discrete structures."""
         return self.kernel.requires_vector_input
 
 
 class ConstantKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
+    # [CLASS DOC]
+    # Kernel returning the same value constant_value for every pair of inputs; works on
+    # generic objects (only the number of samples is used).
     """Constant kernel.
 
     Can be used as part of a product-kernel where it scales the magnitude of
@@ -1234,14 +1509,27 @@ class ConstantKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
     """
 
     def __init__(self, constant_value=1.0, constant_value_bounds=(1e-5, 1e5)):
+        # [FUNCTION DOC]
+        # Stores constant_value (float, default 1.0) and constant_value_bounds (pair or
+        # "fixed", default (1e-5, 1e5)).
         self.constant_value = constant_value
         self.constant_value_bounds = constant_value_bounds
 
     @property
     def hyperparameter_constant_value(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for constant_value using constant_value_bounds.
         return Hyperparameter("constant_value", "numeric", self.constant_value_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Builds an (n_X, n_Y) array filled with constant_value (dtype from
+        # constant_value).
+        # Inputs: X, Y (Y None means Y = X), eval_gradient - bool.
+        # Outputs: K; if eval_gradient, also the gradient w.r.t. log(constant_value),
+        # which equals constant_value everywhere, shape (n_X, n_X, 1), or an empty (n_X,
+        # n_X, 0) array when the hyperparameter is fixed.
+        # Exceptions: ValueError if eval_gradient is True and Y is given.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1296,6 +1584,8 @@ class ConstantKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
             return K
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Array of length n_samples(X) filled with constant_value.
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -1319,10 +1609,17 @@ class ConstantKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
         )
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns sqrt(constant_value) formatted to 3 significant digits followed by
+        # "**2".
         return "{0:.3g}**2".format(np.sqrt(self.constant_value))
 
 
 class WhiteKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
+    # [CLASS DOC]
+    # White-noise kernel: noise_level on the diagonal of k(X, X), zero elsewhere and
+    # zero for any cross-evaluation k(X, Y) with Y given (even if X and Y share
+    # samples).
     """White kernel.
 
     The main use-case of this kernel is as part of a sum-kernel where it
@@ -1364,14 +1661,25 @@ class WhiteKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
     """
 
     def __init__(self, noise_level=1.0, noise_level_bounds=(1e-5, 1e5)):
+        # [FUNCTION DOC]
+        # Stores noise_level (float, default 1.0) and noise_level_bounds (default (1e-5,
+        # 1e5)).
         self.noise_level = noise_level
         self.noise_level_bounds = noise_level_bounds
 
     @property
     def hyperparameter_noise_level(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for noise_level using noise_level_bounds.
         return Hyperparameter("noise_level", "numeric", self.noise_level_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # If Y is None, returns noise_level times the identity of size n_X; otherwise an
+        # all-zero (n_X, n_Y) array.
+        # Outputs: K; if eval_gradient, also gradient noise_level times identity with a
+        # trailing axis (n_X, n_X, 1), or empty (n_X, n_X, 0) if fixed.
+        # Exceptions: ValueError if eval_gradient is True and Y is given.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1419,6 +1727,8 @@ class WhiteKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
             return np.zeros((_num_samples(X), _num_samples(Y)))
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Array of length n_samples(X) filled with noise_level.
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -1440,12 +1750,18 @@ class WhiteKernel(StationaryKernelMixin, GenericKernelMixin, Kernel):
         )
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "WhiteKernel(noise_level=<3 sig. digits>)" (uses actual class name).
         return "{0}(noise_level={1:.3g})".format(
             self.__class__.__name__, self.noise_level
         )
 
 
 class RBF(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
+    # [CLASS DOC]
+    # Squared-exponential kernel exp(-0.5 * squared Euclidean distance of
+    # X/length_scale), isotropic (scalar length_scale) or anisotropic (one length scale
+    # per feature).
     """Radial basis function kernel (aka squared-exponential kernel).
 
     The RBF kernel is a stationary kernel. It is also known as the
@@ -1509,15 +1825,22 @@ class RBF(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     """
 
     def __init__(self, length_scale=1.0, length_scale_bounds=(1e-5, 1e5)):
+        # [FUNCTION DOC]
+        # Stores length_scale (float or array, default 1.0) and length_scale_bounds.
         self.length_scale = length_scale
         self.length_scale_bounds = length_scale_bounds
 
     @property
     def anisotropic(self):
+        # [FUNCTION DOC]
+        # True if length_scale is iterable with more than one element.
         return np.iterable(self.length_scale) and len(self.length_scale) > 1
 
     @property
     def hyperparameter_length_scale(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for length_scale; vector-valued with n_elements equal to
+        # the length of length_scale when anisotropic.
         if self.anisotropic:
             return Hyperparameter(
                 "length_scale",
@@ -1528,6 +1851,19 @@ class RBF(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         return Hyperparameter("length_scale", "numeric", self.length_scale_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Scales X (and Y) by length_scale, computes squared Euclidean distances (pdist
+        # then squareform with unit diagonal when Y is None; cdist otherwise) and
+        # returns exp(-0.5 * dists).
+        # Inputs: X - array (made at least 2D), Y - optional array, eval_gradient -
+        # bool.
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the gradient w.r.t. log
+        # length_scale: empty (n_X, n_X, 0) if fixed; K times the squared scaled
+        # distance with a trailing axis for isotropic (or single-element) length scales;
+        # for anisotropic, per-feature squared scaled differences times K, shape (n_X,
+        # n_X, n_features).
+        # Exceptions: ValueError if eval_gradient with Y given; ValueError from
+        # _check_length_scale for incompatible length_scale.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1587,6 +1923,9 @@ class RBF(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "RBF(length_scale=...)" listing all length scales when anisotropic,
+        # otherwise the single value; 3 significant digits.
         if self.anisotropic:
             return "{0}(length_scale=[{1}])".format(
                 self.__class__.__name__,
@@ -1599,6 +1938,10 @@ class RBF(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
 
 class Matern(RBF):
+    # [CLASS DOC]
+    # Matern kernel, an RBF generalization with smoothness parameter nu (not optimized).
+    # Uses closed forms for nu in {0.5, 1.5, 2.5, inf} and the Bessel-function formula
+    # otherwise.
     """Matern kernel.
 
     The class of Matern kernels is a generalization of the :class:`RBF`.
@@ -1679,10 +2022,28 @@ class Matern(RBF):
     """
 
     def __init__(self, length_scale=1.0, length_scale_bounds=(1e-5, 1e5), nu=1.5):
+        # [FUNCTION DOC]
+        # Stores length_scale, length_scale_bounds (via RBF.__init__) and nu (default
+        # 1.5).
         super().__init__(length_scale, length_scale_bounds)
         self.nu = nu
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Computes Euclidean distances d between X/length_scale and Y/length_scale
+        # (condensed pdist when Y is None) and evaluates: nu=0.5 exp(-d); nu=1.5
+        # (1+sqrt3 d)exp(-sqrt3 d); nu=2.5 (1+sqrt5 d+5d^2/3)exp(-sqrt5 d); nu=inf
+        # exp(-d^2/2); otherwise the general formula 2^(1-nu)/Gamma(nu) * (sqrt(2nu)
+        # d)^nu * K_nu(sqrt(2nu) d), with exact zero distances bumped to machine epsilon
+        # to avoid NaN. When Y is None the result is expanded to a square matrix with
+        # unit diagonal.
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the gradient w.r.t. log
+        # length_scale: empty if fixed; analytic per-feature (anisotropic) or summed
+        # (isotropic) formulas for the four special nu values using squared scaled
+        # differences D; for general nu, a numerical forward-difference gradient via
+        # _approx_fprime with step 1e-10.
+        # Exceptions: ValueError if eval_gradient with Y given; ValueError from
+        # _check_length_scale.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1774,6 +2135,10 @@ class Matern(RBF):
             else:
                 # approximate gradient numerically
                 def f(theta):  # helper function
+                    # [FUNCTION DOC]
+                    # HELPER: Evaluates a clone of this kernel with the given theta on
+                    # the captured X, Y; used for numerical differentiation. Inputs:
+                    # theta - 1D array. Outputs: kernel matrix.
                     return self.clone_with_theta(theta)(X, Y)
 
                 return K, _approx_fprime(self.theta, f, 1e-10)
@@ -1786,6 +2151,9 @@ class Matern(RBF):
             return K
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "Matern(length_scale=..., nu=...)" with all length scales when
+        # anisotropic.
         if self.anisotropic:
             return "{0}(length_scale=[{1}], nu={2:.3g})".format(
                 self.__class__.__name__,
@@ -1799,6 +2167,8 @@ class Matern(RBF):
 
 
 class RationalQuadratic(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
+    # [CLASS DOC]
+    # Rational quadratic kernel (1 + d^2 / (2 alpha l^2))^(-alpha), isotropic only.
     """Rational Quadratic kernel.
 
     The RationalQuadratic kernel can be seen as a scale mixture (an infinite
@@ -1868,6 +2238,9 @@ class RationalQuadratic(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         length_scale_bounds=(1e-5, 1e5),
         alpha_bounds=(1e-5, 1e5),
     ):
+        # [FUNCTION DOC]
+        # Stores length_scale, alpha and their bounds (defaults 1.0, 1.0, (1e-5, 1e5)
+        # each).
         self.length_scale = length_scale
         self.alpha = alpha
         self.length_scale_bounds = length_scale_bounds
@@ -1875,13 +2248,27 @@ class RationalQuadratic(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     @property
     def hyperparameter_length_scale(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for length_scale (always scalar).
         return Hyperparameter("length_scale", "numeric", self.length_scale_bounds)
 
     @property
     def hyperparameter_alpha(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for alpha.
         return Hyperparameter("alpha", "numeric", self.alpha_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Computes squared Euclidean distances, base = 1 + d^2 / (2 alpha l^2) and K =
+        # base to the power -alpha (unit diagonal forced when Y is None).
+        # Outputs: K (n_X, n_Y); if eval_gradient, also gradients w.r.t. log alpha and
+        # log length_scale stacked in that order (alphabetical, matching
+        # hyperparameters/theta): d log l: d^2 K / (l^2 base); d log alpha: K (-alpha
+        # log(base) + d^2 / (2 l^2 base)); each replaced by an empty slice if that
+        # hyperparameter is fixed.
+        # Exceptions: AttributeError if length_scale has more than one element;
+        # ValueError if eval_gradient with Y given.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -1949,12 +2336,17 @@ class RationalQuadratic(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "RationalQuadratic(alpha=..., length_scale=...)" with 3 significant
+        # digits.
         return "{0}(alpha={1:.3g}, length_scale={2:.3g})".format(
             self.__class__.__name__, self.alpha, self.length_scale
         )
 
 
 class ExpSineSquared(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
+    # [CLASS DOC]
+    # Periodic kernel exp(-2 sin^2(pi d / p) / l^2), isotropic only.
     r"""Exp-Sine-Squared kernel (aka periodic kernel).
 
     The ExpSineSquared kernel allows one to model functions which repeat
@@ -2016,6 +2408,9 @@ class ExpSineSquared(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         length_scale_bounds=(1e-5, 1e5),
         periodicity_bounds=(1e-5, 1e5),
     ):
+        # [FUNCTION DOC]
+        # Stores length_scale, periodicity and their bounds (defaults 1.0, 1.0, (1e-5,
+        # 1e5)).
         self.length_scale = length_scale
         self.periodicity = periodicity
         self.length_scale_bounds = length_scale_bounds
@@ -2023,14 +2418,29 @@ class ExpSineSquared(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     @property
     def hyperparameter_length_scale(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for length_scale.
         """Returns the length scale"""
         return Hyperparameter("length_scale", "numeric", self.length_scale_bounds)
 
     @property
     def hyperparameter_periodicity(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for periodicity.
         return Hyperparameter("periodicity", "numeric", self.periodicity_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Computes Euclidean distances d, arg = pi d / periodicity and K = exp(-2
+        # (sin(arg) / length_scale)^2).
+        # Outputs: K (n_X, n_Y); if eval_gradient, also gradients w.r.t. log
+        # length_scale (4 sin^2(arg) K / l^2) and log periodicity (4 arg cos(arg)
+        # sin(arg) K / l^2) stacked in that order; empty slices for fixed
+        # hyperparameters.
+        # Exceptions: ValueError if eval_gradient with Y given.
+        # KNOWN ISSUE: diagonal is not forced to exactly 1 (unlike
+        # RBF/RationalQuadratic), though sin(0) = 0 makes it 1 anyway; does not validate
+        # that length_scale is scalar.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -2094,12 +2504,16 @@ class ExpSineSquared(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "ExpSineSquared(length_scale=..., periodicity=...)".
         return "{0}(length_scale={1:.3g}, periodicity={2:.3g})".format(
             self.__class__.__name__, self.length_scale, self.periodicity
         )
 
 
 class DotProduct(Kernel):
+    # [CLASS DOC]
+    # Non-stationary linear kernel sigma_0^2 + x_i . x_j.
     r"""Dot-Product kernel.
 
     The DotProduct kernel is non-stationary and can be obtained from linear
@@ -2157,14 +2571,23 @@ class DotProduct(Kernel):
     """
 
     def __init__(self, sigma_0=1.0, sigma_0_bounds=(1e-5, 1e5)):
+        # [FUNCTION DOC]
+        # Stores sigma_0 (default 1.0) and sigma_0_bounds (default (1e-5, 1e5)).
         self.sigma_0 = sigma_0
         self.sigma_0_bounds = sigma_0_bounds
 
     @property
     def hyperparameter_sigma_0(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for sigma_0.
         return Hyperparameter("sigma_0", "numeric", self.sigma_0_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Computes the inner product matrix of X with Y (or with itself) plus sigma_0^2.
+        # Outputs: K (n_X, n_Y); if eval_gradient, also gradient w.r.t. log sigma_0,
+        # constant 2 sigma_0^2, shape (n_X, n_X, 1), or empty if fixed.
+        # Exceptions: ValueError if eval_gradient with Y given.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -2211,6 +2634,10 @@ class DotProduct(Kernel):
             return K
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Row-wise squared norms of X plus sigma_0^2. Outputs: (n_samples_X,).
+        # Note: unlike __call__, X is not passed through atleast_2d, so X must already
+        # be 2D.
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -2230,15 +2657,27 @@ class DotProduct(Kernel):
         return np.einsum("ij,ij->i", X, X) + self.sigma_0**2
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # Always False.
         """Returns whether the kernel is stationary."""
         return False
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "DotProduct(sigma_0=...)".
         return "{0}(sigma_0={1:.3g})".format(self.__class__.__name__, self.sigma_0)
 
 
 # adapted from scipy/optimize/optimize.py for functions with 2d output
 def _approx_fprime(xk, f, epsilon, args=()):
+    # [FUNCTION DOC]
+    # HELPER: Forward finite-difference Jacobian for a function returning a 2D array
+    # (adapted from scipy).
+    # Inputs: xk - 1D point; f - callable taking xk plus args returning a 2D array;
+    # epsilon - step size; args - extra positional arguments (tuple).
+    # Outputs: ndarray (f0.shape[0], f0.shape[1], len(xk)) where slice k is (f(xk +
+    # epsilon e_k) - f(xk)) / epsilon.
+    # Side effects: calls f len(xk) + 1 times.
     f0 = f(*((xk,) + args))
     grad = np.zeros((f0.shape[0], f0.shape[1], len(xk)), float)
     ei = np.zeros((len(xk),), float)
@@ -2251,6 +2690,9 @@ def _approx_fprime(xk, f, epsilon, args=()):
 
 
 class PairwiseKernel(Kernel):
+    # [CLASS DOC]
+    # Wraps sklearn.metrics.pairwise kernels; only gamma is a hyperparameter, gradients
+    # are computed numerically.
     """Wrapper for kernels in sklearn.metrics.pairwise.
 
     A thin wrapper around the functionality of the kernels in
@@ -2314,6 +2756,9 @@ class PairwiseKernel(Kernel):
         metric="linear",
         pairwise_kernels_kwargs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores gamma (default 1.0), gamma_bounds, metric (default "linear") and
+        # pairwise_kernels_kwargs (default None meaning no extra kwargs).
         self.gamma = gamma
         self.gamma_bounds = gamma_bounds
         self.metric = metric
@@ -2321,9 +2766,22 @@ class PairwiseKernel(Kernel):
 
     @property
     def hyperparameter_gamma(self):
+        # [FUNCTION DOC]
+        # Hyperparameter spec for gamma.
         return Hyperparameter("gamma", "numeric", self.gamma_bounds)
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        # [FUNCTION DOC]
+        # Evaluates pairwise_kernels(X, Y, metric, gamma, filter_params=True, plus extra
+        # kwargs) after making X at least 2D.
+        # Outputs: K (n_X, n_Y); if eval_gradient, also the gradient w.r.t. log gamma:
+        # empty (n_X, n_X, 0) if fixed, otherwise a numerical gradient via
+        # _approx_fprime (step 1e-10) of the same pairwise kernel evaluated at gamma =
+        # exp(theta).
+        # Exceptions: propagated from pairwise_kernels.
+        # KNOWN ISSUE: unlike other kernels, eval_gradient with Y given does not raise;
+        # the returned gradient then has shape (n_X, n_Y, 1) and the fixed case returns
+        # (n_X, n_X, 0), which is inconsistent.
         """Return the kernel k(X, Y) and optionally its gradient.
 
         Parameters
@@ -2370,6 +2828,9 @@ class PairwiseKernel(Kernel):
             else:
                 # approximate gradient numerically
                 def f(gamma):  # helper function
+                    # [FUNCTION DOC]
+                    # HELPER: Evaluates the pairwise kernel on the captured X, Y with
+                    # gamma = exp(gamma) (input is log gamma). Outputs: kernel matrix.
                     return pairwise_kernels(
                         X,
                         Y,
@@ -2384,6 +2845,9 @@ class PairwiseKernel(Kernel):
             return K
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Slow diagonal: applies the full kernel to each row of X individually and
+        # flattens the resulting 1x1 matrices. Outputs: (n_samples_X,).
         """Returns the diagonal of the kernel k(X, X).
 
         The result of this method is identical to np.diag(self(X)); however,
@@ -2404,10 +2868,14 @@ class PairwiseKernel(Kernel):
         return np.apply_along_axis(self, 1, X).ravel()
 
     def is_stationary(self):
+        # [FUNCTION DOC]
+        # True only when metric is "rbf".
         """Returns whether the kernel is stationary."""
         return self.metric in ["rbf"]
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "PairwiseKernel(gamma=..., metric=...)".
         return "{0}(gamma={1}, metric={2})".format(
             self.__class__.__name__, self.gamma, self.metric
         )

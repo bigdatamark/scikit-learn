@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for univariate feature selection: score functions (f_oneway, f_classif,
+#   r_regression, f_regression, chi2, mutual information) and the selectors SelectKBest,
+#   SelectPercentile, SelectFpr, SelectFdr, SelectFwe and GenericUnivariateSelect,
+#   covering correctness on synthetic data with known informative features (always the
+#   first ones, via shuffle=False), sparse input, force_finite corner cases, tie-breaking,
+#   NaN scores, warnings, inverse_transform, pandas dtype preservation and unsupervised
+#   score functions.
 """
 Todo: cross-check the F-value with stats model
 """
@@ -41,6 +49,9 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 def test_f_oneway_vs_scipy_stats():
+    # [FUNCTION DOC]
+    # Checks f_oneway matches scipy.stats.f_oneway F-values and p-values on two random
+    #   groups.
     # Test that our f_oneway gives the same result as scipy.stats
     rng = np.random.RandomState(0)
     X1 = rng.randn(10, 3)
@@ -52,6 +63,9 @@ def test_f_oneway_vs_scipy_stats():
 
 
 def test_f_oneway_ints():
+    # [FUNCTION DOC]
+    # Smoke test that f_oneway works on integer input without casting errors and gives
+    #   the same result (4 decimals) as on float input.
     # Smoke test f_oneway on integers: that it does raise casting errors
     # with recent numpys
     rng = np.random.RandomState(0)
@@ -67,6 +81,10 @@ def test_f_oneway_ints():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_f_classif(csr_container):
+    # [FUNCTION DOC]
+    # On an 8-class problem with 5 useful features, checks F > 0, p-values in (0, 1),
+    #   the first 5 p-values below 0.05 and the rest above 1e-4, and CSR input matching
+    #   dense.
     # Test whether the F test yields meaningful results
     # on a simple simulated classification problem
     X, y = make_classification(
@@ -96,6 +114,11 @@ def test_f_classif(csr_container):
 
 @pytest.mark.parametrize("center", [True, False])
 def test_r_regression(center):
+    # [FUNCTION DOC]
+    # For center True/False, checks correlations lie in (-1, 1), sparse input matches
+    #   dense, and values match numpy corrcoef to 3 decimals.
+    # KNOWN ISSUE: the corrcoef comparison always centers, so for center=False it only
+    #   passes because make_regression data are nearly zero-mean.
     X, y = make_regression(
         n_samples=2000, n_features=20, n_informative=5, shuffle=False, random_state=0
     )
@@ -118,6 +141,9 @@ def test_r_regression(center):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_f_regression(csr_container):
+    # [FUNCTION DOC]
+    # Checks f_regression gives positive F, p-values in (0, 1), informative first 5
+    #   features significant, and CSR input matches dense with center True and False.
     # Test whether the F test yields meaningful results
     # on a simple simulated regression problem
     X, y = make_regression(
@@ -145,6 +171,10 @@ def test_f_regression(csr_container):
 
 
 def test_f_regression_input_dtype():
+    # [FUNCTION DOC]
+    # Checks f_regression gives the same result for integer and float targets.
+    # KNOWN ISSUE: the third positional argument of assert_allclose is rtol, so rtol=5
+    #   makes the comparison extremely loose.
     # Test whether f_regression returns the same value
     # for any numeric data_type
     rng = np.random.RandomState(0)
@@ -158,6 +188,10 @@ def test_f_regression_input_dtype():
 
 
 def test_f_regression_center():
+    # [FUNCTION DOC]
+    # With zero-mean X and Y, checks the uncentered F equals the centered F scaled by
+    #   (n-1)/(n-2) (one fewer degree of freedom used) and matches a statsmodels reference
+    #   value.
     # Test whether f_regression preserves dof according to 'center' argument
     # We use two centered variates so we have a simple relationship between
     # F-score with variates centering and F-score without variates centering.
@@ -208,6 +242,10 @@ def test_f_regression_center():
     ],
 )
 def test_r_regression_force_finite(X, y, expected_corr_coef, force_finite):
+    # [FUNCTION DOC]
+    # Non-regression: with RuntimeWarnings turned into errors, checks r_regression
+    #   returns 0 (force_finite=True) or NaN (False) for a constant feature or constant
+    #   target.
     """Check the behaviour of `force_finite` for some corner cases with `r_regression`.
 
     Non-regression test for:
@@ -291,6 +329,10 @@ def test_r_regression_force_finite(X, y, expected_corr_coef, force_finite):
 def test_f_regression_corner_case(
     X, y, expected_f_statistic, expected_p_values, force_finite
 ):
+    # [FUNCTION DOC]
+    # Non-regression: with RuntimeWarnings as errors, checks f_regression's F and
+    #   p-values for constant feature/target (0 and 1 when forced finite, else NaN) and
+    #   perfectly (anti-)correlated features (float max or inf F, p-value 0).
     """Check the behaviour of `force_finite` for some corner cases with `f_regression`.
 
     Non-regression test for:
@@ -304,6 +346,9 @@ def test_f_regression_corner_case(
 
 
 def test_f_classif_multi_class():
+    # [FUNCTION DOC]
+    # Same assertions as test_f_classif on the dense 8-class data (no sparse
+    #   comparison).
     # Test whether the F test yields meaningful results
     # on a simple simulated classification problem
     X, y = make_classification(
@@ -329,6 +374,9 @@ def test_f_classif_multi_class():
 
 
 def test_select_percentile_classif():
+    # [FUNCTION DOC]
+    # Checks SelectPercentile(f_classif, 25) and the equivalent GenericUnivariateSelect
+    #   give the same output and select exactly the first 5 features.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple classification problem
     # with the percentile heuristic
@@ -362,6 +410,10 @@ def test_select_percentile_classif():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_select_percentile_classif_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Sparse version of the percentile test; also checks inverse_transform returns a
+    #   sparse matrix of the original shape with selected columns restored and others
+    #   empty.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple classification problem
     # with the percentile heuristic
@@ -406,6 +458,9 @@ def test_select_percentile_classif_sparse(csr_container):
 
 
 def test_select_kbest_classif():
+    # [FUNCTION DOC]
+    # Checks SelectKBest(k=5) equals GenericUnivariateSelect k_best and selects the
+    #   first 5.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple classification problem
     # with the k best heuristic
@@ -438,6 +493,9 @@ def test_select_kbest_classif():
 
 
 def test_select_kbest_all():
+    # [FUNCTION DOC]
+    # Checks k="all" returns X unchanged, also through GenericUnivariateSelect (non-
+    #   regression).
     # Test whether k="all" correctly returns all features.
     X, y = make_classification(
         n_samples=20, n_features=10, shuffle=False, random_state=0
@@ -458,6 +516,9 @@ def test_select_kbest_all():
 
 @pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
 def test_select_kbest_zero(dtype_in):
+    # [FUNCTION DOC]
+    # Checks k=0 gives an all-False support, a "No features were selected" UserWarning
+    #   at transform, and an empty (20, 0) output keeping the input dtype.
     # Test whether k=0 correctly returns no features.
     X, y = make_classification(
         n_samples=20, n_features=10, shuffle=False, random_state=0
@@ -476,6 +537,11 @@ def test_select_kbest_zero(dtype_in):
 
 
 def test_select_heuristics_classif():
+    # [FUNCTION DOC]
+    # Checks SelectFwe(alpha=0.01) output equals GenericUnivariateSelect for fdr, fpr
+    #   and fwe modes and selects the first 5 features.
+    # Note: the support assertion inside the loop re-checks the SelectFwe filter each
+    #   time.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple classification problem
     # with the fdr, fwe and fpr heuristics
@@ -513,12 +579,21 @@ def test_select_heuristics_classif():
 
 
 def assert_best_scores_kept(score_filter):
+    # [FUNCTION DOC]
+    # HELPER: Asserts the scores of the selected features are exactly the top-k scores,
+    #   where k is the number selected, by comparing sorted arrays.
+    # Inputs: score_filter - fitted univariate selector with scores_. Outputs: None.
+    # Exceptions: AssertionError on mismatch.
     scores = score_filter.scores_
     support = score_filter.get_support()
     assert_allclose(np.sort(scores[support]), np.sort(scores)[-support.sum() :])
 
 
 def test_select_percentile_regression():
+    # [FUNCTION DOC]
+    # Checks SelectPercentile(f_regression, 25) keeps the best scores, matches the
+    #   generic selector, selects the first 5 features, and inverse_transform zero-fills
+    #   dropped columns while preserving the input dtype (bool).
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple regression problem
     # with the percentile heuristic
@@ -549,6 +624,8 @@ def test_select_percentile_regression():
 
 
 def test_select_percentile_regression_full():
+    # [FUNCTION DOC]
+    # Checks percentile=100 selects all features and matches the generic selector.
     # Test whether the relative univariate feature selection
     # selects all features when '100%' is asked.
     X, y = make_regression(
@@ -570,6 +647,9 @@ def test_select_percentile_regression_full():
 
 
 def test_select_kbest_regression():
+    # [FUNCTION DOC]
+    # Checks SelectKBest(f_regression, k=5) on noisy data keeps the best scores, matches
+    #   the generic selector and selects the first 5 features.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple regression problem
     # with the k best heuristic
@@ -598,6 +678,10 @@ def test_select_kbest_regression():
 
 
 def test_select_heuristics_regression():
+    # [FUNCTION DOC]
+    # Checks SelectFpr(alpha=0.01) output equals the generic selector in fdr, fpr, fwe
+    #   modes, all 5 informative features are selected and fewer than 3 noise features.
+    # KNOWN ISSUE: gtruth is computed but unused.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple regression problem
     # with the fpr, fdr or fwe heuristics
@@ -627,6 +711,9 @@ def test_select_heuristics_regression():
 
 
 def test_boundary_case_ch2():
+    # [FUNCTION DOC]
+    # On a 3x2 example checks chi2 scores/p-values against fixed values and that FDR,
+    #   k-best, percentile, FPR and FWE selectors all select only the first feature.
     # Test boundary case, and always aim to select 1 feature.
     X = np.array([[10, 20], [20, 20], [20, 30]])
     y = np.array([[1], [0], [0]])
@@ -663,8 +750,18 @@ def test_boundary_case_ch2():
 @pytest.mark.parametrize("alpha", [0.001, 0.01, 0.1])
 @pytest.mark.parametrize("n_informative", [1, 5, 10])
 def test_select_fdr_regression(alpha, n_informative):
+    # [FUNCTION DOC]
+    # Over 100 random datasets for each alpha and number of informative features, checks
+    #   the mean empirical false discovery rate of SelectFdr is at most alpha (Benjamini-
+    #   Hochberg), and when nonzero exceeds alpha/10.
     # Test that fdr heuristic actually has low FDR.
     def single_fdr(alpha, n_informative, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Generates one regression dataset, fits SelectFdr and the equivalent
+        #   generic selector (warnings suppressed), asserts equal outputs and returns the
+        #   false discovery proportion FP/(TP+FP), or 0.0 when there are no false
+        #   positives.
+        # Inputs: alpha, n_informative, random_state. Outputs: float.
         X, y = make_regression(
             n_samples=150,
             n_features=20,
@@ -712,6 +809,10 @@ def test_select_fdr_regression(alpha, n_informative):
 
 
 def test_select_fwe_regression():
+    # [FUNCTION DOC]
+    # Checks SelectFwe(alpha=0.01) equals the generic fwe selector, selects all 5
+    #   informative features and fewer than 2 noise features.
+    # KNOWN ISSUE: gtruth is computed but unused.
     # Test whether the relative univariate feature selection
     # gets the correct items in a simple regression problem
     # with the fwe heuristic
@@ -735,6 +836,10 @@ def test_select_fwe_regression():
 
 
 def test_selectkbest_tiebreaking():
+    # [FUNCTION DOC]
+    # Using a dummy score returning the single sample row as scores, checks SelectKBest
+    #   with k 1 and 2 returns exactly k features despite tied scores and keeps the best
+    #   scores.
     # Test whether SelectKBest actually selects k features in case of ties.
     # Prior to 0.11, SelectKBest would return more features than requested.
     Xs = [[0, 1, 1], [0, 0, 1], [1, 0, 0], [1, 1, 0]]
@@ -753,6 +858,9 @@ def test_selectkbest_tiebreaking():
 
 
 def test_selectpercentile_tiebreaking():
+    # [FUNCTION DOC]
+    # Same as the k-best tie test for SelectPercentile with percentile 34 and 67 (1 and
+    #   2 of 3 features).
     # Test if SelectPercentile selects the right n_features in case of ties.
     Xs = [[0, 1, 1], [0, 0, 1], [1, 0, 0], [1, 1, 0]]
     y = [1]
@@ -770,6 +878,10 @@ def test_selectpercentile_tiebreaking():
 
 
 def test_tied_pvalues():
+    # [FUNCTION DOC]
+    # For every column permutation of data where chi2 gives tied p-values but distinct
+    #   scores, checks k-best and percentile keep 2 columns and drop the lowest-scoring
+    #   one (9998).
     # Test whether k-best and percentiles work with tied pvalues from chi2.
     # chi2 will return the same p-values for the following features, but it
     # will return different scores.
@@ -788,6 +900,9 @@ def test_tied_pvalues():
 
 
 def test_scorefunc_multilabel():
+    # [FUNCTION DOC]
+    # Checks chi2-based k-best and percentile selection work with multilabel y and drop
+    #   the all-zero column.
     # Test whether k-best and percentiles works with multilabels with chi2.
 
     X = np.array([[10000, 9999, 0], [100, 9999, 0], [1000, 99, 0]])
@@ -803,6 +918,9 @@ def test_scorefunc_multilabel():
 
 
 def test_tied_scores():
+    # [FUNCTION DOC]
+    # Checks with all-tied chi2 scores that k-best keeps the last k features (stable
+    #   sorting).
     # Test for stable sorting in k-best with tied scores.
     X_train = np.array([[0, 0, 0], [1, 1, 1]])
     y_train = [0, 1]
@@ -814,6 +932,9 @@ def test_tied_scores():
 
 
 def test_nans():
+    # [FUNCTION DOC]
+    # Checks SelectKBest and SelectPercentile treat the NaN F-score of a constant
+    #   feature as worst and select features 1 and 2.
     # Assert that SelectKBest and SelectPercentile can handle NaNs.
     # First feature has zero variance to confuse f_classif (ANOVA) and
     # make it return a NaN.
@@ -829,6 +950,9 @@ def test_nans():
 
 
 def test_invalid_k():
+    # [FUNCTION DOC]
+    # Checks k larger than n_features emits a UserWarning saying all features will be
+    #   returned, for SelectKBest and GenericUnivariateSelect.
     X = [[0, 1, 0], [0, -1, -1], [0, 0.5, 0.5]]
     y = [1, 0, 1]
 
@@ -840,6 +964,9 @@ def test_invalid_k():
 
 
 def test_f_classif_constant_feature():
+    # [FUNCTION DOC]
+    # Checks f_classif emits a UserWarning when a feature is constant.
+    # Note: data are unseeded (random each run).
     # Test that f_classif warns if a feature is constant throughout.
 
     X, y = make_classification(n_samples=10, n_features=5)
@@ -849,6 +976,10 @@ def test_f_classif_constant_feature():
 
 
 def test_no_feature_selected():
+    # [FUNCTION DOC]
+    # On random uncorrelated data, checks strict FWE/FDR/FPR selectors, percentile=0 and
+    #   k=0 select nothing, warn "No features were selected" at transform and output (40,
+    #   0).
     rng = np.random.RandomState(0)
 
     # Generate random uncorrelated data: a strict univariate test should
@@ -870,6 +1001,9 @@ def test_no_feature_selected():
 
 
 def test_mutual_info_classif():
+    # [FUNCTION DOC]
+    # Checks k-best (k=2) and percentile (40) selection with mutual_info_classif match
+    #   the generic selector and select the first 2 (informative and redundant) features.
     X, y = make_classification(
         n_samples=100,
         n_features=5,
@@ -914,6 +1048,9 @@ def test_mutual_info_classif():
 
 
 def test_mutual_info_regression():
+    # [FUNCTION DOC]
+    # Checks k-best (k=2) and percentile (20) selection with mutual_info_regression keep
+    #   the best scores, match the generic selector and select the first 2 features.
     X, y = make_regression(
         n_samples=100,
         n_features=10,
@@ -954,6 +1091,10 @@ def test_mutual_info_regression():
 
 
 def test_dataframe_output_dtypes():
+    # [FUNCTION DOC]
+    # Non-regression: with pandas output, checks SelectKBest keeps the top 3 columns by
+    #   a fixed ranking and each output column keeps its input dtype (float32, float64,
+    #   categorical).
     """Check that the output datafarme dtypes are the same as the input.
 
     Non-regression test for gh-24860.
@@ -972,6 +1113,9 @@ def test_dataframe_output_dtypes():
     column_order = X.columns
 
     def selector(X, y):
+        # [FUNCTION DOC]
+        # HELPER: Score function returning fixed ranks 1..5 for the columns in their
+        #   original order; X and y are ignored. Outputs: 1-D int array.
         ranking = {
             "sepal length (cm)": 1,
             "sepal width (cm)": 2,
@@ -1001,6 +1145,10 @@ def test_dataframe_output_dtypes():
     ],
 )
 def test_unsupervised_filter(selector):
+    # [FUNCTION DOC]
+    # Checks k-best/percentile selectors (direct and generic) work without y using a
+    #   score function returning [1, 1, 1, 1, 0], keeping the first 4 columns in
+    #   fit+transform and fit_transform.
     """Check support for unsupervised feature selection for the filter that could
     require only `X`.
     """
@@ -1008,6 +1156,8 @@ def test_unsupervised_filter(selector):
     X = rng.randn(10, 5)
 
     def score_func(X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Ignores inputs and returns the scores array [1, 1, 1, 1, 0].
         return np.array([1, 1, 1, 1, 0])
 
     selector.set_params(score_func=score_func)

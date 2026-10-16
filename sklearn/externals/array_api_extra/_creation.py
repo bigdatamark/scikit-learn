@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Public delegation layer for creation functions (create_diagonal, one_hot): validates
+#   inputs, dispatches to native backend implementations where available and otherwise
+#   to the generic code in _agnostic._creation.
 """Delegation layer for creation functions."""
 
 from . import _agnostic
@@ -10,6 +14,12 @@ __all__ = ["create_diagonal", "one_hot"]
 def create_diagonal(
     x: Array, /, *, offset: int = 0, xp: ArrayNamespace | None = None
 ) -> Array:
+    # [FUNCTION DOC]
+    # Validates x is at least 1-D and infers xp. PyTorch uses torch.diag_embed on the
+    #   last two axes; Dask, CuPy, NumPy and JAX use xp.diag for 1-D input; everything
+    #   else (including batched input on those backends) uses the generic
+    #   implementation.
+    # Exceptions: ValueError for 0-D x.
     """
     Construct a diagonal array.
 
@@ -78,6 +88,15 @@ def one_hot(
     axis: int = -1,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp, requires an integral dtype, defaults dtype to the namespace's default
+    #   real floating dtype on x's device. JAX delegates to jax.nn.one_hot (handling
+    #   dtype and axis itself). PyTorch casts x to int64 and calls
+    #   torch.nn.functional.one_hot, converting its RuntimeError (e.g. out-of-range
+    #   index) to IndexError. Others use the generic broadcasting comparison. Non-JAX
+    #   results are cast to dtype and the new last axis is moved to position axis when
+    #   axis is not -1.
+    # Exceptions: TypeError for non-integral x; IndexError on torch for invalid indices.
     """
     One-hot encode the given indices.
 

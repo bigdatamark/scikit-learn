@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements xpx.at, a backend-agnostic emulation of JAX's x.at[idx].op(y) functional
+#   update API: in place on writeable arrays, via copies on read-only ones, via JAX
+#   .at[] on JAX, and via where() for boolean masks on Dask/jitted JAX.
 """Update operations for read-only arrays."""
 
 from __future__ import annotations
@@ -15,6 +19,9 @@ __all__ = ["at"]
 
 
 class _AtOp(Enum):
+    # [CLASS DOC]
+    # HELPER: Enum of supported update operations; values match the JAX .at[] method
+    #   names (set, add, subtract, multiply, divide, power, min, max).
     """Operations for use in `xpx.at`."""
 
     SET = "set"
@@ -28,6 +35,8 @@ class _AtOp(Enum):
 
     # @override from Python 3.12
     def __str__(self) -> str:  # pyright: ignore[reportImplicitOverride]
+        # [FUNCTION DOC]
+        # HELPER: Returns the operation's value string (readable pytest ids).
         """
         Return string representation (useful for pytest logs).
 
@@ -40,6 +49,9 @@ class _AtOp(Enum):
 
 
 class _Undef(Enum):
+    # [CLASS DOC]
+    # HELPER: Single-member enum used as a sentinel meaning "index not given" (distinct
+    #   from None, which is a valid index).
     """Sentinel for undefined values."""
 
     UNDEF = 0
@@ -49,6 +61,11 @@ _undef = _Undef.UNDEF
 
 
 class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
+    # [CLASS DOC]
+    # Lightweight holder of an array and an optional index (slots _x, _idx). Indexing it
+    #   with [] fixes the index; the op methods (set, add, subtract, multiply, divide,
+    #   power, min, max) perform the update according to the copy policy and return the
+    #   resulting array.
     """
     Update operations for read-only arrays.
 
@@ -196,10 +213,15 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
     def __init__(
         self, x: Array, idx: SetIndex | _Undef = _undef, /
     ) -> None:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # Stores x and idx (default: the _undef sentinel). No validation or copying.
         self._x = x
         self._idx = idx
 
     def __getitem__(self, idx: SetIndex, /) -> typing.Self:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Returns a new at object with the given index, supporting at(x)[idx] syntax.
+        # Exceptions: ValueError if this object already has an index.
         """
         Allow for the alternate syntax ``at(x)[start:stop:step]``.
 
@@ -221,6 +243,23 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None,
         xp: ArrayNamespace | None,
     ) -> Array:
+        # [FUNCTION DOC]
+        # HELPER: Shared implementation of every update. Steps: infer xp from x and y if
+        #   not given; require an index and copy in {True, False, None}. Special case:
+        #   if idx is a Dask or JAX boolean array with x's shape and y converts (to x's
+        #   dtype/device) to a 0-D array, compute the result with
+        #   apply_where(out_of_place_op, fill_value=x) cast back to x's dtype, or
+        #   where(idx, y, x) for set; with copy False write it back into x with x[()]
+        #   and return x. Otherwise, if copy is True or (None and x is read-only): for
+        #   JAX call x.at[idx].<op>(y) and cast to x's dtype; else copy x with
+        #   asarray(copy=True) and continue. Then require x writeable, cast torch y to
+        #   x's dtype, and do x[idx] = in_place_op(x[idx], y) or x[idx] = y.
+        # Outputs: the updated array (x itself when updated in place).
+        # Exceptions: ValueError for missing index, invalid copy, or a read-only array
+        #   that cannot be updated (including copy False on read-only input); backend
+        #   errors for unsupported indices (e.g. boolean masks without boolean-indexing
+        #   support).
+        # Side effects: mutates x in place when it is writeable and copy is not True.
         """
         Implement all update operations.
 
@@ -356,6 +395,8 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] = y via _op (no in-place or out-of-place operator).
         """Apply ``x[idx] = y`` and return the update array."""
         return self._op(_AtOp.SET, None, None, y, copy=copy, xp=xp)
 
@@ -366,6 +407,9 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] += y via _op using operator.iadd (in place) / operator.add
+        #   (mask path); iadd surfaces dtype incompatibilities.
         """Apply ``x[idx] += y`` and return the updated array."""
 
         # Note for this and all other methods based on _iop:
@@ -380,6 +424,8 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] -= y via _op with operator.isub / operator.sub.
         """Apply ``x[idx] -= y`` and return the updated array."""
         return self._op(
             _AtOp.SUBTRACT,
@@ -397,6 +443,8 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] *= y via _op with operator.imul / operator.mul.
         """Apply ``x[idx] *= y`` and return the updated array."""
         return self._op(
             _AtOp.MULTIPLY,
@@ -414,6 +462,9 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] /= y via _op with operator.itruediv / operator.truediv; JAX
+        #   results are cast back to x's dtype.
         """Apply ``x[idx] /= y`` and return the updated array."""
         return self._op(
             _AtOp.DIVIDE,
@@ -431,6 +482,8 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] **= y via _op with operator.ipow / operator.pow.
         """Apply ``x[idx] **= y`` and return the updated array."""
         return self._op(_AtOp.POWER, operator.ipow, operator.pow, y, copy=copy, xp=xp)  # pyright: ignore[reportUnknownArgumentType]
 
@@ -441,6 +494,12 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] = minimum(x[idx], y). Infers xp from x, gets the meta namespace
+        #   (the chunk library under Dask), converts y to an array and calls _op with
+        #   mxp.minimum for both in-place and out-of-place forms.
+        # KNOWN ISSUE: y is converted with asarray without device or dtype, so it may be
+        #   created on the default device rather than x's device.
         """Apply ``x[idx] = minimum(x[idx], y)`` and return the updated array."""
         # On Dask, this function runs on the chunks, so we need to determine the
         # namespace that Dask is wrapping.
@@ -460,6 +519,9 @@ class at:  # pylint: disable=invalid-name  # numpydoc ignore=PR02
         copy: bool | None = None,
         xp: ArrayNamespace | None = None,
     ) -> Array:  # numpydoc ignore=PR01,RT01
+        # [FUNCTION DOC]
+        # Applies x[idx] = maximum(x[idx], y); same mechanism as min with mxp.maximum.
+        # KNOWN ISSUE: same device concern as min for the asarray conversion of y.
         """Apply ``x[idx] = maximum(x[idx], y)`` and return the updated array."""
         # See note on min()
         xp = _compat.array_namespace(self._x) if xp is None else xp

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for RFE and RFECV: elimination with dense/sparse data, step and fraction
+#   handling, metadata routing to fit/score, cv_results_ contents and sizes, ranking
+#   formulas, n_jobs/threading consistency, groups, importance_getter, NaN/inf support,
+#   PLS and pipelines, warnings, sample weights and sparse coefficients. Most tests
+#   augment iris with 6 Gaussian noise columns and expect the 4 real features to be kept.
 """
 Testing Recursive feature elimination
 """
@@ -29,20 +35,33 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 
 class MockClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Dummy classifier with uniform coef_ (all ones) so every feature is equally
+    #   important; predict/predict_proba/decision_function/transform all return ones,
+    #   score returns 0.0, and tags allow NaN.
     """
     Dummy classifier to test recursive feature elimination
     """
 
     def __init__(self, foo_param=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores foo_param (default 0), an unused parameter.
         self.foo_param = foo_param
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Asserts X and y have equal length, sets coef_ to ones of length
+        #   n_features and classes_ to the sorted unique labels; returns self.
         assert len(X) == len(y)
         self.coef_ = np.ones(X.shape[1], dtype=np.float64)
         self.classes_ = sorted(set(y))
         return self
 
     def predict(self, T):
+        # [FUNCTION DOC]
+        # HELPER: Returns a vector of ones of length n_samples of T (also aliased as
+        #   predict_proba, decision_function and transform, so those return 1-D output
+        #   too).
         return np.ones(T.shape[0])
 
     predict_proba = predict
@@ -50,21 +69,34 @@ class MockClassifier(ClassifierMixin, BaseEstimator):
     transform = predict
 
     def score(self, X=None, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Always returns 0.0; X and y ignored.
         return 0.0
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # HELPER: Returns {"foo_param": foo_param}; deep ignored.
         return {"foo_param": self.foo_param}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: Ignores all params and returns self.
+        # KNOWN ISSUE: parameters are silently not set, unlike a real estimator.
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with input_tags.allow_nan set to True.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
 
 
 def test_rfe_features_importance():
+    # [FUNCTION DOC]
+    # Checks RFE with a random forest (feature_importances_) and with a linear SVC
+    #   (coef_) select the same 4 features on noisy iris, and that ranking_ covers all
+    #   features.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -87,6 +119,10 @@ def test_rfe_features_importance():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_rfe(csr_container):
+    # [FUNCTION DOC]
+    # Checks RFE with linear SVC on noisy iris recovers exactly the 4 iris columns, that
+    #   predict/score match an SVC fit on the original data, and that dense and CSR input
+    #   give the same transform.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -118,10 +154,19 @@ def test_rfe(csr_container):
 
 
 def test_RFE_fit_score_params():
+    # [FUNCTION DOC]
+    # Checks extra fit/score keyword arguments (prop) are forwarded to the estimator:
+    #   missing prop raises the estimator's ValueError in fit or score; passing it works.
     # Make sure RFE passes the metadata down to fit and score methods of the
     # underlying estimator
     class TestEstimator(BaseEstimator, ClassifierMixin):
+        # [CLASS DOC]
+        # HELPER: Classifier requiring a prop kwarg in fit and score; wraps a linear SVC
+        #   and exposes its coef_.
         def fit(self, X, y, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Raises ValueError if prop is None; otherwise fits a linear SVC,
+            #   copies its coef_ and returns self.
             if prop is None:
                 raise ValueError("fit: prop cannot be None")
             self.svc_ = SVC(kernel="linear").fit(X, y)
@@ -129,6 +174,9 @@ def test_RFE_fit_score_params():
             return self
 
         def score(self, X, y, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Raises ValueError if prop is None; otherwise returns the inner SVC
+            #   accuracy.
             if prop is None:
                 raise ValueError("score: prop cannot be None")
             return self.svc_.score(X, y)
@@ -143,6 +191,9 @@ def test_RFE_fit_score_params():
 
 
 def test_rfe_percent_n_features():
+    # [FUNCTION DOC]
+    # Checks n_features_to_select=0.4 on 10 features gives the same ranking and support
+    #   as 4.
     # test that the results are the same
     generator = check_random_state(0)
     iris = load_iris()
@@ -163,6 +214,8 @@ def test_rfe_percent_n_features():
 
 
 def test_rfe_mockclassifier():
+    # [FUNCTION DOC]
+    # Checks RFE works with MockClassifier (all-equal importances) and keeps 4 columns.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -182,6 +235,12 @@ def test_rfe_mockclassifier():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_rfecv(csr_container):
+    # [FUNCTION DOC]
+    # On noisy iris checks RFECV: cv_results_ arrays have one entry per feature count,
+    #   the transform recovers iris data for default scoring, a custom loss scorer, and an
+    #   accuracy scorer; a constant scorer leads to selecting a single feature (fewest
+    #   features on ties); step=2 gives 6 entries; dense/sparse and fractional step all
+    #   recover iris.
     generator = check_random_state(0)
     iris = load_iris()
     # Add some irrelevant features. Random seed is set to make sure that
@@ -226,6 +285,8 @@ def test_rfecv(csr_container):
 
     # Test fix on cv_results_
     def test_scorer(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Scorer that always returns 1.0, used to force CV score ties.
         return 1.0
 
     rfecv = RFECV(estimator=SVC(kernel="linear"), step=1, scoring=test_scorer)
@@ -263,6 +324,9 @@ def test_rfecv(csr_container):
 
 
 def test_rfecv_mockclassifier():
+    # [FUNCTION DOC]
+    # Checks RFECV with MockClassifier and list y yields cv_results_ entries and
+    #   ranking_ of length n_features.
     generator = check_random_state(0)
     iris = load_iris()
     X = np.c_[iris.data, generator.normal(size=(len(iris.data), 6))]
@@ -280,6 +344,10 @@ def test_rfecv_mockclassifier():
 
 
 def test_rfecv_verbose_output():
+    # [FUNCTION DOC]
+    # Redirects stdout to a StringIO and checks RFECV with verbose=1 writes something.
+    # KNOWN ISSUE: sys.stdout is replaced and never restored, leaking into later tests
+    #   (pytest capture usually masks it).
     # Check verbose=1 is producing an output.
     import sys
     from io import StringIO
@@ -300,6 +368,10 @@ def test_rfecv_verbose_output():
 
 
 def test_rfecv_cv_results_size(global_random_seed):
+    # [FUNCTION DOC]
+    # For several (step, min_features_to_select) pairs with MockClassifier, checks each
+    #   cv_results_ array has ceil((n_features - min)/step) + 1 entries and n_features_ >=
+    #   min.
     generator = check_random_state(global_random_seed)
     iris = load_iris()
     X = np.c_[iris.data, generator.normal(size=(len(iris.data), 6))]
@@ -325,6 +397,9 @@ def test_rfecv_cv_results_size(global_random_seed):
 
 
 def test_rfe_estimator_tags():
+    # [FUNCTION DOC]
+    # Checks RFE wrapping a classifier is a classifier (so cross_val_score stratifies)
+    #   and achieves min CV accuracy above 0.7 on iris.
     rfe = RFE(SVC(kernel="linear"))
     assert is_classifier(rfe)
     # make sure that cross-validation is stratified
@@ -334,6 +409,9 @@ def test_rfe_estimator_tags():
 
 
 def test_rfe_min_step(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks step as a tiny fraction (rounding to 0, treated as 1), a fraction, and an
+    #   int all end with n_features // 2 selected (the default).
     n_features = 10
     X, y = make_friedman1(
         n_samples=50, n_features=n_features, random_state=global_random_seed
@@ -358,6 +436,10 @@ def test_rfe_min_step(global_random_seed):
 
 
 def test_number_of_subsets_of_features(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks two equivalent formulas for the number of elimination iterations agree with
+    #   max(ranking_) for RFE and with the length of each cv_results_ array for RFECV, for
+    #   divisible and non-divisible step cases.
     # In RFE, 'number_of_subsets_of_features'
     # = the number of iterations in '_fit'
     # = max(ranking_)
@@ -367,9 +449,15 @@ def test_number_of_subsets_of_features(global_random_seed):
     # This test case is to test their equivalence, refer to #4534 and #3824
 
     def formula1(n_features, n_features_to_select, step):
+        # [FUNCTION DOC]
+        # HELPER: Integer-division formula 1 + (n_features + step - n_features_to_select
+        #   - 1) // step. Outputs: int.
         return 1 + ((n_features + step - n_features_to_select - 1) // step)
 
     def formula2(n_features, n_features_to_select, step):
+        # [FUNCTION DOC]
+        # HELPER: Ceiling formula 1 + ceil((n_features - n_features_to_select) / step).
+        # Outputs: float.
         return 1 + np.ceil((n_features - n_features_to_select) / float(step))
 
     # RFE
@@ -423,6 +511,8 @@ def test_number_of_subsets_of_features(global_random_seed):
 
 
 def test_rfe_cv_n_jobs(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks RFECV with n_jobs=2 reproduces the ranking_ and cv_results_ of n_jobs=None.
     generator = check_random_state(global_random_seed)
     iris = load_iris()
     X = np.c_[iris.data, generator.normal(size=(len(iris.data), 6))]
@@ -444,6 +534,9 @@ def test_rfe_cv_n_jobs(global_random_seed):
 
 
 def test_rfe_cv_groups():
+    # [FUNCTION DOC]
+    # Checks groups are forwarded to a GroupKFold cv and fitting selects at least one
+    #   feature.
     generator = check_random_state(0)
     iris = load_iris()
     number_groups = 4
@@ -466,6 +559,9 @@ def test_rfe_cv_groups():
 )
 @pytest.mark.parametrize("selector, expected_n_features", [(RFE, 5), (RFECV, 4)])
 def test_rfe_wrapped_estimator(importance_getter, selector, expected_n_features):
+    # [FUNCTION DOC]
+    # Non-regression: importance_getter given as attrgetter or dotted string into a
+    #   TransformedTargetRegressor works; RFE keeps 5 and RFECV keeps 4 features.
     # Non-regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/15312
     X, y = make_friedman1(n_samples=50, n_features=10, random_state=0)
@@ -490,6 +586,10 @@ def test_rfe_wrapped_estimator(importance_getter, selector, expected_n_features)
 )
 @pytest.mark.parametrize("Selector", [RFE, RFECV])
 def test_rfe_importance_getter_validation(importance_getter, err_type, Selector):
+    # [FUNCTION DOC]
+    # Checks "auto" raises ValueError when the estimator has no
+    #   coef_/feature_importances_, and an invalid attribute path or callable raises
+    #   AttributeError, for RFE and RFECV.
     X, y = make_friedman1(n_samples=50, n_features=10, random_state=42)
     estimator = LinearSVR()
     log_estimator = TransformedTargetRegressor(
@@ -503,6 +603,9 @@ def test_rfe_importance_getter_validation(importance_getter, err_type, Selector)
 
 @pytest.mark.parametrize("cv", [None, 5])
 def test_rfe_allow_nan_inf_in_x(cv):
+    # [FUNCTION DOC]
+    # Checks RFE/RFECV fit and transform accept NaN and inf in X when the estimator
+    #   allows NaN.
     iris = load_iris()
     X = iris.data
     y = iris.target
@@ -521,6 +624,9 @@ def test_rfe_allow_nan_inf_in_x(cv):
 
 
 def test_w_pipeline_2d_coef_():
+    # [FUNCTION DOC]
+    # Checks RFE on a pipeline using a 2-D (multiclass) coef_ via a dotted
+    #   importance_getter selects 2 features.
     pipeline = make_pipeline(StandardScaler(), LogisticRegression())
 
     data, y = load_iris(return_X_y=True)
@@ -535,6 +641,9 @@ def test_w_pipeline_2d_coef_():
 
 
 def test_rfecv_std_and_mean(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks mean_test_score and std_test_score in cv_results_ equal the mean and std
+    #   across the splitN_test_score entries.
     generator = check_random_state(global_random_seed)
     iris = load_iris()
     X = np.c_[iris.data, generator.normal(size=(len(iris.data), 6))]
@@ -577,6 +686,10 @@ def test_rfecv_cv_results_n_features(
     step,
     cv_results_n_features,
 ):
+    # [FUNCTION DOC]
+    # Parametrized over min_features_to_select, n_features and step: checks
+    #   cv_results_["n_features"] lists the expected feature counts (always including the
+    #   full count) and all cv_results_ arrays have the same length.
     X, y = make_classification(
         n_samples=20, n_features=n_features, n_informative=n_features, n_redundant=0
     )
@@ -595,6 +708,9 @@ def test_rfecv_cv_results_n_features(
 
 @pytest.mark.parametrize("ClsRFE", [RFE, RFECV])
 def test_multioutput(ClsRFE):
+    # [FUNCTION DOC]
+    # Smoke test: RFE/RFECV fit with a random forest on 2-output binary targets.
+    # Note: uses unseeded global np.random data.
     X = np.random.normal(size=(10, 3))
     y = np.random.randint(2, size=(10, 2))
     clf = RandomForestClassifier(n_estimators=5)
@@ -604,6 +720,9 @@ def test_multioutput(ClsRFE):
 
 @pytest.mark.parametrize("ClsRFE", [RFE, RFECV])
 def test_pipeline_with_nans(ClsRFE):
+    # [FUNCTION DOC]
+    # Non-regression: RFE/RFECV with a pipeline containing an imputer fits data with a
+    #   NaN.
     """Check that RFE works with pipeline that accept nans.
 
     Non-regression test for gh-21743.
@@ -627,6 +746,9 @@ def test_pipeline_with_nans(ClsRFE):
 @pytest.mark.parametrize("ClsRFE", [RFE, RFECV])
 @pytest.mark.parametrize("PLSEstimator", [CCA, PLSCanonical, PLSRegression])
 def test_rfe_pls(ClsRFE, PLSEstimator):
+    # [FUNCTION DOC]
+    # Non-regression: RFE/RFECV with one-component CCA/PLSCanonical/PLSRegression fit
+    #   and score above 0.5 on Friedman1.
     """Check the behaviour of RFE with PLS estimators.
 
     Non-regression test for:
@@ -639,6 +761,9 @@ def test_rfe_pls(ClsRFE, PLSEstimator):
 
 
 def test_rfe_estimator_attribute_error():
+    # [FUNCTION DOC]
+    # Non-regression: decision_function on RFE wrapping LinearRegression raises
+    #   AttributeError naming RFE, chained from the inner estimator's AttributeError.
     """Check that we raise the proper AttributeError when the estimator
     does not implement the `decision_function` method, which is decorated with
     `available_if`.
@@ -664,6 +789,9 @@ def test_rfe_estimator_attribute_error():
     "ClsRFE, param", [(RFE, "n_features_to_select"), (RFECV, "min_features_to_select")]
 )
 def test_rfe_n_features_to_select_warning(ClsRFE, param):
+    # [FUNCTION DOC]
+    # Checks a UserWarning "<param>=21 > n_features=20" is emitted when the requested
+    #   count exceeds the number of features, for RFE and RFECV.
     """Check if the correct warning is raised when trying to initialize a RFE
     object with an n_features_to_select attribute larger than the number of
     features present in the X variable that is passed to the fit method
@@ -678,6 +806,9 @@ def test_rfe_n_features_to_select_warning(ClsRFE, param):
 
 
 def test_rfe_with_sample_weight():
+    # [FUNCTION DOC]
+    # Checks weight 2 on the first half of samples gives the same ranking as duplicating
+    #   those samples, and unit weights give a different ranking than the duplicated data.
     """Test that `RFE` works correctly with sample weights."""
     X, y = make_classification(random_state=0)
     n_samples = X.shape[0]
@@ -711,6 +842,9 @@ def test_rfe_with_sample_weight():
 
 
 def test_rfe_with_joblib_threading_backend(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks RFECV with n_jobs=2 gives the same ranking_ under the threading joblib
+    #   backend as with the default backend.
     X, y = make_classification(random_state=global_random_seed)
 
     clf = LogisticRegression()
@@ -729,6 +863,9 @@ def test_rfe_with_joblib_threading_backend(global_random_seed):
 
 
 def test_results_per_cv_in_rfecv(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks per-split cv_results_ arrays (test score, support, ranking) have equal
+    #   lengths across folds.
     """
     Test that the results of RFECV are consistent across the different folds
     in terms of length of the arrays.
@@ -763,6 +900,9 @@ def test_results_per_cv_in_rfecv(global_random_seed):
     ],
 )
 def test_rfe_sparse_coef(feature_importance):
+    # [FUNCTION DOC]
+    # Checks an importance_getter returning sparse coef_ (CSR or CSC) yields the same
+    #   support and ranking as the dense default.
     X = [[0, 1, 3], [1, 0, 0], [2, 0, 4], [0, 2, 4]]
     y = [0, 1, 2, 3]
 

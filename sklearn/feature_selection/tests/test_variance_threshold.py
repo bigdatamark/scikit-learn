@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for VarianceThreshold on dense and sparse (BSR/CSC/CSR) inputs: default zero
+#   variance removal, error cases, custom threshold, floating-point near-zero variance and
+#   NaN handling. Module-level data/data2 are small shared toy matrices.
 import numpy as np
 import pytest
 
@@ -14,6 +18,9 @@ data2 = [[-0.13725701]] * 10
     "sparse_container", [None] + BSR_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_zero_variance(sparse_container):
+    # [FUNCTION DOC]
+    # Fits with the default threshold on the 3x5 toy data (dense or sparse) and checks
+    #   that only constant column 2 is dropped (support indices 0, 1, 3, 4).
     # Test VarianceThreshold with default setting, zero variance.
     X = data if sparse_container is None else sparse_container(data)
     sel = VarianceThreshold().fit(X)
@@ -21,6 +28,9 @@ def test_zero_variance(sparse_container):
 
 
 def test_zero_variance_value_error():
+    # [FUNCTION DOC]
+    # Checks ValueError when fitting on a single sample or on data whose columns are all
+    #   constant (no feature passes the threshold).
     # Test VarianceThreshold with default setting, zero variance, error cases.
     with pytest.raises(ValueError):
         VarianceThreshold().fit([[0, 1, 2, 3]])
@@ -30,6 +40,9 @@ def test_zero_variance_value_error():
 
 @pytest.mark.parametrize("sparse_container", [None] + CSR_CONTAINERS)
 def test_variance_threshold(sparse_container):
+    # [FUNCTION DOC]
+    # Checks threshold=0.4 keeps exactly one column of the toy data for dense and CSR
+    #   input.
     # Test VarianceThreshold with custom variance.
     X = data if sparse_container is None else sparse_container(data)
     X = VarianceThreshold(threshold=0.4).fit_transform(X)
@@ -47,6 +60,11 @@ def test_variance_threshold(sparse_container):
     "sparse_container", [None] + BSR_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_zero_variance_floating_point_error(sparse_container):
+    # [FUNCTION DOC]
+    # Checks a constant column whose computed variance is a tiny nonzero value due to
+    #   float rounding is still treated as zero variance, so fitting raises ValueError
+    #   with the "No feature in X meets the variance threshold" message. Skipped where
+    #   np.var is exactly 0.
     # Test that VarianceThreshold(0.0).fit eliminates features that have
     # the same value in every sample, even when floating point errors
     # cause np.var not to be 0 for the feature.
@@ -61,6 +79,9 @@ def test_zero_variance_floating_point_error(sparse_container):
     "sparse_container", [None] + BSR_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_variance_nan(sparse_container):
+    # [FUNCTION DOC]
+    # Checks NaNs are ignored when computing variance: a column with one NaN is kept, a
+    #   column of all NaNs is dropped together with the constant column (support 0, 3, 4).
     arr = np.array(data, dtype=np.float64)
     # add single NaN and feature should still be included
     arr[0, 0] = np.nan

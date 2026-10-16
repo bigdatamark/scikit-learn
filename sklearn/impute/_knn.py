@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements KNNImputer, which fills each missing entry with the (optionally
+# distance-weighted) mean of that feature over the k nearest training samples, where
+# distances are computed with a NaN-aware metric (nan_euclidean by default).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +26,11 @@ from sklearn.utils.validation import (
 
 
 class KNNImputer(_BaseImputer):
+    # [CLASS DOC]
+    # k-nearest-neighbor imputer. fit only stores the validated training data, its
+    # missing mask and which columns are not entirely missing; all work happens in
+    # transform. Fitted attributes: _fit_X, _mask_fit_X, _valid_mask, n_features_in_,
+    # feature_names_in_, indicator_ (if add_indicator).
     """Imputation for completing missing values using k-Nearest Neighbors.
 
     Each sample's missing values are imputed using the mean value from
@@ -150,6 +159,9 @@ class KNNImputer(_BaseImputer):
         add_indicator=False,
         keep_empty_features=False,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged; missing_values, add_indicator and
+        # keep_empty_features go to _BaseImputer. Side effects: sets attributes on self.
         super().__init__(
             missing_values=missing_values,
             add_indicator=add_indicator,
@@ -161,6 +173,20 @@ class KNNImputer(_BaseImputer):
         self.copy = copy
 
     def _calc_impute(self, dist_pot_donors, n_neighbors, fit_X_col, mask_fit_X_col):
+        # [FUNCTION DOC]
+        # HELPER: Computes imputed values for one column for a set of receivers. Steps:
+        # for each receiver row, select the n_neighbors smallest distances via
+        # argpartition (unordered); build weights from those distances with _get_weights
+        # ("uniform" gives None, "distance" gives inverse distances, or a callable); NaN
+        # weights become 0, and with uniform weights NaN distances get weight 0; take
+        # the donors' column values, mask the missing ones, and return the weighted
+        # average per row.
+        # Inputs: dist_pot_donors - (n_receivers, n_potential_donors) float array, each
+        # row having at least one non-NaN entry; n_neighbors - int <=
+        # n_potential_donors; fit_X_col - (n_potential_donors,) donor values;
+        # mask_fit_X_col - its missing mask.
+        # Outputs: (n_receivers,) float ndarray.
+        # Side effects: none.
         """Helper function to impute a single column.
 
         Parameters
@@ -212,6 +238,14 @@ class KNNImputer(_BaseImputer):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (float, dense, NaN allowed only when missing_values is NaN, copied
+        # if copy) and stores it as _fit_X with its mask _mask_fit_X and _valid_mask
+        # (columns with at least one observed value); fits the missing indicator.
+        # Inputs: X - array-like (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Exceptions: ValueError from validation (sparse input, inf, bad dtype).
+        # Side effects: sets fitted attributes.
         """Fit the imputer on X.
 
         Parameters
@@ -252,6 +286,21 @@ class KNNImputer(_BaseImputer):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Imputes X. Steps: validate (writeable, copied if copy, feature count checked);
+        # compute missing mask and indicator. If no valid column has missing values,
+        # skip to output. Otherwise compute, in memory-bounded chunks, distances from
+        # rows with missing values to all training rows; for each chunk and each valid
+        # column with missing entries, the potential donors are training rows where that
+        # column is observed; receivers whose distances to all donors are NaN get the
+        # column's training mean, the rest get _calc_impute with min(n_neighbors, number
+        # of donors). Output: columns that were all missing in fit are dropped, or set
+        # to 0 if keep_empty_features; indicator appended.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples, n_output_features).
+        # Exceptions: NotFittedError; ValueError on validation failures.
+        # Side effects: writes imputations into the validated array, which is the
+        # caller's array when copy is False and no conversion was needed.
         """Impute all missing values in X.
 
         Parameters
@@ -312,6 +361,14 @@ class KNNImputer(_BaseImputer):
         dist_idx_map[row_missing_idx] = np.arange(row_missing_idx.shape[0])
 
         def process_chunk(dist_chunk, start):
+            # [FUNCTION DOC]
+            # HELPER: reduce_func for pairwise_distances_chunked; imputes in place the
+            # rows of the current chunk. Inputs: dist_chunk - (chunk_rows,
+            # n_fit_samples) distances for rows
+            # row_missing_idx[start:start+len(dist_chunk)]; start - int offset into
+            # row_missing_idx.
+            # Outputs: None (so the generator yields None).
+            # Side effects: mutates the enclosing X.
             row_missing_chunk = row_missing_idx[start : start + len(dist_chunk)]
 
             # Find and impute missing by column
@@ -386,6 +443,14 @@ class KNNImputer(_BaseImputer):
         return super()._concatenate_indicator(Xc, X_indicator)
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns input feature names restricted to columns not entirely missing during
+        # fit (_valid_mask), followed by indicator names if add_indicator.
+        # Inputs: input_features - None or array-like of str. Outputs: ndarray of str.
+        # Exceptions: NotFittedError; ValueError on name mismatch.
+        # KNOWN ISSUE: with keep_empty_features=True transform keeps all columns, but
+        # names are still filtered by _valid_mask, so names and output columns can
+        # disagree.
         """Get output feature names for transformation.
 
         Parameters

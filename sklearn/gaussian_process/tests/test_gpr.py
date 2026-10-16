@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for GaussianProcessRegressor: interpolation, log-marginal likelihood (LML)
+# optimization/caching/gradients, prior behaviour, sampling statistics, optimizer
+# options, normalize_y, multi-output targets, error messages, bound warnings and output
+# shapes before and after fit. Uses a 1D toy dataset X (6 points) with y = x sin(x),
+# test points X2, and a list of kernels including one with fixed hyperparameters.
 """Testing for Gaussian process regression"""
 
 # Authors: The scikit-learn developers
@@ -33,6 +39,8 @@ from sklearn.utils._testing import (
 
 
 def f(x):
+    # [FUNCTION DOC]
+    # HELPER: Target function x * sin(x), element-wise.
     return x * np.sin(x)
 
 
@@ -56,6 +64,9 @@ non_fixed_kernels = [kernel for kernel in kernels if kernel != fixed_kernel]
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_gpr_interpolation(kernel):
+    # [FUNCTION DOC]
+    # Verifies the noiseless GP interpolates the training data: predictions equal y and
+    # predictive variances are ~0 at training points. xfails on 32-bit Python.
     if sys.maxsize <= 2**32:
         pytest.xfail("This test may fail on 32 bit Python")
 
@@ -68,6 +79,9 @@ def test_gpr_interpolation(kernel):
 
 
 def test_gpr_interpolation_structured():
+    # [FUNCTION DOC]
+    # Interpolation check with string inputs and fixed MiniSeqKernel; also verifies the
+    # kernel gradient equals one minus the identity (count of unequal character pairs).
     # Test the interpolating property for different kernels.
     kernel = MiniSeqKernel(baseline_similarity_bounds="fixed")
     X = ["A", "B", "C"]
@@ -84,6 +98,9 @@ def test_gpr_interpolation_structured():
 
 @pytest.mark.parametrize("kernel", non_fixed_kernels)
 def test_lml_improving(kernel):
+    # [FUNCTION DOC]
+    # Verifies the LML at the fitted theta is greater than at the initial theta, for
+    # non-fixed kernels. xfails on 32-bit Python.
     if sys.maxsize <= 2**32:
         pytest.xfail("This test may fail on 32 bit Python")
 
@@ -96,6 +113,9 @@ def test_lml_improving(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_lml_precomputed(kernel):
+    # [FUNCTION DOC]
+    # Verifies log_marginal_likelihood() with no theta equals the LML recomputed at
+    # kernel_.theta.
     # Test that lml of optimized kernel is stored correctly.
     gpr = GaussianProcessRegressor(kernel=kernel).fit(X, y)
     assert gpr.log_marginal_likelihood(gpr.kernel_.theta) == pytest.approx(
@@ -105,6 +125,11 @@ def test_lml_precomputed(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_lml_without_cloning_kernel(kernel):
+    # [FUNCTION DOC]
+    # Verifies clone_kernel=False makes log_marginal_likelihood overwrite kernel_.theta
+    # with the given theta.
+    # KNOWN ISSUE: the inline comment is copied from test_lml_precomputed and does not
+    # describe this test.
     # Test that lml of optimized kernel is stored correctly.
     gpr = GaussianProcessRegressor(kernel=kernel).fit(X, y)
     input_theta = np.ones(gpr.kernel_.theta.shape, dtype=np.float64)
@@ -115,6 +140,9 @@ def test_lml_without_cloning_kernel(kernel):
 
 @pytest.mark.parametrize("kernel", non_fixed_kernels)
 def test_converged_to_local_maximum(kernel):
+    # [FUNCTION DOC]
+    # Verifies a local optimum after fitting: each LML gradient entry is below 1e-4 or
+    # the corresponding theta lies exactly on a bound.
     # Test that we are in local maximum after hyperparameter-optimization.
     gpr = GaussianProcessRegressor(kernel=kernel).fit(X, y)
 
@@ -129,6 +157,9 @@ def test_converged_to_local_maximum(kernel):
 
 @pytest.mark.parametrize("kernel", non_fixed_kernels)
 def test_solution_inside_bounds(kernel):
+    # [FUNCTION DOC]
+    # Verifies the optimized theta lies within the kernel bounds (up to 1e-10),
+    # replacing infinite upper bounds by the float max.
     # Test that hyperparameter-optimization remains in bounds#
     gpr = GaussianProcessRegressor(kernel=kernel).fit(X, y)
 
@@ -148,6 +179,11 @@ def test_solution_inside_bounds(kernel):
 @pytest.mark.parametrize("kernel", non_fixed_kernels)
 @pytest.mark.parametrize("length_scale", np.logspace(-3, 3, 13))
 def test_lml_gradient(kernel, length_scale):
+    # [FUNCTION DOC]
+    # Compares the analytic LML gradient with scipy approx_fprime (epsilon 1e-9) after
+    # setting the kernel's length scale to each value of a log grid. xfail due to issue
+    # 31366.
+    # Side effects: clones the kernel first to avoid mutating the shared one.
     # Clone the kernel object prior to mutating it to avoid any side effects between
     # GP tests:
     kernel = clone(kernel)
@@ -170,6 +206,9 @@ def test_lml_gradient(kernel, length_scale):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_prior(kernel):
+    # [FUNCTION DOC]
+    # Verifies the unfitted GP prior has zero mean and constant variance: 1 for single-
+    # parameter kernels, exp(theta[0]) (the constant factor) otherwise.
     # Test that GP prior has mean 0 and identical variances.
     gpr = GaussianProcessRegressor(kernel=kernel)
 
@@ -185,6 +224,9 @@ def test_prior(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_sample_statistics(kernel):
+    # [FUNCTION DOC]
+    # Verifies sample_y with 300000 samples matches predicted mean and normalized
+    # variance to 1 decimal.
     # Test that statistics of samples drawn from GP are correct.
     gpr = GaussianProcessRegressor(kernel=kernel).fit(X, y)
 
@@ -204,6 +246,9 @@ def test_sample_statistics(kernel):
 @pytest.mark.parametrize("optimizer", [None, "fmin_l_bfgs_b"])
 @pytest.mark.parametrize("kernel", [None, RBF()])
 def test_no_optimizer(optimizer, kernel):
+    # [FUNCTION DOC]
+    # Verifies kernel_.theta stays at its initial value (all zeros, i.e. length scale 1)
+    # iff optimizer is None, for default kernel and RBF().
     """Test that kernel parameters are unmodified when optimizer is None."""
     gpr = GaussianProcessRegressor(kernel=kernel, optimizer=optimizer)
     gpr.fit(X, y)
@@ -213,6 +258,10 @@ def test_no_optimizer(optimizer, kernel):
 @pytest.mark.parametrize("kernel", kernels)
 @pytest.mark.parametrize("target", [y, np.ones(X.shape[0], dtype=np.float64)])
 def test_predict_cov_vs_std(kernel, target):
+    # [FUNCTION DOC]
+    # Verifies predicted std equals the square root of the predicted covariance
+    # diagonal. xfails on 32-bit Python.
+    # KNOWN ISSUE: the target parameter is never used; the model is always fit on y.
     if sys.maxsize <= 2**32:
         pytest.xfail("This test may fail on 32 bit Python")
 
@@ -224,6 +273,9 @@ def test_predict_cov_vs_std(kernel, target):
 
 
 def test_anisotropic_kernel():
+    # [FUNCTION DOC]
+    # Verifies anisotropic RBF learns a length scale at least 5 times larger for the
+    # feature the target varies slowly with (seeded random data).
     # Test that GPR can identify meaningful anisotropic length-scales.
     # We learn a function which varies in one dimension ten-times slower
     # than in the other. The corresponding length-scales should differ by at
@@ -238,6 +290,9 @@ def test_anisotropic_kernel():
 
 
 def test_random_starts():
+    # [FUNCTION DOC]
+    # Verifies increasing n_restarts_optimizer (0 to 4) never decreases the LML of the
+    # chosen theta on noisy 2D data with a constant*RBF+White kernel.
     # Test that an increasing number of random-starts of GP fitting only
     # increases the log marginal likelihood of the chosen theta.
     n_samples, n_features = 25, 2
@@ -266,6 +321,9 @@ def test_random_starts():
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_y_normalization(kernel):
+    # [FUNCTION DOC]
+    # Verifies normalize_y=True on raw y gives the same mean, std and covariance as a
+    # non-normalizing GP fit on standardized y after rescaling its predictions.
     """
     Test normalization of the target values in GP
 
@@ -305,6 +363,9 @@ def test_y_normalization(kernel):
 
 
 def test_large_variance_y():
+    # [FUNCTION DOC]
+    # Verifies normalize_y=True on a 10x scaled target gives predictions within 7%
+    # (mean) and 15% (std) of hard-coded GPy reference values.
     """
     Here we test that, when normalize_y=True, our GP can produce a
     sensible fit to training data whose variance is significantly
@@ -360,6 +421,11 @@ def test_large_variance_y():
 
 
 def test_y_multioutput():
+    # [FUNCTION DOC]
+    # Verifies multi-output support: with optimizer None, the 2-target fit (y, 2y) gives
+    # predictions matching the 1D fit (and twice it), identical std/cov per target,
+    # expected sample_y shapes, matching first-target samples; and with optimization, a
+    # duplicated target yields the same theta as the single target (4 decimals).
     # Test that GPR can deal with multi-dimensional target values
     y_2d = np.vstack((y, y * 2)).T
 
@@ -407,9 +473,17 @@ def test_y_multioutput():
 
 @pytest.mark.parametrize("kernel", non_fixed_kernels)
 def test_custom_optimizer(kernel):
+    # [FUNCTION DOC]
+    # Verifies GPR accepts a custom optimizer callable and that it strictly improves the
+    # LML over the initial theta.
     # Test that GPR can use externally defined optimizers.
     # Define a dummy optimizer that simply tests 50 random hyperparameters
     def optimizer(obj_func, initial_theta, bounds):
+        # [FUNCTION DOC]
+        # HELPER: Dummy optimizer trying the initial theta and 50 random thetas (seed 0)
+        # within bounds clipped to [-2, 1], returning the best (theta, value) pair.
+        # Inputs: obj_func callable(theta, eval_gradient); initial_theta 1D; bounds
+        # (n_dims, 2).
         rng = np.random.RandomState(0)
         theta_opt, func_min = (
             initial_theta,
@@ -433,6 +507,9 @@ def test_custom_optimizer(kernel):
 
 
 def test_gpr_correct_error_message():
+    # [FUNCTION DOC]
+    # Verifies fit with a DotProduct kernel and alpha=0 on rank-deficient data raises
+    # LinAlgError with the "not returning a positive definite matrix" message.
     X = np.arange(12).reshape(6, -1)
     y = np.ones(6)
     kernel = DotProduct()
@@ -449,6 +526,9 @@ def test_gpr_correct_error_message():
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_duplicate_input(kernel):
+    # [FUNCTION DOC]
+    # Verifies that duplicate inputs with different targets give the same predictions as
+    # nearly-duplicate inputs (offset 1e-15) when alpha=1e-2.
     # Test GPR can handle two different output-values for the same input.
     gpr_equal_inputs = GaussianProcessRegressor(kernel=kernel, alpha=1e-2)
     gpr_similar_inputs = GaussianProcessRegressor(kernel=kernel, alpha=1e-2)
@@ -470,6 +550,9 @@ def test_duplicate_input(kernel):
 
 
 def test_no_fit_default_predict():
+    # [FUNCTION DOC]
+    # Verifies predicting without fit uses the default fixed 1.0 * RBF(1.0) prior: same
+    # std and cov as an explicit equivalent kernel.
     # Test that GPR predictions without fit does not break by default.
     default_kernel = C(1.0, constant_value_bounds="fixed") * RBF(
         1.0, length_scale_bounds="fixed"
@@ -487,6 +570,10 @@ def test_no_fit_default_predict():
 
 
 def test_warning_bounds():
+    # [FUNCTION DOC]
+    # Verifies ConvergenceWarning messages when optimized hyperparameters reach bounds:
+    # single RBF upper bound, Sum kernel with prefixed names (two warnings), and
+    # anisotropic RBF lower bound per dimension.
     kernel = RBF(length_scale_bounds=[1e-5, 1e-3])
     gpr = GaussianProcessRegressor(kernel=kernel)
     warning_message = (
@@ -560,6 +647,9 @@ def test_warning_bounds():
 
 
 def test_bound_check_fixed_hyperparameter():
+    # [FUNCTION DOC]
+    # Regression test (issue 17943): fitting a sum kernel with a fixed periodicity
+    # hyperparameter does not raise during the bound check.
     # Regression test for issue #17943
     # Check that having a hyperparameter with fixed bounds doesn't cause an
     # error
@@ -573,6 +663,10 @@ def test_bound_check_fixed_hyperparameter():
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_constant_target(kernel):
+    # [FUNCTION DOC]
+    # Verifies normalize_y with a constant target sets _y_train_std to 1, predicts the
+    # constant with zero variance, and for a 2-target y where one target is constant
+    # gives correct constant predictions, zero variance and multi-output shapes.
     """Check that the std. dev. is affected to 1 when normalizing a constant
     feature.
     Non-regression test for:
@@ -613,6 +707,9 @@ def test_constant_target(kernel):
 
 
 def test_gpr_consistency_std_cov_non_invertible_kernel():
+    # [FUNCTION DOC]
+    # Regression test (issue 19936): with a near-singular kernel and optimizer None, std
+    # from return_std matches the square root of the covariance diagonal (rtol 1e-5).
     """Check the consistency between the returned std. dev. and the covariance.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/issues/19936
@@ -676,6 +773,11 @@ def test_gpr_consistency_std_cov_non_invertible_kernel():
     ],
 )
 def test_gpr_fit_error(params, TypeError, err_msg):
+    # [FUNCTION DOC]
+    # Verifies fit raises the expected error for invalid alpha length and for infinite
+    # bounds with n_restarts_optimizer > 0.
+    # KNOWN ISSUE: the parameter named TypeError shadows the builtin; it actually holds
+    # the expected exception class (ValueError).
     """Check that expected error are raised during fit."""
     gpr = GaussianProcessRegressor(**params)
     with pytest.raises(TypeError, match=err_msg):
@@ -683,6 +785,9 @@ def test_gpr_fit_error(params, TypeError, err_msg):
 
 
 def test_gpr_lml_error():
+    # [FUNCTION DOC]
+    # Verifies log_marginal_likelihood(eval_gradient=True) without theta raises
+    # ValueError.
     """Check that we raise the proper error in the LML method."""
     gpr = GaussianProcessRegressor(kernel=RBF()).fit(X, y)
 
@@ -692,6 +797,8 @@ def test_gpr_lml_error():
 
 
 def test_gpr_predict_error():
+    # [FUNCTION DOC]
+    # Verifies predict with both return_std and return_cov raises RuntimeError.
     """Check that we raise the proper error during predict."""
     gpr = GaussianProcessRegressor(kernel=RBF()).fit(X, y)
 
@@ -703,6 +810,9 @@ def test_gpr_predict_error():
 @pytest.mark.parametrize("normalize_y", [True, False])
 @pytest.mark.parametrize("n_targets", [None, 1, 10])
 def test_predict_shapes(normalize_y, n_targets):
+    # [FUNCTION DOC]
+    # Verifies shapes of predicted mean, std and covariance for single output,
+    # n_targets=1 (squeezed) and n_targets=10, with and without normalize_y.
     """Check the shapes of y_mean, y_std, and y_cov in single-output
     (n_targets=None) and multi-output settings, including the edge case when
     n_targets=1, where the sklearn convention is to squeeze the predictions.
@@ -743,6 +853,9 @@ def test_predict_shapes(normalize_y, n_targets):
 @pytest.mark.parametrize("normalize_y", [True, False])
 @pytest.mark.parametrize("n_targets", [None, 1, 10])
 def test_sample_y_shapes(normalize_y, n_targets):
+    # [FUNCTION DOC]
+    # Verifies shapes of sample_y after fit for single, squeezed single and multi-output
+    # targets. A pre-fit check is disabled pending issue 22430.
     """Check the shapes of y_samples in single-output (n_targets=0) and
     multi-output settings, including the edge case when n_targets=1, where the
     sklearn convention is to squeeze the predictions.
@@ -791,6 +904,9 @@ def test_sample_y_shapes(normalize_y, n_targets):
 @pytest.mark.parametrize("n_targets", [None, 1, 2, 3])
 @pytest.mark.parametrize("n_samples", [1, 5])
 def test_sample_y_shape_with_prior(n_targets, n_samples):
+    # [FUNCTION DOC]
+    # Verifies sample_y output shape is identical before (prior with n_targets) and
+    # after fit.
     """Check the output shape of `sample_y` is consistent before and after `fit`."""
     rng = np.random.RandomState(1024)
 
@@ -806,6 +922,9 @@ def test_sample_y_shape_with_prior(n_targets, n_samples):
 
 @pytest.mark.parametrize("n_targets", [None, 1, 2, 3])
 def test_predict_shape_with_prior(n_targets):
+    # [FUNCTION DOC]
+    # Verifies predict mean, cov and std shapes are identical for the prior (n_targets
+    # set) and the posterior.
     """Check the output shape of `predict` with prior distribution."""
     rng = np.random.RandomState(1024)
 
@@ -827,6 +946,8 @@ def test_predict_shape_with_prior(n_targets):
 
 
 def test_n_targets_error():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when y has more targets than n_targets.
     """Check that an error is raised when the number of targets seen at fit is
     inconsistent with n_targets.
     """
@@ -840,6 +961,9 @@ def test_n_targets_error():
 
 
 class CustomKernel(C):
+    # [CLASS DOC]
+    # HELPER: ConstantKernel subclass whose diag returns the first column of X, used to
+    # detect in-place modification of X by predict.
     """
     A custom kernel that has a diag method that returns the first column of the
     input matrix X. This is a helper for the test to check that the input
@@ -847,10 +971,15 @@ class CustomKernel(C):
     """
 
     def diag(self, X):
+        # [FUNCTION DOC]
+        # Returns X[:, 0] (a view of the input). Outputs: 1D array (n_samples,).
         return X[:, 0]
 
 
 def test_gpr_predict_input_not_modified():
+    # [FUNCTION DOC]
+    # Regression test (issue 24340): predict with return_std=True does not modify X2 in
+    # place, using CustomKernel whose diag returns a view of X.
     """
     Check that the input X is not modified by the predict method of the
     GaussianProcessRegressor when setting return_std=True.
@@ -868,6 +997,9 @@ def test_gpr_predict_input_not_modified():
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_gpr_predict_no_cov_no_std_return(kernel):
+    # [FUNCTION DOC]
+    # Verifies predict with return_cov=False and return_std=False returns only y_mean,
+    # which equals y on training points.
     """
     Check that only y_mean is returned when return_cov=False and
     return_std=False.

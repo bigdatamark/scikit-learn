@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# HELPER: Generic array API implementations of isin, nunique, setdiff1d and union1d.
 """Array-agnostic implementations for set functions."""
 
 from .._lib import _compat, _helpers
@@ -16,6 +18,10 @@ def isin(  # numpydoc ignore=PR01,RT01
     invert: bool = False,
     xp: ArrayNamespace,
 ) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Flattens a and b, runs _helpers.in1d (membership test, optionally
+    #   inverted, optionally assuming unique inputs) and reshapes the boolean result
+    #   back to a's original shape.
     """See docstring in `array_api_extra._set`."""
     original_a_shape = a.shape
     a = xp.reshape(a, (-1,))
@@ -27,6 +33,15 @@ def isin(  # numpydoc ignore=PR01,RT01
 
 
 def nunique(x: Array, /, *, xp: ArrayNamespace) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Number of unique elements as a 0-D array. If the backend supports data-
+    #   dependent shapes it uses unique_counts and returns the number of counts (or the
+    #   sum of ones when the size is unknown, e.g. Dask). Otherwise it flattens, sorts,
+    #   marks positions differing from the next element (cyclically) and returns the
+    #   maximum of that count and 1-if-nonempty, covering the empty and all-equal cases.
+    # KNOWN ISSUE: in the sort-based path every NaN differs from itself so each NaN is
+    #   counted separately, while the unique_counts path may collapse NaNs depending on
+    #   the backend.
     """See docstring in `array_api_extra._set`."""
     # There are 3 general use cases:
     # 1. backend has unique_counts and it returns an array with known shape
@@ -63,6 +78,11 @@ def setdiff1d(
     assume_unique: bool = False,
     xp: ArrayNamespace,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Unique values of x1 not present in x2. Converts inputs to arrays; with
+    #   assume_unique only flattens them, otherwise deduplicates with unique_values
+    #   (sorted). Returns x1 values masked by inverted in1d. Requires boolean indexing
+    #   (data-dependent shape).
     """See docstring in `array_api_extra._set`."""
 
     # https://github.com/microsoft/pyright/issues/10103
@@ -79,6 +99,9 @@ def setdiff1d(
 
 
 def union1d(a: Array, b: Array, /, *, xp: ArrayNamespace) -> Array:
+    # [FUNCTION DOC]
+    # HELPER: Sorted unique values of the concatenation of flattened a and b, wrapped in
+    #   xp.asarray because sparse returns NumPy arrays.
     # numpydoc ignore=PR01,RT01
     """See docstring in `array_api_extra._set`."""
     a = xp.reshape(a, (-1,))

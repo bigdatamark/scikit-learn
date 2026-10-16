@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# HELPER: Internal utilities shared by array-api-extra: deprecation decorator, in1d
+#   membership test, Python-scalar handling (is_python_scalar, asarrays), ndindex,
+#   eager_shape, meta_namespace for Dask, backend capability lookup with fixes, pickle-
+#   based pytree flattening (pickle_flatten/unflatten), JAX auto-jit helper, pad-width
+#   normalisation and jax.jit detection.
 """Helper functions."""
 
 from __future__ import annotations
@@ -46,11 +52,19 @@ __all__ = [
 def deprecated(
     msg: str, stacklevel: int = 2
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Decorator factory: returns a decorator that wraps a function so each call
+    #   emits DeprecationWarning(msg) with the given stacklevel before delegating.
     """Deprecate a function by emitting a warning on use."""
 
     def decorate(func: Callable[P, T]) -> Callable[P, T]:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Wraps func (preserving metadata) in the warning-emitting wrapper.
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:  # numpydoc ignore=GL08
+            # [FUNCTION DOC]
+            # HELPER: Emits the DeprecationWarning, then calls and returns func(*args,
+            #   **kwargs).
             warnings.warn(
                 msg,
                 category=DeprecationWarning,
@@ -72,6 +86,19 @@ def in1d(
     invert: bool = False,
     xp: ArrayNamespace | None = None,
 ) -> Array:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Boolean mask of which elements of 1-D x1 appear in 1-D x2 (inverted if
+    #   invert). Fast path when x2 is short relative to x1 (len(x2) < 10 *
+    #   len(x1)^0.145): loop over x2 elements OR-ing equality masks (AND-ing inequality
+    #   masks when inverted). Otherwise (NumPy's sort algorithm): unless assume_unique,
+    #   dedupe x1 keeping inverse indices and dedupe x2; concatenate, stable-argsort,
+    #   compare each sorted element with the next (equal means present in both), append
+    #   invert as the last flag, scatter back to original order with the inverse
+    #   permutation, keep the first len(x1) entries (or expand via the inverse indices).
+    # Outputs: bool array of len(x1). Exceptions: TypeError for unknown (lazy) shapes;
+    #   AssertionError if the size is unknown.
+    # KNOWN ISSUE: in the empty-input branch the [False]/[True] arrays are created
+    #   without a device, which can mismatch x1's device on GPU backends.
     """
     Check whether each element of an array is also present in a second array.
 
@@ -126,6 +153,9 @@ def in1d(
 
 
 def is_python_scalar(x: object) -> TypeIs[complex]:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: True for Python bool/int/float/complex values, excluding NumPy
+    #   scalars/arrays even though np.float64 subclasses float.
     """Return True if `x` is a Python scalar, False otherwise."""
     # isinstance(x, float) returns True for np.float64
     # isinstance(x, complex) returns True for np.complex128
@@ -138,6 +168,15 @@ def asarrays(
     b: Array | complex,
     xp: ArrayNamespace,
 ) -> tuple[Array, Array]:
+    # [FUNCTION DOC]
+    # HELPER: Converts a Python scalar operand into an array compatible with the other
+    #   operand per the standard's array/scalar promotion rules. If neither is a scalar
+    #   both are returned as is. Otherwise the array side is identified (swapping if
+    #   needed); if the scalar's kind is compatible with the array dtype, it is
+    #   converted with that dtype and device, else converted with default dtype on that
+    #   device. If neither is an array object both are passed through xp.asarray.
+    #   Original argument order is preserved.
+    # Outputs: (array_a, array_b).
     """
     Ensure both `a` and `b` are arrays.
 
@@ -208,6 +247,10 @@ def asarrays(
 
 
 def ndindex(*x: int) -> Generator[tuple[int, ...]]:
+    # [FUNCTION DOC]
+    # HELPER: Generator over all index tuples of a grid with sizes x in C order (last
+    #   index varies fastest), implemented recursively; with no sizes yields a single
+    #   empty tuple.
     """
     Generate all N-dimensional indices for a given array shape.
 
@@ -231,6 +274,10 @@ def ndindex(*x: int) -> Generator[tuple[int, ...]]:
 
 
 def eager_shape(x: Array, /, axis: int | None = None) -> tuple[int, ...]:
+    # [FUNCTION DOC]
+    # HELPER: Returns x.shape (or a 1-tuple with the size of axis) after checking that
+    #   the relevant dims are known.
+    # Exceptions: TypeError if any relevant dim is None or NaN (Dask unknown size).
     """
     Return shape of an array. Raise if shape is not fully defined.
 
@@ -264,6 +311,10 @@ def eager_shape(x: Array, /, axis: int | None = None) -> tuple[int, ...]:
 def meta_namespace(
     *arrays: Array | complex | None, xp: ArrayNamespace | None = None
 ) -> ArrayNamespace:
+    # [FUNCTION DOC]
+    # HELPER: Namespace to use for per-chunk work: for non-Dask namespaces returns xp
+    #   (inferred if None); for Dask returns the namespace of the arrays' _meta objects
+    #   (scalars and None skipped).
     """
     Get the namespace of Dask chunks.
 
@@ -291,6 +342,11 @@ def meta_namespace(
 
 
 def capabilities(xp: ArrayNamespace, x: Array | None = None) -> dict[str, int | None]:
+    # [FUNCTION DOC]
+    # HELPER: Returns xp's inspection capabilities dict, patched: for JAX "boolean
+    #   indexing" is forced False (old jax versions report True); for PyTorch on the
+    #   meta device (x's device, or the default device if x is None) "boolean indexing"
+    #   and "data-dependent shapes" are forced False. Patching works on a copy.
     """
     Return patched ``xp.__array_namespace_info__().capabilities()``.
 
@@ -343,6 +399,15 @@ FlattenRest: TypeAlias = tuple[object, ...]
 def pickle_flatten(
     obj: object, cls: type[T] | tuple[type[T], ...]
 ) -> tuple[list[T], FlattenRest]:
+    # [FUNCTION DOC]
+    # HELPER: Flattens an arbitrary object into the instances of cls it contains plus an
+    #   opaque rest, by pickling it with a custom Pickler whose persistent_id pulls out
+    #   cls instances (pid 0) and unpicklable or non-picklable-by-value objects (types,
+    #   functions, modules, objects failing __reduce_ex__; pid 1), letting basic
+    #   containers and picklable objects be descended into.
+    # Outputs: (list of cls instances, tuple of pickled bytes followed by the extracted
+    #   rest objects).
+    # Exceptions: pickling errors propagate.
     """
     Use the pickle machinery to extract objects out of an arbitrary container.
 
@@ -402,6 +467,9 @@ def pickle_flatten(
     rest: list[object] = []
 
     class Pickler(pickle.Pickler):  # numpydoc ignore=GL08
+        # [CLASS DOC]
+        # HELPER: Local Pickler subclass that redirects cls instances and unpicklable
+        #   objects to the instances/rest lists via persistent ids.
         """
         Use the `pickle.Pickler.persistent_id` hook to extract objects.
         """
@@ -410,6 +478,11 @@ def pickle_flatten(
         def persistent_id(
             self, obj: object
         ) -> Literal[0, 1] | None:  # numpydoc ignore=GL08
+            # [FUNCTION DOC]
+            # HELPER: Returns 0 (and records obj in instances) for cls instances; None
+            #   for exact basic picklable types so they are pickled normally; 1
+            #   (recording in rest) for types/functions/modules or objects whose
+            #   __reduce_ex__ raises; otherwise None.
             if isinstance(obj, cls):
                 instances.append(obj)
                 return 0
@@ -440,6 +513,13 @@ def pickle_flatten(
 
 
 def pickle_unflatten(instances: Iterable[object], rest: FlattenRest) -> Any:
+    # [FUNCTION DOC]
+    # HELPER: Inverse of pickle_flatten: unpickles the bytes in rest[0] with an
+    #   Unpickler whose persistent_load pulls the next object from instances for pid 0
+    #   or from the remaining rest for pid 1. The instances may be replaced by
+    #   transformed objects (e.g. JAX tracers).
+    # Outputs: reconstructed object. Exceptions: ValueError if too few instances or rest
+    #   objects are provided.
     """
     Reverse of ``pickle_flatten``.
 
@@ -471,10 +551,15 @@ def pickle_unflatten(instances: Iterable[object], rest: FlattenRest) -> Any:
     pik = typing.cast(bytes, next(iters[1]))
 
     class Unpickler(pickle.Unpickler):  # numpydoc ignore=GL08
+        # [CLASS DOC]
+        # HELPER: Local Unpickler mirroring the Pickler of pickle_flatten.
         """Mirror of the overridden Pickler in pickle_flatten."""
 
         @override
         def persistent_load(self, pid: Literal[0, 1]) -> object:  # numpydoc ignore=GL08
+            # [FUNCTION DOC]
+            # HELPER: Returns the next object from the iterator selected by pid (0
+            #   instances, 1 rest). Raises ValueError when that iterator is exhausted.
             try:
                 return next(iters[pid])
             except StopIteration as e:
@@ -486,6 +571,11 @@ def pickle_unflatten(instances: Iterable[object], rest: FlattenRest) -> Any:
 
 
 class _AutoJITWrapper(Generic[T]):  # numpydoc ignore=PR01
+    # [CLASS DOC]
+    # HELPER: Generic pytree container used by jax_autojit: holds an arbitrary object
+    #   (iterators are materialised to lists and re-iterated on access) and registers
+    #   itself once with jax.tree_util using pickle_flatten/pickle_unflatten so that
+    #   jax.Array leaves are traced and everything else is static.
     """
     Helper of :func:`jax_autojit`.
 
@@ -499,6 +589,10 @@ class _AutoJITWrapper(Generic[T]):  # numpydoc ignore=PR01
     __slots__: tuple[str, ...] = ("_is_iter", "_obj")
 
     def __init__(self, obj: T) -> None:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Ensures pytree registration, then stores obj, converting an Iterator
+        #   into a list and remembering that it was one.
+        # Side effects: may import jax and register the class globally.
         self._register()
         if isinstance(obj, Iterator):
             self._obj = list(obj)
@@ -509,11 +603,20 @@ class _AutoJITWrapper(Generic[T]):  # numpydoc ignore=PR01
 
     @property
     def obj(self) -> T:  # numpydoc ignore=RT01
+        # [FUNCTION DOC]
+        # HELPER: Returns the wrapped object, or a fresh iterator over it if it was
+        #   originally an iterator.
         """Return wrapped object."""
         return iter(self._obj) if self._is_iter else self._obj
 
     @classmethod
     def _register(cls) -> None:  # numpydoc ignore=SS06
+        # [FUNCTION DOC]
+        # HELPER: One-time registration of the class as a JAX pytree node (flatten
+        #   extracts jax.Array instances, unflatten rebuilds); sets the class flag
+        #   _registered.
+        # Side effects: imports jax; mutates global JAX pytree registry and the class
+        #   attribute.
         """
         Register upon first use instead of at import time, to avoid
         globally importing JAX.
@@ -532,6 +635,12 @@ class _AutoJITWrapper(Generic[T]):  # numpydoc ignore=PR01
 def jax_autojit(
     func: Callable[P, T],
 ) -> Callable[P, T]:  # numpydoc ignore=PR01,RT01,SS03
+    # [FUNCTION DOC]
+    # HELPER: Wraps func with jax.jit such that any argument and return value structure
+    #   is supported: all args/kwargs are packed into an _AutoJITWrapper whose JAX array
+    #   leaves become traced inputs while everything else is static; the result is
+    #   wrapped likewise and unpacked.
+    # Outputs: wrapped function with func's metadata. Side effects: imports jax.
     """
     Wrap `func` with ``jax.jit``, with the following differences:
 
@@ -579,12 +688,18 @@ def jax_autojit(
     def inner(  # numpydoc ignore=GL08
         wargs: _AutoJITWrapper[Any],
     ) -> _AutoJITWrapper[T]:
+        # [FUNCTION DOC]
+        # HELPER: The jitted function: unpacks args/kwargs from the wrapper, calls func
+        #   and wraps the result.
         args, kwargs = wargs.obj
         res = func(*args, **kwargs)  # pyright: ignore[reportCallIssue]
         return _AutoJITWrapper(res)
 
     @functools.wraps(func)
     def outer(*args: P.args, **kwargs: P.kwargs) -> T:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Public wrapper: packs args and kwargs, calls the jitted inner and
+        #   returns the unwrapped result.
         wargs = _AutoJITWrapper((args, kwargs))
         return inner(wargs).obj
 
@@ -595,6 +710,11 @@ def normalize_pad_width(
     pad_width: int | tuple[int, int] | Sequence[tuple[int, int]],
     ndim: int,
 ) -> list[tuple[int, int]]:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Normalises pad_width to a list of ndim (before, after) pairs: an int
+    #   becomes (n, n) per axis; a 2-tuple of ints is repeated for every axis; anything
+    #   else is converted to a list as given (not validated; length checks happen in the
+    #   caller).
     """Normalize `pad_width` to a list of `ndim` (before, after) pairs of ints."""
     if isinstance(pad_width, int):
         return [(pad_width, pad_width)] * ndim
@@ -608,6 +728,10 @@ def normalize_pad_width(
 
 
 def is_jax_jit_enabled(xp: ArrayNamespace) -> bool:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Detects tracing under jax.jit by converting a 0-D False array to bool: a
+    #   TracerBoolConversionError means jit is active (True); otherwise returns False.
+    #   Imports jax.
     """Return True if this function is being called inside ``jax.jit``."""
     import jax  # pylint: disable=import-outside-toplevel
 

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.inspection.permutation_importance: ranking of informative features,
+# robustness to high-cardinality noise, pandas/mixed-type inputs, closed-form check for
+# linear regression, determinism across joblib backends, sample_weight handling, custom
+# and multi-metric scorers, max_samples validation and NEP18 non-usage.
 import numpy as np
 import pytest
 from joblib import parallel_backend
@@ -33,6 +38,12 @@ from sklearn.utils.estimator_checks import _NotAnArray
 def test_permutation_importance_correlated_feature_regression(
     n_jobs, max_samples, sample_weight
 ):
+    # [FUNCTION DOC]
+    # Appends a near-copy of the diabetes target (tiny Gaussian noise) as an extra
+    # column,
+    # fits a RandomForestRegressor and verifies that permutation_importance returns
+    # importances of shape (n_features, n_repeats) and that the added column has the
+    # largest mean importance, across n_jobs, max_samples and None/unit sample weights.
     # Make sure that feature highly correlated to the target have a higher
     # importance
     rng = np.random.RandomState(42)
@@ -70,6 +81,11 @@ def test_permutation_importance_correlated_feature_regression(
 def test_permutation_importance_correlated_feature_regression_pandas(
     n_jobs, max_samples
 ):
+    # [FUNCTION DOC]
+    # Same check as the regression variant but with a RandomForestClassifier on iris
+    # given as
+    # a pandas DataFrame with an extra column correlated with the class label; skipped
+    # without pandas.
     pd = pytest.importorskip("pandas")
 
     # Make sure that feature highly correlated to the target have a higher
@@ -108,6 +124,15 @@ def test_permutation_importance_correlated_feature_regression_pandas(
 @pytest.mark.parametrize("n_jobs", [1, 2])
 @pytest.mark.parametrize("max_samples", [0.5, 1.0])
 def test_robustness_to_high_cardinality_noisy_feature(n_jobs, max_samples, seed=42):
+    # [FUNCTION DOC]
+    # Builds a 5-class problem with two binary indicator features (for classes 0 and 1)
+    # and
+    # one continuous noise feature; fits a deep random forest on half the data and first
+    # confirms impurity importances favour the noise feature, then verifies held-out
+    # permutation importances: noise importance is non-zero but below 0.05, and each
+    # informative feature exceeds 0.15. Parametrized on n_jobs and max_samples.
+    # KNOWN ISSUE: the inline comment mentions "10 other noisy features" but only
+    # n_noise_features = 1 is added.
     # Permutation variable importance should not be affected by the high
     # cardinality bias of traditional feature importances, especially when
     # computed on a held-out test set:
@@ -187,6 +212,12 @@ def test_robustness_to_high_cardinality_noisy_feature(n_jobs, max_samples, seed=
 
 
 def test_permutation_importance_mixed_types():
+    # [FUNCTION DOC]
+    # Fits imputer + logistic regression pipeline on data containing a NaN, verifies the
+    # last (label-correlated) column gets the highest importance, and that a different
+    # random_state yields different importance arrays with the same ranking.
+    # KNOWN ISSUE: despite the name, the input is a purely numeric float array; only the
+    # pandas variant exercises mixed types.
     rng = np.random.RandomState(42)
     n_repeats = 4
 
@@ -217,6 +248,12 @@ def test_permutation_importance_mixed_types():
 
 
 def test_permutation_importance_mixed_types_pandas():
+    # [FUNCTION DOC]
+    # Uses a DataFrame with a numeric column containing NaN and a string column,
+    # preprocessed
+    # by a ColumnTransformer (impute+scale, one-hot) into logistic regression; verifies
+    # the
+    # importance shape and that the string column (correlated with y) ranks highest.
     pd = pytest.importorskip("pandas")
     rng = np.random.RandomState(42)
     n_repeats = 5
@@ -241,6 +278,10 @@ def test_permutation_importance_mixed_types_pandas():
 
 
 def test_permutation_importance_linear_regression():
+    # [FUNCTION DOC]
+    # On standardized make_regression data, verifies mean permutation importances with
+    # negative MSE scoring match the closed form 2 * coef_ squared (rtol 0.1, 50
+    # repeats).
     X, y = make_regression(n_samples=500, n_features=10, random_state=0)
 
     X = scale(X)
@@ -260,6 +301,15 @@ def test_permutation_importance_linear_regression():
 
 @pytest.mark.parametrize("max_samples", [500, 1.0])
 def test_permutation_importance_equivalence_sequential_parallel(max_samples):
+    # [FUNCTION DOC]
+    # Verifies that permutation_importance with fixed random_state gives identical
+    # results
+    # sequentially, with process-based parallelism and with the threading backend; also
+    # checks the problem yields non-trivial importances (range > 0.3). With
+    # max_samples=500
+    # (equal to n_samples) it also checks equivalence to max_samples=1.0, because the
+    # parallel
+    # calls use the default max_samples.
     # regression test to make sure that sequential and parallel calls will
     # output the same results.
     # Also tests that max_samples equal to number of samples is equivalent to 1.0
@@ -302,6 +352,15 @@ def test_permutation_importance_equivalence_sequential_parallel(max_samples):
 @pytest.mark.parametrize("n_jobs", [None, 1, 2])
 @pytest.mark.parametrize("max_samples", [0.5, 1.0])
 def test_permutation_importance_equivalence_array_dataframe(n_jobs, max_samples):
+    # [FUNCTION DOC]
+    # Verifies identical importances for a numpy array and an equivalent DataFrame whose
+    # last column is a pandas Categorical (derived by binning y) and whose index is
+    # non-default strings; checks importances are non-trivial first. Parametrized on
+    # n_jobs
+    # and max_samples; skipped without pandas.
+    # KNOWN ISSUE: an inline comment calls this a sequential/parallel regression test,
+    # copied
+    # from the previous test; it actually compares array vs dataframe.
     # This test checks that the column shuffling logic has the same behavior
     # both a dataframe and a simple numpy array.
     pd = pytest.importorskip("pandas")
@@ -371,6 +430,10 @@ def test_permutation_importance_equivalence_array_dataframe(n_jobs, max_samples)
 
 @pytest.mark.parametrize("input_type", ["array", "pandas"])
 def test_permutation_importance_large_memmaped_data(input_type):
+    # [FUNCTION DOC]
+    # Smoke test for issue 15810: with >1MB data (triggering joblib memmapping) and
+    # n_jobs=2, permutation_importance must not fail for array or DataFrame input; also
+    # verifies a feature-independent DummyClassifier yields all-zero importances.
     # Smoke, non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/15810
     n_samples, n_features = int(5e4), 4
@@ -393,6 +456,14 @@ def test_permutation_importance_large_memmaped_data(input_type):
 
 
 def test_permutation_importance_sample_weight():
+    # [FUNCTION DOC]
+    # Constructs data where feature 0 is twice as influential as feature 1 on the first
+    # half
+    # and vice versa on the second half; with a perfect linear fit and MAE scoring
+    # verifies
+    # importance ratio is about 1 unweighted, unchanged with unit weights, and about
+    # doubles
+    # when the first half receives huge weights.
     # Creating data with 2 features and 1000 samples, where the target
     # variable is a linear combination of the two features, such that
     # in half of the samples the impact of feature 1 is twice the impact of
@@ -454,8 +525,16 @@ def test_permutation_importance_sample_weight():
 
 
 def test_permutation_importance_no_weights_scoring_function():
+    # [FUNCTION DOC]
+    # Verifies a custom scorer lacking a sample_weight argument works when sample_weight
+    # is
+    # None and raises TypeError when sample_weight is given.
     # Creating a scorer function that does not takes sample_weight
     def my_scorer(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Constant scorer ignoring its inputs and returning 1; deliberately has
+        # no
+        # sample_weight parameter.
         return 1
 
     # Creating some data and estimator for the permutation test
@@ -505,6 +584,11 @@ def test_permutation_importance_no_weights_scoring_function():
     ],
 )
 def test_permutation_importance_multi_metric(list_single_scorer, multi_scorer):
+    # [FUNCTION DOC]
+    # Verifies multi-metric scoring (list of names, dict of scorers, or callable
+    # returning a
+    # dict) returns a Bunch keyed by metric whose importances equal those from separate
+    # single-metric runs with the same random_state.
     # Test permutation importance when scoring contains multiple scorers
 
     # Creating some data and estimator for the permutation test
@@ -526,6 +610,9 @@ def test_permutation_importance_multi_metric(list_single_scorer, multi_scorer):
 
 
 def test_permutation_importance_max_samples_error():
+    # [FUNCTION DOC]
+    # Verifies ValueError "max_samples must be <= n_samples" for an integer max_samples
+    # larger than the number of samples.
     """Check that a proper error message is raised when `max_samples` is not
     set to a valid input value.
     """
@@ -542,6 +629,9 @@ def test_permutation_importance_max_samples_error():
 
 
 def test_permutation_importance_array_function_not_called():
+    # [FUNCTION DOC]
+    # Verifies permutation_importance runs on _NotAnArray inputs, which raise if NumPy's
+    # __array_function__ protocol is used; passing means no NEP18 dispatch happened.
     """Check that `__array_function__` (NEP18) is not called."""
     X = _NotAnArray([[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 2], [2, 3], [2, 4]])
     y = _NotAnArray([1, 1, 1, 2, 2, 2, 1, 1])

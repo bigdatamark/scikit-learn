@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Generalized Linear Model regressors with L2 penalty: the private base
+#   _GeneralizedLinearRegressor (squared error / normal by default) and the public
+#   PoissonRegressor, GammaRegressor and TweedieRegressor, which differ only in the loss
+#   returned by _get_loss. The objective is the sample-weighted mean of half the unit
+#   deviance plus half alpha times the squared L2 norm of coef (intercept unpenalized),
+#   minimized via lbfgs or a Newton solver from _newton_solver. Supports dense/sparse
+#   input and partial Array API (lbfgs only).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -42,6 +50,12 @@ from sklearn.utils.validation import (
 
 
 class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Base GLM estimator. fit builds a LinearModelLoss from _get_loss, initializes
+    #   coefficients (warm start or zeros with intercept equal to the link of the weighted
+    #   mean of y), and optimizes; predict applies the inverse link to the linear
+    #   predictor; score returns D^2 (fraction of deviance explained). Subclasses override
+    #   _get_loss (and possibly __init__/tags).
     """Regression via a penalized Generalized Linear Model (GLM).
 
     GLMs based on a reproductive Exponential Dispersion Model (EDM) aim at fitting and
@@ -173,6 +187,10 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         warm_start=False,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged (alpha, fit_intercept, solver, max_iter, tol,
+        #   warm_start, verbose); validated in fit via _parameter_constraints. solver may
+        #   also be a hidden NewtonSolver subclass for testing.
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.solver = solver
@@ -183,6 +201,28 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the GLM. Steps: validate X (dense, CSR or CSC; float64/float32) and 1d
+        #   numeric y cast to X dtype; validate sample_weight if given; move y and weights
+        #   to X's namespace/device; build the base loss and LinearModelLoss; check y is
+        #   in the loss's valid range. Initialize coef from previous coef_ and intercept_
+        #   (warm start, intercept appended last) or zeros with intercept set to link of
+        #   the weighted mean of y. Optimize: lbfgs via scipy L-BFGS-B on loss_gradient
+        #   (maxiter, maxls 50, gtol tol, ftol 64 eps) and convert the result back to X's
+        #   namespace; "newton-cholesky" via NewtonCholeskySolver; or a user-provided
+        #   NewtonSolver subclass. Split the result into coef_ and intercept_ (0.0 if no
+        #   intercept).
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight optional
+        #   (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError if y is outside the loss domain or solver is invalid;
+        #   validation errors.
+        # Side effects: sets _base_loss, n_iter_, coef_, intercept_, n_features_in_
+        #   (feature_names_in_); ConvergenceWarning from solvers; verbose output.
+        # KNOWN ISSUE: for Newton solvers coef_ stays a NumPy array even if X uses
+        #   another Array API namespace (only the lbfgs branch converts back); the custom
+        #   NewtonSolver branch does not forward verbose. The final else branch is
+        #   unreachable given parameter validation.
         """Fit a Generalized Linear Model.
 
         Parameters
@@ -339,6 +379,12 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         return self
 
     def _linear_predictor(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Computes the linear predictor (raw prediction) for X after checking
+        #   the model is fitted and validating X (dense or CSR/CSC/COO, float, n_features
+        #   consistent): X times coef_ plus intercept_.
+        # Outputs: array (n_samples,).
+        # Exceptions: NotFittedError; validation errors.
         """Compute the linear_predictor = `X @ coef_ + intercept_`.
 
         Note that we often use the term raw_prediction instead of linear predictor.
@@ -367,6 +413,10 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         return X @ self.coef_ + self.intercept_
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns the predicted mean: inverse link of the linear predictor, shape
+        #   (n_samples,).
+        # Exceptions: same as _linear_predictor.
         """Predict using GLM with feature matrix X.
 
         Parameters
@@ -385,6 +435,20 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         return y_pred
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Computes D^2, the fraction of deviance explained: one minus (model deviance +
+        #   constant) / (null deviance + constant), where the null model predicts the link
+        #   of the weighted mean of y and constant is the weighted mean of the loss term
+        #   that makes the deviance zero at the optimum. The factor 2 of the deviance
+        #   cancels.
+        # Inputs: X; y (n_samples,); sample_weight optional.
+        # Outputs: Python float (can be negative).
+        # Exceptions: ValueError when y is outside the loss domain; validation and
+        #   NotFittedError.
+        # Side effects: none.
+        # KNOWN ISSUE: the out-of-range error message uses base_loss.__name__, but
+        #   base_loss is an instance, so an AttributeError would be raised instead of the
+        #   intended ValueError (fit uses __class__.__name__ correctly).
         """Compute D^2, the percentage of deviance explained.
 
         D^2 is a generalization of the coefficient of determination R^2.
@@ -463,6 +527,10 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         return float(1 - (deviance + constant) / (deviance_null + constant))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: marks sparse input support and sets
+        #   target_tags.positive_only when the (freshly built) loss rejects y = -1. Errors
+        #   from building the loss with invalid params are swallowed.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         try:
@@ -478,6 +546,10 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
         return tags
 
     def _get_loss(self, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Returns the base loss for this estimator; the base class uses HalfSquaredError
+        #   (identity link). xp and device are accepted for Array API aware subclasses and
+        #   ignored here.
         """This is only necessary because of the link and power arguments of the
         TweedieRegressor.
 
@@ -488,6 +560,9 @@ class _GeneralizedLinearRegressor(RegressorMixin, BaseEstimator):
 
 
 class PoissonRegressor(_GeneralizedLinearRegressor):
+    # [CLASS DOC]
+    # GLM with Poisson deviance and log link. Only overrides __init__ (same parameters
+    #   as the base), _get_loss and tags (Array API support when solver is lbfgs).
     """Generalized Linear Model with a Poisson distribution.
 
     This regressor uses the 'log' link function.
@@ -604,6 +679,8 @@ class PoissonRegressor(_GeneralizedLinearRegressor):
         warm_start=False,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to the base __init__; no extra state.
         super().__init__(
             alpha=alpha,
             fit_intercept=fit_intercept,
@@ -615,18 +692,26 @@ class PoissonRegressor(_GeneralizedLinearRegressor):
         )
 
     def _get_loss(self, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Returns HalfPoissonLoss for NumPy (or when xp is None), otherwise the Array
+        #   API variant bound to xp and device.
         if xp is None or _is_numpy_namespace(xp):
             return HalfPoissonLoss()
         else:
             return HalfPoissonLossArrayAPI(xp=xp, device=device)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Parent tags plus array_api_support set True only when solver is "lbfgs".
         tags = super().__sklearn_tags__()
         tags.array_api_support = self.solver == "lbfgs"
         return tags
 
 
 class GammaRegressor(_GeneralizedLinearRegressor):
+    # [CLASS DOC]
+    # GLM with Gamma deviance and log link (targets must be strictly positive). Only
+    #   overrides __init__ and _get_loss.
     """Generalized Linear Model with a Gamma distribution.
 
     This regressor uses the 'log' link function.
@@ -744,6 +829,8 @@ class GammaRegressor(_GeneralizedLinearRegressor):
         warm_start=False,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to the base __init__; no extra state.
         super().__init__(
             alpha=alpha,
             fit_intercept=fit_intercept,
@@ -755,10 +842,15 @@ class GammaRegressor(_GeneralizedLinearRegressor):
         )
 
     def _get_loss(self, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Returns a new HalfGammaLoss; xp and device are ignored.
         return HalfGammaLoss()
 
 
 class TweedieRegressor(_GeneralizedLinearRegressor):
+    # [CLASS DOC]
+    # GLM with Tweedie deviance of configurable power and link. Adds the hyperparameters
+    #   power and link; _get_loss picks the loss class from them.
     """Generalized Linear Model with a Tweedie distribution.
 
     This estimator can be used to model different GLMs depending on the
@@ -910,6 +1002,9 @@ class TweedieRegressor(_GeneralizedLinearRegressor):
         warm_start=False,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards shared hyperparameters to the base __init__ and stores link (auto,
+        #   identity or log) and power (float) on self.
         super().__init__(
             alpha=alpha,
             fit_intercept=fit_intercept,
@@ -923,6 +1018,14 @@ class TweedieRegressor(_GeneralizedLinearRegressor):
         self.power = power
 
     def _get_loss(self, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Returns the Tweedie loss: with link auto, identity link
+        #   (HalfTweedieLossIdentity) for power at most 0 and log link (HalfTweedieLoss)
+        #   otherwise; with link log or identity, the corresponding class. Invalid power
+        #   for the chosen loss raises ValueError from the loss constructor. xp and device
+        #   are ignored.
+        # KNOWN ISSUE: implicitly returns None for an unknown link value; parameter
+        #   validation normally prevents this.
         if self.link == "auto":
             if self.power <= 0:
                 # identity link

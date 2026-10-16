@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements IterativeImputer, a multivariate (MICE-style) imputer that models each
+# feature with missing values as a regression target of the other features and refines
+# the imputations over several round-robin passes. Also defines the _ImputerTriplet
+# record (feat_idx, neighbor_feat_idx, fitted estimator) stored for every imputation
+# step, and the _assign_where helper. The class is experimental and exposed via
+# sklearn.experimental.enable_iterative_imputer.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -38,6 +45,14 @@ _ImputerTriplet = namedtuple(
 
 
 def _assign_where(X1, X2, cond):
+    # [FUNCTION DOC]
+    # HELPER: Copies entries of X2 into X1 at the positions where the boolean mask cond
+    # is True; uses DataFrame.mask in place for pandas objects, boolean indexing
+    # otherwise.
+    # Inputs: X1 - ndarray or DataFrame (n_samples, n_features), the destination; X2 -
+    # ndarray of the same shape, the source; cond - boolean array of the same shape.
+    # Outputs: None.
+    # Side effects: mutates X1 in place.
     """Assign X2 to X1 where cond is True.
 
     Parameters
@@ -58,6 +73,18 @@ def _assign_where(X1, X2, cond):
 
 
 class IterativeImputer(_BaseImputer):
+    # [CLASS DOC]
+    # Round-robin iterative imputer. Fit: initial fill via SimpleImputer, then for up to
+    # max_iter rounds, for each feature in an order chosen by imputation_order, fit a
+    # clone of estimator (BayesianRidge by default) on rows where that feature is
+    # observed, using the current values of neighbor features, and overwrite the missing
+    # entries with the predictions (or truncated-normal draws if sample_posterior).
+    # Stops early when the max absolute change between rounds falls below tol times the
+    # max absolute observed value (only without sample_posterior). Transform replays the
+    # stored sequence of fitted estimators. Fitted attributes: initial_imputer_,
+    # imputation_sequence_, n_iter_, n_features_with_missing_, random_state_, indicator_
+    # (if add_indicator), plus private _estimator, _min_value, _max_value,
+    # _is_empty_feature.
     """Multivariate imputer that estimates each feature from all the others.
 
     A strategy for imputing missing values by modeling each feature with
@@ -331,6 +358,11 @@ class IterativeImputer(_BaseImputer):
         add_indicator=False,
         keep_empty_features=False,
     ):
+        # [FUNCTION DOC]
+        # Stores all constructor parameters unchanged (sklearn convention, no validation
+        # here); missing_values, add_indicator and keep_empty_features are forwarded to
+        # _BaseImputer.
+        # Outputs: None. Side effects: sets the same-named attributes on self.
         super().__init__(
             missing_values=missing_values,
             add_indicator=add_indicator,
@@ -361,6 +393,25 @@ class IterativeImputer(_BaseImputer):
         fit_mode=True,
         params=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Performs one imputation step for column feat_idx. Steps: if fit_mode,
+        # take rows where the feature is observed, use columns neighbor_feat_idx as
+        # inputs and feat_idx as target and fit the estimator (a fresh clone of
+        # self._estimator when estimator is None) with params. If the feature has no
+        # missing rows, return immediately. Otherwise predict on missing rows: with
+        # sample_posterior, get mean and std; entries with non-positive std take the
+        # mean, means below/above the feature bounds take the bound, the rest are
+        # sampled from a normal truncated to [min, max] using random_state_. Without it,
+        # predictions are clipped to the bounds. The results are written into X_filled
+        # at the missing rows of feat_idx.
+        # Inputs: X_filled - 2-D array with current imputations; mask_missing_values -
+        # boolean mask of the same shape; feat_idx - int column; neighbor_feat_idx - int
+        # array of predictor columns; estimator - fitted or unfitted estimator or None;
+        # fit_mode - bool; params - dict of fit kwargs (must be a dict when fit_mode is
+        # True).
+        # Outputs: tuple (X_filled, estimator).
+        # Exceptions: ValueError if estimator is None while fit_mode is False.
+        # Side effects: mutates X_filled in place; consumes random_state_ when sampling.
         """Impute a single feature from the others provided.
 
         This function predicts the missing values of one of the features using
@@ -475,6 +526,17 @@ class IterativeImputer(_BaseImputer):
         return X_filled, estimator
 
     def _get_neighbor_feat_idx(self, n_features, feat_idx, abs_corr_mat):
+        # [FUNCTION DOC]
+        # HELPER: Chooses predictor columns for feat_idx. When n_nearest_features is set
+        # and smaller than n_features, draws n_nearest_features distinct columns with
+        # probabilities given by column feat_idx of abs_corr_mat (whose diagonal is
+        # zero, so feat_idx itself is never drawn); otherwise returns all columns except
+        # feat_idx in ascending order.
+        # Inputs: n_features - int; feat_idx - int; abs_corr_mat - (n_features,
+        # n_features) column-normalized array or None (only used in the sampling
+        # branch).
+        # Outputs: 1-D int ndarray of column indices.
+        # Side effects: consumes random_state_ in the sampling branch.
         """Get a list of other features to predict `feat_idx`.
 
         If `self.n_nearest_features` is less than or equal to the total
@@ -511,6 +573,22 @@ class IterativeImputer(_BaseImputer):
         return neighbor_feat_idx
 
     def _get_ordered_idx(self, mask_missing_values):
+        # [FUNCTION DOC]
+        # HELPER: Determines the order of features visited in one round. Candidate
+        # features are all columns, or only columns having at least one missing value
+        # when skip_complete. "roman" keeps index order, "arabic" reverses it,
+        # "ascending"/"descending" stably sort by fraction of missing values (fewest /
+        # most first) keeping only the candidates, and "random" shuffles the candidate
+        # indices.
+        # Inputs: mask_missing_values - boolean array (n_samples, n_features).
+        # Outputs: 1-D int ndarray of feature indices.
+        # Side effects: "random" shuffles in place using random_state_.
+        # KNOWN ISSUE: docstring says the output has shape (n_features,) and that
+        # complete features are always skipped; both only hold when skip_complete is
+        # True / False resp.
+        # KNOWN ISSUE: the ascending/descending branches assume the excluded complete
+        # features are exactly those with the smallest missing fraction (zero), which
+        # holds, but the argsort slicing relies on that implicitly.
         """Decide in what order we will update the features.
 
         As a homage to the MICE R package, we will have 4 main options of
@@ -551,6 +629,17 @@ class IterativeImputer(_BaseImputer):
         return ordered_idx
 
     def _get_abs_corr_mat(self, X_filled, tolerance=1e-6):
+        # [FUNCTION DOC]
+        # HELPER: Builds the neighbor sampling matrix used when n_nearest_features
+        # restricts the predictors. Returns None when n_nearest_features is None or >=
+        # n_features. Otherwise computes the absolute Pearson correlation between
+        # columns, replaces NaN (constant columns) by tolerance, clips values below
+        # tolerance up to tolerance, zeroes the diagonal and L1-normalizes each column
+        # so it sums to 1.
+        # Inputs: X_filled - 2-D array (n_samples, n_features); tolerance - float,
+        # default 1e-6.
+        # Outputs: (n_features, n_features) ndarray or None.
+        # Side effects: none (numpy invalid-value warnings suppressed locally).
         """Get absolute correlation matrix between features.
 
         Parameters
@@ -589,6 +678,26 @@ class IterativeImputer(_BaseImputer):
         return abs_corr_mat
 
     def _initial_imputation(self, X, in_fit=False):
+        # [FUNCTION DOC]
+        # HELPER: Validates X and computes the starting imputation. Steps: validate X as
+        # float, Fortran order, allowing NaN only when missing_values is NaN (feature
+        # counts/names reset when in_fit); check dtype compatibility; compute the
+        # missing mask. If initial_imputer_ is None, create and fit_transform a
+        # SimpleImputer with initial_strategy/fill_value/keep_empty_features (default
+        # output container); otherwise transform with it. In fit, record
+        # _is_empty_feature (all-missing columns). If keep_empty_features is False, drop
+        # those columns from X and from the working mask; otherwise mark them as not
+        # missing and copy their initial fill into X.
+        # Inputs: X - array-like (n_samples, n_features); in_fit - bool, default False.
+        # Outputs: tuple (Xt, X_filled, mask_missing_values, X_missing_mask): validated
+        # data (possibly column-reduced), initial imputation, working mask aligned with
+        # Xt, and the full original missing mask.
+        # Exceptions: propagated from validate_data / _check_inputs_dtype (e.g. inf
+        # values, feature-count mismatch, incompatible dtype).
+        # Side effects: may set initial_imputer_, _is_empty_feature and validation
+        # attributes (n_features_in_, feature_names_in_) on self; when
+        # keep_empty_features is True writes into the validated array (which may alias
+        # the caller's input if no copy was needed).
         """Perform initial imputation for input `X`.
 
         Parameters
@@ -671,6 +780,17 @@ class IterativeImputer(_BaseImputer):
     def _validate_limit(
         limit, limit_type, n_features, is_empty_feature, keep_empty_feature
     ):
+        # [FUNCTION DOC]
+        # HELPER: Normalizes min_value/max_value into a per-feature float array. None
+        # becomes +inf (max) or -inf (min); a scalar is broadcast to length n_features;
+        # an array must have one entry per original input feature and, when
+        # keep_empty_feature is False, the entries of empty features are removed.
+        # Inputs: limit - None, scalar or array-like; limit_type - "min" or "max";
+        # n_features - number of features after empty-feature removal; is_empty_feature
+        # - boolean array of length n_features_in_; keep_empty_feature - bool.
+        # Outputs: 1-D ndarray of bounds.
+        # Exceptions: ValueError when an array-like limit length differs from the number
+        # of original features.
         """Validate the limits (min/max) of the feature values.
 
         Converts scalar min/max limits to vectors of shape `(n_features,)`.
@@ -721,6 +841,30 @@ class IterativeImputer(_BaseImputer):
         prefer_skip_nested_validation=False
     )
     def fit_transform(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits the imputer and returns the imputed training data. Steps: validate routed
+        # params; keep an existing random_state_ or create one; set _estimator
+        # (BayesianRidge if estimator is None, else a clone); reset imputation_sequence_
+        # and initial_imputer_; run _initial_imputation; fit and compute the missing
+        # indicator. If max_iter is 0, every remaining entry is missing, or there is a
+        # single feature, set n_iter_ to 0 and return the initial imputation. Otherwise
+        # build _min_value/_max_value, compute the visiting order and the correlation
+        # matrix, then run rounds 1..max_iter, each calling _impute_one_feature for
+        # every ordered feature and appending an _ImputerTriplet. Without
+        # sample_posterior, stop when the infinity norm of the change since last round
+        # is below tol times the max absolute observed value. Finally restore the
+        # observed entries from X and append the indicator columns.
+        # Inputs: X - array-like (n_samples, n_features); y - ignored; **params -
+        # metadata routed to the estimator's fit.
+        # Outputs: ndarray (n_samples, n_output_features).
+        # Exceptions: ValueError if any feature has min_value >= max_value or limit
+        # shapes are wrong; errors from routing validation when params are passed
+        # without routing enabled.
+        # Side effects: sets all fitted attributes; prints progress when verbose; emits
+        # ConvergenceWarning when max_iter rounds finish without meeting tol (not with
+        # sample_posterior).
+        # KNOWN ISSUE: random_state_ is reused if already present, so refitting
+        # continues the previous random stream instead of restarting from random_state.
         """Fit the imputer on `X` and return the transformed `X`.
 
         Parameters
@@ -873,6 +1017,18 @@ class IterativeImputer(_BaseImputer):
         return super()._concatenate_indicator(Xt, X_indicator)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Imputes new data by replaying imputation_sequence_ with fit_mode False: after
+        # the initial imputation, each stored (feat_idx, neighbor_feat_idx, estimator)
+        # triplet predicts its feature in sequence; rounds are counted only for verbose
+        # output. Returns the initial imputation when n_iter_ is 0 or everything is
+        # missing. Observed values are restored and indicator columns appended.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples, n_output_features).
+        # Exceptions: NotFittedError if not fitted; validation errors from
+        # _initial_imputation.
+        # Side effects: prints when verbose; consumes random_state_ when
+        # sample_posterior.
         """Impute all missing values in `X`.
 
         Note that this is stochastic, and that if `random_state` is not fixed,
@@ -927,6 +1083,10 @@ class IterativeImputer(_BaseImputer):
         return super()._concatenate_indicator(Xt, X_indicator)
 
     def fit(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # Fits by calling fit_transform and discarding its output.
+        # Inputs: X - array-like; y - ignored; **fit_params - routed metadata.
+        # Outputs: self. Side effects: same as fit_transform.
         """Fit the imputer on `X` and return self.
 
         Parameters
@@ -957,6 +1117,14 @@ class IterativeImputer(_BaseImputer):
         return self
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns output feature names: the initial imputer's names for the input
+        # features (empty features dropped unless kept) followed by missing-indicator
+        # names if add_indicator.
+        # Inputs: input_features - None or array-like of str.
+        # Outputs: ndarray of str.
+        # Exceptions: NotFittedError; ValueError if input_features mismatch
+        # feature_names_in_.
         """Get output feature names for transformation.
 
         Parameters
@@ -982,6 +1150,12 @@ class IterativeImputer(_BaseImputer):
         return self._concatenate_indicator_feature_names_out(names, input_features)
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter that routes fit metadata to the sub-estimator's fit.
+        # Outputs: MetadataRouter. Side effects: none.
+        # KNOWN ISSUE: routes to self.estimator, which may be None (default
+        # BayesianRidge is only created in fit), so no routing is declared for the
+        # default estimator.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing

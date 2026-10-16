@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Second-order (Newton) solvers for GLMs built on LinearModelLoss. Provides the abstract
+#   template NewtonSolver (setup, gradient/Hessian update, inner solve for the Newton
+#   step, Armijo backtracking line search, convergence check, lbfgs fallback, finalize)
+#   and the concrete NewtonCholeskySolver that solves the Newton system with a dense
+#   symmetric solve. Used by _GeneralizedLinearRegressor (solver "newton-cholesky") and
+#   LogisticRegression.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -20,6 +27,11 @@ from sklearn.utils.optimize import _check_optimize_result
 
 
 class NewtonSolver(ABC):
+    # [CLASS DOC]
+    # Abstract template-method solver. Subclasses must implement update_gradient_hessian
+    #   and inner_solve; may override setup and finalize. The driver is solve. State lives
+    #   on self (coef, gradient, raw_prediction, loss_value, iteration, converged,
+    #   use_fallback_lbfgs_solve, ...) and is overwritten during solve.
     """Newton solver for GLMs.
 
     This class implements Newton/2nd-order optimization routines for GLMs. Each Newton
@@ -128,6 +140,14 @@ class NewtonSolver(ABC):
         n_threads=1,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Stores the arguments on self without validation or copying.
+        # Inputs: coef - initial coefficients (may be mutated later by subclasses);
+        #   linear_loss - LinearModelLoss (default squared error with intercept; the
+        #   default instance is created once at definition time and shared);
+        #   l2_reg_strength - float; tol - float; max_iter - int; n_threads - int for
+        #   OpenMP; verbose - int, printing level.
+        # Side effects: sets attributes only.
         self.coef = coef
         self.linear_loss = linear_loss
         self.l2_reg_strength = l2_reg_strength
@@ -137,6 +157,13 @@ class NewtonSolver(ABC):
         self.verbose = verbose
 
     def setup(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Computes the initial raw predictions from self.coef and X and the initial
+        #   objective value (loss plus L2 penalty) using those raw predictions.
+        # Inputs: X, y, sample_weight as passed to solve.
+        # Side effects: sets self.raw_prediction and self.loss_value.
+        # KNOWN ISSUE: the docstring claims self.coef is initialized when None, but the
+        #   code never handles a None coef.
         """Precomputations
 
         If None, initializes:
@@ -158,10 +185,17 @@ class NewtonSolver(ABC):
 
     @abstractmethod
     def update_gradient_hessian(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Abstract. Must compute the current gradient (and Hessian or a substitute) at
+        #   self.coef and store them on self for inner_solve and check_convergence.
         """Update gradient and Hessian."""
 
     @abstractmethod
     def inner_solve(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Abstract. Must compute the Newton direction into self.coef_newton and its
+        #   inner product with the gradient into self.gradient_times_newton, or set
+        #   self.use_fallback_lbfgs_solve to True to request the lbfgs fallback.
         """Compute Newton step.
 
         Sets:
@@ -170,6 +204,17 @@ class NewtonSolver(ABC):
         """
 
     def fallback_lbfgs_solve(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Finishes the optimization with scipy L-BFGS-B starting from the current coef.
+        #   Steps: flatten coef in Fortran order, run minimize on
+        #   linear_loss.loss_gradient with the remaining iteration budget (max_iter minus
+        #   iterations used), maxls 50, gtol tol and a tiny ftol; add the lbfgs iteration
+        #   count to self.iteration; set converged when the scipy status is 0; reshape
+        #   coef back to its original 2d shape if needed.
+        # Inputs: X, y, sample_weight.
+        # Side effects: replaces self.coef, updates self.iteration and self.converged;
+        #   may emit ConvergenceWarning via _check_optimize_result; lbfgs may print when
+        #   verbose > 1.
         """Fallback solver in case of emergency.
 
         If a solver detects convergence problems, it may fall back to this methods in
@@ -203,6 +248,24 @@ class NewtonSolver(ABC):
             self.coef = self.coef.reshape(coef_shape, order="F")
 
     def line_search(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Backtracking line search along self.coef_newton with shrink factor 1/2 and
+        #   Armijo constant 2^-11. For up to 21 step sizes t (1, 1/2, ..., 2^-20): set
+        #   coef to coef_old plus t times the Newton step, update raw predictions linearly
+        #   (reusing the raw prediction of the step direction) and evaluate loss and
+        #   gradient. Accept t if the loss decrease satisfies the Armijo condition (loss
+        #   change at most t times sigma times gradient_times_newton). Otherwise, if the
+        #   loss change is within 16 machine epsilons relative to the old loss, accept t
+        #   when the L1 norm of the new gradient is smaller than that of the old gradient.
+        #   If no t is accepted, warn and request the lbfgs fallback.
+        # Inputs: X, y, sample_weight.
+        # Outputs: none.
+        # Side effects: sets coef_old, loss_value_old, gradient_old, coef, loss_value,
+        #   gradient, and raw_prediction (only on success); emits ConvergenceWarning and
+        #   sets use_fallback_lbfgs_solve on failure; prints when verbose.
+        # KNOWN ISSUE: on failure coef, loss_value and gradient are left at the last
+        #   (rejected, tiny) trial step while raw_prediction is not updated, so state is
+        #   inconsistent; the fallback lbfgs then starts from that last trial coef.
         """Backtracking line search.
 
         Sets:
@@ -313,6 +376,16 @@ class NewtonSolver(ABC):
             )
 
     def check_convergence(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Sets self.converged to True only if both hold: maximum absolute gradient entry
+        #   is at most tol, and half the Newton decrement squared (coef_newton times
+        #   Hessian times coef_newton) is at most tol. Otherwise returns leaving converged
+        #   unchanged.
+        # Inputs: X, y, sample_weight (used only to recompute the loss for verbose
+        #   printing).
+        # Side effects: sets self.converged; prints when verbose.
+        # KNOWN ISSUE: relies on self.hessian, which the base class never defines; only
+        #   subclasses that store a Hessian (NewtonCholeskySolver) can use it unchanged.
         """Check for convergence.
 
         Sets self.converged.
@@ -359,6 +432,8 @@ class NewtonSolver(ABC):
         self.converged = True
 
     def finalize(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Hook for post-processing of self.coef after the loop; no-op in the base class.
         """Finalize the solvers results.
 
         Some solvers may need this, others not.
@@ -366,6 +441,20 @@ class NewtonSolver(ABC):
         pass
 
     def solve(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Main driver. Calls setup, then iterates (iteration starting at 1, at most
+        #   max_iter times, until converged): update_gradient_hessian, inner_solve,
+        #   line_search, check_convergence, breaking out early if inner_solve or
+        #   line_search requested the lbfgs fallback. If not converged afterwards, runs
+        #   fallback_lbfgs_solve when requested, else emits a ConvergenceWarning. Finally
+        #   decrements iteration so it counts completed steps, calls finalize, and returns
+        #   self.coef.
+        # Inputs: X - (n_samples, n_features) data; y - targets; sample_weight -
+        #   (n_samples,) array.
+        # Outputs: final coef array (shape depends on subclass handling, see class
+        #   docstring).
+        # Side effects: mutates many self attributes (iteration, converged,
+        #   use_fallback_lbfgs_solve, coef, ...); warnings and prints.
         """Solve the optimization problem.
 
         This is the main routine.
@@ -450,6 +539,12 @@ class NewtonSolver(ABC):
 
 
 class NewtonCholeskySolver(NewtonSolver):
+    # [CLASS DOC]
+    # Newton solver that forms the full dense Hessian (size coef.size squared) and
+    #   solves the Newton system with scipy.linalg.solve assuming a symmetric matrix.
+    #   Handles the overparametrized multinomial case by fixing the last class to zero (no
+    #   penalty) or the last intercept to zero (with intercept), then converts back to the
+    #   symmetric parametrization in finalize.
     """Cholesky based Newton solver.
 
     Inner solver for finding the Newton step H w_newton = -g uses Cholesky based linear
@@ -457,6 +552,17 @@ class NewtonCholeskySolver(NewtonSolver):
     """
 
     def setup(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Runs the base setup, then: for multiclass losses flattens coef in Fortran
+        #   order; allocates gradient (shape of coef) and square Hessian buffers; computes
+        #   flags is_multinomial_with_intercept and is_multinomial_no_penalty. For the no-
+        #   penalty multinomial, subtracts the last class's coefficients from every class
+        #   so the last class becomes zero; for multinomial with intercept, subtracts the
+        #   last intercept from all intercepts.
+        # Inputs: X, y, sample_weight.
+        # Side effects: sets raw_prediction, loss_value, coef, gradient, hessian and the
+        #   two flags; the shift is done in place and may modify the caller's coef array
+        #   when flattening returns a view.
         super().setup(X=X, y=y, sample_weight=sample_weight)
         if self.linear_loss.base_loss.is_multiclass:
             # Easier with ravelled arrays, e.g., for scipy.linalg.solve.
@@ -490,6 +596,11 @@ class NewtonCholeskySolver(NewtonSolver):
             self.coef[-n_classes:] -= self.coef[-1]
 
     def update_gradient_hessian(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Computes gradient and Hessian at self.coef in place into the preallocated
+        #   buffers using the raw predictions from the last line search.
+        # Side effects: fills self.gradient and self.hessian; sets self.hessian_warning
+        #   (True when many pointwise Hessian values were negative).
         _, _, self.hessian_warning = self.linear_loss.gradient_hessian(
             coef=self.coef,
             X=X,
@@ -503,6 +614,20 @@ class NewtonCholeskySolver(NewtonSolver):
         )
 
     def inner_solve(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Computes the Newton step. If hessian_warning is set, warn and request the
+        #   lbfgs fallback. For the no-penalty multinomial, zero gradient and Hessian
+        #   entries of the last class and solve the reduced system without them; for
+        #   multinomial with intercept, zero and drop the last intercept entry; otherwise
+        #   use full gradient and Hessian. Solve Hessian times step equals minus gradient
+        #   (symmetric, LinAlgWarning promoted to error), re-insert zeros for removed
+        #   entries, and compute gradient_times_newton. If that is positive (not a descent
+        #   direction), request fallback.
+        # Inputs: X, y, sample_weight (unused).
+        # Side effects: sets coef_newton, gradient_times_newton; modifies gradient and
+        #   hessian in place in multinomial cases; on singular or ill-conditioned Hessian
+        #   emits LinAlgWarning and sets use_fallback_lbfgs_solve; ConvergenceWarning on
+        #   hessian_warning; prints when verbose.
         if self.hessian_warning:
             warnings.warn(
                 (
@@ -623,6 +748,11 @@ class NewtonCholeskySolver(NewtonSolver):
             return
 
     def finalize(self, X, y, sample_weight):
+        # [FUNCTION DOC]
+        # Converts coef to the symmetric multinomial parametrization: without penalty,
+        #   reshape to (n_classes, n_dof) and subtract the per-feature mean over classes;
+        #   with intercept only, subtract the mean of the intercepts. No change otherwise.
+        # Side effects: replaces/mutates self.coef.
         if self.is_multinomial_no_penalty:
             # Our convention is usually the symmetric parametrization where
             # sum(coef[classes, features], axis=0) = 0.
