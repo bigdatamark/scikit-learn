@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# HELPER: Test utilities: mock containers mimicking a minimal DataFrame and dummy
+# estimators (CheckingClassifier, NoSampleWeightWrapper,
+# _MockEstimatorOnOffPrediction) used to test meta-estimators, pipelines, CV and
+# metadata routing. Import-time side effect: replaces
+# CheckingClassifier.set_fit_request with a RequestMethod that accepts any key
+# without validation, so arbitrary fit params can be requested.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -16,6 +23,9 @@ from sklearn.utils.validation import (
 
 
 class ArraySlicingWrapper:
+    # [CLASS DOC]
+    # HELPER: Stand-in for a pandas iloc indexer: slicing returns a MockDataFrame of
+    # the sliced underlying array.
     """
     Parameters
     ----------
@@ -23,13 +33,24 @@ class ArraySlicingWrapper:
     """
 
     def __init__(self, array):
+        # [FUNCTION DOC]
+        # HELPER: Stores the wrapped array in self.array.
+        # Inputs: array - ndarray.
         self.array = array
 
     def __getitem__(self, aslice):
+        # [FUNCTION DOC]
+        # HELPER: Indexes the stored array with aslice and wraps the result in a
+        # MockDataFrame.
+        # Inputs: aslice - any NumPy-compatible key. Outputs: MockDataFrame.
         return MockDataFrame(self.array[aslice])
 
 
 class MockDataFrame:
+    # [CLASS DOC]
+    # HELPER: Minimal DataFrame-like wrapper around an ndarray exposing values, shape,
+    # ndim, len, iloc, take and array conversion, used to check that code does not
+    # rely on NumPy-specific behaviour of inputs.
     """
     Parameters
     ----------
@@ -39,6 +60,10 @@ class MockDataFrame:
     # have shape and length but don't support indexing.
 
     def __init__(self, array):
+        # [FUNCTION DOC]
+        # HELPER: Stores array as array and values, copies shape and ndim, and builds an
+        # ArraySlicingWrapper as iloc.
+        # Inputs: array - ndarray.
         self.array = array
         self.values = array
         self.shape = array.shape
@@ -47,25 +72,49 @@ class MockDataFrame:
         self.iloc = ArraySlicingWrapper(array)
 
     def __len__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the length of the underlying array (first dimension).
         return len(self.array)
 
     def __array__(self, dtype=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns the underlying array for NumPy conversion.
+        # Inputs: dtype - ignored.
+        # KNOWN ISSUE: dtype argument is ignored and no copy parameter is accepted (NumPy 2
+        # may pass copy=...).
         # Pandas data frames also are array-like: we want to make sure that
         # input validation in cross-validation does not try to call that
         # method.
         return self.array
 
     def __eq__(self, other):
+        # [FUNCTION DOC]
+        # HELPER: Elementwise equality with another MockDataFrame, wrapped in a new
+        # MockDataFrame.
+        # Inputs: other - object exposing array. Exceptions: AttributeError otherwise.
         return MockDataFrame(self.array == other.array)
 
     def __ne__(self, other):
+        # [FUNCTION DOC]
+        # HELPER: Negation of the truthiness of self == other.
+        # KNOWN ISSUE: self == other returns a MockDataFrame whose truthiness is its
+        # length, so this returns False for any non-empty frame regardless of contents.
         return not self == other
 
     def take(self, indices, axis=0):
+        # [FUNCTION DOC]
+        # HELPER: Takes entries along axis from the underlying array and wraps the result.
+        # Inputs: indices - int array; axis - int, default 0. Outputs: MockDataFrame.
         return MockDataFrame(self.array.take(indices, axis=axis))
 
 
 class CheckingClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Dummy classifier that runs user-supplied checks on X/y in its methods,
+    # verifies expected fit params / sample_weight, and returns random predictions.
+    # Score is 1.0 when foo_param > 1 else 0.0.
+    # KNOWN ISSUE: class docstring documents classes_ as int; it is an ndarray of
+    # unique labels.
     """Dummy classifier to test pipelining and meta-estimators.
 
     Checks some property of `X` and `y`in fit / predict.
@@ -144,6 +193,9 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         expected_fit_params=None,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments unchanged as attributes (sklearn
+        # convention). random_state seeds the random predictions.
         self.check_y = check_y
         self.check_y_params = check_y_params
         self.check_X = check_X
@@ -155,6 +207,14 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         self.random_state = random_state
 
     def _check_X_y(self, X, y=None, should_be_fitted=True):
+        # [FUNCTION DOC]
+        # HELPER: Optionally asserts the estimator is fitted, then applies check_X to X and,
+        # when y is given, check_y to y, each with their optional params dict. A boolean
+        # check result is asserted true; any other result replaces X (resp. y).
+        # Inputs: X, y (optional), should_be_fitted - bool, default True.
+        # Outputs: tuple (X, y) possibly transformed by the checks.
+        # Exceptions: NotFittedError, AssertionError when a boolean check is False, and
+        # anything the check callables raise.
         """Validate X and y and make extra check.
 
         Parameters
@@ -192,6 +252,17 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         return X, y
 
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # HELPER: Asserts X and y have the same number of samples, runs checks if "fit" is
+        # in methods_to_check (or "all"), sets n_features_in_ to the second dimension of X
+        # and classes_ to unique labels of y. If expected_fit_params is set, every expected
+        # name must be in fit_params and every fit param must have as many samples as X.
+        # If expected_sample_weight is truthy, sample_weight must be given and valid.
+        # Inputs: X - 2d array-like; y - labels; sample_weight - optional; **fit_params.
+        # Outputs: self.
+        # Exceptions: AssertionError on any failed expectation, ValueError from sample
+        # weight validation.
+        # Side effects: sets n_features_in_ and classes_.
         """Fit classifier.
 
         Parameters
@@ -240,6 +311,12 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Runs checks if enabled for "predict", then returns labels drawn
+        # uniformly at random from classes_ using a fresh RNG from random_state.
+        # Inputs: X. Outputs: ndarray of shape (n_samples,).
+        # KNOWN ISSUE: docstring says it predicts the first class; it predicts random
+        # classes.
         """Predict the first class seen in `classes_`.
 
         Parameters
@@ -258,6 +335,12 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         return rng.choice(self.classes_, size=_num_samples(X))
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Runs checks if enabled, then returns random probabilities: absolute
+        # values of standard normal draws of shape (n_samples, n_classes), normalised so
+        # each row sums to 1.
+        # Outputs: ndarray of shape (n_samples, n_classes).
+        # KNOWN ISSUE: docstring says probability 1 for the first class; values are random.
         """Predict probabilities for each class.
 
         Here, the dummy classifier will provide a probability of 1 for the
@@ -282,6 +365,11 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         return proba
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Runs checks if enabled, then returns standard normal random scores of
+        # shape (n_samples,) for binary problems or (n_samples, n_classes) otherwise.
+        # KNOWN ISSUE: the inline comment says the binary score "should be null" but random
+        # values are returned.
         """Confidence score.
 
         Parameters
@@ -309,6 +397,10 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
             return rng.randn(_num_samples(X), len(self.classes_))
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Runs checks on X and Y if enabled (Y as target) and returns 1.0 if
+        # foo_param > 1 else 0.0.
+        # Inputs: X, Y - optional. Outputs: float.
         """Fake score.
 
         Parameters
@@ -336,6 +428,10 @@ class CheckingClassifier(ClassifierMixin, BaseEstimator):
         return score
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Extends parent tags: marks the estimator to be skipped by common tests,
+        # declares it does not require 2D array input, and requires 1d labels.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags._skip_test = True
         tags.input_tags.two_d_array = False
@@ -352,6 +448,9 @@ CheckingClassifier.set_fit_request = RequestMethod(  # pyrefly: ignore[bad-assig
 
 
 class NoSampleWeightWrapper(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Wrapper estimator whose fit signature hides sample_weight, delegating
+    # fit/predict/predict_proba to the wrapped estimator.
     """Wrap estimator which will not expose `sample_weight`.
 
     Parameters
@@ -361,31 +460,53 @@ class NoSampleWeightWrapper(BaseEstimator):
     """
 
     def __init__(self, est=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores the wrapped estimator in est.
         self.est = est
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Fits the wrapped estimator in place and returns what its fit returns
+        # (the inner estimator, not this wrapper).
+        # Side effects: fits self.est.
         return self.est.fit(X, y)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Delegates predict to the wrapped estimator.
         return self.est.predict(X)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Delegates predict_proba to the wrapped estimator.
         return self.est.predict_proba(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Parent tags with the skip-common-tests flag set.
         tags = super().__sklearn_tags__()
         tags._skip_test = True
         return tags
 
 
 def _check_response(method):
+    # [FUNCTION DOC]
+    # HELPER: Builds a predicate for available_if that is true when the estimator's
+    # response_methods is not None and contains the given method name.
+    # Inputs: method - str. Outputs: function taking the estimator, returning bool.
     def check(self):
+        # [FUNCTION DOC]
+        # HELPER: The predicate closure; checks membership of the captured method name in
+        # self.response_methods.
         return self.response_methods is not None and method in self.response_methods
 
     return check
 
 
 class _MockEstimatorOnOffPrediction(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose predict / predict_proba / decision_function exist only
+    # when listed in response_methods; each returns its own method name as a string.
     """Estimator for which we can turn on/off the prediction methods.
 
     Parameters
@@ -400,20 +521,30 @@ class _MockEstimatorOnOffPrediction(BaseEstimator):
     """
 
     def __init__(self, response_methods=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores response_methods (list of method names or None).
         self.response_methods = response_methods
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Sets classes_ to the unique values of y and returns self.
         self.classes_ = np.unique(y)
         return self
 
     @available_if(_check_response("predict"))
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the string "predict"; AttributeError if not enabled.
         return "predict"
 
     @available_if(_check_response("predict_proba"))
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the string "predict_proba"; AttributeError if not enabled.
         return "predict_proba"
 
     @available_if(_check_response("decision_function"))
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the string "decision_function"; AttributeError if not enabled.
         return "decision_function"

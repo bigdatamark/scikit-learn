@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Builds the interactive HTML diagram of an estimator (estimator_html_repr) shown
+# in Jupyter. Estimators are converted to _VisualBlock trees (single, serial or
+# parallel) and written recursively as nested divs with toggleable labels holding
+# parameter tables, fitted-attribute tables and output feature names.
+# Import-time side effects: reads estimator.css, params.css and features.css from
+# the package directory into _CSS_STYLE and creates the module-global id counters
+# _CONTAINER_ID_COUNTER and _ESTIMATOR_ID_COUNTER (ids keep increasing per process).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +21,11 @@ from sklearn.utils._repr_html.features import _features_html
 
 
 def _get_css_style():
+    # [FUNCTION DOC]
+    # HELPER: Reads estimator.css, params.css and features.css (UTF-8) located next to
+    # this module and concatenates them separated by newlines.
+    # Outputs: str CSS. Exceptions: OSError if a file is missing. Side effects: file
+    # I/O.
     estimator_css_file = Path(__file__).parent / "estimator.css"
     params_css_file = Path(__file__).parent / "params.css"
     features_css_file = Path(__file__).parent / "features.css"
@@ -30,6 +43,11 @@ _CSS_STYLE = _get_css_style()
 
 
 class _VisualBlock:
+    # [CLASS DOC]
+    # Lightweight description of how to draw an estimator: kind ('serial',
+    # 'parallel' or 'single'), the wrapped estimator(s), and labels (names,
+    # name_details, name_caption, doc_link_label, dash_wrapped). Implements
+    # _sk_visual_block_ so a block can itself be passed where an estimator is expected.
     """HTML Representation of Estimator
 
     Parameters
@@ -77,6 +95,11 @@ class _VisualBlock:
         doc_link_label=None,
         dash_wrapped=True,
     ):
+        # [FUNCTION DOC]
+        # Stores all arguments as attributes. For 'parallel'/'serial' kinds, missing
+        # names or name_details default to a tuple of None with one entry per estimator.
+        # Inputs: see class docstring. Side effects: sets attributes. No validation of
+        # kind.
         self.kind = kind
         self.estimators = estimators
         self.dash_wrapped = dash_wrapped
@@ -93,6 +116,8 @@ class _VisualBlock:
         self.name_details = name_details
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # Returns self, so the block describes itself.
         return self
 
 
@@ -113,6 +138,25 @@ def _write_label_html(
     is_fitted_icon="",
     param_prefix="",
 ):
+    # [FUNCTION DOC]
+    # HELPER: Writes one label container. Opens outer and inner divs (inner gets the
+    # fitted CSS class and sk-toggleable). The name is HTML-escaped. If name_details is
+    # None, writes a plain label with the name and closes the divs. Otherwise: escapes
+    # name_details, takes a new estimator id, builds an optional '?' documentation
+    # anchor (label 'Documentation for <doc_link_label or name>'), suppresses the
+    # caption for 'passthrough' or empty-list details, builds the label (with arrow
+    # class unless passthrough) and the fitted icon, writes a hidden checkbox input
+    # (checked if requested) followed by the toggleable content div carrying
+    # data-param-prefix. Inside it writes params and attrs HTML, and when there are
+    # details, the name does not contain 'Pipeline' and params is empty, writes the
+    # details in a pre block (blanked for passthrough/'[]'). Closes the content and
+    # container divs, then appends the output feature block from _features_html when
+    # features is non-empty.
+    # Inputs: see docstring; features - sequence of feature names, '' or None.
+    # Outputs: None. Side effects: writes to out; advances _ESTIMATOR_ID_COUNTER.
+    # KNOWN ISSUE: doc_link_label and doc_link are inserted into HTML without escaping,
+    # and the 'elif name is not None' branch is always taken since name was already
+    # escaped (html.escape would fail on None).
     """Write labeled html with or without a dropdown with named details.
 
     Parameters
@@ -232,6 +276,15 @@ def _write_label_html(
 
 
 def _get_visual_block(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Produces the _VisualBlock describing estimator. Uses
+    # estimator._sk_visual_block_() when available, falling back to a single block on
+    # any exception. Strings yield a single block labelled by the string; None yields a
+    # single 'None' block. For non-class objects with get_params, collects shallow
+    # params that are estimator instances (have get_params and fit); if any, returns a
+    # parallel block of them named 'key: ClassName' with their str as details.
+    # Otherwise returns a single block with the class name and str(estimator).
+    # Outputs: _VisualBlock. Exceptions: swallows errors from _sk_visual_block_ only.
     """Generate information about how to display an estimator."""
     if hasattr(estimator, "_sk_visual_block_"):
         try:
@@ -284,6 +337,30 @@ def _write_estimator_html(
     first_call=False,
     param_prefix="",
 ):
+    # [FUNCTION DOC]
+    # HELPER: Recursively writes the HTML for estimator. On the first call the block is
+    # built under the current config; on nested calls the fitted icon is dropped and the
+    # block is built with print_changed_only=True. A doc link is taken from
+    # _get_doc_link when present.
+    # Serial/parallel blocks: open an sk-item div (dashed if first call or
+    # dash_wrapped); if a label is given, write a label with params (if the object
+    # offers _get_params_html) and fitted attributes (if fitted and any exist); then
+    # open an sk-<kind> div and for each child compute the nested parameter prefix
+    # (existing prefix plus the child name up to ':' plus '__'; children with
+    # non-string names keep the parent prefix) and recurse; parallel children are each
+    # wrapped in an sk-parallel-item div and a non-dashed serial block. After the
+    # children, if fitted, the object has get_feature_names_out, is not a pipeline
+    # (no steps attribute) and is not a ColumnTransformer with a single child, writes a
+    # total_features div with its output feature names (errors ignored).
+    # Single blocks: compute output features when fitted and applicable (None on error,
+    # '' when not applicable), rename 'NoneType(...)' to 'passthrough', collect params
+    # and fitted attributes unless passthrough, and write one sk-item/sk-estimator label
+    # (expanded on first call).
+    # Inputs: see docstring. Outputs: None. Side effects: writes to out, advances id
+    # counters, temporarily changes global config.
+    # KNOWN ISSUE: in the serial/parallel branch _get_params_html is called with a
+    # positional False as first argument while the single branch uses keyword-only
+    # doc_link; behaviour depends on the estimator's signature.
     """Write estimator to html in serial, parallel, or by itself (single).
 
     For multiple estimators, this function is called recursively.
@@ -480,6 +557,20 @@ def _write_estimator_html(
 
 
 def estimator_html_repr(estimator):
+    # [FUNCTION DOC]
+    # Public entry point. Determines fitted status (objects without fit are treated as
+    # not fitted; otherwise check_is_fitted, catching only NotFittedError), builds the
+    # 'i' status icon, and writes into a StringIO: the CSS style tag, a focusable top
+    # container with a new container id, a text fallback (escaped str of the estimator
+    # plus a message for untrusted notebooks), the hidden sk-container, the recursive
+    # diagram, and finally a script tag with estimator.js followed by a forceTheme call
+    # for the container id.
+    # Outputs: str HTML.
+    # Exceptions: errors other than NotFittedError from check_is_fitted propagate;
+    # OSError
+    # if estimator.js is missing.
+    # Side effects: advances global id counters; reads estimator.js from disk on every
+    # call.
     """Build an HTML representation of an estimator.
 
     Read more in the :ref:`User Guide <visualizing_composite_estimators>`.
