@@ -94,8 +94,6 @@ def _cached_unique(y, xp=None):
     # Outputs: array of unique values (numpy array when taken from the cache).
     # Exceptions: whatever get_namespace / unique_values raise for unsupported input.
     # Side effects: none; y is not modified.
-    # KNOWN ISSUE: only AttributeError is caught here, unlike _attach_unique; this is
-    # fine because the explicit None check prevents the TypeError case.
     """Return the unique values of y.
 
     Use the cached values from dtype.metadata if present.

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for the output-feature display of the estimator HTML diagram: when feature
+# counts/names appear for fitted transformers and composites, robustness to failing
+# get_feature_names_out, and the _features_html renderer (escaping, structure,
+# truncation). Module-level fixtures: an unfitted ColumnTransformer ct (Normalizer
+# on columns 0-1, remainder passthrough), a FeatureUnion ct2 (PCA + TruncatedSVD)
+# and a seeded RandomState rng.
 import numpy as np
 import pytest
 
@@ -27,6 +34,8 @@ rng = np.random.RandomState(42)
 
 
 def test_n_features_not_fitted():
+    # [FUNCTION DOC]
+    # Verifies an unfitted ColumnTransformer shows no feature names or features box.
     out = estimator_html_repr(ct)
     assert "2 features" not in out
     assert "x0" not in out
@@ -35,6 +44,8 @@ def test_n_features_not_fitted():
 
 
 def test_with_MinimalTransformer():
+    # [FUNCTION DOC]
+    # Verifies a pipeline with a non-BaseEstimator transformer renders after fit.
     """Test works with MinimalTransformer in a pipeline
     (doesn't inherit from BaseEstimator)"""
     X, y = np.array([[0, 1], [1, 1]]), np.array([[0, 1]])
@@ -53,6 +64,9 @@ def test_with_MinimalTransformer():
     ],
 )
 def test_estimator_html_repr_col_names(pandas, feature_cols):
+    # [FUNCTION DOC]
+    # Parametrized pandas/numpy input. Verifies input feature names (DataFrame
+    # columns or generic x0, x1) appear for a fitted clone of ct.
     """Test features names are kept with pandas col names and generic."""
     if pandas:
         pd = pytest.importorskip("pandas")
@@ -74,6 +88,9 @@ def test_estimator_html_repr_col_names(pandas, feature_cols):
     ],
 )
 def test_estimator_html_repr_total_feature_names(pandas, total_output_features):
+    # [FUNCTION DOC]
+    # Parametrized pandas/numpy input. Verifies the total_features block exists with
+    # '3 features' and prefixed output names.
     """Test features names are kept with pandas col names and generic."""
     if pandas:
         pd = pytest.importorskip("pandas")
@@ -91,6 +108,8 @@ def test_estimator_html_repr_total_feature_names(pandas, total_output_features):
 
 
 def test_estimator_html_col_names_featureunion():
+    # [FUNCTION DOC]
+    # Verifies a fitted FeatureUnion shows prefixed output names and a 2-feature count.
     X = [[0.0, 1.0, 3], [2.0, 2.0, 5]]
     ct2_cloned = clone(ct2)
     ct2_cloned.fit_transform(X)
@@ -102,6 +121,8 @@ def test_estimator_html_col_names_featureunion():
 
 
 def test_features_html_with_pipeline():
+    # [FUNCTION DOC]
+    # Verifies a fitted pipeline ending with StandardScaler shows '3 features'.
     """Test works with MinimalTransformer in a pipeline and scaler
     to test number of features."""
 
@@ -114,6 +135,8 @@ def test_features_html_with_pipeline():
 
 
 def test_countvectorizer_output_features():
+    # [FUNCTION DOC]
+    # Regression test: a fitted CountVectorizer shows its vocabulary size (4 features).
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/33772"""
     corpus = [
@@ -129,6 +152,9 @@ def test_countvectorizer_output_features():
 
 
 def test_meta_estimator_output_features():
+    # [FUNCTION DOC]
+    # Regression test: a fitted TunedThresholdClassifierCV around a pipeline shows
+    # the 4 output features of its inner preprocessor. Skipped without pandas.
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/33887
     """
@@ -149,6 +175,10 @@ def test_meta_estimator_output_features():
 
 
 def test_get_feature_names_out_exception():
+    # [FUNCTION DOC]
+    # Regression test: a FeatureUnion where one part cannot provide feature names
+    # still renders, shows the 1-feature PCA box, and no '0 features' box.
+    # KNOWN ISSUE: Xt is assigned but never used.
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/33887
     Testing that error in _get_feature_names_out doesn't break
@@ -171,17 +201,27 @@ def test_get_feature_names_out_exception():
 
 
 def test_single_estimator_get_feature_names_out_exception():
+    # [FUNCTION DOC]
+    # Regression test: a fitted single estimator whose get_feature_names_out raises
+    # still renders.
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/33887
     Testing that error in _get_feature_names_out doesn't break
     hitting single block except branch"""
 
     class BrokenTransformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer that fits trivially but always fails to give feature
+        # names.
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: Records n_features_in_ from X's column count and returns self.
             self.n_features_in_ = X.shape[1]
             return self
 
         def get_feature_names_out(self, input_features=None):
+            # [FUNCTION DOC]
+            # HELPER: Always raises RuntimeError.
             raise RuntimeError("Simulated failure")
 
     X = np.array([[1, 2], [3, 4]])
@@ -192,6 +232,8 @@ def test_single_estimator_get_feature_names_out_exception():
 
 
 def test_features_html_empty_features():
+    # [FUNCTION DOC]
+    # Verifies an empty feature list still renders the table body.
     """Test that _features_html handles empty feature list."""
     features = []
     html = _features_html(features)
@@ -200,6 +242,8 @@ def test_features_html_empty_features():
 
 
 def test_features_html_special_characters():
+    # [FUNCTION DOC]
+    # Verifies feature names are HTML-escaped (including a script tag) and counted.
     """Test that special characters in feature names are properly escaped."""
     features = [
         "feature&1",
@@ -219,6 +263,8 @@ def test_features_html_special_characters():
 
 
 def test_features_html_structure():
+    # [FUNCTION DOC]
+    # Verifies the details/summary/table/button structure and the JS copy hook.
     """Test that HTML structure contains expected elements."""
     features = ["feat1", "feat2"]
     html = _features_html(features)
@@ -245,6 +291,9 @@ def test_features_html_structure():
     ],
 )
 def test_features_html_truncation_format(num_features, expected_count):
+    # [FUNCTION DOC]
+    # Parametrized over counts above the cap. Verifies the '100 of N' summary with
+    # thousands separators and that only the first 100 names are rendered.
     """Test expected feature count in summary."""
     from sklearn.utils._repr_html.features import _MAX_DISPLAY_FEATURES
 
@@ -257,6 +306,8 @@ def test_features_html_truncation_format(num_features, expected_count):
 
 
 def test_features_html_at_max_display_limit():
+    # [FUNCTION DOC]
+    # Verifies exactly 100 features are shown without the 'of' truncation wording.
     """Test that exactly _MAX_DISPLAY_FEATURES features are not truncated."""
     from sklearn.utils._repr_html.features import _MAX_DISPLAY_FEATURES
 

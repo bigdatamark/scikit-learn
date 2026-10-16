@@ -52,8 +52,6 @@ def compute_class_weight(class_weight, *, classes, y, sample_weight=None):
     # KNOWN ISSUE: the dict branch casts each class with int(), so float classes such
     # as 1.5 are truncated before lookup; dict keys that do not match any class are
     # silently ignored when every class is matched.
-    # KNOWN ISSUE: sample_weight is documented as used only for "balanced", which
-    # matches the code; it is silently ignored otherwise.
     """Estimate class weights for unbalanced datasets.
 
     Parameters

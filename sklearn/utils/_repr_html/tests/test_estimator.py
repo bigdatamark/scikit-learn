@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for the estimator HTML diagram (estimator module) and the documentation
+# link mixin (base module): label writing, visual block construction for composite
+# and meta-estimators, full HTML output content, fitted status icons, doc links,
+# CSS reading under a non-UTF-8 locale and FunctionTransformer captions.
 import html
 import locale
 import re
@@ -44,11 +49,18 @@ from sklearn.utils.fixes import parse_version
 
 
 def dummy_function(x, y):
+    # [FUNCTION DOC]
+    # HELPER: Trivial function returning x plus y, used as a FunctionTransformer
+    # callable whose name should appear in the diagram. Never actually executed.
     return x + y  # pragma: nocover
 
 
 @pytest.mark.parametrize("checked", [True, False])
 def test_write_label_html(checked):
+    # [FUNCTION DOC]
+    # Parametrized over checked. Writes a label with details and verifies the label
+    # markup via regex, the outer container class, the details pre block, and the
+    # 'checked' attribute when requested.
     # Test checking logic and labeling
     name = "LogisticRegression"
     params = ""
@@ -75,6 +87,9 @@ def test_write_label_html(checked):
 
 @pytest.mark.parametrize("est", ["passthrough", "drop", None])
 def test_get_visual_block_single_str_none(est):
+    # [FUNCTION DOC]
+    # Verifies strings ('passthrough', 'drop') and None produce single blocks whose
+    # names and details equal their str.
     # Test estimators that are represented by strings
     est_html_info = _get_visual_block(est)
     assert est_html_info.kind == "single"
@@ -84,6 +99,9 @@ def test_get_visual_block_single_str_none(est):
 
 
 def test_get_visual_block_single_estimator():
+    # [FUNCTION DOC]
+    # Verifies a plain estimator yields a single block named by its class with str
+    # details.
     est = LogisticRegression(C=10.0)
     est_html_info = _get_visual_block(est)
     assert est_html_info.kind == "single"
@@ -93,6 +111,9 @@ def test_get_visual_block_single_estimator():
 
 
 def test_get_visual_block_pipeline():
+    # [FUNCTION DOC]
+    # Verifies a Pipeline yields a serial block of its steps, with 'name: Class' labels
+    # where None and 'passthrough' steps are both labelled passthrough.
     pipe = Pipeline(
         [
             ("imputer", SimpleImputer()),
@@ -114,6 +135,9 @@ def test_get_visual_block_pipeline():
 
 
 def test_get_visual_block_feature_union():
+    # [FUNCTION DOC]
+    # Verifies a FeatureUnion yields a parallel block with transformer names and no
+    # details.
     f_union = FeatureUnion([("pca", PCA()), ("svd", TruncatedSVD())])
     est_html_info = _get_visual_block(f_union)
     assert est_html_info.kind == "parallel"
@@ -125,6 +149,8 @@ def test_get_visual_block_feature_union():
 
 
 def test_get_visual_block_voting():
+    # [FUNCTION DOC]
+    # Verifies a VotingClassifier yields a parallel block of its estimators.
     clf = VotingClassifier(
         [("log_reg", LogisticRegression()), ("mlp", MLPClassifier())]
     )
@@ -136,6 +162,9 @@ def test_get_visual_block_voting():
 
 
 def test_get_visual_block_column_transformer():
+    # [FUNCTION DOC]
+    # Verifies a ColumnTransformer yields a parallel block whose details are the column
+    # selections (a transformer class rather than instance is accepted).
     ct = ColumnTransformer(
         [("pca", PCA(), ["num1", "num2"]), ("svd", TruncatedSVD, [0, 3])]
     )
@@ -147,6 +176,10 @@ def test_get_visual_block_column_transformer():
 
 
 def test_get_visual_block_transformed_target_regressor():
+    # [FUNCTION DOC]
+    # Verifies an unfitted TransformedTargetRegressor yields a serial block wrapping a
+    # default LinearRegression.
+    # KNOWN ISSUE: X and y are built but never used.
     X = np.array([[0], [1], [2], [3], [4]])
     y = np.array([1.0, 7.3, 54.5, 403.5])
     tt = TransformedTargetRegressor(func=np.log, inverse_func=np.exp)
@@ -158,6 +191,8 @@ def test_get_visual_block_transformed_target_regressor():
 
 
 def test_estimator_html_repr_an_empty_pipeline():
+    # [FUNCTION DOC]
+    # Regression test: rendering an empty Pipeline must not raise.
     """Check that the representation of an empty Pipeline does not fail.
 
     Non-regression test for:
@@ -168,6 +203,12 @@ def test_estimator_html_repr_an_empty_pipeline():
 
 
 def test_estimator_html_repr_pipeline():
+    # [FUNCTION DOC]
+    # Builds a nested pipeline (ColumnTransformer of pipelines, FeatureUnion,
+    # VotingClassifier) and checks the HTML contains the escaped top-level repr, the
+    # first 44 chars of each step repr, changed-only reprs of inner estimators, column
+    # lists in pre blocks, FeatureUnion labels, voting member names, and the dark-mode
+    # CSS media query.
     num_trans = Pipeline(
         steps=[("pass", "passthrough"), ("imputer", SimpleImputer(strategy="median"))]
     )
@@ -252,6 +293,9 @@ def test_estimator_html_repr_pipeline():
 
 @pytest.mark.parametrize("final_estimator", [None, LinearSVC()])
 def test_stacking_classifier(final_estimator):
+    # [FUNCTION DOC]
+    # Parametrized over final_estimator. Verifies the stacking repr is present and the
+    # final estimator (default LogisticRegression) is named.
     estimators = [
         ("mlp", MLPClassifier(alpha=0.001)),
         ("tree", DecisionTreeClassifier()),
@@ -271,6 +315,9 @@ def test_stacking_classifier(final_estimator):
 
 @pytest.mark.parametrize("final_estimator", [None, LinearSVR()])
 def test_stacking_regressor(final_estimator):
+    # [FUNCTION DOC]
+    # Parametrized over final_estimator. Verifies labels exist for LinearSVR and for
+    # RidgeCV when the default final estimator is used.
     reg = StackingRegressor(
         estimators=[("svr", LinearSVR())], final_estimator=final_estimator
     )
@@ -298,6 +345,10 @@ def test_stacking_regressor(final_estimator):
 
 
 def test_birch_duck_typing_meta():
+    # [FUNCTION DOC]
+    # Verifies Birch with an estimator as n_clusters is drawn as a meta-estimator: the
+    # inner estimator gets its own label with changed-only details, and the outer
+    # full repr is shown.
     # Test duck typing meta estimators with Birch
     birch = Birch(n_clusters=AgglomerativeClustering(n_clusters=3))
     html_output = estimator_html_repr(birch)
@@ -315,6 +366,9 @@ def test_birch_duck_typing_meta():
 
 
 def test_ovo_classifier_duck_typing_meta():
+    # [FUNCTION DOC]
+    # Verifies OneVsOneClassifier shows the inner LinearSVC label and both inner and
+    # outer reprs.
     # Test duck typing metaestimators with OVO
     ovo = OneVsOneClassifier(LinearSVC(penalty="l1"))
     html_output = estimator_html_repr(ovo)
@@ -336,6 +390,9 @@ def test_ovo_classifier_duck_typing_meta():
 
 
 def test_duck_typing_nested_estimator():
+    # [FUNCTION DOC]
+    # Verifies RandomizedSearchCV shows its wrapped estimator as 'estimator:
+    # KernelRidge' (kernel object is not treated as a sub-estimator).
     # Test duck typing metaestimators with random search
     kernel_ridge = KernelRidge(kernel=ExpSineSquared())
     param_distributions = {"alpha": [1, 2]}
@@ -350,6 +407,9 @@ def test_duck_typing_nested_estimator():
 
 @pytest.mark.parametrize("print_changed_only", [True, False])
 def test_one_estimator_print_change_only(print_changed_only):
+    # [FUNCTION DOC]
+    # Verifies the top-level repr inside the HTML follows the print_changed_only
+    # config.
     pca = PCA(n_components=10)
 
     with config_context(print_changed_only=print_changed_only):
@@ -359,6 +419,8 @@ def test_one_estimator_print_change_only(print_changed_only):
 
 
 def test_fallback_exists():
+    # [FUNCTION DOC]
+    # Verifies the text fallback div contains the escaped estimator repr.
     """Check that repr fallback is in the HTML."""
     pca = PCA(n_components=10)
     html_output = estimator_html_repr(pca)
@@ -370,6 +432,8 @@ def test_fallback_exists():
 
 
 def test_show_arrow_pipeline():
+    # [FUNCTION DOC]
+    # Verifies the top-level Pipeline label has the toggle arrow class.
     """Show arrow in pipeline for top level in pipeline"""
     pipe = Pipeline([("scale", StandardScaler()), ("log_Reg", LogisticRegression())])
 
@@ -381,6 +445,9 @@ def test_show_arrow_pipeline():
 
 
 def test_invalid_parameters_in_stacking():
+    # [FUNCTION DOC]
+    # Regression test: an invalid StackingClassifier (no estimators) still renders,
+    # using its repr.
     """Invalidate stacking configuration uses default repr.
 
     Non-regression test for #24009.
@@ -392,10 +459,16 @@ def test_invalid_parameters_in_stacking():
 
 
 def test_estimator_get_params_return_cls():
+    # [FUNCTION DOC]
+    # Verifies an object whose get_params returns a class value renders without error.
     """Check HTML repr works where a value in get_params is a class."""
 
     class MyEstimator:
+        # [CLASS DOC]
+        # HELPER: Minimal non-BaseEstimator object with only get_params.
         def get_params(self, deep=False):
+            # [FUNCTION DOC]
+            # HELPER: Returns a dict with a class (LogisticRegression) as value.
             return {"inner_cls": LogisticRegression}
 
     est = MyEstimator()
@@ -403,12 +476,18 @@ def test_estimator_get_params_return_cls():
 
 
 def test_estimator_html_repr_unfitted_vs_fitted():
+    # [FUNCTION DOC]
+    # Verifies the status label switches from 'Not fitted' to 'Fitted' after fit.
     """Check that we have the information that the estimator is fitted or not in the
     HTML representation.
     """
 
     class MyEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: BaseEstimator whose fit sets a trailing-underscore attribute.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets fitted_ to True and returns self; inputs are ignored.
             self.fitted_ = True
             return self
 
@@ -431,6 +510,11 @@ def test_estimator_html_repr_unfitted_vs_fitted():
     ],
 )
 def test_estimator_html_repr_fitted_icon(estimator):
+    # [FUNCTION DOC]
+    # Parametrized over a single estimator and pipelines. Verifies the fitted status
+    # icon appears exactly once in the HTML both before and after fitting on iris.
+    # KNOWN ISSUE: the descriptive string literal follows the clone statement, so it is
+    # a no-op expression, not the function docstring.
     estimator = clone(estimator)  # Avoid side effects from previous tests.
     """Check that we are showing the fitted status icon only once."""
     pattern = '<span class="sk-estimator-doc-link ">i<span>Not fitted</span></span>'
@@ -443,6 +527,10 @@ def test_estimator_html_repr_fitted_icon(estimator):
 
 @pytest.mark.parametrize("mock_version", ["1.3.0.dev0", "1.3.0"])
 def test_html_documentation_link_mixin_sklearn(mock_version):
+    # [FUNCTION DOC]
+    # Parametrized over dev and release versions (patched into the base module).
+    # Verifies default module, template URL (dev vs major.minor) and the generated link
+    # for the mixin class itself.
     """Check the behaviour of the `_HTMLDocumentationLinkMixin` class for scikit-learn
     default.
     """
@@ -484,9 +572,14 @@ def test_html_documentation_link_mixin_sklearn(mock_version):
 def test_html_documentation_link_mixin_get_doc_link_instance(
     module_path, expected_module
 ):
+    # [FUNCTION DOC]
+    # Parametrized over module paths. With module and template overridden on the
+    # instance, verifies the module path is truncated at the first private component.
     """Check the behaviour of the `_get_doc_link` with various parameter."""
 
     class FooBar(_HTMLDocumentationLinkMixin):
+        # [CLASS DOC]
+        # HELPER: Empty subclass of the mixin; its __module__ is reassigned by the test.
         pass
 
     FooBar.__module__ = module_path
@@ -510,11 +603,16 @@ def test_html_documentation_link_mixin_get_doc_link_instance(
     ],
 )
 def test_html_documentation_link_mixin_get_doc_link_class(module_path, expected_module):
+    # [FUNCTION DOC]
+    # Same as the instance variant but with module and template set as class
+    # attributes.
     """Check the behaviour of the `_get_doc_link` when `_doc_link_module` and
     `_doc_link_template` are defined at the class level and not at the instance
     level."""
 
     class FooBar(_HTMLDocumentationLinkMixin):
+        # [CLASS DOC]
+        # HELPER: Mixin subclass with class-level _doc_link_module and template.
         _doc_link_module = "prefix"
         _doc_link_template = (
             "https://website.com/{estimator_module}.{estimator_name}.html"
@@ -526,6 +624,9 @@ def test_html_documentation_link_mixin_get_doc_link_class(module_path, expected_
 
 
 def test_html_documentation_link_mixin_get_doc_link_out_of_library():
+    # [FUNCTION DOC]
+    # Verifies an empty link is returned when the class's root module differs from
+    # _doc_link_module.
     """Check the behaviour of the `_get_doc_link` with various parameter."""
     mixin = _HTMLDocumentationLinkMixin()
 
@@ -536,6 +637,9 @@ def test_html_documentation_link_mixin_get_doc_link_out_of_library():
 
 
 def test_html_documentation_link_mixin_doc_link_url_param_generator_instance():
+    # [FUNCTION DOC]
+    # Verifies a bound url param generator set on an instance supplies the template
+    # fields.
     mixin = _HTMLDocumentationLinkMixin()
     # we can bypass the generation by providing our own callable
     mixin._doc_link_template = (
@@ -543,6 +647,8 @@ def test_html_documentation_link_mixin_doc_link_url_param_generator_instance():
     )
 
     def url_param_generator(estimator):
+        # [FUNCTION DOC]
+        # HELPER: Returns fixed template values; the estimator argument is ignored.
         return {
             "my_own_variable": "value_1",
             "another_variable": "value_2",
@@ -554,15 +660,22 @@ def test_html_documentation_link_mixin_doc_link_url_param_generator_instance():
 
 
 def test_html_documentation_link_mixin_doc_link_url_param_generator_class():
+    # [FUNCTION DOC]
+    # Verifies a generator defined as a class attribute (thus bound as a method)
+    # supplies the template fields.
     # we can bypass the generation by providing our own callable
 
     def url_param_generator(estimator):
+        # [FUNCTION DOC]
+        # HELPER: Returns fixed template values; the estimator argument is ignored.
         return {
             "my_own_variable": "value_1",
             "another_variable": "value_2",
         }
 
     class FooBar(_HTMLDocumentationLinkMixin):
+        # [CLASS DOC]
+        # HELPER: Mixin subclass with a custom template and generator.
         _doc_link_template = (
             "https://website.com/{my_own_variable}.{another_variable}.html"
         )
@@ -574,6 +687,10 @@ def test_html_documentation_link_mixin_doc_link_url_param_generator_class():
 
 @pytest.fixture
 def set_non_utf8_locale():
+    # [FUNCTION DOC]
+    # HELPER: Fixture setting LC_CTYPE to 'C' (skipping the test if unavailable),
+    # yielding, then resetting LC_CTYPE to the environment default.
+    # Side effects: mutates process-global locale.
     """Pytest fixture to set non utf-8 locale during the test.
 
     The locale is set to the original one after the test has run.
@@ -596,6 +713,8 @@ def set_non_utf8_locale():
 
 
 def test_non_utf8_locale(set_non_utf8_locale):
+    # [FUNCTION DOC]
+    # Regression test: reading the CSS files must work under a non-UTF-8 locale.
     """Checks that utf8 encoding is used when reading the CSS file.
 
     Non-regression test for https://github.com/scikit-learn/scikit-learn/issues/27725
@@ -613,6 +732,10 @@ def test_non_utf8_locale(set_non_utf8_locale):
     ],
 )
 def test_function_transformer_show_caption(func, expected_name):
+    # [FUNCTION DOC]
+    # Parametrized over lambdas, functions, partials and vectorized callables. Verifies
+    # the FunctionTransformer label shows the function name with a
+    # 'FunctionTransformer' caption.
     # Test that function name is shown as the name and "FunctionTransformer" is shown
     # in the caption
     ft = FunctionTransformer(func)
@@ -628,6 +751,8 @@ def test_function_transformer_show_caption(func, expected_name):
 
 
 def test_estimator_html_repr_table():
+    # [FUNCTION DOC]
+    # Verifies the parameter table is included in the HTML.
     """Check that we add the table of parameters in the HTML representation."""
     est = LogisticRegression(C=10.0, fit_intercept=False)
     assert "parameters-table" in estimator_html_repr(est)

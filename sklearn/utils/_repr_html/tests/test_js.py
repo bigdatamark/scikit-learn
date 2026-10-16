@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Browser tests (playwright, via the pytest 'page' fixture) of the JavaScript in
+# estimator.js: copying parameter names and feature names to the clipboard and the
+# theme detection forceTheme. Pages are served from a throwaway local HTTP server.
+# Skipped entirely when playwright is not installed.
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -8,6 +13,11 @@ import pytest
 
 @pytest.fixture(scope="session", autouse=True)
 def check_playwright():
+    # [FUNCTION DOC]
+    # HELPER: Session-scoped autouse fixture that skips all tests in the module when
+    # playwright cannot be imported; returns the module otherwise.
+    # KNOWN ISSUE: the docstring says it is used by 'the next fixture', but it is
+    # itself autouse and local_server does not depend on it.
     """Skip tests if playwright is not installed.
 
     This fixture is used by the next fixture (which is autouse) to skip all tests
@@ -17,6 +27,12 @@ def check_playwright():
 
 @pytest.fixture
 def local_server(request):
+    # [FUNCTION DOC]
+    # HELPER: Fixture starting an HTTPServer on a free 127.0.0.1 port in a daemon
+    # thread. Yields (base URL, setter) where the setter replaces the HTML returned for
+    # every GET. Shuts the server down after the test.
+    # KNOWN ISSUE: the free port is found by binding and closing a temporary socket, so
+    # another process could grab it before the server binds (small race).
     """Start a simple HTTP server that serves custom HTML per test.
 
     Usage :
@@ -36,11 +52,18 @@ def local_server(request):
     html_content = "<html><body>Default</body></html>"
 
     def set_html_response(content):
+        # [FUNCTION DOC]
+        # HELPER: Replaces the served HTML string (closure variable). Inputs: content -
+        # str.
         nonlocal html_content
         html_content = content
 
     class Handler(BaseHTTPRequestHandler):
+        # [CLASS DOC]
+        # HELPER: Request handler serving the current HTML content for GET requests.
         def do_GET(self):
+            # [FUNCTION DOC]
+            # HELPER: Responds 200 with text/html and the current content UTF-8 encoded.
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -48,6 +71,8 @@ def local_server(request):
 
         # suppress logging
         def log_message(self, format, *args):
+            # [FUNCTION DOC]
+            # HELPER: No-op override suppressing request logging to stderr.
             return
 
     httpd = HTTPServer(("127.0.0.1", PORT), Handler)
@@ -60,6 +85,10 @@ def local_server(request):
 
 
 def _make_page(body):
+    # [FUNCTION DOC]
+    # HELPER: Reads estimator.js (UTF-8) from the parent package and returns a full
+    # HTML page with it inlined in the head and body inserted in the body.
+    # Inputs: body - str HTML. Outputs: str. Side effects: file read.
     """Helper to create an HTML page that includes `estimator.js` and the given body."""
 
     js_path = Path(__file__).parent.parent / "estimator.js"
@@ -79,6 +108,10 @@ def _make_page(body):
 
 
 def test_copy_paste(page, local_server):
+    # [FUNCTION DOC]
+    # Serves a content div with data-param-prefix, calls copyToClipboard in the
+    # browser with clipboard permissions granted, and verifies the clipboard holds the
+    # prefix concatenated with the name.
     """Test that copyToClipboard copies the right text to the clipboard.
 
     Test requires clipboard permissions, which are granted through page's context.
@@ -122,6 +155,9 @@ def test_copy_paste(page, local_server):
     ],
 )
 def test_force_theme(page, local_server, color, expected_theme):
+    # [FUNCTION DOC]
+    # Parametrized over text colours. Verifies forceTheme adds the 'light' class for
+    # dark text and 'dark' for light text on the target element.
     """Test that forceTheme applies the right theme class to the element.
 
     A light color must lead to a dark theme and vice-versa.
@@ -162,6 +198,9 @@ FEATURE_NAMES_HTML = """
 
 
 def test_copy_paste_feature_names(page, local_server):
+    # [FUNCTION DOC]
+    # Serves a static features box and verifies copyFeatureNamesToClipboard places a
+    # formatted list of the table's feature names on the clipboard.
     """Test that copyFeatureNamesToClipboard copies the right text to the clipboard.
 
     Test requires clipboard permissions, which are granted through page's context.
