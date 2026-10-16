@@ -67,7 +67,8 @@ class TreePredictor:
         # Allocates a float output vector of length n_samples (Y_DTYPE) and lets
         # _predict_from_raw_data walk the tree for each row of raw X (handling NaN via
         # missing_go_to_left and categorical splits via the raw bitsets, with unknown
-        # categories checked through known_cat_bitsets/f_idx_map), filling it in parallel.
+        # categories checked through known_cat_bitsets/f_idx_map), filling it in
+        # parallel.
         # Outputs: ndarray (n_samples,) of leaf values. Side effects: none.
         """Predict raw values for non-binned data.
 
@@ -142,7 +143,8 @@ class TreePredictor:
     def compute_partial_dependence(self, grid, target_features, out):
         # [FUNCTION DOC]
         # Delegates to the Cython _compute_partial_dependence (weighted tree traversal
-        # method) which writes into out. Side effects: mutates out in place; returns None.
+        # method) which writes into out. Side effects: mutates out in place; returns
+        # None.
         """Fast partial dependence computation.
 
         Parameters

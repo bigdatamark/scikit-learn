@@ -463,7 +463,8 @@ class TreeGrower:
         # n_samples), creates the root TreeNode with value 0, and either finalizes it as
         # a leaf (fewer than 2 * min_samples_leaf samples or total hessian below
         # min_hessian_to_split) or sets interaction state, stores histograms and
-        # computes its best split. Side effects: sets self.root, updates timers, may push
+        # computes its best split. Side effects: sets self.root, updates timers, may
+        # push
         # to splittable_nodes or finalized_leaves.
         """Initialize root node and finalize it if needed."""
         tic = time()
@@ -562,7 +563,8 @@ class TreeGrower:
         # larger child. Increments n_nodes and n_categorical_splits. Then: if the leaf
         # count reaches max_leaf_nodes, finalizes both children and all remaining
         # splittable nodes; if depth reaches max_depth, finalizes both children;
-        # otherwise finalizes children with fewer than 2 * min_samples_leaf samples. With
+        # otherwise finalizes children with fewer than 2 * min_samples_leaf samples.
+        # With
         # monotonic constraints, sets children bounds (midpoint of the two child values
         # for constrained features, parent bounds otherwise). For non-leaf children,
         # computes histograms (brute on the smaller child, subtraction on the larger),
@@ -737,7 +739,8 @@ class TreeGrower:
     def _compute_interactions(self, node):
         # [FUNCTION DOC]
         # HELPER: For a split node, keeps the interaction-constraint sets (among the
-        # node's interaction_cst_indices) that contain the split feature, and returns the
+        # node's interaction_cst_indices) that contain the split feature, and returns
+        # the
         # union of their features as a uint32 array plus the list of kept set indices.
         # Outputs: (allowed_features ndarray uint32, interaction_cst_indices list).
         r"""Compute features allowed by interactions to be inherited by child nodes.

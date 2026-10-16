@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Array API inspection namespace for CuPy: defines the __array_namespace_info__ class
+# returned by the wrapped namespace's __array_namespace_info__ attribute. Imports the
+# dtype constructors and cuda module from cupy at import time (bool_ is imported as
+# bool, shadowing the builtin within this module).
 """
 Array API Inspection namespace
 
@@ -28,6 +33,9 @@ from cupy import (
 
 
 class __array_namespace_info__:
+    # [CLASS DOC]
+    # Stateless inspection object; instances expose capabilities, default_device,
+    # default_dtypes, dtypes and devices. __module__ is set to "cupy" for display.
     """
     Get the array API inspection namespace for CuPy.
 
@@ -62,6 +70,10 @@ class __array_namespace_info__:
     __module__ = 'cupy'
 
     def capabilities(self):
+        # [FUNCTION DOC]
+        # Returns a new dict of fixed capabilities: boolean indexing True, data-dependent shapes
+        # True, max dimensions 64.
+        # KNOWN ISSUE: the docstring list of keys omits "max dimensions".
         """
         Return a dictionary of array API library capabilities.
 
@@ -106,6 +118,9 @@ class __array_namespace_info__:
         }
 
     def default_device(self):
+        # [FUNCTION DOC]
+        # Returns cupy.cuda.Device(0), the static default device (ignores the current-device
+        # context, as documented).
         """
         The default device used for new CuPy arrays.
 
@@ -140,6 +155,9 @@ class __array_namespace_info__:
         return cuda.Device(0)
 
     def default_dtypes(self, *, device=None):
+        # [FUNCTION DOC]
+        # Returns a new dict of default dtypes: float64, complex128, and intp for both
+        # "integral" and "indexing". The device argument is accepted and ignored.
         """
         The default data types used for new CuPy arrays.
 
@@ -187,6 +205,16 @@ class __array_namespace_info__:
         }
 
     def dtypes(self, *, device=None, kind=None):
+        # [FUNCTION DOC]
+        # Returns a dict mapping array-API dtype names to cupy.dtype objects for the requested
+        # kind. kind None returns all 13 standard dtypes; a string selects one of bool, signed
+        # integer, unsigned integer, integral, real floating, complex floating, numeric; a tuple
+        # returns the union by recursing over each element. device is ignored.
+        # Inputs: device - ignored; kind - None, str or tuple of str.
+        # Outputs: new dict.
+        # Exceptions: ValueError for an unknown kind string or non-str/tuple kind.
+        # KNOWN ISSUE: for kind "bool" the value is the scalar type cupy.bool_ rather than
+        # dtype(bool), inconsistent with every other branch (including kind None).
         """
         The array API data types supported by CuPy.
 
@@ -317,6 +345,11 @@ class __array_namespace_info__:
         raise ValueError(f"unsupported kind: {kind!r}")
 
     def devices(self):
+        # [FUNCTION DOC]
+        # Returns a tuple of cupy.cuda.Device objects, one per GPU reported by
+        # cuda.runtime.getDeviceCount().
+        # Exceptions: CUDA runtime errors if no driver is available.
+        # KNOWN ISSUE: the docstring says it returns a list, but a tuple is returned.
         """
         The devices supported by CuPy.
 

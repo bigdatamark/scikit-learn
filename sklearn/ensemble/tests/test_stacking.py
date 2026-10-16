@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for StackingClassifier and StackingRegressor: meta-feature (transform) shapes
+# with and without passthrough, dropping estimators, sparse passthrough, error handling,
+# sample_weight propagation, cv influence and cv="prefit", multilabel stacking, feature
+# names out, and metadata routing. Defines two helper estimators without sample_weight
+# support. Side effects at import: loads diabetes and iris and builds a 3-label
+# multilabel dataset and a binary classification dataset as module globals.
 """Test the stacking classifier and regressor."""
 
 # Authors: The scikit-learn developers
@@ -72,6 +79,13 @@ X_binary, y_binary = make_classification(n_classes=2, random_state=42)
 )
 @pytest.mark.parametrize("passthrough", [False, True])
 def test_stacking_classifier_iris(cv, final_estimator, passthrough):
+    # [FUNCTION DOC]
+    # Verifies on scaled iris for both cv types, both final estimators and both
+    # passthrough settings: test accuracy above 0.8; transform has 6 columns (2
+    # estimators x 3 class probabilities/scores) or 10 with passthrough, the last 4
+    # being the raw features; after dropping "lr" the model still fits/predicts (and
+    # exposes decision_function when the default LogisticRegression final estimator is
+    # used) and transform has 3 or 7 columns.
     # prescale the data to avoid convergence warning without using a pipeline
     # for later assert
     X_train, X_test, y_train, y_test = train_test_split(
@@ -111,6 +125,13 @@ def test_stacking_classifier_iris(cv, final_estimator, passthrough):
 
 
 def test_stacking_classifier_drop_column_binary_classification():
+    # [FUNCTION DOC]
+    # Verifies on binary breast cancer that transform yields one column per base
+    # estimator: predict_proba outputs are reduced to one column, and LinearSVC's 1-D
+    # decision_function also gives one column, for 2 columns in both configurations.
+    # KNOWN ISSUE: the comment says LinearSVC "will not drop one column", which reads as
+    # if it adds an extra column; the assertion of 2 columns reflects that its decision
+    # function is already single-column.
     # check that a column is dropped in binary classification
     X, y = load_breast_cancer(return_X_y=True)
     X_train, X_test, y_train, _ = train_test_split(
@@ -138,6 +159,9 @@ def test_stacking_classifier_drop_column_binary_classification():
 
 
 def test_stacking_classifier_drop_estimator():
+    # [FUNCTION DOC]
+    # Verifies that a classifier with ("lr", "drop") plus LinearSVC behaves identically
+    # (predict, predict_proba, transform) to one built with LinearSVC alone.
     # prescale the data to avoid convergence warning without using a pipeline
     # for later assert
     X_train, X_test, y_train, _ = train_test_split(
@@ -160,6 +184,9 @@ def test_stacking_classifier_drop_estimator():
 
 
 def test_stacking_regressor_drop_estimator():
+    # [FUNCTION DOC]
+    # Verifies a regressor with ("lr", "drop") plus Ridge matches one built with Ridge
+    # alone in predict and transform.
     # prescale the data to avoid convergence warning without using a pipeline
     # for later assert
     X_train, X_test, y_train, _ = train_test_split(
@@ -191,6 +218,11 @@ def test_stacking_regressor_drop_estimator():
 )
 @pytest.mark.parametrize("passthrough", [False, True])
 def test_stacking_regressor_diabetes(cv, final_estimator, predict_params, passthrough):
+    # [FUNCTION DOC]
+    # Verifies on scaled diabetes for both cv types, final estimators and passthrough:
+    # predict forwards predict_params (return_std with DummyRegressor yields a 2-tuple);
+    # transform has 2 columns or 12 with passthrough (last 10 raw features); after
+    # dropping "lr" it has 1 or 11.
     # prescale the data to avoid convergence warning without using a pipeline
     # for later assert
     X_train, X_test, y_train, _ = train_test_split(
@@ -230,6 +262,9 @@ def test_stacking_regressor_diabetes(cv, final_estimator, predict_params, passth
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_stacking_regressor_sparse_passthrough(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies that with passthrough on sparse (COO, CSC, CSR) input, transform returns
+    # a sparse matrix of the same format whose last 10 columns equal X.
     # Check passthrough behavior on a sparse X matrix
     X_train, X_test, y_train, _ = train_test_split(
         sparse_container(scale(X_diabetes)), y_diabetes, random_state=42
@@ -250,6 +285,9 @@ def test_stacking_regressor_sparse_passthrough(sparse_container):
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_stacking_classifier_sparse_passthrough(sparse_container):
+    # [FUNCTION DOC]
+    # Same as the regressor sparse passthrough test, for the classifier on scaled iris
+    # (last 4 columns equal X, same sparse format).
     # Check passthrough behavior on a sparse X matrix
     X_train, X_test, y_train, _ = train_test_split(
         sparse_container(scale(X_iris)), y_iris, random_state=42
@@ -267,6 +305,9 @@ def test_stacking_classifier_sparse_passthrough(sparse_container):
 
 
 def test_stacking_classifier_drop_binary_prob():
+    # [FUNCTION DOC]
+    # Verifies that on a binary subset of iris two predict_proba base estimators yield a
+    # 2-column meta-feature matrix (one probability column dropped per estimator).
     # check that classifier will drop one of the probability column for
     # binary classification problem
 
@@ -281,16 +322,32 @@ def test_stacking_classifier_drop_binary_prob():
 
 
 class NoWeightRegressor(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: regressor whose fit has no sample_weight parameter, used to trigger the
+    # "does not support sample weight" error.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: fits an internal DummyRegressor stored in self.reg and returns that
+        # fitted DummyRegressor.
+        # KNOWN ISSUE: returns the inner DummyRegressor rather than self, contrary to
+        # the fit convention.
         self.reg = DummyRegressor()
         return self.reg.fit(X, y)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: returns a vector of ones with one entry per row of X.
         return np.ones(X.shape[0])
 
 
 class NoWeightClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: classifier whose fit has no sample_weight parameter; has no predict
+    # methods of its own.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: fits an internal stratified DummyClassifier stored in self.clf and
+        # returns it (not self).
         self.clf = DummyClassifier(strategy="stratified")
         return self.clf.fit(X, y)
 
@@ -337,6 +394,11 @@ class NoWeightClassifier(ClassifierMixin, BaseEstimator):
     ],
 )
 def test_stacking_classifier_error(y, params, type_err, msg_err):
+    # [FUNCTION DOC]
+    # Verifies fit with unit sample weights raises: ValueError for empty estimators;
+    # ValueError when stack_method="predict_proba" is requested and SVC lacks it;
+    # TypeError "does not support sample weight" when a base or the final estimator
+    # cannot take sample_weight.
     with pytest.raises(type_err, match=msg_err):
         clf = StackingClassifier(**params, cv=3)
         clf.fit(scale(X_iris), y, sample_weight=np.ones(X_iris.shape[0]))
@@ -367,6 +429,9 @@ def test_stacking_classifier_error(y, params, type_err, msg_err):
     ],
 )
 def test_stacking_regressor_error(y, params, type_err, msg_err):
+    # [FUNCTION DOC]
+    # Verifies for the regressor: ValueError on empty estimators; TypeError "does not
+    # support sample weight" when a base or the final estimator lacks sample_weight.
     with pytest.raises(type_err, match=msg_err):
         reg = StackingRegressor(**params, cv=3)
         reg.fit(scale(X_diabetes), y, sample_weight=np.ones(X_diabetes.shape[0]))
@@ -399,6 +464,10 @@ def test_stacking_regressor_error(y, params, type_err, msg_err):
     ids=["StackingClassifier", "StackingRegressor"],
 )
 def test_stacking_randomness(estimator, X, y):
+    # [FUNCTION DOC]
+    # Verifies that with identical shuffled KFold seeding, dropping the first estimator
+    # gives meta-features equal to the full model's columns excluding the first
+    # (classifier on a binary iris subset, regressor on diabetes).
     # checking that fixing the random state of the CV will lead to the same
     # results
     estimator_full = clone(estimator)
@@ -419,6 +488,9 @@ def test_stacking_randomness(estimator, X, y):
 
 
 def test_stacking_classifier_stratify_default():
+    # [FUNCTION DOC]
+    # Smoke test: on unshuffled iris (sorted by class) the default cv is stratified, so
+    # fit succeeds even though plain KFold folds would miss classes.
     # check that we stratify the classes for the default CV
     clf = StackingClassifier(
         estimators=[
@@ -461,6 +533,10 @@ def test_stacking_classifier_stratify_default():
     ids=["StackingClassifier", "StackingRegressor"],
 )
 def test_stacking_with_sample_weight(stacker, X, y):
+    # [FUNCTION DOC]
+    # Verifies that unit sample weights give the same predictions as no weights, and
+    # that non-uniform weights (0.1 for the first half, 0.9 for the second) change
+    # predictions. ConvergenceWarnings are ignored.
     # check that sample weights has an influence on the fitting
     # note: ConvergenceWarning are catch since we are not worrying about the
     # convergence here
@@ -491,6 +567,10 @@ def test_stacking_with_sample_weight(stacker, X, y):
 
 
 def test_stacking_classifier_sample_weight_fit_param():
+    # [FUNCTION DOC]
+    # Verifies sample_weight reaches every fit invocation (base estimator CV fits, final
+    # refit, and final estimator) using CheckingClassifier(expected_sample_weight=True),
+    # which fails if it is missing.
     # check sample_weight is passed to all invocations of fit
     stacker = StackingClassifier(
         estimators=[("lr", CheckingClassifier(expected_sample_weight=True))],
@@ -528,6 +608,10 @@ def test_stacking_classifier_sample_weight_fit_param():
     ids=["StackingClassifier", "StackingRegressor"],
 )
 def test_stacking_cv_influence(stacker, X, y):
+    # [FUNCTION DOC]
+    # Verifies that changing cv from 3 to 5 leaves the base estimators' coefficients
+    # unchanged (they are refit on the full data) but changes the final estimator's
+    # coefficients (trained on different out-of-fold predictions).
     # check that the stacking affects the fit of the final estimator but not
     # the fit of the base estimators
     # note: ConvergenceWarning are caught since we are not worrying about the
@@ -574,6 +658,11 @@ def test_stacking_cv_influence(stacker, X, y):
     ),
 )
 def test_stacking_prefit(Stacker, Estimator, stack_method, final_estimator, X, y):
+    # [FUNCTION DOC]
+    # Verifies cv="prefit": base estimators already fitted (with fit replaced by a Mock
+    # and the stack method wrapped by a Mock carrying a __name__) are reused as
+    # estimators_ without calling fit again, and their stack method is called with the
+    # second training half.
     """Check the behaviour of stacking when `cv='prefit'`"""
     X_train1, X_train2, y_train1, y_train2 = train_test_split(
         X, y, random_state=42, test_size=0.5
@@ -633,6 +722,8 @@ def test_stacking_prefit(Stacker, Estimator, stack_method, final_estimator, X, y
     ],
 )
 def test_stacking_prefit_error(stacker, X, y):
+    # [FUNCTION DOC]
+    # Verifies cv="prefit" with unfitted base estimators makes fit raise NotFittedError.
     # check that NotFittedError is raised
     # if base estimators are not fitted when cv="prefit"
     with pytest.raises(NotFittedError):
@@ -647,13 +738,25 @@ def test_stacking_prefit_error(stacker, X, y):
     ],
 )
 def test_stacking_without_n_features_in(make_dataset, Stacking, Estimator):
+    # [FUNCTION DOC]
+    # Non-regression for #17353: stacking works with base estimators lacking
+    # n_features_in_. Before fit, accessing n_features_in_ raises AttributeError naming
+    # the stacker; after fit it raises AttributeError naming MyEstimator (delegated
+    # attribute).
     # Stacking supports estimators without `n_features_in_`. Regression test
     # for #17353
 
     class MyEstimator(Estimator):
+        # [CLASS DOC]
+        # HELPER: subclass of the parametrized estimator that deletes n_features_in_
+        # after fit.
         """Estimator without n_features_in_"""
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: calls the parent fit then deletes self.n_features_in_.
+            # KNOWN ISSUE: returns None instead of self (works only because stacking
+            # ignores the return value).
             super().fit(X, y)
             del self.n_features_in_
 
@@ -684,6 +787,11 @@ def test_stacking_without_n_features_in(make_dataset, Stacking, Estimator):
     ids=["MLPClassifier", "RandomForestClassifier"],
 )
 def test_stacking_classifier_multilabel_predict_proba(estimator):
+    # [FUNCTION DOC]
+    # Verifies multilabel stacking with stack_method="predict_proba" for estimators that
+    # return either a 2-D array (MLP) or a list of per-output arrays (RandomForest):
+    # transform has one column per output (positive-class probabilities, so rows do not
+    # sum to 1) and predict returns y-shaped output.
     """Check the behaviour for the multilabel classification case and the
     `predict_proba` stacking method.
 
@@ -712,6 +820,10 @@ def test_stacking_classifier_multilabel_predict_proba(estimator):
 
 
 def test_stacking_classifier_multilabel_decision_function():
+    # [FUNCTION DOC]
+    # Verifies multilabel stacking with RidgeClassifier and
+    # stack_method="decision_function": transform has n_outputs columns and predict has
+    # y's shape.
     """Check the behaviour for the multilabel classification case and the
     `decision_function` stacking method. Only `RidgeClassifier` supports this
     case.
@@ -738,6 +850,12 @@ def test_stacking_classifier_multilabel_decision_function():
 @pytest.mark.parametrize("stack_method", ["auto", "predict"])
 @pytest.mark.parametrize("passthrough", [False, True])
 def test_stacking_classifier_multilabel_auto_predict(stack_method, passthrough):
+    # [FUNCTION DOC]
+    # Verifies multilabel stacking with stack_method "auto" or "predict": y is not
+    # modified in place, predict has y's shape, stack_method_ resolves to
+    # predict_proba/predict_proba/ decision_function for MLP/RF/Ridge under "auto",
+    # transform has 3 columns per estimator (+ raw features with passthrough), and
+    # classes_ is [0, 1] per output.
     """Check the behaviour for the multilabel classification case for stack methods
     supported for all estimators or automatically picked up.
     """
@@ -846,6 +964,10 @@ def test_stacking_classifier_multilabel_auto_predict(stack_method, passthrough):
 def test_get_feature_names_out(
     stacker, feature_names, X, y, expected_names, passthrough
 ):
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out: "<stacker>_<est><class_idx>" for multiclass,
+    # "<stacker>_<est>" for binary (dropped estimators omitted) and regression, followed
+    # by the input feature names when passthrough is enabled.
     """Check get_feature_names_out works for stacking."""
     stacker = clone(stacker)
     stacker.set_params(passthrough=passthrough)
@@ -859,6 +981,9 @@ def test_get_feature_names_out(
 
 
 def test_stacking_classifier_base_regressor():
+    # [FUNCTION DOC]
+    # Verifies a regressor (Ridge) can be the base layer of StackingClassifier and
+    # reaches test accuracy above 0.8 on iris.
     """Check that a regressor can be used as the first layer in `StackingClassifier`."""
     X_train, X_test, y_train, y_test = train_test_split(
         scale(X_iris), y_iris, stratify=y_iris, random_state=42
@@ -871,6 +996,10 @@ def test_stacking_classifier_base_regressor():
 
 
 def test_stacking_final_estimator_attribute_error():
+    # [FUNCTION DOC]
+    # Non-regression for #28108: decision_function on a stacker whose final estimator
+    # lacks it raises AttributeError for the stacker, chained (__cause__) to the inner
+    # AttributeError naming RandomForestClassifier.
     """Check that we raise the proper AttributeError when the final estimator
     does not implement the `decision_function` method, which is decorated with
     `available_if`.
@@ -911,6 +1040,12 @@ def test_stacking_final_estimator_attribute_error():
     ],
 )
 def test_routing_passed_metadata_not_supported(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies that passing metadata to fit with routing disabled raises ValueError "is
+    # only supported if enable_metadata_routing=True".
+    # KNOWN ISSUE: estimators is a flat list rather than (name, est) tuples and
+    # sample_weight has 5 entries for 150 samples; the test relies on the routing check
+    # firing before any validation.
     """Test that the right error message is raised when metadata is passed while
     not supported when `enable_metadata_routing=False`."""
 
@@ -931,6 +1066,8 @@ def test_routing_passed_metadata_not_supported(Estimator, Child):
 )
 @config_context(enable_metadata_routing=True)
 def test_get_metadata_routing_without_fit(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies get_metadata_routing works on an unfitted stacker with routing enabled.
     # Test that metadata_routing() doesn't raise when called before fit.
     est = Estimator([("sub_est", Child())])
     est.get_metadata_routing()
@@ -948,6 +1085,11 @@ def test_get_metadata_routing_without_fit(Estimator, Child):
 )
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_for_stacking_estimators(Estimator, Child, prop, prop_value):
+    # [FUNCTION DOC]
+    # Verifies with routing enabled that prop (sample_weight or metadata) requested by
+    # both base estimators for fit and by the final estimator for predict is forwarded:
+    # each base estimator records it in fit (split_params allows the CV-split subset),
+    # and the final estimator records it in predict.
     """Test that metadata is routed correctly for Stacking*. Note that `fit_transform`
     like `fit` goes through `_BaseStacking.fit().transform()` and thus no separate test
     is needed."""
@@ -1001,6 +1143,9 @@ def test_metadata_routing_for_stacking_estimators(Estimator, Child, prop, prop_v
 )
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_error_for_stacking_estimators(Estimator, Child):
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError listing sample_weight and metadata as not
+    # explicitly requested for <Child>.fit when the child has no request set.
     """Test that the right error is raised when metadata is not requested."""
     sample_weight, metadata = np.ones(X_iris.shape[0]), "a"
 

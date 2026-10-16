@@ -372,7 +372,8 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
 
     def _check_categories(self):
         # [FUNCTION DOC]
-        # HELPER: For each categorical column of the fitted encoder, drops a trailing NaN
+        # HELPER: For each categorical column of the fitted encoder, drops a trailing
+        # NaN
         # category and checks the cardinality does not exceed max_bins; returns a list
         # of length n_features_in_ with None for numerical features and
         # arange(n_categories) as float for categorical ones (indexed by input feature

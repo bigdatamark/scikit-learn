@@ -234,9 +234,11 @@ def _update_terminal_regions(
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
                 # [FUNCTION DOC]
-                # HELPER: Binomial Newton step for a leaf: weighted mean of negative gradient
+                # HELPER: Binomial Newton step for a leaf: weighted mean of negative
+                # gradient
                 # divided (safely) by weighted mean of prob * (1 - prob), where prob is
-                # recovered as y minus negative gradient. Uses sw from the enclosing scope.
+                # recovered as y minus negative gradient. Uses sw from the enclosing
+                # scope.
                 # Outputs: float leaf value.
                 # Make a single Newton-Raphson step, see "Additive Logistic Regression:
                 # A Statistical View of Boosting" FHT00 and note that we use a slightly
@@ -257,7 +259,8 @@ def _update_terminal_regions(
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
                 # [FUNCTION DOC]
                 # HELPER: Multinomial Newton step for class k: weighted mean of negative
-                # gradient times (K-1)/K divided (safely) by weighted mean of the diagonal
+                # gradient times (K-1)/K divided (safely) by weighted mean of the
+                # diagonal
                 # hessian prob * (1 - prob). Uses sw from the enclosing scope.
                 # Outputs: float leaf value.
                 # we take advantage that: y - prob = neg_gradient
@@ -280,8 +283,10 @@ def _update_terminal_regions(
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
                 # [FUNCTION DOC]
-                # HELPER: Exponential-loss Newton step: weighted mean of negative gradient over
-                # weighted mean of the hessian, obtained by flipping the sign of the negative
+                # HELPER: Exponential-loss Newton step: weighted mean of negative
+                # gradient over
+                # weighted mean of the hessian, obtained by flipping the sign of the
+                # negative
                 # gradient for samples with y == 0. Uses sw from the enclosing scope.
                 # Outputs: float leaf value.
                 neg_g = neg_gradient.take(indices, axis=0)
@@ -299,9 +304,11 @@ def _update_terminal_regions(
 
             def compute_update(y_, indices, neg_gradient, raw_prediction, k):
                 # [FUNCTION DOC]
-                # HELPER: Generic update: loss.fit_intercept_only on residuals y minus current
+                # HELPER: Generic update: loss.fit_intercept_only on residuals y minus
+                # current
                 # raw prediction column k for the leaf samples, weighted by sw from the
-                # enclosing scope (e.g. median for absolute error, quantile for pinball).
+                # enclosing scope (e.g. median for absolute error, quantile for
+                # pinball).
                 # Outputs: float (or 0-d array) leaf value.
                 return loss.fit_intercept_only(
                     y_true=y_ - raw_prediction[indices, k],
