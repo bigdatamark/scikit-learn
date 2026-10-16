@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Implements permutation_importance: a model-agnostic feature importance computed as the
+# drop in score when one feature column is randomly shuffled, repeated n_repeats times
+# per feature and parallelized over features with joblib.
 """Permutation importance for estimators."""
 
 # Authors: The scikit-learn developers
@@ -23,6 +27,10 @@ from sklearn.utils.parallel import Parallel, delayed
 
 
 def _weights_scorer(scorer, estimator, X, y, sample_weight):
+    # [FUNCTION DOC]
+    # HELPER: Calls scorer(estimator, X, y), passing sample_weight as a keyword only
+    # when it is not None.
+    # Outputs: float score, or dict of scores for multi-metric scorers.
     if sample_weight is not None:
         return scorer(estimator, X, y, sample_weight=sample_weight)
     return scorer(estimator, X, y)
@@ -39,6 +47,21 @@ def _calculate_permutation_scores(
     scorer,
     max_samples,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Computes the n_repeats scores obtained after shuffling column col_idx.
+    # Steps: build a RandomState from random_state (an int seed shared by all columns,
+    # so all columns see the same row subsample and shuffle sequence); if max_samples is
+    # smaller than n_samples, draw that many rows without replacement and subset X, y
+    # and sample_weight, otherwise copy X. Then, n_repeats times: shuffle a running
+    # permutation index in place, reorder column col_idx with it (for DataFrames, assign
+    # the reordered column keeping the original index), and score. Note that shuffles
+    # accumulate on the already-permuted copy.
+    # Inputs: estimator - fitted; X - ndarray or DataFrame; y - array-like or None;
+    # sample_weight - array-like or None; col_idx - int; random_state - int seed or
+    # RandomState; n_repeats - int; scorer - callable; max_samples - int number of rows.
+    # Outputs: ndarray (n_repeats,) of scores, or dict mapping metric name to such
+    # arrays.
+    # Side effects: none on inputs (works on a copy or subset).
     """Calculate score when `col_idx` is permuted."""
     random_state = check_random_state(random_state)
 
@@ -83,6 +106,13 @@ def _calculate_permutation_scores(
 
 
 def _create_importances_bunch(baseline_score, permuted_score):
+    # [FUNCTION DOC]
+    # HELPER: Converts scores into importances as baseline minus permuted score and
+    # returns a Bunch with importances_mean and importances_std (over repeats, per
+    # feature) and the raw importances (n_features, n_repeats).
+    # Inputs: baseline_score - float; permuted_score - (n_features, n_repeats) array.
+    # KNOWN ISSUE: the docstring says baseline_score has shape (n_features,), but
+    # callers pass a scalar score, broadcast over the matrix.
     """Compute the importances as the decrease in score.
 
     Parameters
@@ -147,6 +177,28 @@ def permutation_importance(
     sample_weight=None,
     max_samples=1.0,
 ):
+    # [FUNCTION DOC]
+    # Computes permutation importances of a fitted estimator. Steps: non-DataFrame X is
+    # validated with check_array (NaN allowed, any dtype); a single int seed is drawn
+    # from random_state; a float max_samples is converted to int(max_samples *
+    # n_samples); an int larger than n_samples is rejected. The scorer is built with
+    # check_scoring, the baseline score is computed on the full X, then
+    # _calculate_permutation_scores runs in parallel for every column. For multi-metric
+    # scoring, returns a dict of Bunches keyed by metric name; otherwise a single Bunch.
+    # Inputs: estimator - fitted estimator; X - (n_samples, n_features); y - targets or
+    # None; scoring - str, callable, list/tuple/dict or None; n_repeats - int >= 1
+    # (default 5); n_jobs - int or None; random_state - None/int/RandomState;
+    # sample_weight - optional (n_samples,); max_samples - int >= 1 or float in (0, 1],
+    # default 1.0.
+    # Outputs: Bunch (importances_mean, importances_std, importances) or dict of
+    # Bunches.
+    # Exceptions: InvalidParameterError from validate_params; ValueError when an int
+    # max_samples exceeds n_samples; scorer errors propagate.
+    # Side effects: consumes one draw from a passed RandomState; spawns joblib workers.
+    # KNOWN ISSUE: with max_samples < n_samples, the baseline is scored on all rows
+    # while the permuted scores use a subsample, so importances mix two different
+    # evaluation sets.
+    # KNOWN ISSUE: a small float max_samples can round down to 0 rows without any check.
     """Permutation importance for feature evaluation [BRE]_.
 
     The :term:`estimator` is required to be a fitted estimator. `X` can be the
