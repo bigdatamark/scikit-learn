@@ -1,8 +1,8 @@
 # [MODULE DOC]
-# Tests for HuberRegressor: equivalence to OLS for large epsilon, max_iter, the
-# analytic gradient of _huber_loss_and_gradient, sample weights, sparse input, scale
-# invariance of outlier detection, agreement with SGD huber loss, warm start,
-# robustness versus Ridge, and boolean input.
+# Tests for HuberRegressor: equivalence to OLS for large epsilon, max_iter, the analytic
+# gradient of _huber_loss_and_gradient, sample weights, sparse input, scale invariance
+# of outlier detection, agreement with SGD huber loss, warm start, robustness versus
+# Ridge, and boolean input.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -71,12 +71,10 @@ def test_huber_max_iter():
 def test_huber_gradient():
     # [FUNCTION DOC]
     # Verifies the gradient returned by _huber_loss_and_gradient against finite
-    #   differences
-    # with scipy check_grad. For 5 random draws and parameter vectors of length
-    # n_features+1 (no intercept) and n_features+2 (with intercept), where the last
-    #   entry
-    # (scale) is made positive, calls with epsilon=0.01, alpha=0.1 and random integer
-    # sample weights in {1, 2}; asserts the gradient error is ~0 (4 decimals).
+    # differences with scipy check_grad. For 5 random draws and parameter vectors of
+    # length n_features+1 (no intercept) and n_features+2 (with intercept), where the
+    # last entry (scale) is made positive, calls with epsilon=0.01, alpha=0.1 and random
+    # integer sample weights in {1, 2}; asserts the gradient error is ~0 (4 decimals).
     # Test that the gradient calculated by _huber_loss_and_gradient is correct
     rng = np.random.RandomState(1)
     X, y = make_regression_with_outliers()
@@ -85,15 +83,13 @@ def test_huber_gradient():
     def loss_func(x, *args):
         # [FUNCTION DOC]
         # HELPER: Returns only the loss value of _huber_loss_and_gradient for parameters
-        #   x and
-        # extra positional args (X, y, epsilon, alpha, sample_weight).
+        # x and extra positional args (X, y, epsilon, alpha, sample_weight).
         return _huber_loss_and_gradient(x, *args)[0]
 
     def grad_func(x, *args):
         # [FUNCTION DOC]
         # HELPER: Returns only the gradient array of _huber_loss_and_gradient for the
-        #   same
-        # arguments as loss_func.
+        # same arguments as loss_func.
         return _huber_loss_and_gradient(x, *args)[1]
 
     # Check using optimize.check_grad that the gradients are equal.
@@ -112,11 +108,10 @@ def test_huber_gradient():
 def test_huber_sample_weights(csr_container):
     # [FUNCTION DOC]
     # Verifies sample_weight semantics: unit weights reproduce the unweighted fit;
-    #   integer
-    # weights on rows 1 and 3 match a fit where those rows are duplicated (on a 5-sample
-    # problem); a CSR fit with those weights matches too. Coefficients are divided by a
-    # scale computed from the first fit to make the decimal comparison scale-
-    #   insensitive.
+    # integer weights on rows 1 and 3 match a fit where those rows are duplicated (on a
+    # 5-sample problem); a CSR fit with those weights matches too. Coefficients are
+    # divided by a scale computed from the first fit to make the decimal comparison
+    # scale-insensitive.
     # Inputs: csr_container from parametrize.
     # Test sample_weights implementation in HuberRegressor"""
 
@@ -176,8 +171,7 @@ def test_huber_sparse(csr_container):
 def test_huber_scaling_invariant():
     # [FUNCTION DOC]
     # Verifies outliers_ (not all True) is unchanged when y is doubled and when both X
-    #   and
-    # y are doubled, with no intercept and no penalty.
+    # and y are doubled, with no intercept and no penalty.
     # Test that outliers filtering is scaling independent.
     X, y = make_regression_with_outliers()
     huber = HuberRegressor(fit_intercept=False, alpha=0.0)
@@ -197,11 +191,9 @@ def test_huber_scaling_invariant():
 def test_huber_and_sgd_same_results():
     # [FUNCTION DOC]
     # Verifies HuberRegressor and SGDRegressor(loss="huber") agree to 1 decimal on
-    #   coef_.
-    # First fit estimates scale_, X and y are divided by it and refit so scale_ is ~1
-    # (checked), since SGD's huber loss has no scale parameter; SGD runs with no
-    #   penalty,
-    # tol=None and 10000 iterations.
+    # coef_. First fit estimates scale_, X and y are divided by it and refit so scale_
+    # is ~1 (checked), since SGD's huber loss has no scale parameter; SGD runs with no
+    # penalty, tol=None and 10000 iterations.
     # Test they should converge to same coefficients for same parameters
 
     X, y = make_regression_with_outliers(n_samples=10, n_features=2)
@@ -232,8 +224,7 @@ def test_huber_and_sgd_same_results():
 def test_huber_warm_start():
     # [FUNCTION DOC]
     # Verifies warm_start: a second fit on the same data starts from the previous
-    #   solution,
-    # reports n_iter_ == 0 and leaves coef_ almost unchanged (1 decimal).
+    # solution, reports n_iter_ == 0 and leaves coef_ almost unchanged (1 decimal).
     X, y = make_regression_with_outliers()
     huber_warm = HuberRegressor(alpha=1.0, max_iter=10000, warm_start=True, tol=1e-1)
 
@@ -250,10 +241,9 @@ def test_huber_warm_start():
 
 def test_huber_better_r2_score():
     # [FUNCTION DOC]
-    # Verifies robustness: using the Huber inlier mask (absolute residual below
-    # epsilon * scale_), Huber scores higher R2 than Ridge on inliers, while Ridge
-    #   scores
-    # higher on the outliers.
+    # Verifies robustness: using the Huber inlier mask (absolute residual below epsilon
+    # * scale_), Huber scores higher R2 than Ridge on inliers, while Ridge scores higher
+    # on the outliers.
     # Test that huber returns a better r2 score than non-outliers"""
     X, y = make_regression_with_outliers()
     huber = HuberRegressor(alpha=0.01)

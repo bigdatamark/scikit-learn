@@ -36,11 +36,9 @@ def random_X_y_coef(
 ):
     # [FUNCTION DOC]
     # HELPER: Generates a low-rank X, random coefficients and a target consistent with
-    #   the
-    # loss. Coefficients (including the intercept slot if fit_intercept) are drawn
+    # the loss. Coefficients (including the intercept slot if fit_intercept) are drawn
     # uniformly in coef_bound. For multiclass losses, computes raw predictions, maps
-    #   them
-    # to probabilities with the inverse link and samples one class label per row by
+    # them to probabilities with the inverse link and samples one class label per row by
     # inverse-CDF sampling. Otherwise, y is the inverse link of raw prediction plus
     # uniform noise in [-1, 1].
     # Inputs: linear_model_loss - LinearModelLoss; n_samples, n_features - ints;
@@ -75,12 +73,11 @@ def random_X_y_coef(
         def choice_vectorized(items, p):
             # [FUNCTION DOC]
             # HELPER: Samples one item per row from row-wise probabilities: cumulative
-            #   sums per
-            # row, one uniform draw per row, index equals the count of cumulative values
-            #   below
-            # the draw. Inputs: items - 1-D array; p - (n_rows, n_items) probabilities.
+            # sums per row, one uniform draw per row, index equals the count of
+            # cumulative values below the draw. Inputs: items - 1-D array; p - (n_rows,
+            # n_items) probabilities.
             # Outputs: array (n_rows,) of selected items. Side effects: consumes the
-            #   enclosing rng.
+            # enclosing rng.
             s = p.cumsum(axis=1)
             r = rng.rand(p.shape[0])[:, None]
             k = (s < r).sum(axis=1)
@@ -151,12 +148,11 @@ def test_loss_grad_hess_are_the_same(
     # [FUNCTION DOC]
     # Verifies that loss, gradient, loss_gradient, gradient_hessian_product and
     # gradient_hessian agree on loss and gradient values; that the full Hessian times
-    #   the
-    # gradient equals the Hessian-product callable; that gradient_hessian writes into
-    #   and
-    # returns the provided gradient_out / hessian_out buffers; that CSR X gives the same
-    # results; and that X, y and coef are not modified. Parametrized over losses,
-    # intercept, sample weights (None or linspace 1..n), L2 strength and CSR container.
+    # the gradient equals the Hessian-product callable; that gradient_hessian writes
+    # into and returns the provided gradient_out / hessian_out buffers; that CSR X gives
+    # the same results; and that X, y and coef are not modified. Parametrized over
+    # losses, intercept, sample weights (None or linspace 1..n), L2 strength and CSR
+    # container.
     """Test that loss and gradient are the same across different functions."""
     loss = LinearModelLoss(base_loss=base_loss(), fit_intercept=fit_intercept)
     X, y, coef = random_X_y_coef(
@@ -250,11 +246,9 @@ def test_loss_gradients_hessp_intercept(
     # [FUNCTION DOC]
     # Verifies intercept handling: a model without intercept on X whose last column is
     # ones must match a fit_intercept model on X minus that column, after adding back
-    #   the
-    # L2 penalty that the intercept does not receive (to loss, gradient and Hessian-
-    #   vector
-    # product with a random direction). The sparse container is applied only to the
-    # no-intercept X; X_inter stays dense.
+    # the L2 penalty that the intercept does not receive (to loss, gradient and Hessian-
+    # vector product with a random direction). The sparse container is applied only to
+    # the no-intercept X; X_inter stays dense.
     """Test that loss and gradient handle intercept correctly."""
     loss = LinearModelLoss(base_loss=base_loss(), fit_intercept=False)
     loss_inter = LinearModelLoss(base_loss=base_loss(), fit_intercept=True)
@@ -316,13 +310,11 @@ def test_gradients_hessians_numerically(
 ):
     # [FUNCTION DOC]
     # Verifies the gradient against a five-point-stencil finite difference (rtol 1e-2)
-    #   and
-    # one Hessian column (direction e_1) against the least-squares slope of gradients
-    # sampled along that direction on [-1e-3, 1e-3] (rtol 1e-3). coef is raveled in
-    # F order so multinomial uses the flat representation.
+    # and one Hessian column (direction e_1) against the least-squares slope of
+    # gradients sampled along that direction on [-1e-3, 1e-3] (rtol 1e-3). coef is
+    # raveled in F order so multinomial uses the flat representation.
     # KNOWN ISSUE: the "central difference" trick evaluates loss at coef - eps shifted
-    #   in
-    # all coordinates, while approx_fprime perturbs one coordinate; the result is a
+    # in all coordinates, while approx_fprime perturbs one coordinate; the result is a
     # difference centered at a point shifted along every axis, not a true central
     # difference at coef. The loose tolerance hides this.
     """Test gradients and hessians with numerical derivatives.
@@ -410,11 +402,9 @@ def test_gradients_hessians_numerically(
 def test_multinomial_coef_shape(fit_intercept, global_random_seed):
     # [FUNCTION DOC]
     # Verifies multinomial gradients and Hessian products keep the shape of coef for
-    #   both
-    # 2-D (n_classes, n_dof) and raveled F-order coef, that both representations give
-    #   the
-    # same values after reshaping, and that the full Hessian is always square of size
-    # coef.size.
+    # both 2-D (n_classes, n_dof) and raveled F-order coef, that both representations
+    # give the same values after reshaping, and that the full Hessian is always square
+    # of size coef.size.
     """Test that multinomial LinearModelLoss respects shape of coef."""
     loss = LinearModelLoss(base_loss=HalfMultinomialLoss(), fit_intercept=fit_intercept)
     n_samples, n_features = 10, 5
@@ -458,13 +448,10 @@ def test_multinomial_coef_shape(fit_intercept, global_random_seed):
 def test_multinomial_hessian_3_classes(sample_weight, global_random_seed):
     # [FUNCTION DOC]
     # Verifies the full multinomial Hessian for 3 classes and 2 samples against an
-    #   explicit
-    # construction: per-class diagonal probability blocks form H (p_k(1-p_k) on diagonal
-    # blocks, -p_k p_l off-diagonal), scaled by 1/n_samples or normalized sample
-    #   weights,
-    # then contracted with X on both sides via einsum and reordered to the F-raveled
-    #   coef
-    # layout. Also checks symmetry.
+    # explicit construction: per-class diagonal probability blocks form H (p_k(1-p_k) on
+    # diagonal blocks, -p_k p_l off-diagonal), scaled by 1/n_samples or normalized
+    # sample weights, then contracted with X on both sides via einsum and reordered to
+    # the F-raveled coef layout. Also checks symmetry.
     # KNOWN ISSUE: grad_pointwise is computed but unused.
     """Test multinomial hessian for 3 classes and 2 points.
 
@@ -540,9 +527,8 @@ def test_multinomial_hessian_3_classes(sample_weight, global_random_seed):
 def test_linear_loss_gradient_hessian_raises_wrong_out_parameters():
     # [FUNCTION DOC]
     # Verifies gradient_hessian raises ValueError for gradient_out or hessian_out of
-    #   wrong
-    # shape (binomial loss) and for non-F-contiguous gradient_out or non-contiguous
-    # hessian_out (multinomial loss), matching the error messages.
+    # wrong shape (binomial loss) and for non-F-contiguous gradient_out or non-
+    # contiguous hessian_out (multinomial loss), matching the error messages.
     """Test that wrong gradient_out and hessian_out raises errors."""
     n_samples, n_features, n_classes = 5, 2, 3
     loss = LinearModelLoss(base_loss=HalfBinomialLoss(), fit_intercept=False)

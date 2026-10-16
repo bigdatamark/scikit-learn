@@ -212,8 +212,7 @@ def test_balance_property(model, with_sample_weight, global_random_seed):
 def test_linear_model_regressor_coef_shape(Regressor, ndim):
     # [FUNCTION DOC]
     # Verifies regressors expose coef_ of shape (n_features,) whether y is 1-D or a
-    #   single
-    # column 2-D array. Target is min-max scaled plus one (positive, for GLMs).
+    # single column 2-D array. Target is min-max scaled plus one (positive, for GLMs).
     # LinearRegression is xfailed as it does not follow the contract.
     """Check the consistency of linear models `coef` shape."""
     if Regressor is LinearRegression:
@@ -288,11 +287,9 @@ def test_linear_model_classifier_coef_shape(Classifier, params, n_classes):
 def test_model_pipeline_same_dense_and_sparse(LinearModel, params, csr_container):
     # [FUNCTION DOC]
     # Verifies that a pipeline StandardScaler(with_mean=False) plus linear model gives
-    #   the
-    # same coef_ (atol 1e-15), predictions and intercept_ on dense and CSR input. Data
-    #   is
-    # 100x2 Gaussian with values below 0.1 zeroed; y is uniform, replaced by its sign
-    # for classifiers.
+    # the same coef_ (atol 1e-15), predictions and intercept_ on dense and CSR input.
+    # Data is 100x2 Gaussian with values below 0.1 zeroed; y is uniform, replaced by its
+    # sign for classifiers.
     # KNOWN ISSUE: y is uniform on [0, 1), so its sign is all ones (barring an exact
     # zero) and classifiers are fit on a single class.
     """Test that sparse and dense linear models give same results.
