@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Small utility module computing the number of samples drawn per bootstrap
+# replicate, shared by bagging and forest estimators.
 """Utility function to get the number of bootstrap samples."""
 
 # Authors: The scikit-learn developers
@@ -8,6 +11,18 @@ from warnings import warn
 
 
 def _get_n_samples_bootstrap(n_samples, max_samples, sample_weight):
+    # [FUNCTION DOC]
+    # HELPER: Resolves the bootstrap sample size from max_samples.
+    # Behavior: None returns n_samples; an integer is returned as is (no bounds check
+    # here); otherwise max_samples is treated as a fraction of the weighted sample count
+    # (sum of sample_weight, or n_samples when sample_weight is None), truncated to int
+    # and floored at 1.
+    # Inputs: n_samples - int; max_samples - None, int or float; sample_weight - 1D array
+    # or None.
+    # Outputs: int number of samples to draw.
+    # Exceptions: none raised directly.
+    # Side effects: emits a UserWarning when the fractional result is below
+    # max(10, cube root of n_samples).
     """
     Get the number of samples in a bootstrap sample.
 

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# HDBSCAN estimator and its pure-Python drivers. Pipeline: compute core distances
+# (distance to the min_samples-th neighbour), build a minimum spanning tree of the
+# mutual reachability graph (brute force on a full/sparse distance matrix, or Prim's
+# algorithm on the data with KD/Ball tree core distances), convert it to a single
+# linkage tree, then condense it and select clusters (Cython tree_to_labels).
+# Non-finite samples are excluded from clustering and labelled with the special
+# codes in _OUTLIER_ENCODING (-2 infinite, -3 missing). FAST_METRICS lists metrics
+# supported by KDTree or BallTree.
 """
 HDBSCAN: Hierarchical Density-Based Spatial Clustering
          of Applications with Noise
@@ -85,6 +94,14 @@ _OUTLIER_ENCODING: dict = {
 
 
 def _brute_mst(mutual_reachability, min_samples):
+    # [FUNCTION DOC]
+    # HELPER: MST of a mutual reachability graph. Dense input: Cython
+    # mst_from_mutual_reachability. Sparse CSR input: checks every row stores at least
+    # min_samples entries and the graph has a single connected component, then uses
+    # scipy minimum_spanning_tree and packs (row, col, distance) into MST_edge_dtype.
+    # Inputs: mutual_reachability - dense (n, n) or CSR; min_samples - int.
+    # Outputs: structured array of n-1 edges (unsorted).
+    # Exceptions: ValueError for rows with too few neighbours or a disconnected graph.
     """
     Builds a minimum spanning tree (MST) from the provided mutual-reachability
     values. This function dispatches to a custom Cython implementation for
@@ -146,6 +163,10 @@ def _brute_mst(mutual_reachability, min_samples):
 
 
 def _process_mst(min_spanning_tree):
+    # [FUNCTION DOC]
+    # HELPER: Sorts MST edges by distance and converts them to a single linkage tree
+    # (make_single_linkage, HIERARCHY_dtype records: left, right, distance, size).
+    # Inputs: min_spanning_tree - MST_edge_dtype array. Outputs: linkage array.
     """
     Builds a single-linkage tree (SLT) from the provided minimum spanning tree
     (MST). The MST is first sorted then processed by a custom Cython routine.
@@ -177,6 +198,22 @@ def _hdbscan_brute(
     copy=False,
     **metric_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Brute-force single linkage tree. For precomputed input, checks the matrix
+    # is square and symmetric (dense or sparse) and optionally copies it; otherwise
+    # computes the full pairwise distance matrix. Divides distances by alpha, converts
+    # sparse to CSR, builds the mutual reachability graph in place (max_distance from
+    # metric_params fills missing sparse entries), computes the MST, warns (UserWarning)
+    # when it contains infinite edges, and returns the processed linkage tree.
+    # Inputs: X - data or distance matrix; min_samples; alpha (float, must be given);
+    # metric; n_jobs; copy - bool; metric_params - extra metric kwargs.
+    # Outputs: single linkage tree array.
+    # Exceptions: ValueError for non-square/asymmetric precomputed matrices and from
+    # _brute_mst.
+    # Side effects: with copy=False and precomputed input, the caller's matrix is
+    # overwritten.
+    # KNOWN ISSUE: alpha defaults to None in the signature, which would fail on the
+    # division; it only works because fit always passes a float.
     """
     Builds a single-linkage tree (SLT) from the input data `X`. If
     `metric="precomputed"` then `X` must be a symmetric array of distances.
@@ -289,6 +326,14 @@ def _hdbscan_prims(
     n_jobs=None,
     **metric_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Single linkage tree via Prim's algorithm: computes core distances as the
+    # distance to the min_samples-th neighbour (self included) with NearestNeighbors
+    # using the given tree algo, then builds the MST over the implicit mutual
+    # reachability distances (scaled by alpha) with mst_from_data_matrix.
+    # Inputs: X - dense data; algo - "kd_tree" or "ball_tree"; min_samples; alpha;
+    # metric; leaf_size; n_jobs; metric_params.
+    # Outputs: single linkage tree array.
     """
     Builds a single-linkage tree (SLT) from the input data `X`. If
     `metric="precomputed"` then `X` must be a symmetric array of distances.
@@ -362,6 +407,16 @@ def _hdbscan_prims(
 
 
 def remap_single_linkage_tree(tree, internal_to_raw, non_finite):
+    # [FUNCTION DOC]
+    # Re-expresses a linkage tree built on finite rows only in raw-row ids: leaf ids are
+    # mapped through internal_to_raw and internal node ids shifted by the number of
+    # non-finite rows; then appends one merge per non-finite sample joining it to the
+    # current root at infinite distance (each creating a new root).
+    # Inputs: tree - HIERARCHY_dtype array (mutated in place); internal_to_raw - dict
+    # finite index to raw index; non_finite - set of raw indices.
+    # Outputs: new concatenated tree array.
+    # KNOWN ISSUE: the outlier rows follow set iteration order, so their order is not
+    # guaranteed to be sorted.
     """
     Takes an internal single_linkage_tree structure and adds back in a set of points
     that were initially detected as non-finite and returns that new tree.
@@ -407,6 +462,10 @@ def remap_single_linkage_tree(tree, internal_to_raw, non_finite):
 
 
 def _get_finite_row_indices(matrix):
+    # [FUNCTION DOC]
+    # HELPER: Indices of rows whose stored values are all finite (sparse: per LIL row;
+    # dense: rows whose sum is finite).
+    # Inputs: matrix - ndarray or sparse. Outputs: int ndarray.
     """
     Returns the indices of the purely finite rows of a
     sparse matrix or dense ndarray
@@ -421,6 +480,10 @@ def _get_finite_row_indices(matrix):
 
 
 class HDBSCAN(ClusterMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator for HDBSCAN. Fitted attributes: labels_, probabilities_, optional
+    # centroids_/medoids_, and the private _single_linkage_tree_ used by
+    # dbscan_clustering.
     """Cluster data using hierarchical density-based clustering.
 
     HDBSCAN - Hierarchical Density-Based Spatial Clustering of Applications
@@ -679,6 +742,8 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         store_centers=None,
         copy="warn",
     ):
+        # [FUNCTION DOC]
+        # Stores the hyper-parameters unchanged (copy defaults to the transitional "warn").
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples
         self.alpha = alpha
@@ -699,6 +764,26 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Resolves copy ("warn" emits FutureWarning and means False). Rejects store_centers
+        # with precomputed metric. Non-precomputed X is validated as float64 dense/CSR/LIL
+        # allowing non-finite values; if any are present, rows containing NaN (missing) or
+        # inf (infinite) are recorded and only finite rows are clustered. Sparse precomputed
+        # X is validated normally; dense precomputed may contain inf but not NaN. Requires
+        # at least 2 samples and min_samples (defaulting to min_cluster_size) <= n_samples.
+        # Selects the tree builder: explicit algorithm (kd_tree/ball_tree must support the
+        # metric; sparse non-precomputed data only with brute), or "auto": brute for sparse
+        # or slow metrics, else KD tree if the metric allows, else Ball tree. Builds the
+        # linkage tree and converts it to labels_/probabilities_ with tree_to_labels. With
+        # excluded rows, remaps the tree and labels/probabilities to raw rows using the
+        # outlier codes. Finally computes centers if store_centers.
+        # Inputs: X - data or distance matrix; y ignored. Outputs: self.
+        # Sets: _metric_params, _raw_data (non-precomputed), _min_samples,
+        # _single_linkage_tree_, labels_, probabilities_, centroids_/medoids_.
+        # Exceptions: ValueError for the conditions above.
+        # KNOWN ISSUE: the inline comment says inf rows map to -1 and NaN rows to -2, but the
+        # code uses -2 and -3. With non-finite rows and store_centers, _weighted_cluster_center
+        # receives the reduced X while labels_ has the raw length, causing a mask mismatch.
         """Find clusters based on hierarchical density-based clustering.
 
         Parameters
@@ -900,6 +985,8 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         return self
 
     def fit_predict(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits and returns labels_.
         """Cluster X and return the associated cluster labels.
 
         Parameters
@@ -921,6 +1008,16 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         return self.labels_
 
     def _weighted_cluster_center(self, X):
+        # [FUNCTION DOC]
+        # HELPER: For each cluster label 0..n_clusters-1, computes the probability-weighted
+        # mean of its members (centroids_) and/or the member minimizing the sum of
+        # probability-weighted distances to the other members under the fitted metric
+        # (medoids_).
+        # Inputs: X - (n_samples, n_features) data aligned with labels_.
+        # Outputs: None. Side effects: sets centroids_ and/or medoids_.
+        # KNOWN ISSUE: n_clusters is the number of labels excluding -1 and -2 only; the
+        # missing-data label -3 is counted as a cluster, leading to an empty cluster (and a
+        # ZeroDivisionError in the weighted average) when NaN rows exist.
         """Calculate and store the centroids/medoids of each cluster.
 
         This requires `X` to be a raw feature array, not precomputed
@@ -965,6 +1062,13 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         return
 
     def dbscan_clustering(self, cut_distance, min_cluster_size=5):
+        # [FUNCTION DOC]
+        # Produces a DBSCAN-like flat clustering by cutting the stored single linkage tree
+        # at cut_distance (labelling_at_cut, clusters smaller than min_cluster_size are
+        # noise), then re-applies the infinite/missing outlier codes from labels_.
+        # Inputs: cut_distance - float; min_cluster_size - int (default 5).
+        # Outputs: int ndarray (n_samples,).
+        # Exceptions: AttributeError if not fitted.
         """Return clustering given by DBSCAN without border points.
 
         Return clustering that would be equivalent to running DBSCAN* for a
@@ -1014,6 +1118,8 @@ class HDBSCAN(ClusterMixin, BaseEstimator):
         return labels
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse support and NaN support unless metric is "precomputed".
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.allow_nan = self.metric != "precomputed"

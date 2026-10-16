@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Common tests applied to every public load_* / fetch_* function of sklearn.datasets
+# that supports return_X_y or as_frame, plus reusable check helpers (check_return_X_y,
+# check_as_frame, check_pandas_dependency_message) imported by other dataset test
+# modules. Fetchers are skipped unless SKLEARN_SKIP_NETWORK_TESTS is set to something
+# other than "1".
+# Side effects at import: imports sklearn.datasets and builds the FETCH_PYTEST_MARKERS
+# table (xfail/skip markers per fetcher).
 """Test loaders for common functionality."""
 
 import inspect
@@ -10,6 +18,9 @@ import sklearn.datasets
 
 
 def is_pillow_installed():
+    # [FUNCTION DOC]
+    # HELPER: Returns True if PIL can be imported, False otherwise. Side effects:
+    # imports PIL when available.
     try:
         import PIL  # noqa: F401
 
@@ -39,6 +50,11 @@ FETCH_PYTEST_MARKERS = {
 
 
 def check_pandas_dependency_message(fetch_func):
+    # [FUNCTION DOC]
+    # HELPER: Skips when pandas is installed; otherwise asserts that calling
+    # fetch_func(as_frame=True) raises ImportError mentioning "<function name> with
+    # as_frame=True requires pandas".
+    # Inputs: fetch_func - dataset function with a __name__ attribute.
     try:
         import pandas  # noqa: F401
 
@@ -53,6 +69,10 @@ def check_pandas_dependency_message(fetch_func):
 
 
 def check_return_X_y(bunch, dataset_func):
+    # [FUNCTION DOC]
+    # HELPER: Calls dataset_func(return_X_y=True) and asserts it returns a tuple whose X
+    # and y shapes equal bunch.data and bunch.target shapes.
+    # Inputs: bunch - reference Bunch; dataset_func - callable accepting return_X_y.
     X_y_tuple = dataset_func(return_X_y=True)
     assert isinstance(X_y_tuple, tuple)
     assert X_y_tuple[0].shape == bunch.data.shape
@@ -62,6 +82,13 @@ def check_return_X_y(bunch, dataset_func):
 def check_as_frame(
     bunch, dataset_func, expected_data_dtype=None, expected_target_dtype=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Asserts the as_frame=True contract: frame is a DataFrame, data a DataFrame
+    # with the same shape as bunch.data, target a DataFrame (2-D) or Series (1-D) with
+    # matching length, optional expected dtypes for data and target; also checks that
+    # as_frame with return_X_y returns DataFrame X and Series/DataFrame y.
+    # Inputs: bunch - reference Bunch; dataset_func - callable; expected_data_dtype,
+    # expected_target_dtype - optional dtypes. Skips without pandas.
     pd = pytest.importorskip("pandas")
     frame_bunch = dataset_func(as_frame=True)
     assert hasattr(frame_bunch, "frame")
@@ -88,10 +115,20 @@ def check_as_frame(
 
 
 def _skip_network_tests():
+    # [FUNCTION DOC]
+    # HELPER: Returns True unless the environment variable SKLEARN_SKIP_NETWORK_TESTS is
+    # set to a value other than "1" (default "1", i.e. skip).
     return os.environ.get("SKLEARN_SKIP_NETWORK_TESTS", "1") == "1"
 
 
 def _generate_func_supporting_param(param, dataset_type=("load", "fetch")):
+    # [FUNCTION DOC]
+    # HELPER: Yields pytest.param(name, function) for every function in sklearn.datasets
+    # whose name starts with one of dataset_type prefixes and whose signature has param.
+    # Each param carries a skipif marker for fetchers when network tests are disabled,
+    # plus any extra marker from FETCH_PYTEST_MARKERS for that param.
+    # Inputs: param - parameter name str; dataset_type - tuple of prefixes. Outputs:
+    # generator of pytest params.
     markers_fetch = FETCH_PYTEST_MARKERS.get(param, {})
     for name, obj in inspect.getmembers(sklearn.datasets):
         if not inspect.isfunction(obj):
@@ -117,6 +154,9 @@ def _generate_func_supporting_param(param, dataset_type=("load", "fetch")):
     "name, dataset_func", _generate_func_supporting_param("return_X_y")
 )
 def test_common_check_return_X_y(name, dataset_func):
+    # [FUNCTION DOC]
+    # Verifies return_X_y=True output shapes match the default Bunch for every
+    # loader/fetcher supporting it.
     bunch = dataset_func()
     check_return_X_y(bunch, dataset_func)
 
@@ -125,6 +165,9 @@ def test_common_check_return_X_y(name, dataset_func):
     "name, dataset_func", _generate_func_supporting_param("as_frame")
 )
 def test_common_check_as_frame(name, dataset_func):
+    # [FUNCTION DOC]
+    # Verifies the as_frame=True contract via check_as_frame for every loader/fetcher
+    # supporting as_frame.
     bunch = dataset_func()
     check_as_frame(bunch, dataset_func)
 
@@ -133,4 +176,7 @@ def test_common_check_as_frame(name, dataset_func):
     "name, dataset_func", _generate_func_supporting_param("as_frame")
 )
 def test_common_check_pandas_dependency(name, dataset_func):
+    # [FUNCTION DOC]
+    # Verifies the informative missing-pandas error for every loader/fetcher supporting
+    # as_frame (skipped when pandas is installed).
     check_pandas_dependency_message(dataset_func)

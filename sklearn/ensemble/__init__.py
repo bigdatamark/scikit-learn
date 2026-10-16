@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Public entry point of the sklearn.ensemble package. Re-exports the ensemble
+# estimators implemented in private submodules: bagging (BaggingClassifier,
+# BaggingRegressor), the abstract BaseEnsemble, random/extra-trees forests and
+# RandomTreesEmbedding, gradient boosting (classic and histogram-based),
+# IsolationForest, stacking, voting and AdaBoost estimators; __all__ lists them.
+# Import-time side effects: imports all those submodules (including compiled tree and
+# histogram gradient boosting extensions); no global state is modified.
 """Ensemble-based methods for classification, regression and anomaly detection."""
 
 # Authors: The scikit-learn developers

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for KernelPCA: all eigen solvers and kernels (including callable and
+# precomputed), consistency of fit/transform, sparse input, equivalence with PCA
+# for a linear kernel, zero/negative eigenvalue handling, inverse_transform,
+# pipelines with grid search, dtype behaviour, feature names and pandas output.
 import warnings
 
 import numpy as np
@@ -22,6 +27,13 @@ from sklearn.utils.validation import _check_psd_eigenvalues
 
 
 def test_kernel_pca(global_random_seed):
+    # [FUNCTION DOC]
+    # For every eigen_solver (auto, dense, arpack, randomized) and kernel (linear,
+    # rbf, poly, custom histogram callable) on 5x4 random data: checks fit_transform
+    # equals fit then transform up to sign, output is non-empty (poly gamma
+    # regression), transformed new data has the same number of columns, and, for
+    # non-callable kernels (fitted with fit_inverse_transform), inverse_transform
+    # returns the original shape.
     """Nominal test for all solvers and all known kernels + a custom one
 
     It tests
@@ -33,6 +45,12 @@ def test_kernel_pca(global_random_seed):
     X_pred = rng.random_sample((2, 4))
 
     def histogram(x, y, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Histogram intersection kernel used as a callable: sum of element-wise
+        # minima of two sample vectors. Asserts no unexpected kernel_params are passed.
+        # Inputs: x, y - 1D sample vectors; kwargs - must be empty.
+        # Outputs: float kernel value.
+        # Exceptions: AssertionError if kwargs is non-empty.
         # Histogram kernel implemented as a callable.
         assert kwargs == {}  # no kernel_params that we didn't ask for
         return np.minimum(x, y).sum()
@@ -68,6 +86,10 @@ def test_kernel_pca(global_random_seed):
 
 
 def test_kernel_pca_invalid_parameters():
+    # [FUNCTION DOC]
+    # Checks that fit_inverse_transform=True with kernel="precomputed" raises
+    # ValueError on fit.
+    # Side effects: uses the unseeded global numpy random state for the data.
     """Check that kPCA raises an error if the parameters are invalid
 
     Tests fitting inverse transform with a precomputed kernel raises a
@@ -82,6 +104,9 @@ def test_kernel_pca_invalid_parameters():
 
 
 def test_kernel_pca_consistent_transform(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks the fitted model keeps its own copy of the training data: mutating the
+    # original X after fit does not change the transform of an unmutated copy.
     """Check robustness to mutations in the original training array
 
     Test that after fitting a kPCA model, it stays independent of any
@@ -101,6 +126,10 @@ def test_kernel_pca_consistent_transform(global_random_seed):
 
 
 def test_kernel_pca_deterministic_output(global_random_seed):
+    # [FUNCTION DOC]
+    # For arpack and dense solvers, fits 20 models with 2 components (sharing one
+    # RandomState so each fit draws a different seed) and checks the first
+    # transformed row is identical across all fits.
     """Test that Kernel PCA produces deterministic output
 
     Tests that the same inputs and random state produce the same output.
@@ -119,6 +148,12 @@ def test_kernel_pca_deterministic_output(global_random_seed):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_kernel_pca_sparse(csr_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Sparse (CSR) counterpart of test_kernel_pca for solvers auto/arpack/randomized
+    # and kernels linear/rbf/poly: fit_transform equals fit then transform up to sign,
+    # transformed new data has matching width, and inverse_transform raises
+    # NotFittedError since no inverse was fitted.
+    # Inputs: csr_container - CSR constructor; global_random_seed fixture.
     """Test that kPCA works on a sparse data input.
 
     Same test as ``test_kernel_pca except inverse_transform`` since it's not
@@ -158,6 +193,10 @@ def test_kernel_pca_sparse(csr_container, global_random_seed):
 @pytest.mark.parametrize("solver", ["auto", "dense", "arpack", "randomized"])
 @pytest.mark.parametrize("n_features", [4, 10])
 def test_kernel_pca_linear_kernel(solver, n_features, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks KernelPCA with linear kernel transforms new data like PCA (up to sign)
+    # for each solver (dense mapped to PCA's full solver), with 4 components or 3
+    # for arpack, for 4 and 10 features.
     """Test that kPCA with linear kernel is equivalent to PCA for all solvers.
 
     KernelPCA with linear kernel should produce the same output as PCA.
@@ -182,6 +221,9 @@ def test_kernel_pca_linear_kernel(solver, n_features, global_random_seed):
 
 
 def test_kernel_pca_n_components():
+    # [FUNCTION DOC]
+    # Checks that for dense, arpack and randomized solvers and n_components 1, 2, 4,
+    # transforming 2 new samples yields shape (2, n_components).
     """Test that `n_components` is correctly taken into account for projections
 
     For all solvers this tests that the output has the correct shape depending
@@ -200,6 +242,10 @@ def test_kernel_pca_n_components():
 
 
 def test_remove_zero_eig():
+    # [FUNCTION DOC]
+    # Checks remove_zero_eig on a rank-deficient 3x2 input: the default
+    # (n_components=None) and explicit remove_zero_eig=True drop all zero eigenvalues
+    # (output width 0), while n_components=2 alone keeps 2 columns.
     """Check that the ``remove_zero_eig`` parameter works correctly.
 
     Tests that the null-space (Zero) eigenvalues are removed when
@@ -222,6 +268,11 @@ def test_remove_zero_eig():
 
 
 def test_leave_zero_eig():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #12141: with remove_zero_eig=False and the dense
+    # solver, fit then transform equals fit_transform up to sign and no
+    # RuntimeWarning (e.g. division by zero) is emitted, with numpy errstate set to
+    # warn and RuntimeWarnings turned into errors.
     """Non-regression test for issue #12141 (PR #12143)
 
     This test checks that fit().transform() returns the same result as
@@ -247,6 +298,11 @@ def test_leave_zero_eig():
 
 
 def test_kernel_pca_precomputed(global_random_seed):
+    # [FUNCTION DOC]
+    # For dense, arpack and randomized solvers checks that a precomputed linear
+    # kernel (X X^T) gives the same transforms as the default linear kernel on new
+    # data, and that precomputed fit_transform equals fit then transform on the
+    # training kernel, all up to sign.
     """Test that kPCA works with a precomputed kernel, for all solvers"""
     rng = np.random.RandomState(global_random_seed)
     X_fit = rng.random_sample((5, 4))
@@ -286,6 +342,10 @@ def test_kernel_pca_precomputed(global_random_seed):
 
 @pytest.mark.parametrize("solver", ["auto", "dense", "arpack", "randomized"])
 def test_kernel_pca_precomputed_non_symmetric(solver):
+    # [FUNCTION DOC]
+    # Checks a non-symmetric precomputed kernel is accepted and, after centering,
+    # yields exactly the same eigenvectors_ and eigenvalues_ as the equivalent
+    # already-centered symmetric kernel.
     """Check that the kernel centerer works.
 
     Tests that a non symmetric precomputed kernel is actually accepted
@@ -312,6 +372,9 @@ def test_kernel_pca_precomputed_non_symmetric(solver):
 
 
 def test_gridsearch_pipeline():
+    # [FUNCTION DOC]
+    # Checks a Pipeline of rbf KernelPCA and Perceptron, grid-searched over gamma
+    # with 3-fold CV, perfectly separates nested circles (best_score_ == 1).
     """Check that kPCA works as expected in a grid search pipeline
 
     Test if we can do a grid-search to find parameters to separate
@@ -327,6 +390,9 @@ def test_gridsearch_pipeline():
 
 
 def test_gridsearch_pipeline_precomputed():
+    # [FUNCTION DOC]
+    # Same as test_gridsearch_pipeline but with a precomputed rbf kernel (gamma 2)
+    # and grid search over the Perceptron max_iter; expects best_score_ == 1.
     """Check that kPCA works as expected in a grid search pipeline (2)
 
     Test if we can do a grid-search to find parameters to separate
@@ -343,6 +409,10 @@ def test_gridsearch_pipeline_precomputed():
 
 
 def test_nested_circles():
+    # [FUNCTION DOC]
+    # Checks nested circles are not linearly separable in raw space (Perceptron
+    # training score < 0.8) but become perfectly separable after projection on the
+    # first 2 rbf KernelPCA components with gamma 2.
     """Check that kPCA projects in a space where nested circles are separable
 
     Tests that 2D nested circles become separable with a perceptron when
@@ -371,6 +441,10 @@ def test_nested_circles():
 
 
 def test_kernel_conditioning():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #12140: on a pathological input producing a tiny
+    # non-zero eigenvalue, the fitted eigenvalues_ have minimum exactly 0 and equal
+    # the output of _check_psd_eigenvalues.
     """Check that ``_check_psd_eigenvalues`` is correctly called in kPCA
 
     Non-regression test for issue #12140 (PR #12145).
@@ -388,6 +462,11 @@ def test_kernel_conditioning():
 
 @pytest.mark.parametrize("solver", ["auto", "dense", "arpack", "randomized"])
 def test_precomputed_kernel_not_psd(solver):
+    # [FUNCTION DOC]
+    # Uses an already-centered non-PSD 8x8 kernel: n_components=7 must raise
+    # ValueError about significant negative eigenvalues; n_components=2 must fit
+    # without error, except for the randomized solver which selects by magnitude and
+    # therefore must also raise the ValueError.
     """Check how KernelPCA works with non-PSD kernels depending on n_components
 
     Tests for all methods what happens with a non PSD gram matrix (this
@@ -440,6 +519,10 @@ def test_precomputed_kernel_not_psd(solver):
 
 @pytest.mark.parametrize("n_components", [4, 10, 20])
 def test_kernel_pca_solvers_equivalence(n_components):
+    # [FUNCTION DOC]
+    # Checks arpack and randomized solvers give the same transforms (up to sign) as
+    # the dense solver on circles data (1000 train, 100 test) for the given
+    # n_components.
     """Check that 'dense' 'arpack' & 'randomized' solvers give similar results"""
 
     # Generate random data
@@ -476,6 +559,9 @@ def test_kernel_pca_solvers_equivalence(n_components):
 
 
 def test_kernel_pca_inverse_transform_reconstruction():
+    # [FUNCTION DOC]
+    # Checks that rbf KernelPCA with 20 components, fit_inverse_transform and
+    # alpha=1e-3 reconstructs blob data with relative Frobenius error below 0.1.
     """Test if the reconstruction is a good approximation.
 
     Note that in general it is not possible to get an arbitrarily good
@@ -493,6 +579,10 @@ def test_kernel_pca_inverse_transform_reconstruction():
 
 
 def test_kernel_pca_raise_not_fitted_error():
+    # [FUNCTION DOC]
+    # Checks inverse_transform raises NotFittedError when the model was fitted
+    # without fit_inverse_transform.
+    # Side effects: uses the unseeded global numpy random state.
     X = np.random.randn(15).reshape(5, 3)
     kpca = KernelPCA()
     kpca.fit(X)
@@ -501,6 +591,10 @@ def test_kernel_pca_raise_not_fitted_error():
 
 
 def test_32_64_decomposition_shape():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #18146: default KernelPCA on float64 and float32
+    # versions of the same data yields outputs with the same shape (same number of
+    # retained non-zero eigenvalues).
     """Test that the decomposition is similar for 32 and 64 bits data
 
     Non regression test for
@@ -518,6 +612,9 @@ def test_32_64_decomposition_shape():
 
 
 def test_kernel_pca_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns "kernelpca0" and "kernelpca1" for a
+    # 2-component model.
     """Check feature names out for KernelPCA."""
     X, *_ = make_blobs(n_samples=100, n_features=4, random_state=0)
     kpca = KernelPCA(n_components=2).fit(X)
@@ -527,6 +624,12 @@ def test_kernel_pca_feature_names_out():
 
 
 def test_kernel_pca_inverse_correct_gamma(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression test for #26280: with gamma=None the fitted gamma_ is
+    # 1/n_features, equal to passing that value explicitly, and both models give the
+    # same inverse_transform reconstructions.
+    # KNOWN ISSUE: X2_recon is computed from kpca1.transform rather than
+    # kpca2.transform, so the second model's transform is never exercised.
     """Check that gamma is set correctly when not provided.
 
     Non-regression test for #26280
@@ -555,6 +658,9 @@ def test_kernel_pca_inverse_correct_gamma(global_random_seed):
 
 
 def test_kernel_pca_pandas_output():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #27579: arpack KernelPCA fit_transform runs on a
+    # pandas DataFrame under transform_output="pandas". Skipped without pandas.
     """Check that KernelPCA works with pandas output when the solver is arpack.
 
     Non-regression test for:

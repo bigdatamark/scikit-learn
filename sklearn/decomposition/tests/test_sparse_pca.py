@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for SparsePCA and MiniBatchSparsePCA: output shapes, agreement between the
+# lars and cd solvers, parallel fitting, NaN safety, initialization, dtype handling,
+# equivalence with PCA in the unpenalized limit, early stopping, feature names and
+# inverse_transform.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +23,16 @@ from sklearn.utils.extmath import svd_flip
 
 
 def generate_toy_data(n_components, n_samples, image_size, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Builds synthetic data Y = U V + noise where each row of V is a flattened
+    # image containing one filled square at a fixed location.
+    # Inputs: n_components - number of atoms (at most 3); n_samples - rows; image_size -
+    # (height, width) tuple; random_state - seed / RandomState / None.
+    # Outputs: tuple (Y of shape (n_samples, h*w), U of shape (n_samples, n_components),
+    # V of shape (n_components, h*w)).
+    # Side effects: consumes the random generator; Gaussian noise of scale 0.1 is added.
+    # KNOWN ISSUE: centers and sz have only 3 entries, so n_components > 3 raises
+    # IndexError.
     n_features = image_size[0] * image_size[1]
 
     rng = check_random_state(random_state)
@@ -44,6 +59,9 @@ def generate_toy_data(n_components, n_samples, image_size, random_state=None):
 
 
 def test_correct_shapes():
+    # [FUNCTION DOC]
+    # Verifies components_ and fit_transform output shapes of SparsePCA, including an
+    # overcomplete case where n_components exceeds n_features.
     rng = np.random.RandomState(0)
     X = rng.randn(12, 10)
     spca = SparsePCA(n_components=8, random_state=rng)
@@ -58,6 +76,9 @@ def test_correct_shapes():
 
 
 def test_fit_transform(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that the cd and lars methods of SparsePCA yield close components_ on toy
+    # data with the same alpha and seed.
     alpha = 1
     rng = np.random.RandomState(global_random_seed)
     Y, _, _ = generate_toy_data(3, 10, (8, 8), random_state=rng)  # wide array
@@ -79,6 +100,9 @@ def test_fit_transform(global_random_seed):
 @pytest.mark.thread_unsafe
 @if_safe_multiprocessing_with_blas
 def test_fit_transform_parallel(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that fitting with n_jobs=2 gives the same transform as a single-job fit and
+    # that components are not all zero. Skipped when multiprocessing with BLAS is unsafe.
     alpha = 1
     rng = np.random.RandomState(global_random_seed)
     Y, _, _ = generate_toy_data(3, 10, (8, 8), random_state=rng)  # wide array
@@ -101,6 +125,8 @@ def test_fit_transform_parallel(global_random_seed):
 
 
 def test_transform_nan(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies fit_transform produces no NaN when one feature is zero for all samples.
     # Test that SparsePCA won't return NaN when there is 0 feature in all
     # samples.
     rng = np.random.RandomState(global_random_seed)
@@ -111,6 +137,9 @@ def test_transform_nan(global_random_seed):
 
 
 def test_fit_transform_tall(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies lars and cd methods give close transforms on a tall (more samples than
+    # features) dataset.
     rng = np.random.RandomState(global_random_seed)
     Y, _, _ = generate_toy_data(3, 65, (8, 8), random_state=rng)  # tall array
     spca_lars = SparsePCA(n_components=3, method="lars", random_state=rng)
@@ -121,6 +150,9 @@ def test_fit_transform_tall(global_random_seed):
 
 
 def test_initialization(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with max_iter=0 the components_ equal the row-normalized, sign-flipped
+    # V_init, i.e. the user-provided initialization is honored.
     rng = np.random.RandomState(global_random_seed)
     U_init = rng.randn(5, 3)
     V_init = rng.randn(3, 4)
@@ -135,6 +167,9 @@ def test_initialization(global_random_seed):
 
 
 def test_mini_batch_correct_shapes():
+    # [FUNCTION DOC]
+    # Verifies components_ and output shapes of MiniBatchSparsePCA, including the
+    # overcomplete case.
     rng = np.random.RandomState(0)
     X = rng.randn(12, 10)
     pca = MiniBatchSparsePCA(n_components=8, max_iter=1, random_state=rng)
@@ -149,6 +184,9 @@ def test_mini_batch_correct_shapes():
 
 
 def test_scaling_fit_transform(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that transforming a subset of the training data yields the same result for
+    # the first sample as fit_transform on the full data (no batch-dependent scaling).
     alpha = 1
     rng = np.random.RandomState(global_random_seed)
     Y, _, _ = generate_toy_data(3, 1000, (8, 8), random_state=rng)
@@ -159,6 +197,9 @@ def test_scaling_fit_transform(global_random_seed):
 
 
 def test_pca_vs_spca(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with alpha=0 and ridge_alpha=0 SparsePCA recovers the same subspace as
+    # PCA (components orthogonal-match, transforms equal up to sign).
     rng = np.random.RandomState(global_random_seed)
     Y, _, _ = generate_toy_data(3, 1000, (8, 8), random_state=rng)
     Z, _, _ = generate_toy_data(3, 10, (8, 8), random_state=rng)
@@ -179,6 +220,9 @@ def test_pca_vs_spca(global_random_seed):
 @pytest.mark.parametrize("SPCA", [SparsePCA, MiniBatchSparsePCA])
 @pytest.mark.parametrize("n_components", [None, 3])
 def test_spca_n_components_(SPCA, n_components):
+    # [FUNCTION DOC]
+    # Verifies n_components_ equals n_components when set and n_features when None, for
+    # both estimators.
     rng = np.random.RandomState(0)
     n_samples, n_features = 12, 10
     X = rng.randn(n_samples, n_features)
@@ -203,6 +247,9 @@ def test_spca_n_components_(SPCA, n_components):
     ),
 )
 def test_sparse_pca_dtype_match(SPCA, method, data_type, expected_type):
+    # [FUNCTION DOC]
+    # Verifies that float32 input keeps float32 and float64/integer inputs give float64
+    # for both the transformed output and components_, across estimators and methods.
     # Verify output matrix dtype
     n_samples, n_features, n_components = 12, 10, 3
     rng = np.random.RandomState(0)
@@ -217,6 +264,9 @@ def test_sparse_pca_dtype_match(SPCA, method, data_type, expected_type):
 @pytest.mark.parametrize("SPCA", (SparsePCA, MiniBatchSparsePCA))
 @pytest.mark.parametrize("method", ("lars", "cd"))
 def test_sparse_pca_numerical_consistency(SPCA, method, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies float32 and float64 fits on a low-rank matrix give close transforms and
+    # components.
     # Verify numericall consistentency among np.float32 and np.float64
     n_samples, n_features, n_components = 20, 20, 5
     input_array = make_low_rank_matrix(
@@ -245,6 +295,8 @@ def test_sparse_pca_numerical_consistency(SPCA, method, global_random_seed):
 
 @pytest.mark.parametrize("SPCA", [SparsePCA, MiniBatchSparsePCA])
 def test_spca_feature_names_out(SPCA):
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns lowercase class name followed by index.
     """Check feature names out for *SparsePCA."""
     rng = np.random.RandomState(0)
     n_samples, n_features = 12, 10
@@ -258,6 +310,9 @@ def test_spca_feature_names_out(SPCA):
 
 
 def test_spca_early_stopping(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that a larger tol or a smaller max_no_improvement leads to fewer
+    # iterations (n_iter_) for MiniBatchSparsePCA.
     """Check that `tol` and `max_no_improvement` act as early stopping."""
     rng = np.random.RandomState(global_random_seed)
     n_samples, n_features = 50, 10
@@ -284,6 +339,9 @@ def test_spca_early_stopping(global_random_seed):
 
 
 def test_equivalence_components_pca_spca(global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression test: with zero penalties, SparsePCA (lars) components_ match those of
+    # randomized PCA exactly up to tolerance, including sign convention.
     """Check the equivalence of the components found by PCA and SparsePCA.
 
     Non-regression test for:
@@ -310,6 +368,9 @@ def test_equivalence_components_pca_spca(global_random_seed):
 
 
 def test_sparse_pca_inverse_transform(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with near-zero penalties SparsePCA.inverse_transform of its transform
+    # matches PCA's reconstruction.
     """Check that `inverse_transform` in `SparsePCA` and `PCA` are similar."""
     rng = np.random.RandomState(global_random_seed)
     n_samples, n_features = 10, 5
@@ -332,6 +393,9 @@ def test_sparse_pca_inverse_transform(global_random_seed):
 
 @pytest.mark.parametrize("SPCA", [SparsePCA, MiniBatchSparsePCA])
 def test_transform_inverse_transform_round_trip(SPCA, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with n_components equal to n_features and near-zero penalties,
+    # transform followed by inverse_transform recovers the original data.
     """Check the `transform` and `inverse_transform` round trip with no loss of
     information.
     """

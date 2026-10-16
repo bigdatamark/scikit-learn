@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# K-means clustering: k-means++ seeding (public kmeans_plusplus and private
+# _kmeans_plusplus), the functional k_means wrapper, single-run Lloyd and Elkan
+# solvers delegating the per-iteration work to Cython chunked kernels, the E-step
+# helper _labels_inertia (plus a BLAS-threadpool-limited variant), the shared
+# _BaseKMeans base, KMeans, the mini-batch update step and MiniBatchKMeans.
+# Data are float32 or float64, dense C-ordered or CSR; OpenMP threads parallelize the
+# Cython loops while BLAS is limited to one thread to avoid oversubscription.
 """K-means clustering."""
 
 # Authors: The scikit-learn developers
@@ -80,6 +88,19 @@ def kmeans_plusplus(
     random_state=None,
     n_local_trials=None,
 ):
+    # [FUNCTION DOC]
+    # Public k-means++ seeding: validates X (dense or CSR, float32/float64) and
+    # sample_weight, checks n_samples >= n_clusters, computes or validates the squared row
+    # norms, resolves random_state and calls _kmeans_plusplus.
+    # Inputs: X - array-like or sparse (n_samples, n_features); n_clusters - int >= 1;
+    # sample_weight - array-like (n_samples,) or None (unit weights); x_squared_norms -
+    # array (n_samples,) or None; random_state - seed/RandomState/None; n_local_trials -
+    # int or None (default 2 + int(log(k))).
+    # Outputs: (centers array (n_clusters, n_features) in X's dtype, indices int array
+    # (n_clusters,)).
+    # Exceptions: ValueError if n_samples < n_clusters or x_squared_norms has the wrong
+    # length; validation errors.
+    # Side effects: consumes random_state.
     """Init n_clusters seeds according to k-means++.
 
     .. versionadded:: 0.24
@@ -180,6 +201,22 @@ def kmeans_plusplus(
 def _kmeans_plusplus(
     X, n_clusters, x_squared_norms, sample_weight, random_state, n_local_trials=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Greedy k-means++ (Arthur and Vassilvitskii) with sample weights. Pick the
+    # first center by sampling an index with probability proportional to sample_weight;
+    # keep each sample's squared distance to its closest chosen center and the weighted
+    # potential (sum of weight times distance). For each further center: draw
+    # n_local_trials uniform values scaled by the potential and locate them in the
+    # cumulative sum of weight times closest distance (inverse-CDF sampling, clipped to
+    # the last index); compute squared distances from each candidate to all samples;
+    # for each candidate take the elementwise minimum with the current closest distances
+    # and its weighted potential; keep the candidate with the smallest potential and
+    # update closest distances and potential. Sparse rows are densified when stored.
+    # Inputs: X - validated dense or CSR data; n_clusters - int; x_squared_norms -
+    # (n_samples,); sample_weight - (n_samples,); random_state - RandomState;
+    # n_local_trials - int or None.
+    # Outputs: (centers (n_clusters, n_features) in X's dtype, indices int (n_clusters,)).
+    # Side effects: consumes random_state.
     """Computational component for initialization of n_clusters by
     k-means++. Prior validation of data is assumed.
 
@@ -283,6 +320,12 @@ def _kmeans_plusplus(
 
 
 def _tolerance(X, tol):
+    # [FUNCTION DOC]
+    # HELPER: Scales tol by the data: returns 0 if tol is 0, else tol times the mean of
+    # the per-feature variances (sparse variances via mean_variance_axis).
+    # Inputs: X - dense or sparse data; tol - float. Outputs: float.
+    # KNOWN ISSUE: variances are unweighted, so sample_weight does not influence the
+    # convergence tolerance.
     """Return a tolerance which is dependent on the dataset."""
     if tol == 0:
         return 0
@@ -316,6 +359,12 @@ def k_means(
     algorithm="lloyd",
     return_n_iter=False,
 ):
+    # [FUNCTION DOC]
+    # Functional interface: builds KMeans with the given parameters, fits it on X with
+    # sample_weight and returns its fitted attributes.
+    # Inputs: as in KMeans plus X, sample_weight and return_n_iter (bool, default False).
+    # Outputs: (cluster_centers_, labels_, inertia_) and also n_iter_ when return_n_iter.
+    # Exceptions: those of KMeans.fit and parameter validation.
     """Perform K-means clustering algorithm.
 
     Read more in the :ref:`User Guide <k_means>`.
@@ -468,6 +517,25 @@ def _kmeans_single_elkan(
     tol=1e-4,
     n_threads=1,
 ):
+    # [FUNCTION DOC]
+    # HELPER: One Elkan k-means run (triangle-inequality accelerated) from given initial
+    # centers. Allocates buffers (new centers, per-cluster weights, labels starting at -1,
+    # upper bounds per sample, lower bounds per sample and cluster, center shifts); computes
+    # half the pairwise center distances and, per center, the half distance to its closest
+    # other center; initializes the bounds. Each iteration runs the chunked Elkan kernel
+    # (assign labels, update bounds, compute new centers and shifts), recomputes the half
+    # distances from the new centers, optionally prints the inertia, swaps the center
+    # buffers, and stops on identical labels (strict convergence) or when the sum of
+    # squared center shifts is at most tol. Without strict convergence, one extra
+    # assignment-only pass makes labels consistent with the final centers. The inertia is
+    # then computed.
+    # Inputs: X - dense or CSR; sample_weight - (n_samples,); centers_init -
+    # (n_clusters, n_features), at least 2 centers; max_iter - int; verbose - bool;
+    # tol - absolute tolerance; n_threads - OpenMP threads.
+    # Outputs: (labels int32 (n_samples,), inertia float, centers (n_clusters,
+    # n_features), number of iterations run).
+    # Side effects: prints when verbose; centers_init may be reused as a work buffer and
+    # overwritten.
     """A single run of k-means elkan, assumes preparation completed prior.
 
     Parameters
@@ -636,6 +704,16 @@ def _kmeans_single_lloyd(
     tol=1e-4,
     n_threads=1,
 ):
+    # [FUNCTION DOC]
+    # HELPER: One Lloyd k-means run with BLAS limited to one thread. Each iteration runs
+    # the chunked Lloyd kernel (assign each sample to its nearest center, accumulate
+    # weighted means into the new-center buffer, compute center shifts), optionally
+    # prints the inertia, swaps the center buffers, and stops on identical labels (strict
+    # convergence) or when the sum of squared center shifts is at most tol. Without strict
+    # convergence, one assignment-only pass aligns labels with the final centers before
+    # computing the inertia.
+    # Inputs/Outputs: same as _kmeans_single_elkan (any number of clusters).
+    # Side effects: prints when verbose; centers_init may be overwritten as a work buffer.
     """A single run of k-means lloyd, assumes preparation completed prior.
 
     Parameters
@@ -759,6 +837,13 @@ def _kmeans_single_lloyd(
 
 
 def _labels_inertia(X, sample_weight, centers, n_threads=1, return_inertia=True):
+    # [FUNCTION DOC]
+    # HELPER: E-step: assigns each sample to its nearest center using the Lloyd kernel
+    # with center updates disabled, and optionally computes the weighted inertia (sum of
+    # weight times squared distance to the assigned center).
+    # Inputs: X - dense or CSR; sample_weight - (n_samples,); centers - (n_clusters,
+    # n_features); n_threads - int; return_inertia - bool, default True.
+    # Outputs: labels int32 (n_samples,), plus inertia float when return_inertia.
     """E step of the K-means EM algorithm.
 
     Compute the labels and the inertia of the given samples and centers.
@@ -833,6 +918,12 @@ _labels_inertia_threadpool_limit = _threadpool_controller_decorator(
 class _BaseKMeans(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, ClusterMixin, BaseEstimator, ABC
 ):
+    # [CLASS DOC]
+    # Abstract base for KMeans and MiniBatchKMeans holding shared parameter constraints,
+    # input checks against parameters, centroid initialization, predict/transform/score
+    # and tags. Subclasses must implement _warn_mkl_vcomp and fit. Fitted attributes set
+    # by subclasses: cluster_centers_, labels_, inertia_, n_iter_, _n_threads,
+    # _n_features_out.
     """Base class for KMeans and MiniBatchKMeans"""
 
     _parameter_constraints: dict = {
@@ -859,6 +950,8 @@ class _BaseKMeans(
         verbose,
         random_state,
     ):
+        # [FUNCTION DOC]
+        # Stores n_clusters, init, n_init, max_iter, tol, verbose and random_state as given.
         self.n_clusters = n_clusters
         self.init = init
         self.max_iter = max_iter
@@ -868,6 +961,14 @@ class _BaseKMeans(
         self.random_state = random_state
 
     def _check_params_vs_input(self, X, default_n_init=None):
+        # [FUNCTION DOC]
+        # Checks parameters that depend on the data and derives private values: raises
+        # ValueError if n_samples < n_clusters; sets _tol from _tolerance; resolves n_init
+        # "auto" to 1 for "k-means++" or an array init and to default_n_init for "random" or a
+        # callable; if init is an explicit array and the resolved count is not 1, warns
+        # (RuntimeWarning) and forces _n_init to 1.
+        # Inputs: X - validated data; default_n_init - int used for "auto".
+        # Side effects: sets self._tol and self._n_init.
         # n_clusters
         if X.shape[0] < self.n_clusters:
             raise ValueError(
@@ -904,12 +1005,21 @@ class _BaseKMeans(
 
     @abstractmethod
     def _warn_mkl_vcomp(self, n_active_threads):
+        # [FUNCTION DOC]
+        # Abstract hook: issues the estimator-specific warning about the MKL plus vcomp
+        # memory leak. Inputs: n_active_threads - int.
         """Issue an estimator specific warning when vcomp and mkl are both present
 
         This method is called by `_check_mkl_vcomp`.
         """
 
     def _check_mkl_vcomp(self, X, n_samples):
+        # [FUNCTION DOC]
+        # HELPER: For dense X only, computes the number of active chunks (n_samples divided by
+        # CHUNK_SIZE, rounded up); if fewer than the available threads, inspects the
+        # threadpool to detect the vcomp OpenMP runtime together with Intel-threaded MKL and
+        # then calls _warn_mkl_vcomp. Inputs: X; n_samples - rows per kernel call.
+        # Side effects: may emit a warning (see #18653).
         """Check when vcomp and mkl are both present"""
         # The BLAS call inside a prange in lloyd_iter_chunked_dense is known to
         # cause a small memory leak when there are less chunks than the number
@@ -930,6 +1040,9 @@ class _BaseKMeans(
                 self._warn_mkl_vcomp(n_active_threads)
 
     def _validate_center_shape(self, X, centers, n_centroids=None):
+        # [FUNCTION DOC]
+        # HELPER: Raises ValueError if centers does not have n_centroids rows (default
+        # n_clusters) or its column count differs from X's.
         """Check if the shape of the centers is correct."""
         if n_centroids is None:
             n_centroids = self.n_clusters
@@ -946,6 +1059,10 @@ class _BaseKMeans(
             )
 
     def _check_test_data(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates data for predict/transform/score without resetting
+        # n_features_in_: CSR or dense C-ordered float64/float32, no 64-bit sparse indices.
+        # Outputs: the validated X.
         X = validate_data(
             self,
             X,
@@ -967,6 +1084,21 @@ class _BaseKMeans(
         init_size=None,
         n_centroids=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Produces initial centers. If init_size is smaller than n_samples, first
+        # draws init_size row indices with replacement and restricts X, norms and weights to
+        # them. Then: "k-means++" - weighted k-means++; "random" - n_clusters distinct rows
+        # sampled with probability proportional to weight; array - used as is; callable -
+        # called with (X, n_clusters, random_state), converted to X's dtype and shape-checked.
+        # Sparse results are densified.
+        # Inputs: X; x_squared_norms; init - str, callable or validated array; random_state;
+        # sample_weight; init_size - int or None; n_centroids - int or None (n_clusters).
+        # Outputs: centers (n_centroids, n_features).
+        # Exceptions: ValueError from shape validation for callable output.
+        # Side effects: consumes random_state.
+        # KNOWN ISSUE: the array branch tests self.init instead of the init argument, so a
+        # caller passing an init that differs from self.init (e.g. bisecting k-means) relies
+        # on both having the same kind.
         """Compute the initial centroids.
 
         Parameters
@@ -1044,6 +1176,8 @@ class _BaseKMeans(
         return centers
 
     def fit_predict(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits on X with sample_weight and returns labels_. Outputs: int array (n_samples,).
         """Compute cluster centers and predict cluster index for each sample.
 
         Convenience method; equivalent to calling fit(X) followed by
@@ -1069,6 +1203,11 @@ class _BaseKMeans(
         return self.fit(X, sample_weight=sample_weight).labels_
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Assigns each sample to its nearest fitted center with the threadpool-limited
+        # E-step, using unit weights. Inputs: X (n_samples, n_features).
+        # Outputs: int32 labels (n_samples,).
+        # Exceptions: NotFittedError; validation errors including feature-count mismatch.
         """Predict the closest cluster each sample in X belongs to.
 
         In the vector quantization literature, `cluster_centers_` is called
@@ -1103,6 +1242,9 @@ class _BaseKMeans(
         return labels
 
     def fit_transform(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits on X with sample_weight and returns euclidean distances from each sample to
+        # every center via _transform. Outputs: array (n_samples, n_clusters).
         """Compute clustering and transform X to cluster-distance space.
 
         Equivalent to fit(X).transform(X), but more efficiently implemented.
@@ -1127,6 +1269,10 @@ class _BaseKMeans(
         return self.fit(X, sample_weight=sample_weight)._transform(X)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns its euclidean distances to each fitted center (dense even
+        # for sparse input). Outputs: array (n_samples, n_clusters).
+        # Exceptions: NotFittedError; validation errors.
         """Transform X to a cluster-distance space.
 
         In the new space, each dimension is the distance to the cluster
@@ -1149,10 +1295,16 @@ class _BaseKMeans(
         return self._transform(X)
 
     def _transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Euclidean distances between X and cluster_centers_, no validation.
         """Guts of transform method; no input validation."""
         return euclidean_distances(X, self.cluster_centers_)
 
     def score(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns minus the weighted inertia of X with respect to the fitted centers.
+        # Inputs: X; y - ignored; sample_weight - array-like or None. Outputs: float.
+        # Exceptions: NotFittedError; validation errors.
         """Opposite of the value of X on the K-means objective.
 
         Parameters
@@ -1183,12 +1335,18 @@ class _BaseKMeans(
         return -scores
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends base tags to declare sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class KMeans(_BaseKMeans):
+    # [CLASS DOC]
+    # Full-batch k-means estimator (Lloyd or Elkan). Adds copy_x and algorithm to the base
+    # parameters; n_init "auto" means 10 runs for random/callable init. Fitted attributes:
+    # cluster_centers_, labels_, inertia_, n_iter_, n_features_in_, feature_names_in_.
     """K-Means clustering.
 
     Read more in the :ref:`User Guide <k_means>`.
@@ -1392,6 +1550,8 @@ class KMeans(_BaseKMeans):
         copy_x=True,
         algorithm="lloyd",
     ):
+        # [FUNCTION DOC]
+        # Stores parameters via the base constructor plus copy_x and algorithm.
         super().__init__(
             n_clusters=n_clusters,
             init=init,
@@ -1406,6 +1566,10 @@ class KMeans(_BaseKMeans):
         self.algorithm = algorithm
 
     def _check_params_vs_input(self, X):
+        # [FUNCTION DOC]
+        # Runs the base checks with default_n_init=10 and sets _algorithm, replacing "elkan"
+        # by "lloyd" with a RuntimeWarning when n_clusters is 1.
+        # Side effects: sets _tol, _n_init, _algorithm.
         super()._check_params_vs_input(X, default_n_init=10)
 
         self._algorithm = self.algorithm
@@ -1420,6 +1584,9 @@ class KMeans(_BaseKMeans):
             self._algorithm = "lloyd"
 
     def _warn_mkl_vcomp(self, n_active_threads):
+        # [FUNCTION DOC]
+        # Emits a UserWarning about the Windows MKL memory leak and suggests setting
+        # OMP_NUM_THREADS to n_active_threads.
         """Warn when vcomp and mkl are both present"""
         warnings.warn(
             "KMeans is known to have a memory leak on Windows "
@@ -1430,6 +1597,25 @@ class KMeans(_BaseKMeans):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Steps: validate X (CSR or dense C-ordered float, copied when copy_x); check
+        # parameters; resolve random_state and sample_weight; get the OpenMP thread count;
+        # validate an array init (copied, shape-checked). For dense X, subtract the column
+        # mean from X (and from an array init) for numerical accuracy. Precompute squared
+        # row norms; choose the Elkan or Lloyd single-run function (Lloyd also checks the
+        # MKL/vcomp issue). For each of _n_init runs: initialize centers and run once; keep
+        # the run if it is the first, or if its inertia is lower and its labels are not the
+        # same partition as the current best. Afterwards add the mean back to the centers
+        # (and to X when copy_x is False, restoring the caller's array). Warn
+        # (ConvergenceWarning) if fewer distinct labels than n_clusters were found.
+        # Inputs: X - array-like or sparse (n_samples, n_features); y - ignored;
+        # sample_weight - array-like or None. Outputs: self.
+        # Exceptions: ValueError on n_samples < n_clusters or bad init shape; validation
+        # errors.
+        # Side effects: sets cluster_centers_, _n_features_out, labels_, inertia_, n_iter_,
+        # n_features_in_, _n_threads and private parameter-derived attributes; when copy_x is
+        # False the caller's dense float C-contiguous array is temporarily modified in place;
+        # prints when verbose.
         """Compute k-means clustering.
 
         Parameters
@@ -1571,6 +1757,26 @@ def _mini_batch_step(
     verbose=False,
     n_threads=1,
 ):
+    # [FUNCTION DOC]
+    # HELPER: One mini-batch update. Assigns batch samples to the current centers and
+    # computes the batch inertia; updates centers with the Cython mini-batch kernel (each
+    # center moves toward the weighted mean of its newly assigned samples with a learning
+    # rate based on the accumulated weight, which is incremented in weight_sums). If
+    # random_reassign and reassignment_ratio > 0, flags centers whose accumulated weight is
+    # below reassignment_ratio times the maximum, keeping at most half the batch size of
+    # them (the lowest-weight ones), moves each flagged center to a batch sample drawn
+    # uniformly without replacement, and resets their weights to the minimum weight of the
+    # unflagged centers.
+    # Inputs: X - batch, dense or CSR; sample_weight - (batch,); centers - current
+    # centers; centers_new - output buffer (may be the same array as centers);
+    # weight_sums - (n_clusters,) accumulated weights; random_state; random_reassign -
+    # bool; reassignment_ratio - float; verbose - bool; n_threads - int.
+    # Outputs: float batch inertia computed before the update.
+    # Side effects: mutates centers_new and weight_sums; consumes random_state; prints
+    # when verbose.
+    # KNOWN ISSUE: with reassignment_ratio > 1 every center (including the heaviest)
+    # can be flagged; the minimum over the unflagged weights is then taken over an
+    # empty array and raises ValueError.
     """Incremental update of the centers for the Minibatch K-Means algorithm.
 
     Parameters
@@ -1678,6 +1884,12 @@ def _mini_batch_step(
 
 
 class MiniBatchKMeans(_BaseKMeans):
+    # [CLASS DOC]
+    # Mini-batch k-means estimator. Adds batch_size, compute_labels, max_no_improvement,
+    # init_size and reassignment_ratio; n_init "auto" means 3 runs for random/callable
+    # init. Fitted attributes: cluster_centers_, labels_ (when compute_labels), inertia_,
+    # n_iter_, n_steps_, n_features_in_, feature_names_in_; private state _counts,
+    # _ewa_inertia, _ewa_inertia_min, _no_improvement, _n_since_last_reassign.
     """
     Mini-Batch K-Means clustering.
 
@@ -1906,6 +2118,8 @@ class MiniBatchKMeans(_BaseKMeans):
         n_init="auto",
         reassignment_ratio=0.01,
     ):
+        # [FUNCTION DOC]
+        # Stores parameters via the base constructor plus the mini-batch specific ones.
         super().__init__(
             n_clusters=n_clusters,
             init=init,
@@ -1923,6 +2137,15 @@ class MiniBatchKMeans(_BaseKMeans):
         self.reassignment_ratio = reassignment_ratio
 
     def _check_params_vs_input(self, X):
+        # [FUNCTION DOC]
+        # Runs base checks with default_n_init=3; sets _batch_size to min(batch_size,
+        # n_samples); sets _init_size to init_size or 3 * _batch_size (raised to
+        # 3 * n_clusters if smaller than n_clusters), warning with RuntimeWarning and using
+        # 3 * n_clusters when a user init_size is below n_clusters; finally caps it at
+        # n_samples.
+        # Side effects: sets _tol, _n_init, _batch_size, _init_size.
+        # KNOWN ISSUE: the reassignment_ratio < 0 ValueError branch is unreachable because
+        # the parameter constraints already require it to be >= 0.
         super()._check_params_vs_input(X, default_n_init=3)
 
         self._batch_size = min(self.batch_size, X.shape[0])
@@ -1954,6 +2177,9 @@ class MiniBatchKMeans(_BaseKMeans):
             )
 
     def _warn_mkl_vcomp(self, n_active_threads):
+        # [FUNCTION DOC]
+        # Emits a UserWarning about the Windows MKL memory leak suggesting a larger batch_size
+        # or OMP_NUM_THREADS.
         """Warn when vcomp and mkl are both present"""
         warnings.warn(
             "MiniBatchKMeans is known to have a memory leak on "
@@ -1967,6 +2193,17 @@ class MiniBatchKMeans(_BaseKMeans):
     def _mini_batch_convergence(
         self, step, n_steps, n_samples, centers_squared_diff, batch_inertia
     ):
+        # [FUNCTION DOC]
+        # HELPER: Early stopping logic for fit. Normalizes the batch inertia by the batch size;
+        # on the first step only prints and returns False. Otherwise updates the exponentially
+        # weighted average inertia with alpha = min(1, 2 * batch_size / (n_samples + 1));
+        # returns True if tol-based stopping is active and the squared center change is at
+        # most _tol; tracks the minimum average inertia and counts steps without improvement,
+        # returning True once that count reaches max_no_improvement (if not None).
+        # Inputs: step - 0-based step; n_steps - total; n_samples; centers_squared_diff;
+        # batch_inertia. Outputs: bool.
+        # Side effects: updates _ewa_inertia, _ewa_inertia_min, _no_improvement; prints when
+        # verbose.
         """Helper function to encapsulate the early stopping logic"""
         # Normalize inertia to be able to compare values when
         # batch_size changes
@@ -2030,6 +2267,13 @@ class MiniBatchKMeans(_BaseKMeans):
         return False
 
     def _random_reassign(self):
+        # [FUNCTION DOC]
+        # HELPER: Adds _batch_size to the samples-seen counter and returns True (resetting the
+        # counter) when some center has zero accumulated weight or at least 10 * n_clusters
+        # samples were seen since the last reassignment; otherwise False.
+        # Side effects: updates _n_since_last_reassign.
+        # KNOWN ISSUE: in partial_fit the counter grows by _batch_size, which was derived from
+        # the first batch, not by the actual size of the current batch.
         """Check if a random reassignment needs to be done.
 
         Do random reassignments each time 10 * n_clusters samples have been
@@ -2047,6 +2291,27 @@ class MiniBatchKMeans(_BaseKMeans):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Steps: validate X; check parameters; resolve random_state, sample_weight and
+        # threads; validate an array init; check the MKL/vcomp issue; compute squared norms;
+        # draw a validation subset of _init_size rows (with replacement). For each of _n_init
+        # initializations, initialize centers on a random init_size subset and keep those with
+        # the lowest validation inertia. Reset counts and convergence state. Run
+        # n_steps = max_iter * n_samples // _batch_size steps with BLAS limited to one thread:
+        # sample a batch with replacement with probability proportional to sample_weight, run
+        # _mini_batch_step with unit weights (weights already used in sampling) and random
+        # reassignment as decided by _random_reassign, compute the squared center change when
+        # tol > 0, swap center buffers, and stop early when _mini_batch_convergence says so.
+        # Set n_steps_ and n_iter_ (passes over the data, rounded up). If compute_labels,
+        # compute labels_ and inertia_ on the full data, otherwise approximate inertia_ as the
+        # averaged inertia times the total weight.
+        # Inputs: X - array-like or sparse; y - ignored; sample_weight - array-like or None.
+        # Outputs: self.
+        # Side effects: sets fitted and private attributes; consumes random_state; prints when
+        # verbose.
+        # KNOWN ISSUE: with compute_labels=False and a single step (e.g. max_iter=1 and
+        # batch_size >= n_samples), _ewa_inertia is still None and computing inertia_ raises
+        # TypeError.
         """Compute the centroids on X by chunking it into mini-batches.
 
         Parameters
@@ -2218,6 +2483,20 @@ class MiniBatchKMeans(_BaseKMeans):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Updates the model with one batch. Validates X (resetting n_features_in_ only on the
+        # first call), keeps a persistent _random_state, validates sample_weight and
+        # initializes n_steps_ to 0 if absent. On the first call (no cluster_centers_):
+        # checks parameters, threads, an array init and MKL/vcomp, initializes centers from
+        # this batch (using init_size) and zeroes the counts and reassignment counter. Then
+        # runs one _mini_batch_step in place on cluster_centers_ with the given weights; if
+        # compute_labels, sets labels_ and inertia_ for this batch; increments n_steps_.
+        # Inputs: X - batch (n_samples, n_features); y - ignored; sample_weight.
+        # Outputs: self.
+        # Exceptions: ValueError on feature mismatch with earlier calls or too few samples on
+        # the first call; validation errors.
+        # Side effects: mutates cluster_centers_, _counts, n_steps_, labels_, inertia_ and
+        # private state; consumes _random_state.
         """Update k means estimate on a single mini-batch X.
 
         Parameters

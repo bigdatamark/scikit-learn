@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Sparse PCA estimators: SparsePCA (batch dictionary learning on the transposed,
+# centered data) and MiniBatchSparsePCA (mini-batch dictionary learning), sharing
+# _BaseSparsePCA which centers data, projects new data with ridge regression and
+# reconstructs it linearly. Sparse loadings are the sparse codes of the transposed
+# problem, normalised to unit norm.
+# Side effects at import: none.
 """Matrix factorization with Sparse PCA."""
 
 # Authors: The scikit-learn developers
@@ -25,6 +32,11 @@ from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
 
 class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Common base: stores shared hyperparameters, implements fit (centering,
+    #   n_components default, delegation to the subclass _fit), transform,
+    #   inverse_transform, output feature naming and tags. Subclasses must implement
+    #   _fit(X, n_components, random_state) setting components_, n_components_, n_iter_.
     """Base class for SparsePCA and MiniBatchSparsePCA"""
 
     _parameter_constraints: dict = {
@@ -52,6 +64,11 @@ class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         verbose=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores shared hyperparameters without validation: n_components (int or None =
+        # n_features), alpha (sparsity penalty), ridge_alpha (ridge strength used in
+        # transform), max_iter, tol, method ('lars' or 'cd'), n_jobs, verbose,
+        # random_state.
         self.n_components = n_components
         self.alpha = alpha
         self.ridge_alpha = ridge_alpha
@@ -64,6 +81,13 @@ class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X, stores mean_ (column means), centers a copy of X, resolves
+        # n_components (None means n_features) and calls the subclass _fit with a
+        # RandomState.
+        # Inputs: X (n_samples, n_features); y ignored. Outputs: self (as returned by
+        #   _fit).
+        # Side effects: sets mean_, n_features_in_ and subclass fitted attributes.
         """Fit the model from data in X.
 
         Parameters
@@ -94,6 +118,12 @@ class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return self._fit(X, n_components, random_state)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Centers X by mean_ and solves a ridge regression (Cholesky, penalty
+        # ridge_alpha) of the centered data on components_ transposed, giving the codes.
+        # Inputs: X (n_samples, n_features). Outputs: ndarray (n_samples,
+        #   n_components_).
+        # Exceptions: NotFittedError; validation errors.
         """Least Squares projection of the data onto the sparse components.
 
         To avoid instability issues in case the system is under-determined,
@@ -126,6 +156,11 @@ class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return U
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Approximate reconstruction: X times components_ plus mean_.
+        # Inputs: X (n_samples, n_components). Outputs: ndarray (n_samples, n_features).
+        # Exceptions: NotFittedError. Note: X is not checked against the fitted number
+        #   of components.
         """Transform data from the latent space to the original space.
 
         This inversion is an approximation due to the loss of information
@@ -150,16 +185,25 @@ class _BaseSparsePCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the row count of
+        #   components_.
         """Number of transformed output features."""
         return self.components_.shape[0]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare float64/float32 dtype preservation.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         return tags
 
 
 class SparsePCA(_BaseSparsePCA):
+    # [CLASS DOC]
+    # Batch sparse PCA. Adds optional initial U_init (n_samples, n_components) and
+    # V_init (n_components, n_features); fitting sets components_ (unit-norm rows),
+    # n_components_, n_iter_ and error_ (per-iteration objective values).
     """Sparse Principal Components Analysis (SparsePCA).
 
     Finds the set of sparse components that can optimally reconstruct
@@ -294,6 +338,8 @@ class SparsePCA(_BaseSparsePCA):
         verbose=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Passes shared hyperparameters to the base class and stores U_init and V_init.
         super().__init__(
             n_components=n_components,
             alpha=alpha,
@@ -309,6 +355,17 @@ class SparsePCA(_BaseSparsePCA):
         self.V_init = V_init
 
     def _fit(self, X, n_components, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Runs dict_learning on the transposed centered data (features as
+        #   samples) with code_init from V_init transposed and dict_init from U_init
+        #   transposed, flips signs with svd_flip based on the code, takes the code
+        #   transposed as components_ and normalises each row to unit L2 norm (zero rows
+        #   left unchanged).
+        # Inputs: X centered (n_samples, n_features); n_components int; random_state
+        #   RandomState.
+        # Outputs: self.
+        # Side effects: sets components_, n_components_, n_iter_, error_; consumes
+        #   randomness.
         """Specialized `fit` for SparsePCA."""
 
         code_init = self.V_init.T if self.V_init is not None else None
@@ -340,6 +397,10 @@ class SparsePCA(_BaseSparsePCA):
 
 
 class MiniBatchSparsePCA(_BaseSparsePCA):
+    # [CLASS DOC]
+    # Mini-batch sparse PCA. Adds callback, batch_size, shuffle and max_no_improvement
+    # (tol default 1e-3); fitting sets components_ (unit-norm rows), n_components_ and
+    # n_iter_.
     """Mini-batch Sparse Principal Components Analysis.
 
     Finds the set of sparse components that can optimally reconstruct
@@ -501,6 +562,9 @@ class MiniBatchSparsePCA(_BaseSparsePCA):
         tol=1e-3,
         max_no_improvement=10,
     ):
+        # [FUNCTION DOC]
+        # Passes shared hyperparameters to the base class and stores callback,
+        # batch_size, shuffle and max_no_improvement.
         super().__init__(
             n_components=n_components,
             alpha=alpha,
@@ -518,6 +582,18 @@ class MiniBatchSparsePCA(_BaseSparsePCA):
         self.max_no_improvement = max_no_improvement
 
     def _fit(self, X, n_components, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Fits a MiniBatchDictionaryLearning on the transposed centered data
+        #   (fit algorithm = method, transform algorithm 'lasso_' + method with
+        #   transform_alpha = alpha), then takes the transposed sparse codes of the
+        #   transposed data as components_ and normalises each row to unit L2 norm (zero
+        #   rows untouched).
+        # Inputs: X centered (n_samples, n_features); n_components; random_state.
+        # Outputs: self.
+        # Side effects: sets components_, n_components_, n_iter_; consumes randomness;
+        #   callback/verbose output from the inner estimator.
+        # KNOWN ISSUE: unlike SparsePCA._fit, no svd_flip sign normalisation is applied,
+        #   so component signs are not made deterministic in the same way.
         """Specialized `fit` for MiniBatchSparsePCA."""
 
         transform_algorithm = "lasso_" + self.method

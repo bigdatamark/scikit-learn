@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Implements TruncatedSVD (latent semantic analysis): a rank-k SVD of the uncentered
+# data via ARPACK or randomized SVD, suitable for sparse input since no centering is
+# done.
+# Public contents: TruncatedSVD. Side effects at import: none.
 """Truncated SVD for sparse matrices, aka latent semantic analysis (LSA)."""
 
 # Authors: The scikit-learn developers
@@ -26,6 +31,12 @@ __all__ = ["TruncatedSVD"]
 
 
 class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Estimator computing the top n_components right singular vectors. Fitting sets
+    # components_ (n_components, n_features), explained_variance_ (variance of each
+    # projected column), explained_variance_ratio_ (relative to the total per-feature
+    # variance of X), singular_values_ and n_features_in_. Accepts dense and CSR/CSC
+    # input; preserves float32/float64.
     """Dimensionality reduction using truncated SVD (aka LSA).
 
     This transformer performs linear dimensionality reduction by means of
@@ -179,6 +190,11 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         random_state=None,
         tol=0.0,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters without validation: n_components (int, default 2),
+        # algorithm ('randomized' or 'arpack'), n_iter (randomized power iterations),
+        # n_oversamples, power_iteration_normalizer, random_state, tol (arpack
+        # tolerance).
         self.algorithm = algorithm
         self.n_components = n_components
         self.n_iter = n_iter
@@ -188,6 +204,9 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         self.tol = tol
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits by calling fit_transform(X) and discarding the result; returns self. y is
+        # ignored.
         """Fit model on training data X.
 
         Parameters
@@ -208,6 +227,21 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR/CSC accepted, at least 2 features). 'arpack': svds with
+        # k=n_components and a seeded v0, outputs reversed to descending order and sign-
+        # flipped based on VT. 'randomized': requires n_components <= n_features, runs
+        # _randomized_svd and flips signs based on VT. Stores components_ = VT. The
+        # returned projection is X times components_ transposed for randomized or arpack
+        # with tol > 0 (where U*Sigma may be inaccurate), else U times Sigma. Explained
+        # variance is the column variance of the projection; the ratio divides by the
+        # sum of per-feature variances of X (computed sparse-aware).
+        # Inputs: X (n_samples, n_features); y ignored. Outputs: ndarray (n_samples,
+        #   n_components).
+        # Exceptions: ValueError when n_components > n_features with the randomized
+        #   solver; ARPACK errors when k is not less than min(X.shape); validation
+        #   errors.
+        # Side effects: sets the fitted attributes; consumes random_state.
         """Fit model to X and perform dimensionality reduction on X.
 
         Parameters
@@ -276,6 +310,11 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return X_transformed
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Projects X onto the components: X times components_ transposed (sparse-aware).
+        # Inputs: X (n_samples, n_features) dense or CSR/CSC. Outputs: ndarray
+        #   (n_samples, n_components).
+        # Exceptions: NotFittedError; validation errors.
         """Perform dimensionality reduction on X.
 
         Parameters
@@ -293,6 +332,11 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return safe_sparse_dot(X, self.components_.T)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Maps reduced data back: X times components_.
+        # Inputs: X (n_samples, n_components). Outputs: ndarray (n_samples, n_features).
+        # KNOWN ISSUE: no check_is_fitted call, so an unfitted estimator raises
+        #   AttributeError instead of NotFittedError.
         """Transform X back to its original space.
 
         Returns an array X_original whose transform would be X.
@@ -311,6 +355,8 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
         return np.dot(X, self.components_)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: sparse input accepted; float64/float32 preserved.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
@@ -318,5 +364,8 @@ class TruncatedSVD(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstima
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the number of output features, the row count of
+        #   components_.
         """Number of transformed output features."""
         return self.components_.shape[0]
