@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example: generates 90 noisy square waveforms in three groups (two of them
+# proportional) of 2000 time points, then plots the waveforms, the average inter-class
+# distance matrices for cosine, euclidean and cityblock metrics, and the results of
+# average-linkage AgglomerativeClustering with each metric.
+# Side effects: seeds the global numpy RNG with 0, plots.
+# KNOWN ISSUE: the docstring says 6% of time points carry noise, but the code keeps
+# noise only where its absolute value exceeds 0.997, i.e. about 0.3% of points.
 """
 Agglomerative clustering with different metrics
 ===============================================
@@ -52,6 +60,9 @@ t = np.pi * np.linspace(0, 1, n_features)
 
 
 def sqr(x):
+    # [FUNCTION DOC]
+    # HELPER: square wave: sign of cos(x), elementwise (0 exactly where cos is 0).
+    # Input: numeric array. Output: array of -1, 0, 1 values of the same shape.
     return np.sign(np.cos(x))
 
 

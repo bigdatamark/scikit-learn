@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: for several estimators (SGDClassifier with elasticnet, NuSVR,
+# GradientBoostingRegressor) varies one complexity parameter, measures prediction
+# error and mean prediction latency, and plots both against model complexity.
+# Side effects: downloads 20 newsgroups vectorized data, prints and plots.
 """
 ==========================
 Model Complexity Influence
@@ -70,6 +75,14 @@ np.random.seed(0)
 
 
 def generate_data(case):
+    # [FUNCTION DOC]
+    # HELPER: loads diabetes ("regression", 80% train) or 20 newsgroups vectorized
+    # ("classification", 40% train) and splits with random_state=0.
+    # Inputs: case - "regression" or "classification".
+    # Outputs: dict with keys X_train, X_test, y_train, y_test.
+    # KNOWN ISSUE: any other case value leaves X/y undefined and raises
+    # UnboundLocalError
+    # rather than a clear ValueError.
     """Generate regression/classification data."""
     if case == "regression":
         X, y = datasets.load_diabetes(return_X_y=True)
@@ -103,6 +116,15 @@ classification_data = generate_data("classification")
 
 
 def benchmark_influence(conf):
+    # [FUNCTION DOC]
+    # For each value in conf["changing_param_values"]: sets it in conf["tuned_params"],
+    # builds conf["estimator"], fits on training data, applies conf["postfit_hook"],
+    # computes complexity via conf["complexity_computer"], predicts on test data
+    # conf["n_samples"] times and records the average time, and scores with
+    # conf["prediction_performance_computer"].
+    # Input: conf - configuration dict with the keys above plus "data" and labels.
+    # Outputs: tuple of lists (scores, mean prediction times in seconds, complexities).
+    # Side effects: mutates conf["tuned_params"] (last value remains), prints progress.
     """
     Benchmark influence of `changing_param` on both MSE and latency.
     """
@@ -155,6 +177,10 @@ def benchmark_influence(conf):
 
 
 def _count_nonzero_coefficients(estimator):
+    # [FUNCTION DOC]
+    # HELPER: counts non-zero coefficients of a fitted linear estimator whose coef_ is a
+    # scipy sparse matrix (i.e. after sparsify). Outputs: int.
+    # Exceptions: AttributeError if coef_ is dense (no toarray).
     a = estimator.coef_.toarray()
     return np.count_nonzero(a)
 
@@ -234,6 +260,15 @@ configurations = [
 
 
 def plot_influence(conf, mse_values, prediction_times, complexities):
+    # [FUNCTION DOC]
+    # Plots prediction error (left axis, blue) and latency (right twin axis, orange)
+    # against
+    # complexities on one figure, colouring spines/ticks to match, with legend and title
+    # naming the varied parameter and estimator class.
+    # Inputs: conf - configuration dict; mse_values, prediction_times, complexities -
+    # equal-length sequences. Outputs: None. Side effects: creates a figure.
+    # KNOWN ISSUE: parameter is named mse_values but receives whatever score
+    # prediction_performance_computer returns (e.g. Hamming loss).
     """
     Plot influence of model complexity on both accuracy and latency.
     """

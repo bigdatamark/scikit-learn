@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example: on two iris features, fits several classifiers (logistic regression
+# with C=0.1 and C=100, Gaussian process, logistic regression on Nystroem RBF, binned
+# and
+# spline features, HistGradientBoosting) and plots per-class predicted probability maps
+# with DecisionBoundaryDisplay plus a max-class map, and reports accuracy, ROC AUC and
+# log loss on a test split. Side effects: prints/displays scores, plots.
+# Defines no functions or classes.
 """
 ===============================
 Plot classification probability

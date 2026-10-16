@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: generates 300 blob points around three centres, clusters them with
+# AffinityPropagation (preference -50), prints homogeneity, completeness, V-measure,
+# adjusted rand/mutual information and silhouette, and plots clusters with exemplar
+# links. Defines no functions or classes.
 """
 =================================================
 Demo of affinity propagation clustering algorithm

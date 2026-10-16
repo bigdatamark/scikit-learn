@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Sphinx extension that customises the pydata-sphinx-theme in-page table of contents for
+# generated API pages (modules/generated/*): removes the top-level wrapper, shortens
+# method names and keeps the method list visible.
 from functools import cache
 
 from sphinx.util.logging import getLogger
@@ -6,10 +10,37 @@ logger = getLogger(__name__)
 
 
 def override_pst_pagetoc(app, pagename, templatename, context, doctree):
+    # [FUNCTION DOC]
+    # "html-page-context" handler. Defines a cached generate_api_toc_html closure and,
+    # if
+    # pagename starts with "modules/generated/", saves the theme's generate_toc_html
+    # into
+    # context as "pst_generate_toc_html" and replaces it with the closure.
+    # Inputs: Sphinx event args (app, pagename, templatename, context dict, doctree);
+    # only
+    # pagename and context are used. Side effects: mutates context.
     """Overrides the `generate_toc_html` function of pydata-sphinx-theme for API."""
 
     @cache
     def generate_api_toc_html(kind="html"):
+        # [FUNCTION DOC]
+        # Builds the API page toc: gets the original toc as a BeautifulSoup object,
+        # unwraps
+        # the outer ul and li, removes the first anchor, takes the first "li.toc-h2"
+        # entry; if it
+        # has a nested ul (class page), marks it visible and strips everything up to the
+        # first
+        # "." from each toc-h3 method label. Returns str(soup) when kind is "html", else
+        # the soup.
+        # Inputs: kind - "html" (default) or another value meaning return the soup
+        # object.
+        # Exceptions: any exception is caught; a warning is logged and the original
+        # theme output
+        # for kind is returned.
+        # Side effects: results cached per kind via functools.cache.
+        # KNOWN ISSUE: with kind not "html" the cached soup object is returned and could
+        # be
+        # mutated by callers, affecting later cached returns.
         """Generate the in-page toc for an API page.
 
         This relies on the `generate_toc_html` function added by pydata-sphinx-theme
@@ -79,6 +110,9 @@ def override_pst_pagetoc(app, pagename, templatename, context, doctree):
 
 
 def setup(app):
+    # [FUNCTION DOC]
+    # Extension entry point: connects override_pst_pagetoc to "html-page-context" with
+    # priority 900 so it runs after the theme adds its toc functions. Outputs: None.
     # Need to be triggered after `pydata_sphinx_theme.toctree.add_toctree_functions`,
     # and since default priority is 500 we set 900 for safety
     app.connect("html-page-context", override_pst_pagetoc, priority=900)

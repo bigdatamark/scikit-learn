@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example teaching how third-party estimators and meta-estimators support the
+# sklearn.callback infrastructure: shows a simplified KMeans and a list-based grid
+# search first without, then with callback support (CallbackSupportMixin,
+# with_callbacks, callback contexts/sub-contexts, propagation to sub-estimators), and
+# runs both with a ProgressBar callback on random data (RandomState(42)).
+# Side effects: progress output; classes are deliberately redefined (F811).
 """
 ==============================================
 Supporting callbacks in third party estimators
@@ -70,16 +77,36 @@ X = rng.rand(n_samples, n_features)
 
 
 class SimpleKMeans(BaseEstimator):
+    # [CLASS DOC]
+    # Plain (callback-free) simplified KMeans: random uniform centroid initialization
+    # then a
+    # fixed number of Lloyd iterations. Fitted attribute: cluster_centers_ of shape
+    # (n_clusters, n_features).
     def __init__(self, n_clusters=6, n_iter=100, random_state=None):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters: n_clusters (int, 6), n_iter (int, 100), random_state
+        # (seed,
+        # RandomState or None) controlling centroid initialization.
         self.n_clusters = n_clusters
         self.n_iter = n_iter
         self.random_state = random_state  # controls the centroids' initialization
 
     def _compute_labels(self, X):
+        # [FUNCTION DOC]
+        # HELPER: index of the nearest centroid (Euclidean) for each row of X.
+        # Output: int array (n_samples,).
         # Get the index of the closest centroid for each point in X.
         return np.argmin(euclidean_distances(X, self.cluster_centers_), axis=1)
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (setting n_features_in_), initializes centroids uniformly in [0,
+        # 1) per
+        # feature, then for n_iter iterations assigns labels and moves each non-empty
+        # cluster's
+        # centroid to its members' mean (empty clusters keep their centroid). y is
+        # ignored.
+        # Outputs: self. Side effects: sets cluster_centers_; consumes random_state.
         # `y` is not used but we need to declare it to adhere to scikit-learn's
         # estimators fit convention.
 
@@ -106,10 +133,18 @@ class SimpleKMeans(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state and returns nearest-centroid labels for X.
+        # KNOWN ISSUE: X is not validated (no validate_data with reset False), so
+        # feature-count
+        # mismatches are not reported in sklearn style.
         check_is_fitted(self)
         return self._compute_labels(X)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state and returns Euclidean distances to each centroid,
+        # shape (n_samples, n_clusters). Same missing validation as predict.
         check_is_fitted(self)
         return euclidean_distances(X, self.cluster_centers_)
 
@@ -120,18 +155,37 @@ class SimpleKMeans(BaseEstimator):
 
 # First things first, the estimator must inherit from the `CallbackSupportMixin` class.
 class SimpleKMeans(CallbackSupportMixin, BaseEstimator):  # noqa: F811
+    # [CLASS DOC]
+    # Callback-enabled version of SimpleKMeans (inherits CallbackSupportMixin), with the
+    # same hyper-parameters and fitted attributes.
     def __init__(self, n_clusters=6, n_iter=100, random_state=None):
+        # [FUNCTION DOC]
+        # Stores n_clusters, n_iter and random_state as in the plain version.
         self.n_clusters = n_clusters
         self.n_iter = n_iter
         self.random_state = random_state
 
     def _compute_labels(self, X):
+        # [FUNCTION DOC]
+        # HELPER: index of the nearest centroid for each row of X.
         return np.argmin(euclidean_distances(X, self.cluster_centers_), axis=1)
 
     # Then the `fit` function must be decorated with the `with_callbacks`
     # decorator, which takes care of the proper teardown of callbacks.
     @with_callbacks
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Same algorithm as the plain fit, instrumented with callbacks: creates the root
+        # context
+        # ("fit", max_subtasks n_iter) and calls its begin hook; per iteration creates a
+        # "fit iteration" sub-context, calls begin, updates centroids, then calls end
+        # with a
+        # reconstruction_attributes callable returning the current centroids; stops
+        # early if
+        # the end hook returns True. Finally calls the root context end hook.
+        # Outputs: self. Side effects: sets cluster_centers_, invokes user callbacks;
+        # teardown
+        # is handled by the with_callbacks decorator even on error.
         X = validate_data(self, X)
         random_state = check_random_state(self.random_state)
         # The `CallbackContext` object must be instantiated with the
@@ -202,10 +256,14 @@ class SimpleKMeans(CallbackSupportMixin, BaseEstimator):  # noqa: F811
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state and returns nearest-centroid labels (no input validation).
         check_is_fitted(self)
         return self._compute_labels(X)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted state and returns distances to centroids (no input validation).
         check_is_fitted(self)
         return euclidean_distances(X, self.cluster_centers_)
 
@@ -243,6 +301,13 @@ estimator.fit(X)
 
 # Function to run in parallel, it fits and scores an estimator on the folds of a CV.
 def _fit_and_score_cv(estimator, X, y, cv, score_func):
+    # [FUNCTION DOC]
+    # HELPER (callback-free version): for each CV split, fits a clone of estimator on
+    # the
+    # training fold (y sliced when given, else None) and scores it on the test fold with
+    # score_func(estimator, X_test, y_test). Inputs: X, y - indexable arrays; cv -
+    # splitter.
+    # Outputs: list of per-fold scores.
     scores_per_fold = []
     # We iterate over the folds of the CV split.
     for train_idx, test_idx in cv.split(X):
@@ -259,7 +324,14 @@ def _fit_and_score_cv(estimator, X, y, cv, score_func):
 
 
 class SimpleGridSearch(BaseEstimator):
+    # [CLASS DOC]
+    # Callback-free simplified grid search over an explicit list of parameter dicts,
+    # evaluated in parallel with joblib. Fitted attribute: cv_results_, list of
+    # (params, per-fold scores) tuples. No best-estimator selection or refit.
     def __init__(self, estimator, param_list, cv, score_func, n_jobs=1):
+        # [FUNCTION DOC]
+        # Stores estimator (template), param_list (list of dicts), cv (int or splitter),
+        # score_func (callable(estimator, X, y) -> float) and n_jobs (default 1).
         # the estimator to evaluate
         self.estimator = estimator
         # the list of parameter combinations to iterate over
@@ -272,6 +344,11 @@ class SimpleGridSearch(BaseEstimator):
         self.n_jobs = n_jobs
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Resolves cv with check_cv, runs _fit_and_score_cv in parallel for a clone of
+        # the
+        # estimator configured with each params dict, and stores cv_results_.
+        # Outputs: self.
         # We use a cross-validator instance to evaluate each parameter combination on
         # multiple folds.
         cv = check_cv(self.cv)
@@ -304,6 +381,13 @@ class SimpleGridSearch(BaseEstimator):
 # The parallelized function needs to receive the callback context corresponding to its
 # task and the instance calling it.
 def _fit_and_score_cv(estimator, X, y, cv, score_func, outer_subcontext, caller):
+    # [FUNCTION DOC]
+    # HELPER (callback version): same as the plain version, but calls begin/end hooks on
+    # outer_subcontext around the whole loop and, for each fold, creates a "fold i"
+    # sub-context, propagates callbacks to the cloned estimator within it and calls its
+    # begin/end hooks around fitting and scoring. caller (the meta-estimator) is passed
+    # as
+    # the estimator argument of the hooks. Outputs: list of per-fold scores.
     # The outer sub-context's `call_on_fit_task_begin` must be called.
     outer_subcontext.call_on_fit_task_begin(estimator=caller, X=X, y=y)
     scores_per_fold = []
@@ -336,7 +420,14 @@ def _fit_and_score_cv(estimator, X, y, cv, score_func, outer_subcontext, caller)
 
 # The class must inherit from `CallbackSupportMixin`.
 class SimpleGridSearch(CallbackSupportMixin, BaseEstimator):  # noqa: F811
+    # [CLASS DOC]
+    # Callback-enabled SimpleGridSearch (inherits CallbackSupportMixin); same parameters
+    # and
+    # fitted attribute.
     def __init__(self, estimator, param_list, cv, score_func, n_jobs=1):
+        # [FUNCTION DOC]
+        # Stores estimator, param_list, cv, score_func and n_jobs as in the plain
+        # version.
         self.estimator = estimator
         self.param_list = param_list
         self.cv = cv
@@ -346,6 +437,14 @@ class SimpleGridSearch(CallbackSupportMixin, BaseEstimator):  # noqa: F811
     # The `fit` method must be decorated.
     @with_callbacks
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Resolves cv, creates the root context ("fit", one subtask per params dict) and
+        # calls
+        # its begin hook, creates all "param iteration" sub-contexts (max_subtasks =
+        # number of
+        # splits) before parallelizing to avoid races, runs the callback version of
+        # _fit_and_score_cv in parallel, stores cv_results_ and calls the root end hook.
+        # Outputs: self. Side effects: invokes callbacks, sets cv_results_.
         cv = check_cv(self.cv)
         # The callback context must be instantiated, which also calls the `setup` hooks
         # of the callbacks.
@@ -415,6 +514,12 @@ param_list = [{"n_clusters": 5, "n_iter": 20}, {"n_clusters": 4, "n_iter": 50}]
 
 
 def score_func(estimator, X, y=None):
+    # [FUNCTION DOC]
+    # HELPER: scoring function returning the sum over samples of the distance to the
+    # nearest centroid (inertia-like, lower is better). y is ignored.
+    # KNOWN ISSUE: named a score although larger values mean worse clustering; harmless
+    # here
+    # since cv_results_ is never used for selection.
     return np.sum(estimator.transform(X).min(axis=1))
 
 

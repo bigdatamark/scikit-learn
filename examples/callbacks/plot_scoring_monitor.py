@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example: registers a ScoringMonitor (D2 log loss, accuracy, average
+# precision) and ProgressBar on the LogisticRegression step of a StandardScaler pipeline
+# inside GridSearchCV over regularization strength, on a synthetic 10-class dataset,
+# then
+# plots per-iteration metric curves of each fit to analyze L-BFGS convergence and the
+# refinement/calibration trade-off. Side effects: progress output, plots.
+# Defines no functions or classes.
 """
 ===================================================================
 Analysis of the convergence of penalized logistic regression models

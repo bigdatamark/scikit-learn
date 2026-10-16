@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: on three synthetic 2-class Gaussian datasets (shared isotropic,
+# shared anisotropic, and different covariances) fits LDA and QDA (with stored
+# covariances), plotting probability maps, the 0.5 decision contour, correct and
+# misclassified points, class means and 2-std covariance ellipses. Side effects: plots.
 """
 ====================================================================
 Linear and Quadratic Discriminant Analysis with covariance ellipsoid
@@ -26,6 +31,15 @@ import numpy as np
 
 
 def make_data(n_samples, n_features, cov_class_1, cov_class_2, seed=0):
+    # [FUNCTION DOC]
+    # HELPER: draws n_samples points per class from standard normals multiplied by the
+    # class's covariance factor matrix; class 1 is shifted by (1, 1).
+    # Inputs: n_samples - int; n_features - int; cov_class_1, cov_class_2 - square
+    # matrices
+    # (n_features, n_features) used as linear transforms; seed - int for RandomState.
+    # Outputs: X (2 * n_samples, n_features), y float labels 0.0/1.0.
+    # KNOWN ISSUE: the hard-coded shift (1, 1) only broadcasts when n_features is 2; the
+    # parameters are transform matrices, so the actual covariance is their Gram product.
     rng = np.random.RandomState(seed)
     X = np.concatenate(
         [
@@ -92,6 +106,15 @@ from sklearn.inspection import DecisionBoundaryDisplay
 
 
 def plot_ellipse(mean, cov, color, ax):
+    # [FUNCTION DOC]
+    # HELPER: adds a semi-transparent ellipse at mean with axis lengths 2 * sqrt of the
+    # eigenvalues of cov, rotated by the angle derived from the eigen-decomposition.
+    # Inputs: mean - 2-vector; cov - 2x2 symmetric matrix; color; ax - Axes.
+    # Side effects: adds an artist to ax.
+    # KNOWN ISSUE: the orientation uses the first row of the eigenvector matrix rather
+    # than
+    # the first eigenvector (column), compensated only partly by the extra 180-degree
+    # offset; arctan of u[1]/u[0] also divides by zero for a vertical eigenvector.
     v, w = np.linalg.eigh(cov)
     u = w[0] / np.linalg.norm(w[0])
     angle = np.arctan(u[1] / u[0])
@@ -112,6 +135,14 @@ def plot_ellipse(mean, cov, color, ax):
 
 
 def plot_result(estimator, X, y, ax):
+    # [FUNCTION DOC]
+    # HELPER: on ax, draws the predicted-probability colormesh and the 0.5 probability
+    # contour of the fitted estimator, scatters correctly classified points (dots) and
+    # misclassified ones (crosses), marks class means with stars and draws covariance
+    # ellipses (LDA's shared covariance_ used for both classes, QDA's per-class list),
+    # then
+    # sets square aspect and hides spines/ticks.
+    # Inputs: estimator - fitted LDA or QDA with store_covariance True; X, y - data; ax.
     cmap = colors.ListedColormap(["tab:red", "tab:blue"])
     DecisionBoundaryDisplay.from_estimator(
         estimator,

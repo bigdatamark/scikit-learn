@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: fits KMeans and BisectingKMeans with 4, 8 and 16 clusters on
+# synthetic data (two blob centres) and plots labels and centres side by side, showing
+# the hierarchical
+# splits of the bisecting variant. Defines no functions or classes.
 """
 =============================================================
 Bisecting K-Means and Regular K-Means Performance Comparison

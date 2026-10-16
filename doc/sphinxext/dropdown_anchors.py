@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Sphinx extension adding HTML permalink anchors to sphinx-design dropdowns so old
+# header-based anchors keep working.
 import re
 
 from docutils import nodes
@@ -6,6 +9,8 @@ from sphinx_design.dropdown import dropdown_main
 
 
 class DropdownAnchorAdder(SphinxPostTransform):
+    # [CLASS DOC]
+    # HTML-only post transform running with very late priority (9999).
     """Insert anchor links to the sphinx-design dropdowns.
 
     Some of the dropdowns were originally headers that had automatic anchors, so we
@@ -20,6 +25,25 @@ class DropdownAnchorAdder(SphinxPostTransform):
     formats = ["html"]
 
     def run(self):
+        # [FUNCTION DOC]
+        # For every dropdown node in the document: finds the first descendant whose
+        # classes
+        # include "sd-summary-text", concatenates its children's text, takes the first
+        # line,
+        # strips it, replaces whitespace runs with "-" and lowercases it to build an id.
+        # Repeated
+        # ids within the document get suffix "-2", "-3", ... using a per-run counter.
+        # Appends the
+        # id to the dropdown's ids and appends a raw HTML "#" headerlink anchor to the
+        # summary
+        # text node.
+        # Side effects: mutates the doctree in place.
+        # Exceptions: if a dropdown lacks a summary-text node, next_node returns None
+        # and
+        # accessing its children raises AttributeError.
+        # KNOWN ISSUE: a suffixed id (e.g. "foo-2") is not itself recorded in the
+        # counter, so it
+        # can collide with a dropdown whose own title produces "foo-2".
         """Run the post transformation."""
         # Counter to store the duplicated summary text to add it as a suffix in the
         # anchor ID
@@ -55,4 +79,7 @@ class DropdownAnchorAdder(SphinxPostTransform):
 
 
 def setup(app):
+    # [FUNCTION DOC]
+    # Extension entry point: registers DropdownAnchorAdder as a post transform.
+    # Outputs: None.
     app.add_post_transform(DropdownAnchorAdder)

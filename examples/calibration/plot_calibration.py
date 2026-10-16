@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: on weighted synthetic 2-D blobs with an ambiguous middle cluster,
+# compares GaussianNB probabilities without calibration and with isotonic and sigmoid
+# CalibratedClassifierCV (cv=2), printing weighted Brier scores and plotting the data
+# and sorted predicted probabilities vs. an empirical binned rate.
+# Side effects: prints and plots. Defines no functions or classes.
 """
 ======================================
 Probability calibration of classifiers

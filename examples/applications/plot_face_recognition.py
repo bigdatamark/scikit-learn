@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: face recognition on LFW (people with >= 70 images, resized 0.4)
+# using a Pipeline of PCA (eigenfaces), Nystroem RBF approximation and
+# LogisticRegression, tuned with successive-halving search; reports classification
+# metrics, shows predictions and eigenfaces.
+# Side effects: downloads LFW data (network, disk cache), prints reports, draws figures.
 """
 =====================================================================
 Faces recognition example using eigenfaces and kernel approximation
@@ -200,6 +206,10 @@ plt.show()
 
 
 def plot_gallery(images, titles, height, width, n_row=3, n_col=4):
+    # [FUNCTION DOC]
+    # HELPER: draws a grid of n_row x n_col grayscale portraits, each image reshaped to
+    # (height, width) and titled with the corresponding entry of titles; ticks hidden.
+    # Extra images beyond the grid are ignored. Outputs: the matplotlib Figure.
     """Plot a gallery of portraits."""
     fig, axs = plt.subplots(n_row, n_col, figsize=(1.8 * n_col, 2.4 * n_row))
     fig.subplots_adjust(bottom=0, left=0.01, right=0.99, top=0.90, hspace=0.35)
@@ -212,6 +222,12 @@ def plot_gallery(images, titles, height, width, n_row=3, n_col=4):
 
 
 def make_title(y_pred, y_test, target_names, i):
+    # [FUNCTION DOC]
+    # HELPER: builds a two-line caption with the last word (surname) of the predicted
+    # and
+    # true names for sample i. Inputs: y_pred, y_test - integer label arrays;
+    # target_names -
+    # array of full names indexed by label; i - sample index. Outputs: str.
     pred_name = target_names[y_pred[i]].rsplit(" ", 1)[-1]
     true_name = target_names[y_test[i]].rsplit(" ", 1)[-1]
     return f"predicted: {pred_name}\ntrue:      {true_name}"

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example modelling the geographic distribution of two South American mammals
+# with OneClassSVM fitted on standardized environmental coverages at observed
+# locations; plots predicted density maps (with basemap coastlines when available) and
+# reports ROC AUC of test points vs. random background grid points.
+# Side effects: downloads the species dataset, seeds the global numpy RNG, prints,
+# plots. The optional mpl_toolkits.basemap import sets the module flag basemap.
 """
 =============================
 Species distribution modeling
@@ -59,6 +66,11 @@ except ImportError:
 
 
 def construct_grids(batch):
+    # [FUNCTION DOC]
+    # Computes x and y cell-coordinate arrays: start one grid_size beyond the lower-left
+    # corner, step grid_size, Nx (resp. Ny) values (arange end exclusive).
+    # Input: batch - Bunch from fetch_species_distributions. Outputs: (xgrid, ygrid)
+    # 1-D.
     """Construct the map grid from the batch object
 
     Parameters
@@ -86,6 +98,16 @@ def construct_grids(batch):
 
 
 def create_species_bunch(species_name, train, test, coverages, xgrid, ygrid):
+    # [FUNCTION DOC]
+    # Builds a Bunch for one species: name is the first two underscore-separated tokens
+    # joined by a space; for train and test, selects records whose species field equals
+    # the
+    # ASCII-encoded name (pts_train/pts_test) and looks up coverage vectors at their
+    # locations via searchsorted on the grids, rows indexed from the top with negative
+    # iy
+    # (cov_train/cov_test, shape (n_points, n_coverages)).
+    # Inputs: species_name - str; train, test - record arrays; coverages - array
+    # (n_coverages, Ny, Nx); xgrid, ygrid - 1-D arrays. Outputs: Bunch.
     """Create a bunch with information about a particular organism
 
     This will use the test/train record arrays to extract the
@@ -111,6 +133,23 @@ def create_species_bunch(species_name, train, test, coverages, xgrid, ygrid):
 def plot_species_distribution(
     species=("bradypus_variegatus_0", "microryzomys_minutus_0"),
 ):
+    # [FUNCTION DOC]
+    # Loads the data and grids, builds bunches for the first two species, samples 10000
+    # background grid cells (seed 13). For each species: standardizes training
+    # coverages,
+    # fits OneClassSVM (nu 0.1, rbf, gamma 0.5), draws coastlines, evaluates the
+    # decision
+    # function on land cells (coverage 6 > -9999), fills non-land cells, plots filled
+    # contours plus train/test points, and computes ROC AUC of test points vs.
+    # background.
+    # Input: species - sequence of at least two species identifiers (extras ignored with
+    # a
+    # printed note). Outputs: None. Side effects: network/disk, global RNG, prints,
+    # plots.
+    # KNOWN ISSUE: background points are sampled over the whole grid including water
+    # cells
+    # set to -9999, which receive the lowest score and inflate the reported AUC.
+    # KNOWN ISSUE: the loop variable species shadows the function parameter.
     """
     Plot the species distribution.
     """

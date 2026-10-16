@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: for three 2-D synthetic datasets (linearly separable, moons, circles)
+# fits ten classifiers (each preceded by StandardScaler) and draws a grid of decision
+# boundaries with train/test points and test accuracy. Side effects: plots.
+# Defines no functions or classes.
 """
 =====================
 Classifier comparison

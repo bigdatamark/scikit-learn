@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example: evaluates clustering metrics (V-measure, rand index, ARI, MI, NMI,
+# AMI)
+# on uniformly random labelings with 1000 samples, first
+# against fixed 10-class ground truth and then with matching random ground truth, as a
+# function of the number of clusters, to show which metrics are adjusted for chance.
+# Side effects: module RNG RandomState(0) shared by helpers, seaborn/matplotlib plots.
 """
 ==========================================================
 Adjustment for chance in clustering performance evaluation
@@ -77,6 +84,9 @@ rng = np.random.RandomState(0)
 
 
 def random_labels(n_samples, n_classes):
+    # [FUNCTION DOC]
+    # HELPER: draws n_samples integer labels uniformly from [0, n_classes) using the
+    # module-level rng. Output: int array (n_samples,). Side effects: advances rng.
     return rng.randint(low=0, high=n_classes, size=n_samples)
 
 
@@ -90,6 +100,15 @@ def random_labels(n_samples, n_classes):
 def fixed_classes_uniform_labelings_scores(
     score_func, n_samples, n_clusters_range, n_classes, n_runs=5
 ):
+    # [FUNCTION DOC]
+    # HELPER: draws one fixed ground-truth labeling with n_classes classes, then for
+    # each
+    # n_clusters value and each of n_runs repetitions draws a random predicted labeling
+    # with
+    # n_clusters classes and records score_func(labels_a, labels_b).
+    # Inputs: score_func - callable(labels_true, labels_pred); n_samples - int;
+    # n_clusters_range - sequence of int; n_classes - int; n_runs - int (5).
+    # Outputs: float array (len(n_clusters_range), n_runs). Side effects: advances rng.
     scores = np.zeros((len(n_clusters_range), n_runs))
     labels_a = random_labels(n_samples=n_samples, n_classes=n_classes)
 
@@ -162,6 +181,11 @@ plt.show()
 
 
 def uniform_labelings_scores(score_func, n_samples, n_clusters_range, n_runs=5):
+    # [FUNCTION DOC]
+    # HELPER: like fixed_classes_uniform_labelings_scores but both labelings are redrawn
+    # for
+    # every run, each with n_clusters classes. Outputs: array (len(n_clusters_range),
+    # n_runs).
     scores = np.zeros((len(n_clusters_range), n_runs))
 
     for i, n_clusters in enumerate(n_clusters_range):

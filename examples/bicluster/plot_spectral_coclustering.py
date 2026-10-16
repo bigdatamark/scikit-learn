@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: generates a 300x300 matrix with 5 constant biclusters, shuffles rows
+# and columns (RandomState(0)), fits SpectralCoclustering, prints the consensus score
+# and plots the original, shuffled and rearranged matrices. Defines no functions or
+# classes.
 """
 ==============================================
 A demo of the Spectral Co-Clustering algorithm

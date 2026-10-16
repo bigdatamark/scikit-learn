@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: fits three outlier detectors (EllipticEnvelope with empirical
+# covariance, robust MCD EllipticEnvelope, OneClassSVM; contamination/nu 0.25) on two
+# 2-D feature subsets of the Wine dataset and plots their zero-level decision
+# boundaries over the data to contrast parametric and non-parametric fits.
+# Side effects: matplotlib figures only. Defines no functions or classes.
 """
 ====================================
 Outlier detection on a real data set

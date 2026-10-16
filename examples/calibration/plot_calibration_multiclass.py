@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example: fits a RandomForestClassifier on a 3-class blob dataset, calibrates
+# it
+# with sigmoid CalibratedClassifierCV on a held-out validation set (FrozenEstimator),
+# and
+# draws arrows on the probability 2-simplex from uncalibrated to calibrated predictions,
+# plus the learned calibration map over a grid; compares log loss.
+# Side effects: prints and plots.
 """
 ==================================================
 Probability Calibration for 3-class classification

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: vectorizes 2000 20-newsgroups posts with TF-IDF and raw counts, then
+# extracts 10 topics with NMF (Frobenius and generalized Kullback-Leibler losses),
+# MiniBatchNMF variants and LatentDirichletAllocation, printing timings and plotting the
+# top words per topic. Side effects: downloads the dataset, prints, plots.
 """
 =======================================================================================
 Topic extraction with Non-negative Matrix Factorization and Latent Dirichlet Allocation
@@ -41,6 +46,17 @@ init = "nndsvda"
 
 
 def plot_top_words(model, feature_names, n_top_words, title):
+    # [FUNCTION DOC]
+    # HELPER: on a 2x5 grid, draws for each topic in model.components_ a horizontal bar
+    # chart
+    # of its n_top_words highest-weighted feature names (ascending order), with large
+    # fonts, hidden spines and a suptitle, then shows the figure.
+    # Inputs: model - fitted decomposition with components_; feature_names - array of
+    # str;
+    # n_top_words - int; title - str.
+    # Exceptions: IndexError if the model has more than 10 components.
+    # KNOWN ISSUE: the suptitle is set inside the per-topic loop (redundant repeated
+    # calls).
     fig, axes = plt.subplots(2, 5, figsize=(30, 15), sharex=True)
     axes = axes.flatten()
     for topic_idx, topic in enumerate(model.components_):

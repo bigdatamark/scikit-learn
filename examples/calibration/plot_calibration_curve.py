@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: plots calibration curves (reliability diagrams) and histograms and
+# tabulates Brier/log-loss/ROC AUC/precision/recall/F1 for GaussianNB and a naively
+# calibrated LinearSVC, each without calibration and with isotonic and sigmoid
+# CalibratedClassifierCV, on a synthetic binary classification dataset.
+# Side effects: prints/displays tables and plots.
 """
 ==============================
 Probability Calibration curves
@@ -200,16 +206,34 @@ from sklearn.svm import LinearSVC
 
 
 class NaivelyCalibratedLinearSVC(LinearSVC):
+    # [CLASS DOC]
+    # LinearSVC exposing predict_proba by min-max scaling the decision function using
+    # the
+    # range observed on the training data. Fitted attributes: df_min_, df_max_.
     """LinearSVC with `predict_proba` method that naively scales
     `decision_function` output for binary classification."""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits LinearSVC, then stores the min and max of decision_function on the
+        # training data
+        # in df_min_ and df_max_. Inputs: X, y - binary training data.
+        # KNOWN ISSUE: returns None instead of self, breaking fit chaining
+        # (fit(...).predict).
         super().fit(X, y)
         df = self.decision_function(X)
         self.df_min_ = df.min()
         self.df_max_ = df.max()
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Scales decision_function(X) by (df - df_min_) / (df_max_ - df_min_), clips to
+        # [0, 1]
+        # as positive-class probability and stacks [1 - p, p]. Outputs: array
+        # (n_samples, 2).
+        # Exceptions: AttributeError if not fitted; division by zero yields inf/nan when
+        # all
+        # training decision values were equal.
         """Min-max scale output of `decision_function` to [0, 1]."""
         df = self.decision_function(X)
         calibrated_df = (df - self.df_min_) / (self.df_max_ - self.df_min_)

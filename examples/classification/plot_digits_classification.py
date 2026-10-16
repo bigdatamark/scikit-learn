@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: flattens the 8x8 digits images, trains an SVC (gamma 0.001) on the
+# first half, predicts the second half, displays sample images/predictions, prints the
+# classification report and plots the confusion matrix.
+# Defines no functions or classes.
 """
 ================================
 Recognizing hand-written digits

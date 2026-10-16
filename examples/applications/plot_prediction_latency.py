@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example measuring prediction latency of regressors (SGDRegressor,
+# RandomForestRegressor, SVR) on synthetic standardized regression data: per-instance
+# (atomic) vs. bulk latency boxplots, influence of the number of features on Ridge
+# bulk latency (90th percentile), and single-row prediction throughput.
+# Side effects: prints, wall-clock timing (results vary per machine), forces garbage
+# collection, uses the global numpy RNG via make_regression without a seed, plots.
 """
 ==================
 Prediction Latency
@@ -33,6 +40,10 @@ from sklearn.utils import shuffle
 
 
 def _not_in_sphinx():
+    # [FUNCTION DOC]
+    # HELPER: returns True when the module global __file__ exists (script run, not
+    # sphinx).
+    # KNOWN ISSUE: defined but never used in this example (dead code).
     # Hack to detect whether we are running by the sphinx builder
     return "__file__" in globals()
 
@@ -43,6 +54,12 @@ def _not_in_sphinx():
 
 
 def atomic_benchmark_estimator(estimator, X_test, verbose=False):
+    # [FUNCTION DOC]
+    # Predicts each row of X_test separately (2-D slice of one row) and records the
+    # wall-clock time per call. Inputs: estimator - fitted, has predict; X_test - 2-D
+    # array;
+    # verbose - print min/median/max. Outputs: float array of shape (n_instances,),
+    # seconds.
     """Measure runtime prediction of each instance."""
     n_instances = X_test.shape[0]
     runtimes = np.zeros(n_instances, dtype=float)
@@ -62,6 +79,13 @@ def atomic_benchmark_estimator(estimator, X_test, verbose=False):
 
 
 def bulk_benchmark_estimator(estimator, X_test, n_bulk_repeats, verbose):
+    # [FUNCTION DOC]
+    # Predicts the whole X_test n_bulk_repeats times and records each duration divided
+    # by
+    # the number of rows (per-instance time). Inputs as atomic_benchmark_estimator plus
+    # n_bulk_repeats - int; verbose required here. Outputs: float array
+    # (n_bulk_repeats,),
+    # seconds per instance.
     """Measure runtime prediction of the whole input."""
     n_instances = X_test.shape[0]
     runtimes = np.zeros(n_bulk_repeats, dtype=float)
@@ -81,6 +105,8 @@ def bulk_benchmark_estimator(estimator, X_test, n_bulk_repeats, verbose):
 
 
 def benchmark_estimator(estimator, X_test, n_bulk_repeats=30, verbose=False):
+    # [FUNCTION DOC]
+    # Runs atomic then bulk benchmarks and returns both runtime arrays.
     """
     Measure runtimes of prediction in both atomic and bulk mode.
 
@@ -102,6 +128,12 @@ def benchmark_estimator(estimator, X_test, n_bulk_repeats=30, verbose=False):
 
 
 def generate_dataset(n_train, n_test, n_features, noise=0.1, verbose=False):
+    # [FUNCTION DOC]
+    # Creates n_train + n_test samples with make_regression (unseeded), splits with
+    # random_state 13, shuffles the training part, standardizes X and y using statistics
+    # fitted on training data, and runs gc.collect.
+    # Inputs: n_train, n_test, n_features - ints; noise - float; verbose - bool.
+    # Outputs: X_train, y_train, X_test, y_test (y as 1-D arrays).
     """Generate a regression dataset with the given parameters."""
     if verbose:
         print("generating dataset...")
@@ -131,6 +163,16 @@ def generate_dataset(n_train, n_test, n_features, noise=0.1, verbose=False):
 
 
 def boxplot_runtimes(runtimes, pred_type, configuration):
+    # [FUNCTION DOC]
+    # Draws a black boxplot per estimator of runtimes (microseconds), x labels showing
+    # name
+    # and complexity from each estimator config's complexity_computer, red "+" fliers,
+    # title with pred_type and feature count, then shows the figure.
+    # Inputs: runtimes - list of arrays; pred_type - label str; configuration -
+    # benchmark
+    # config dict with "estimators" and "n_features".
+    # KNOWN ISSUE: docstring documents a nonexistent cls_names parameter and omits
+    # configuration.
     """
     Plot a new `Figure` with boxplots of prediction runtimes.
 
@@ -174,6 +216,12 @@ def boxplot_runtimes(runtimes, pred_type, configuration):
 
 
 def benchmark(configuration):
+    # [FUNCTION DOC]
+    # Generates data from configuration, fits each configured estimator instance,
+    # benchmarks
+    # atomic and bulk latency, converts to microseconds and draws one boxplot per mode.
+    # Side effects: fits (mutates) the estimator instances in configuration, prints,
+    # plots.
     """Run the whole benchmark."""
     X_train, y_train, X_test, y_test = generate_dataset(
         configuration["n_train"], configuration["n_test"], configuration["n_features"]
@@ -197,6 +245,11 @@ def benchmark(configuration):
 
 
 def n_feature_influence(estimators, n_train, n_test, n_features, percentile):
+    # [FUNCTION DOC]
+    # For each feature count: generates data, fits each estimator, measures bulk latency
+    # over 30 repeats and stores the given percentile in microseconds.
+    # Outputs: nested defaultdict estimator name -> {n_features -> latency in us}.
+    # Side effects: refits the estimators, prints.
     """
     Estimate influence of the number of features on prediction time.
 
@@ -229,6 +282,12 @@ def n_feature_influence(estimators, n_train, n_test, n_features, percentile):
 
 
 def plot_n_features_influence(percentiles, percentile):
+    # [FUNCTION DOC]
+    # Plots percentile latency vs. number of features, one line per estimator, and shows
+    # it.
+    # KNOWN ISSUE: only three colors are defined; more than three estimators raise
+    # IndexError.
+    # Lines carry no legend labels, so estimators are not identifiable on the plot.
     fig, ax1 = plt.subplots(figsize=(10, 6))
     colors = ["r", "g", "b"]
     for i, cls_name in enumerate(percentiles.keys()):
@@ -248,6 +307,12 @@ def plot_n_features_influence(percentiles, percentile):
 
 
 def benchmark_throughputs(configuration, duration_secs=0.1):
+    # [FUNCTION DOC]
+    # For each configured estimator: fits it, then repeatedly predicts the first test
+    # row
+    # for duration_secs seconds of wall-clock time and records predictions per second.
+    # Inputs: configuration - benchmark config; duration_secs - float, default 0.1.
+    # Outputs: dict estimator name -> throughput (float).
     """benchmark throughput for different estimators."""
     X_train, y_train, X_test, y_test = generate_dataset(
         configuration["n_train"], configuration["n_test"], configuration["n_features"]
@@ -265,6 +330,12 @@ def benchmark_throughputs(configuration, duration_secs=0.1):
 
 
 def plot_benchmark_throughput(throughputs, configuration):
+    # [FUNCTION DOC]
+    # Bar chart of throughputs per estimator labelled with name and complexity; y limit
+    # at
+    # 1.2 times the max; shows the figure.
+    # KNOWN ISSUE: only three colors; tick positions are computed with linspace assuming
+    # offsets that do not match the default centred bars, so labels may be misaligned.
     fig, ax = plt.subplots(figsize=(10, 6))
     colors = ["r", "g", "b"]
     cls_infos = [

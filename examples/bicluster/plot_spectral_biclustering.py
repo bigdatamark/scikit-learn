@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: generates a 300x300 checkerboard (4x3 clusters, noise 10), shuffles
+# rows and columns with RandomState(0), fits SpectralBiclustering (log method), prints
+# the consensus score against the true biclusters and plots the original, shuffled and
+# reordered matrices and the recovered checkerboard. Defines no functions or classes.
 """
 =============================================
 A demo of the Spectral Biclustering algorithm

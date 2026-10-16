@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: downloads DBpedia redirect and page-link dumps, builds a sparse
+# article link adjacency matrix (first 5M links), and ranks articles by the principal
+# singular vectors from randomized_svd and by PageRank-style power-iteration
+# centrality. Side effects: large downloads to disk, heavy memory use, prints.
 """
 ===============================
 Wikipedia principal eigenvector
@@ -59,6 +64,10 @@ resources = [
 # Loading the redirect files
 # --------------------------
 def index(redirects, index_map, k):
+    # [FUNCTION DOC]
+    # HELPER: resolves k through redirects and returns its integer index, assigning the
+    # next
+    # free index (current map size) to new names. Side effects: mutates index_map.
     """Find the index of an article name after redirect resolution"""
     k = redirects.get(k, k)
     return index_map.setdefault(k, len(index_map))
@@ -69,11 +78,23 @@ SHORTNAME_SLICE = slice(DBPEDIA_RESOURCE_PREFIX_LEN + 1, -1)
 
 
 def short_name(nt_uri):
+    # [FUNCTION DOC]
+    # HELPER: strips the "<" ">" markers and the DBpedia resource URI prefix using the
+    # module-level SHORTNAME_SLICE. Input: bytes or str URI. Output: same type,
+    # shortened.
     """Remove the < and > URI markers and the common URI prefix"""
     return nt_uri[SHORTNAME_SLICE]
 
 
 def get_redirects(redirects_filename):
+    # [FUNCTION DOC]
+    # Parses a bz2 N-Triples redirect file: each 4-token line maps short(subject) to
+    # short(object). Then replaces each target with the end of its redirect chain,
+    # stopping at cycles. Outputs: dict name -> final target. Side effects: file I/O,
+    # progress prints every million lines.
+    # KNOWN ISSUE: lines are bytes, so the malformed-line message concatenating a str
+    # with
+    # bytes would raise TypeError if a malformed line occurred.
     """Parse the redirections and build a transitively closed map out of it"""
     redirects = {}
     print("Parsing the NT redirect file")
@@ -109,6 +130,16 @@ def get_redirects(redirects_filename):
 # Computing the Adjacency matrix
 # ------------------------------
 def get_adjacency_matrix(redirects_filename, page_links_filename, limit=None):
+    # [FUNCTION DOC]
+    # Builds the redirect map, then reads page links (bz2 N-Triples), mapping source and
+    # target names to indices via index (with redirects) and collecting edges, stopping
+    # after limit lines when limit is given. Fills a float32 LIL matrix with 1.0 per
+    # edge
+    # and converts to CSR.
+    # Outputs: (X CSR of shape (n_articles, n_articles), redirects dict, index_map
+    # dict).
+    # KNOWN ISSUE: same bytes/str concatenation problem for malformed lines as
+    # get_redirects.
     """Extract the adjacency graph as a scipy sparse matrix
 
     Redirects are resolved first.
@@ -175,6 +206,21 @@ pprint([names[i] for i in np.abs(V[0]).argsort()[-10:]])
 # Computing Centrality scores
 # ---------------------------
 def centrality_scores(X, alpha=0.85, max_iter=100, tol=1e-10):
+    # [FUNCTION DOC]
+    # PageRank by power iteration. Copies X, divides each non-empty row by its sum
+    # (row-stochastic), builds a dangling vector with 1/n for zero-sum rows. Starting
+    # from
+    # uniform scores, iterates scores = alpha * (scores times X + dangle dot prev) + (1
+    # -
+    # alpha) * sum(prev) / n, stopping when the max abs change divided by the max abs
+    # score
+    # is below n * tol, or after max_iter iterations.
+    # Inputs: X - CSR adjacency (n, n); alpha - damping (0.85); max_iter - int; tol -
+    # float.
+    # Outputs: (scores float array (n,), array of per-iteration errors).
+    # Side effects: prints per iteration; X is not modified.
+    # KNOWN ISSUE: the variable named incoming_counts holds row sums, i.e. outgoing link
+    # counts.
     """Power iteration computation of the principal eigenvector
 
     This method is also known as Google PageRank and the implementation

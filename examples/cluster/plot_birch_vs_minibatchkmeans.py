@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: builds 25,000 points from a 10x10 grid of blob centres, times BIRCH
+# without a global clustering step and with a final step to 100 clusters, and
+# MiniBatchKMeans with 100 clusters, plotting resulting clusters and printing timings.
+# Defines no functions or classes.
 """
 =================================
 Compare BIRCH and MiniBatchKMeans

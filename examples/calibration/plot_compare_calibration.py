@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Gallery example: compares calibration curves and probability histograms of
+# LogisticRegressionCV, GaussianNB, a naively calibrated LinearSVC and
+# RandomForestClassifier trained on a synthetic binary classification dataset.
+# Side effects: plots.
 """
 ========================================
 Comparison of Calibration of Classifiers
@@ -69,16 +74,30 @@ from sklearn.svm import LinearSVC
 
 
 class NaivelyCalibratedLinearSVC(LinearSVC):
+    # [CLASS DOC]
+    # LinearSVC exposing predict_proba by min-max scaling the decision function using
+    # the
+    # range observed on the training data. Fitted attributes: df_min_, df_max_.
     """LinearSVC with `predict_proba` method that naively scales
     `decision_function` output."""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits LinearSVC, then stores min and max of the training decision function
+        # values.
+        # KNOWN ISSUE: returns None instead of self, breaking fit chaining.
         super().fit(X, y)
         df = self.decision_function(X)
         self.df_min_ = df.min()
         self.df_max_ = df.max()
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Min-max scales decision_function(X) with the stored training range, clips to
+        # [0, 1]
+        # as positive-class probability and returns columns [1 - p, p], shape
+        # (n_samples, 2).
+        # Exceptions: AttributeError if not fitted; inf/nan if df_max_ equals df_min_.
         """Min-max scale output of `decision_function` to [0,1]."""
         df = self.decision_function(X)
         calibrated_df = (df - self.df_min_) / (self.df_max_ - self.df_min_)

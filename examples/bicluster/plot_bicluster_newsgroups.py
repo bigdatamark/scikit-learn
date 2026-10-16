@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: TF-IDF vectorizes 19 20-newsgroups categories (numbers mapped to a
+# placeholder token), co-clusters documents and words with SpectralCoclustering,
+# compares document clusters with MiniBatchKMeans by V-measure, and prints the five
+# best biclusters (lowest normalized cut) with their dominant categories and top words.
+# Side effects: downloads the dataset, prints results.
 """
 ================================================================
 Biclustering documents with the Spectral Co-clustering algorithm
@@ -37,6 +43,12 @@ from sklearn.metrics.cluster import v_measure_score
 
 
 def number_normalizer(tokens):
+    # [FUNCTION DOC]
+    # HELPER: lazily maps each token whose first character is a digit to "#NUMBER",
+    # leaving
+    # others unchanged. Input: iterable of non-empty str tokens. Output: generator of
+    # str.
+    # Exceptions: IndexError for an empty token.
     """Map all numeric tokens to a placeholder.
 
     For many applications, tokens that begin with a number are not directly
@@ -47,7 +59,13 @@ def number_normalizer(tokens):
 
 
 class NumberNormalizingVectorizer(TfidfVectorizer):
+    # [CLASS DOC]
+    # TfidfVectorizer whose tokenizer post-processes tokens with number_normalizer.
     def build_tokenizer(self):
+        # [FUNCTION DOC]
+        # Wraps the default tokenizer: returns a callable taking a document and
+        # returning the
+        # list of normalized tokens.
         tokenize = super().build_tokenizer()
         return lambda doc: list(number_normalizer(tokenize(doc)))
 
@@ -112,6 +130,16 @@ document_names = list(newsgroups.target_names[i] for i in newsgroups.target)
 
 
 def bicluster_ncut(i):
+    # [FUNCTION DOC]
+    # HELPER: normalized cut of bicluster i of the global fitted cocluster on the global
+    # X:
+    # (sum of X over rows-in/cols-out plus rows-out/cols-in) divided by the sum inside
+    # the
+    # bicluster. Returns the max float when the bicluster has no rows or no columns.
+    # Input: i - bicluster index. Output: float.
+    # KNOWN ISSUE: emptiness is tested with np.any on index arrays, so a bicluster whose
+    # only
+    # row or column index is 0 is wrongly treated as empty.
     rows, cols = cocluster.get_indices(i)
     if not (np.any(rows) and np.any(cols)):
         import sys

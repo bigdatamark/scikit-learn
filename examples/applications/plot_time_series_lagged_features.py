@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: builds lagged and rolling-window features of hourly bike-sharing
+# counts with Polars, trains HistGradientBoostingRegressor with several losses
+# (squared error, Poisson, absolute error, quantile 5/50/95) under time-series
+# cross-validation, tabulates MAPE/RMSE/MAE/pinball scores and plots quantile
+# forecasts. Side effects: downloads the dataset from OpenML, prints and plots.
 """
 ===========================================
 Lagged features for time series forecasting
@@ -195,6 +201,16 @@ from sklearn.model_selection import cross_validate
 
 
 def consolidate_scores(cv_results, scores, metric):
+    # [FUNCTION DOC]
+    # HELPER: appends a "mean ± std" string for one metric to scores[metric] (2 decimals
+    # for
+    # MAPE, 1 otherwise) and returns scores.
+    # Inputs: cv_results - cross_validate output (unused); scores - defaultdict(list);
+    # metric - metric name. Outputs: the same scores object (mutated in place).
+    # KNOWN ISSUE: the formatted array is the global loop variable value from the
+    # caller's
+    # module-level loop, not read from cv_results; the function only works because it is
+    # called inside that loop right after value is bound.
     if metric == "MAPE":
         scores[metric].append(f"{value.mean():.2f} ± {value.std():.2f}")
     else:
@@ -278,6 +294,13 @@ scores_df
 # %%
 # Let us take a look at the losses that minimise each metric.
 def min_arg(col):
+    # [FUNCTION DOC]
+    # HELPER: builds a Polars expression returning the row index of the smallest score
+    # in
+    # string column col, where entries look like "mean ± std": splits on spaces and
+    # sorts by
+    # the mean (token 0) then the std (token 2) as floats, taking the first index.
+    # Input: col - column name. Outputs: Polars expression.
     col_split = pl.col(col).str.split(" ")
     return pl.arg_sort_by(
         col_split.list.get(0).cast(pl.Float64),

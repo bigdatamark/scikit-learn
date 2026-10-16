@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Gallery example: fits AgglomerativeClustering on iris with distance_threshold 0 (full
+# tree, distances computed) and plots the top three levels of the dendrogram via scipy.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -19,6 +22,16 @@ from sklearn.datasets import load_iris
 
 
 def plot_dendrogram(model, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: converts a fitted AgglomerativeClustering into a scipy linkage matrix: for
+    # each
+    # merge, counts samples under the new node by adding 1 per leaf child (index below
+    # n_samples) or the stored count of an internal child; stacks children_, distances_
+    # and counts as floats and calls scipy dendrogram with kwargs.
+    # Inputs: model - fitted with distances_ available (distance_threshold or
+    # compute_distances); kwargs - forwarded to dendrogram.
+    # Exceptions: AttributeError if distances_ is missing. Side effects: plots on
+    # current axes.
     # Create linkage matrix and then plot the dendrogram
 
     # create the counts of samples under each node

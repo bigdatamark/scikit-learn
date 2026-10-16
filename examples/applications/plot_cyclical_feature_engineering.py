@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Gallery example (notebook-style script) on time-related feature engineering for the
+# Bike Sharing Demand regression task: compares gradient boosting, linear models on
+# one-hot, trigonometric (sin/cos) and periodic spline encodings of time features,
+# polynomial kernel/interaction variants, using time-series cross-validation.
+# Side effects: downloads the dataset from OpenML (network, cached on disk), prints
+# cross-validation metrics and produces matplotlib figures.
 """
 ================================
 Time-related feature engineering
@@ -204,6 +211,17 @@ import numpy as np
 
 
 def evaluate(model, X, y, cv, model_prop=None, model_step=None):
+    # [FUNCTION DOC]
+    # HELPER: cross-validates model on (X, y) with the given cv splitter, scoring
+    # negative MAE
+    # and negative RMSE and keeping the fitted estimators. If model_prop is given,
+    # prints the
+    # mean of that attribute across the fitted estimators (taken from pipeline step
+    # model_step when provided). Then prints mean +/- std of MAE and RMSE (signs flipped
+    # to
+    # positive). Inputs: model - estimator or pipeline; X, y - data; cv - CV splitter;
+    # model_prop - optional attribute name; model_step - optional pipeline step name.
+    # Outputs: None. Side effects: fits models, prints to stdout.
     cv_results = cross_validate(
         model,
         X,
@@ -352,12 +370,18 @@ from sklearn.preprocessing import FunctionTransformer
 
 
 def sin_transformer(period):
+    # [FUNCTION DOC]
+    # HELPER: returns a FunctionTransformer mapping x to sin(2*pi*x/period), keeping
+    # feature
+    # names one-to-one. Input: period - numeric cycle length.
     return FunctionTransformer(
         lambda x: np.sin(x / period * 2 * np.pi), feature_names_out="one-to-one"
     )
 
 
 def cos_transformer(period):
+    # [FUNCTION DOC]
+    # HELPER: same as sin_transformer but with cosine.
     return FunctionTransformer(
         lambda x: np.cos(x / period * 2 * np.pi), feature_names_out="one-to-one"
     )
@@ -434,6 +458,14 @@ from sklearn.preprocessing import SplineTransformer
 
 
 def periodic_spline_transformer(period, n_splines=None, degree=3):
+    # [FUNCTION DOC]
+    # HELPER: builds a SplineTransformer with periodic extrapolation over [0, period].
+    # n_splines defaults to period; n_knots = n_splines + 1 equally spaced knots from 0
+    # to
+    # period passed explicitly; include_bias True so the periodic basis has n_splines
+    # columns. Inputs: period - numeric; n_splines - int or None; degree - int, default
+    # 3.
+    # Outputs: unfitted SplineTransformer.
     if n_splines is None:
         n_splines = period
     n_knots = n_splines + 1  # periodic and include_bias is True

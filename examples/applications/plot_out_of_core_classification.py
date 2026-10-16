@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Gallery example: out-of-core binary text classification ("acq" topic vs. rest) on
+# Reuters-21578, streaming SGML documents, hashing them with HashingVectorizer and
+# training several partial_fit classifiers (SGD, Perceptron, MultinomialNB,
+# passive-aggressive SGD) on 1000-document minibatches while tracking test accuracy,
+# then plotting accuracy vs. examples/runtime and timing breakdowns.
+# Side effects: downloads and extracts the archive into the scikit-learn data home on
+# first run, prints progress, sets matplotlib rcParams and draws figures.
+# KNOWN ISSUE: the module-level call commented "Discard test set" actually consumes and
+# discards the next 1000 documents of the stream (the test set was already taken).
 """
 ======================================================
 Out-of-core classification of text documents
@@ -38,6 +48,10 @@ from sklearn.naive_bayes import MultinomialNB
 
 
 def _not_in_sphinx():
+    # [FUNCTION DOC]
+    # HELPER: returns True when the module global __file__ exists, used as a heuristic
+    # to
+    # detect a plain script run (not sphinx-gallery) to enable console progress output.
     # Hack to detect whether we are running by the sphinx builder
     return "__file__" in globals()
 
@@ -52,22 +66,40 @@ def _not_in_sphinx():
 
 
 class ReutersParser(HTMLParser):
+    # [CLASS DOC]
+    # HTMLParser subclass that collects Reuters documents as dicts with title, body and
+    # topics. Tag events dispatch to start_<tag>/end_<tag> methods; state flags select
+    # which
+    # text buffer handle_data appends to.
+    # KNOWN ISSUE: in_topics is set but never checked, so text of every <D> element
+    # (also
+    # those under PLACES, PEOPLE, ORGS, EXCHANGES) is added to topics.
     """Utility class to parse an SGML file and yield documents one at a time."""
 
     def __init__(self, encoding="latin-1"):
+        # [FUNCTION DOC]
+        # Initialises the base parser, resets per-document state and stores the byte
+        # decoding
+        # encoding (default "latin-1").
         HTMLParser.__init__(self)
         self._reset()
         self.encoding = encoding
 
     def handle_starttag(self, tag, attrs):
+        # [FUNCTION DOC]
+        # Calls start_<tag>(attrs) if defined, otherwise does nothing.
         method = "start_" + tag
         getattr(self, method, lambda x: None)(attrs)
 
     def handle_endtag(self, tag):
+        # [FUNCTION DOC]
+        # Calls end_<tag>() if defined, otherwise does nothing.
         method = "end_" + tag
         getattr(self, method, lambda: None)()
 
     def _reset(self):
+        # [FUNCTION DOC]
+        # HELPER: clears all state flags and text buffers for the next document.
         self.in_title = 0
         self.in_body = 0
         self.in_topics = 0
@@ -78,6 +110,12 @@ class ReutersParser(HTMLParser):
         self.topic_d = ""
 
     def parse(self, fd):
+        # [FUNCTION DOC]
+        # Generator: feeds the binary file object chunk by chunk (decoded with encoding)
+        # and
+        # yields the documents completed after each chunk; closes the parser at the end.
+        # Input: fd - iterable of bytes chunks. Yields: document dicts.
+        # Side effects: resets self.docs; does not close fd.
         self.docs = []
         for chunk in fd:
             self.feed(chunk.decode(self.encoding))
@@ -87,6 +125,10 @@ class ReutersParser(HTMLParser):
         self.close()
 
     def handle_data(self, data):
+        # [FUNCTION DOC]
+        # Appends text data to body, title or the current topic buffer, by priority of
+        # the
+        # active flag; ignores data otherwise.
         if self.in_body:
             self.body += data
         elif self.in_title:
@@ -95,9 +137,15 @@ class ReutersParser(HTMLParser):
             self.topic_d += data
 
     def start_reuters(self, attributes):
+        # [FUNCTION DOC]
+        # No-op handler for the opening REUTERS tag.
         pass
 
     def end_reuters(self):
+        # [FUNCTION DOC]
+        # Collapses whitespace runs in body to single spaces, appends the finished
+        # document dict
+        # to self.docs and resets state.
         self.body = re.sub(r"\s+", r" ", self.body)
         self.docs.append(
             {"title": self.title, "body": self.body, "topics": self.topics}
@@ -105,33 +153,64 @@ class ReutersParser(HTMLParser):
         self._reset()
 
     def start_title(self, attributes):
+        # [FUNCTION DOC]
+        # Sets the in_title flag.
         self.in_title = 1
 
     def end_title(self):
+        # [FUNCTION DOC]
+        # Clears the in_title flag.
         self.in_title = 0
 
     def start_body(self, attributes):
+        # [FUNCTION DOC]
+        # Sets the in_body flag.
         self.in_body = 1
 
     def end_body(self):
+        # [FUNCTION DOC]
+        # Clears the in_body flag.
         self.in_body = 0
 
     def start_topics(self, attributes):
+        # [FUNCTION DOC]
+        # Sets the in_topics flag (unused elsewhere).
         self.in_topics = 1
 
     def end_topics(self):
+        # [FUNCTION DOC]
+        # Clears the in_topics flag.
         self.in_topics = 0
 
     def start_d(self, attributes):
+        # [FUNCTION DOC]
+        # Sets the in_topic_d flag to start collecting a <D> element.
         self.in_topic_d = 1
 
     def end_d(self):
+        # [FUNCTION DOC]
+        # Clears the flag, appends the collected <D> text to topics and clears the
+        # buffer.
         self.in_topic_d = 0
         self.topics.append(self.topic_d)
         self.topic_d = ""
 
 
 def stream_reuters_documents(data_path=None):
+    # [FUNCTION DOC]
+    # Generator over all Reuters documents. data_path defaults to
+    # get_data_home()/reuters.
+    # If the directory is missing: creates it, downloads the archive with console
+    # progress,
+    # verifies its SHA-256, extracts it (tar "data" filter). Then parses every *.sgm
+    # file
+    # with one shared ReutersParser and yields its documents.
+    # Exceptions: AssertionError on checksum mismatch; network/IO errors propagate.
+    # Side effects: network download, disk writes, prints.
+    # KNOWN ISSUE: the .sgm file handles are opened without being closed explicitly.
+    # KNOWN ISSUE: if a previous download was interrupted after the directory was
+    # created,
+    # the directory exists and the download is never retried.
     """Iterate over documents of the Reuters dataset.
 
     The Reuters archive will automatically be downloaded and uncompressed if
@@ -156,6 +235,11 @@ def stream_reuters_documents(data_path=None):
         data_path.mkdir(parents=True, exist_ok=True)
 
         def progress(blocknum, bs, size):
+            # [FUNCTION DOC]
+            # HELPER: urlretrieve report hook writing "downloaded X MB / Y MB" to stdout
+            # (only
+            # outside sphinx). Inputs: block number, block size in bytes, total size in
+            # bytes.
             total_sz_mb = "%.2f MB" % (size / 1e6)
             current_sz_mb = "%.2f MB" % ((blocknum * bs) / 1e6)
             if _not_in_sphinx():
@@ -215,6 +299,12 @@ partial_fit_classifiers = {
 
 
 def get_minibatch(doc_iter, size, pos_class=positive_class):
+    # [FUNCTION DOC]
+    # Takes up to size documents from doc_iter, drops those without topics, and builds
+    # texts "title + blank line + body" with label 1 if pos_class is among topics else
+    # 0.
+    # Outputs: (tuple of str, int array) or two empty int arrays when nothing remains.
+    # Side effects: advances doc_iter.
     """Extract a minibatch of examples, return a tuple X_text, y.
 
     Note: size is before excluding invalid docs with no topics assigned.
@@ -232,6 +322,13 @@ def get_minibatch(doc_iter, size, pos_class=positive_class):
 
 
 def iter_minibatches(doc_iter, minibatch_size):
+    # [FUNCTION DOC]
+    # Generator yielding (X_text, y) minibatches from get_minibatch until an empty batch
+    # is
+    # returned.
+    # KNOWN ISSUE: stops early if a slice of minibatch_size documents happens to contain
+    # no
+    # document with topics, even if more documents follow.
     """Generator of minibatches."""
     X_text, y = get_minibatch(doc_iter, minibatch_size)
     while len(X_text):
@@ -256,6 +353,11 @@ print("Test set is %d documents (%d positive)" % (len(y_test), sum(y_test)))
 
 
 def progress(cls_name, stats):
+    # [FUNCTION DOC]
+    # HELPER: formats a one-line progress report: classifier name, train and test counts
+    # (reading module-level test_stats), accuracy, elapsed time since stats["t0"] and
+    # documents per second. Outputs: str.
+    # Exceptions: ZeroDivisionError if called with zero elapsed duration.
     """Report progress information, return a string."""
     duration = time.time() - stats["t0"]
     s = "%20s classifier : \t" % cls_name
@@ -338,6 +440,9 @@ for i, (X_train_text, y_train) in enumerate(minibatch_iterators):
 
 
 def plot_accuracy(x, y, x_legend):
+    # [FUNCTION DOC]
+    # HELPER: plots y vs x on the current axes with title, axis labels and grid.
+    # Inputs: x, y - sequences of equal length; x_legend - axis label str.
     """Plot accuracy as a function of x."""
     x = np.array(x)
     y = np.array(y)
@@ -391,6 +496,12 @@ ax.set_title("Training Times")
 
 
 def autolabel(rectangles):
+    # [FUNCTION DOC]
+    # HELPER: writes each bar's height (4 decimals) above it on the module-level ax and
+    # rotates x tick labels by 30 degrees. Input: rectangles - bar container.
+    # KNOWN ISSUE: relies on the global ax rather than a parameter, and re-applies the
+    # tick
+    # rotation once per rectangle.
     """attach some text vi autolabel on rectangles."""
     for rect in rectangles:
         height = rect.get_height()

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example on compressive-sensing tomography: builds a sparse projection
+# operator for an l x l image (l=128) at l/7 angles, projects a synthetic sparse
+# boundary image, adds noise, and reconstructs it with Ridge (L2) and Lasso (L1),
+# showing that the L1 prior recovers the image almost exactly.
+# Side effects: uses a seeded RandomState for data and noise, plots.
 """
 ======================================================================
 Compressive sensing: tomography reconstruction with L1 prior (Lasso)
@@ -47,6 +53,13 @@ from sklearn.linear_model import Lasso, Ridge
 
 
 def _weights(x, dx=1, orig=0):
+    # [FUNCTION DOC]
+    # HELPER: linear interpolation weights onto a 1-D unit grid. Flattens x, computes
+    # for each
+    # value its lower cell index floor((x - orig) / dx) and fractional offset alpha.
+    # Inputs: x - array of coordinates; dx - cell size (default 1); orig - grid origin.
+    # Outputs: (indices, weights), each length 2n: lower indices followed by upper
+    # indices (lower + 1), with weights 1 - alpha then alpha.
     x = np.ravel(x)
     floor_x = np.floor((x - orig) / dx).astype(np.int64)
     alpha = (x - orig - floor_x * dx) / dx
@@ -54,6 +67,10 @@ def _weights(x, dx=1, orig=0):
 
 
 def _generate_center_coordinates(l_x):
+    # [FUNCTION DOC]
+    # HELPER: returns two l_x x l_x float arrays with the x and y pixel-centre
+    # coordinates
+    # shifted so the image centre is at the origin.
     X, Y = np.mgrid[:l_x, :l_x].astype(np.float64)
     center = l_x / 2.0
     X += 0.5 - center
@@ -62,6 +79,20 @@ def _generate_center_coordinates(l_x):
 
 
 def build_projection_operator(l_x, n_dir):
+    # [FUNCTION DOC]
+    # For each of n_dir equally spaced angles in [0, pi): rotates pixel centres, takes
+    # the
+    # rotated x coordinate, splits each pixel's contribution between the two
+    # neighbouring
+    # detector bins via _weights (origin at the minimum x), keeps bins inside [0, l_x)
+    # and
+    # records (detector row = bin + angle index * l_x, pixel index, weight). Builds a
+    # COO
+    # array with int32 indices from these triplets.
+    # Outputs: sparse array of shape at most (n_dir * l_x, l_x**2) (shape inferred from
+    # the largest indices present).
+    # KNOWN ISSUE: the shape is inferred rather than given explicitly, so trailing empty
+    # rows/columns would be dropped silently.
     """Compute the tomography design matrix.
 
     Parameters
@@ -96,6 +127,11 @@ def build_projection_operator(l_x, n_dir):
 
 
 def generate_synthetic_data():
+    # [FUNCTION DOC]
+    # HELPER: generates a binary image of object boundaries: places 36 random points
+    # (RandomState(0)) on the global l x l grid, Gaussian-smooths them (sigma l/36),
+    # thresholds at the mean inside a centred disk, then keeps only the boundary pixels
+    # (set XOR its binary erosion). Outputs: boolean array (l, l). Uses global l.
     """Synthetic binary data"""
     rs = np.random.RandomState(0)
     n_pts = 36

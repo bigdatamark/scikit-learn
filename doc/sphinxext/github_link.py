@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Helpers for sphinx.ext.linkcode: builds a function that maps documented Python objects
+# to URLs of their source lines on an online repository at the current git revision.
 import inspect
 import os
 import subprocess
@@ -9,6 +12,10 @@ REVISION_CMD = "git rev-parse --short HEAD"
 
 
 def _get_git_revision():
+    # [FUNCTION DOC]
+    # HELPER: runs "git rev-parse --short HEAD" in the current working directory.
+    # Outputs: short commit hash as str, or None if git fails or is not found.
+    # Side effects: spawns a subprocess; prints a message to stdout on failure.
     try:
         revision = subprocess.check_output(REVISION_CMD.split()).strip()
     except (subprocess.CalledProcessError, OSError):
@@ -18,6 +25,24 @@ def _get_git_revision():
 
 
 def _linkcode_resolve(domain, info, package, url_fmt, revision):
+    # [FUNCTION DOC]
+    # HELPER: resolves the source URL for one documented object. Returns None when
+    # revision is
+    # None, domain is not "py"/"pyx", or info lacks module/fullname. Otherwise imports
+    # the
+    # module, resolves the dotted fullname by attribute lookup, unwraps decorators,
+    # finds
+    # the source file (falling back to the file of the object's __module__), makes the
+    # path
+    # relative to the package root directory, gets the starting line number (empty
+    # string
+    # on failure) and formats url_fmt with revision, package, path and lineno.
+    # Inputs: domain - str; info - dict with "module" and "fullname"; package - root
+    # package name; url_fmt - format string; revision - str or None.
+    # Outputs: URL str or None.
+    # Exceptions: import errors or AttributeError from the attribute lookup propagate.
+    # Side effects: imports modules.
+    # KNOWN ISSUE: mixes bare "return" and "return None"; both mean None (cosmetic).
     """Determine a link to online source for a class/method/function
 
     This is called by sphinx.ext.linkcode
@@ -71,6 +96,10 @@ def _linkcode_resolve(domain, info, package, url_fmt, revision):
 
 
 def make_linkcode_resolve(package, url_fmt):
+    # [FUNCTION DOC]
+    # Gets the git revision once (at call time) and returns _linkcode_resolve partially
+    # bound with revision, package and url_fmt; the result takes (domain, info).
+    # Side effects: runs git via _get_git_revision.
     """Returns a linkcode_resolve function for the given URL format
 
     revision is a git commit reference (hash or name)

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: compares test accuracy of plain LDA, Ledoit-Wolf shrinkage LDA and
+# OAS-covariance LDA (lsqr solver) as the number of noise features grows relative to 20
+# training samples, averaging over 50 random repetitions per feature count, and plots
+# accuracy against n_features / n_samples.
+# Side effects: uses the unseeded global numpy RNG (results vary per run), plots.
 """
 ===========================================================================
 Normal, Ledoit-Wolf and OAS Linear Discriminant Analysis for classification
@@ -26,6 +32,12 @@ step = 4  # step size for the calculation
 
 
 def generate_data(n_samples, n_features):
+    # [FUNCTION DOC]
+    # HELPER: draws n_samples 1-D points from two blobs centred at -2 and +2 (labels
+    # 0/1) and
+    # appends n_features - 1 standard normal noise columns.
+    # Outputs: X of shape (n_samples, n_features), y of shape (n_samples,).
+    # Side effects: consumes the global numpy RNG (make_blobs without random_state too).
     """Generate random blob-ish data with noisy features.
 
     This returns an array of input data with shape `(n_samples, n_features)`

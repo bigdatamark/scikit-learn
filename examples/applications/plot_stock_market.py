@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Gallery example: downloads 2003-2008 daily quotes for ~56 companies from the
+# scikit-learn examples-data GitHub repository, uses open-to-close variations
+# (standardized) to fit GraphicalLassoCV for a sparse precision (partial correlation)
+# graph, clusters companies with affinity propagation on the covariance, embeds them in
+# 2-D with LocallyLinearEmbedding and plots the network.
+# Side effects: network downloads (progress on stderr), prints clusters, plots.
+# Defines no functions or classes.
 """
 =======================================
 Visualizing the stock market structure

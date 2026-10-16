@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gallery example: denoises USPS digit images by adding Gaussian noise and
+# reconstructing
+# with linear PCA and with KernelPCA (RBF kernel, learned inverse transform), comparing
+# results visually and via mean squared error.
+# Side effects: downloads the USPS dataset from OpenML, draws figures.
 """
 ================================
 Image denoising using kernel PCA
@@ -72,6 +78,10 @@ import matplotlib.pyplot as plt
 
 
 def plot_digits(X, title):
+    # [FUNCTION DOC]
+    # HELPER: plots the first 100 images of X (each reshaped to 16x16, grey colormap, no
+    # axes) on a 10x10 grid with title as figure suptitle. Inputs: X - array of shape
+    # (n_samples >= 1, 256); title - str. Outputs: None. Side effects: creates a figure.
     """Small helper function to plot 100 digits."""
     fig, axs = plt.subplots(nrows=10, ncols=10, figsize=(8, 8))
     for img, ax in zip(X, axs.ravel()):

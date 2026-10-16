@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Vendored copy of the sphinx-issues extension (v1.2.0): roles issue, pr, commit, user
+# and cve that render links to GitHub (or configurable URIs) and the CVE database.
+# Import-time side effects: creates the module-level IssueRole instances issue_role,
+# pr_role and commit_role.
 """A Sphinx extension for linking to your project's issue tracker.
 
 Copyright 2014 Steven Loria
@@ -30,6 +35,14 @@ __license__ = "MIT"
 
 
 def user_role(name, rawtext, text, lineno, inliner, options=None, content=None):
+    # [FUNCTION DOC]
+    # Role that links to a user profile. Splits an optional explicit title, unescapes
+    # and
+    # strips target and title, builds the URL from config issues_user_uri (formatted
+    # with
+    # user) or "https://github.com/<target>". Link text is the explicit title or
+    # "@<target>". Inputs: standard docutils role signature; options are passed as node
+    # attributes. Outputs: ([reference node], []).
     """Sphinx role for linking to a user profile. Defaults to linking to
     Github profiles, but the profile URIS can be configured via the
     ``issues_user_uri`` config value.
@@ -59,6 +72,10 @@ def user_role(name, rawtext, text, lineno, inliner, options=None, content=None):
 
 
 def cve_role(name, rawtext, text, lineno, inliner, options=None, content=None):
+    # [FUNCTION DOC]
+    # Role that links to https://cve.mitre.org/cgi-bin/cvename.cgi?name=<target>; text
+    # is
+    # the explicit title or the target. Inputs/outputs as for user_role.
     """Sphinx role for linking to a CVE on https://cve.mitre.org.
     Examples: ::
         :cve:`CVE-2018-17175`
@@ -76,11 +93,22 @@ def cve_role(name, rawtext, text, lineno, inliner, options=None, content=None):
 
 
 class IssueRole(object):
+    # [CLASS DOC]
+    # Callable docutils role factory for issue/PR/commit references. EXTERNAL_REPO_REGEX
+    # matches "user/repo#N" or "user/repo@sha" for cross-repository references.
     EXTERNAL_REPO_REGEX = re.compile(r"^(\w+)/(.+)([#@])([\w]+)$")
 
     def __init__(
         self, uri_config_option, format_kwarg, github_uri_template, format_text=None
     ):
+        # [FUNCTION DOC]
+        # Stores the config option name holding the URI template (uri_config_option),
+        # the format
+        # keyword used in that template (format_kwarg), the GitHub fallback template
+        # with
+        # issues_github_path and n placeholders, and the text formatter (format_text,
+        # defaulting
+        # to default_format_text).
         self.uri_config_option = uri_config_option
         self.format_kwarg = format_kwarg
         self.github_uri_template = github_uri_template
@@ -88,9 +116,26 @@ class IssueRole(object):
 
     @staticmethod
     def default_format_text(issue_no):
+        # [FUNCTION DOC]
+        # Formats an issue number as "#<issue_no>". Output: str.
         return "#{0}".format(issue_no)
 
     def make_node(self, name, issue_no, config, options=None):
+        # [FUNCTION DOC]
+        # Builds one reference node. For an external "user/repo<#|@>id" reference, maps
+        # the role
+        # name (pr, issue, commit) to a GitHub path segment and links to
+        # github.com/user/repo/<path>/<id> with text "user/repo<symbol><formatted id>".
+        # Otherwise,
+        # for issue_no "-" or "0" returns None; else uses the configured URI template if
+        # set,
+        # then issues_github_path with github_uri_template.
+        # Inputs: name - role name; issue_no - str; config - Sphinx config; options -
+        # dict of node
+        # attributes. Outputs: reference node or None.
+        # Exceptions: ValueError for an external reference with an unsupported role
+        # name, or
+        # when neither the URI option nor issues_github_path is configured.
         name_map = {"pr": "pull", "issue": "issues", "commit": "commit"}
         options = options or {}
         repo_match = self.EXTERNAL_REPO_REGEX.match(issue_no)
@@ -132,6 +177,14 @@ class IssueRole(object):
     def __call__(
         self, name, rawtext, text, lineno, inliner, options=None, content=None
     ):
+        # [FUNCTION DOC]
+        # Role entry point: splits the unescaped text on commas, builds a node per entry
+        # via
+        # make_node and joins them with raw HTML ", " separators.
+        # Outputs: (list of nodes, []).
+        # KNOWN ISSUE: make_node may return None (for "-" or "0") and that None is
+        # appended to the
+        # returned node list, which docutils does not expect.
         options = options or {}
         content = content or []
         issue_nos = [each.strip() for each in utils.unescape(text).split(",")]
@@ -174,6 +227,8 @@ pr_role = IssueRole(
 
 
 def format_commit_text(sha):
+    # [FUNCTION DOC]
+    # HELPER: formats a commit sha as its first 7 characters.
     return sha[:7]
 
 
@@ -192,6 +247,15 @@ commit_role = IssueRole(
 
 
 def setup(app):
+    # [FUNCTION DOC]
+    # Extension entry point: registers config values issues_uri, issues_pr_uri,
+    # issues_commit_uri, issues_github_path and issues_user_uri (all default None,
+    # rebuild
+    # html) and the roles issue, pr, user, commit and cve.
+    # Outputs: metadata dict with version and parallel read/write safety True.
+    # KNOWN ISSUE: the string preceding commit_role mentions issues_pr_uri, but
+    # commit_role
+    # actually reads issues_commit_uri.
     # Format template for issues URI
     # e.g. 'https://github.com/sloria/marshmallow/issues/{issue}
     app.add_config_value("issues_uri", default=None, rebuild="html")
