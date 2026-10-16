@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Forests of randomized decision trees: RandomForestClassifier/Regressor (bootstrap
+# rows, random feature subsets per split), ExtraTreesClassifier/Regressor (random split
+# thresholds, no bootstrap by default) and the unsupervised RandomTreesEmbedding
+# (one-hot leaf encoding of totally random trees). Shared base classes implement
+# parallel tree building (threads), bootstrap index regeneration from per-tree seeds,
+# out-of-bag (OOB) predictions/scores, class_weight handling and averaging of
+# per-tree predictions.
 """
 Forest of trees-based ensemble methods.
 
@@ -95,6 +103,13 @@ MAX_INT = np.iinfo(np.int32).max
 def _generate_sample_indices(
     random_state, n_samples, n_samples_bootstrap, sample_weight
 ):
+    # [FUNCTION DOC]
+    # HELPER: Draws n_samples_bootstrap row indices with replacement from range(n_samples),
+    # uniformly, or with probability proportional to sample_weight when given.
+    # Inputs: random_state - int seed or RandomState (a tree's seed); n_samples,
+    # n_samples_bootstrap - ints; sample_weight - 1D array or None.
+    # Outputs: int32 array of indices. Side effects: consumes the RNG; deterministic for
+    # an int seed, which allows replaying the draw.
     """
     Private function used to _parallel_build_trees function."""
 
@@ -116,6 +131,10 @@ def _generate_sample_indices(
 def _generate_unsampled_indices(
     random_state, n_samples, n_samples_bootstrap, sample_weight
 ):
+    # [FUNCTION DOC]
+    # HELPER: Replays _generate_sample_indices for the same seed and returns, in increasing
+    # order, the indices of rows never drawn (the out-of-bag rows).
+    # Outputs: 1D int array.
     """
     Private function used to forest._set_oob_score function."""
     sample_indices = _generate_sample_indices(
@@ -142,6 +161,21 @@ def _parallel_build_trees(
     n_samples_bootstrap=None,
     missing_values_in_feature_mask=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits one tree of the forest (called in parallel).
+    # With bootstrap: draws bootstrap indices from the tree's own random_state seed and
+    # encodes them as per-row counts used as sample weights (rows are not copied); with
+    # "balanced_subsample" multiplies counts by balanced class weights computed on the
+    # drawn indices. Without bootstrap: passes sample_weight unchanged. Fits with
+    # check_input disabled and the precomputed missing-value mask.
+    # Inputs: tree - unfitted tree with int random_state; bootstrap - bool; X, y -
+    # validated float32 X and float64 y (n_samples, n_outputs); sample_weight - combined
+    # weights or None; tree_idx, n_trees, verbose - for progress; class_weight;
+    # n_samples_bootstrap - int or None; missing_values_in_feature_mask.
+    # Outputs: the fitted tree. Side effects: prints progress when verbose > 1.
+    # KNOWN ISSUE: with bootstrap, sample_weight only drives the sampling probabilities and
+    # is not multiplied into the tree weights (by design for frequency semantics), which
+    # the fit docstring does not say explicitly.
     """
     Private function used to fit a single tree in parallel."""
     if verbose > 1:
@@ -180,6 +214,11 @@ def _parallel_build_trees(
 
 
 class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base of all forests. Fitted state: estimators_, n_outputs_, _n_samples,
+    # _sample_weight, _n_samples_bootstrap (replay data for in-bag/OOB indices), and
+    # subclass-specific attributes. Provides apply, decision_path, feature_importances_
+    # and estimators_samples_.
     """
     Base class for forests of trees.
 
@@ -218,6 +257,9 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         class_weight=None,
         max_samples=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged; estimator, n_estimators and estimator_params go to
+        # BaseEnsemble.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -234,6 +276,11 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         self.max_samples = max_samples
 
     def apply(self, X):
+        # [FUNCTION DOC]
+        # Returns, for each sample and each tree, the index of the leaf reached; computed with
+        # thread-based parallelism.
+        # Outputs: int array (n_samples, n_estimators). Exceptions: NotFittedError,
+        # validation errors (see _validate_X_predict).
         """
         Apply trees in the forest to X, return leaf indices.
 
@@ -260,6 +307,11 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         return np.array(results).T
 
     def decision_path(self, X):
+        # [FUNCTION DOC]
+        # Concatenates per-tree node indicator matrices horizontally into one CSR matrix and
+        # returns the cumulative node counts giving each tree's column range.
+        # Outputs: tuple (CSR matrix (n_samples, total nodes), array of n_estimators + 1
+        # offsets starting at 0).
         """
         Return the decision path in the forest.
 
@@ -301,6 +353,26 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Builds or extends (warm start) the forest.
+        # Steps: reject sparse y; validate X (float32, CSC if sparse, NaN allowed) and y; ask a
+        # fresh base tree type for the missing-value mask (raises if NaN unsupported);
+        # validate sample_weight; sort sparse indices; warn on column-vector y and reshape y to
+        # 2D; Poisson checks; set _n_samples and n_outputs_; encode y and get class weights
+        # (subclass hook); cast y to contiguous float64; combine sample_weight with expanded
+        # class weights into _sample_weight; resolve n_samples_bootstrap (max_samples requires
+        # bootstrap); set estimator_; on warm start keep existing trees and advance the RNG by
+        # one draw per existing tree; create new trees with seeds from the RNG and fit them in
+        # parallel threads; compute OOB score when requested and either new trees were added
+        # or no score exists; finally unwrap classes_/n_classes_ for a single output.
+        # Inputs: X - (n_samples, n_features) dense or sparse; y - (n_samples,) or
+        # (n_samples, n_outputs); sample_weight - (n_samples,) or None.
+        # Outputs: self.
+        # Exceptions: ValueError for sparse y, negative or non-positive-sum y with Poisson,
+        # max_samples without bootstrap, oob without bootstrap, n_estimators below current
+        # size on warm start, or unsupported target type for OOB.
+        # Side effects: sets the fitted attributes; DataConversionWarning for column y;
+        # UserWarning when warm start adds no trees; sorts sparse X indices in place.
         """
         Build a forest of trees from the training set (X, y).
 
@@ -523,6 +595,9 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
 
     @abstractmethod
     def _set_oob_score_and_attributes(self, X, y, scoring_function=None):
+        # [FUNCTION DOC]
+        # Abstract hook computing and storing OOB attributes and oob_score_, optionally with a
+        # user scoring function.
         """Compute and set the OOB score and attributes.
 
         Parameters
@@ -538,6 +613,17 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         """
 
     def _compute_oob_predictions(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Averages per-tree predictions over the rows each tree did not see.
+        # For each tree, regenerates its OOB indices, adds its predictions (via
+        # _get_oob_predictions) to those rows and increments per-row counts; rows never OOB get
+        # count 1 after a warning, then predictions are divided by counts per output.
+        # Inputs: X - training data (converted to CSR if sparse); y - (n_samples, n_outputs).
+        # Outputs: float64 array (n_samples, n_classes or 1, n_outputs).
+        # Side effects: UserWarning when some rows have no OOB prediction.
+        # KNOWN ISSUE: docstring says it computes and sets the OOB score, but it only returns
+        # predictions; the zero-count check is loop-invariant yet sits inside the per-output
+        # loop.
         """Compute and set the OOB score.
 
         Parameters
@@ -600,10 +686,18 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         return oob_pred
 
     def _validate_y_class_weight(self, y, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Default hook returning y unchanged and no expanded class weights.
         # Default implementation
         return y, None
 
     def _validate_X_predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted state and validates X for prediction as float32 (CSR if
+        # sparse), allowing NaN only when the first tree supports missing values for X.
+        # Outputs: validated X.
+        # Exceptions: NotFittedError; ValueError for sparse matrices with int64 indices or for
+        # non-finite values when unsupported.
         """
         Validate X whenever one tries to predict, apply, predict_proba."""
         check_is_fitted(self)
@@ -626,6 +720,10 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
 
     @property
     def feature_importances_(self):
+        # [FUNCTION DOC]
+        # Property: mean of feature_importances_ over trees having more than one node,
+        # renormalized to sum 1; all zeros if every tree is a single leaf.
+        # Outputs: float64 array (n_features,). Exceptions: NotFittedError.
         """
         The impurity-based feature importances.
 
@@ -660,6 +758,9 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         return all_importances / np.sum(all_importances)
 
     def _get_estimators_indices(self):
+        # [FUNCTION DOC]
+        # HELPER: Generator yielding each tree's in-bag row indices: all rows when bootstrap is
+        # False, otherwise the replayed bootstrap draw from the tree's integer seed.
         # Get drawn indices along both sample and feature axes
         for tree in self.estimators_:
             if not self.bootstrap:
@@ -680,6 +781,8 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
 
     @property
     def estimators_samples_(self):
+        # [FUNCTION DOC]
+        # Property returning the list of in-bag index arrays, regenerated on every access.
         """The subset of drawn samples for each base estimator.
 
         Returns a dynamically generated list of indices identifying
@@ -693,6 +796,8 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         return [sample_indices for sample_indices in self._get_estimators_indices()]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Sets allow_nan from a fresh base tree of the same type and criterion.
         tags = super().__sklearn_tags__()
         # Only the criterion is required to determine if the tree supports
         # missing values
@@ -702,6 +807,11 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
 
 
 def _accumulate_prediction(predict, X, out, lock):
+    # [FUNCTION DOC]
+    # HELPER: Calls predict(X, check_input=False) and, under the lock, adds the result in
+    # place to out: to its single array, or element-wise to each array of a list (one per
+    # output).
+    # Side effects: mutates the arrays in out; thread-safe through lock.
     """
     This is a utility function for joblib's Parallel.
 
@@ -718,6 +828,10 @@ def _accumulate_prediction(predict, X, out, lock):
 
 
 class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for forest classifiers: label-encodes each output, handles
+    # class_weight presets, averages tree probabilities and computes OOB decision
+    # functions/accuracy.
     """
     Base class for forest of trees-based classifiers.
 
@@ -741,6 +855,8 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
         class_weight=None,
         max_samples=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseForest.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -757,6 +873,10 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
 
     @staticmethod
     def _get_oob_predictions(tree, X):
+        # [FUNCTION DOC]
+        # HELPER: Tree predict_proba on OOB rows reshaped to (n_samples, n_classes,
+        # n_outputs): adds a trailing axis for single output, or moves the output axis last
+        # for multi-output.
         """Compute the OOB predictions for an individual tree.
 
         Parameters
@@ -784,6 +904,10 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
         return y_pred
 
     def _set_oob_score_and_attributes(self, X, y, scoring_function=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets oob_decision_function_ from averaged OOB probabilities (output axis
+        # dropped for single output) and oob_score_ as the scoring function (default
+        # accuracy) of encoded y versus the argmax over classes.
         """Compute and set the OOB score and attributes.
 
         Parameters
@@ -808,6 +932,16 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
         )
 
     def _validate_y_class_weight(self, y, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Validates classification targets, sets per-output classes_ and n_classes_
+        # lists and encodes y into class indices.
+        # Class weights: None returns no weights; dict/list expands per-sample weights;
+        # "balanced" (or "balanced_subsample" without bootstrap) computes balanced weights per
+        # output, taking sample_weight into account; "balanced_subsample" with bootstrap
+        # returns None (weights computed per tree later).
+        # Outputs: tuple (encoded y, expanded class weight array or None).
+        # Exceptions: ValueError for an unknown preset string.
+        # Side effects: sets classes_, n_classes_; warns when a preset is used with warm start.
         check_classification_targets(y)
 
         y_original = np.copy(y)
@@ -880,6 +1014,12 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
         return y, expanded_class_weight
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns classes_ at the argmax of predict_proba; for multi-output, one column per
+        # output.
+        # Outputs: array (n_samples,) or (n_samples, n_outputs).
+        # KNOWN ISSUE: for multi-output the result dtype is taken from the first output's
+        # classes, which can truncate or fail when outputs have different label types.
         """
         Predict class for X.
 
@@ -919,6 +1059,10 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
             return predictions
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Validates X and averages tree predict_proba outputs, accumulated in shared memory
+        # with a lock (thread backend), divided by the number of trees.
+        # Outputs: array (n_samples, n_classes) or list of them for multi-output.
         """
         Predict class probabilities for X.
 
@@ -967,6 +1111,11 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
             return all_proba
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the natural log of predict_proba (per output for multi-output, modified in
+        # place in the returned list).
+        # KNOWN ISSUE: the docstring Returns section says class probabilities rather than log
+        # probabilities.
         """
         Predict class log-probabilities for X.
 
@@ -999,6 +1148,8 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
             return proba
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks multi-label support and sparse input acceptance.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_label = True
         tags.input_tags.sparse = True
@@ -1006,6 +1157,9 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
 
 
 class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for forest regressors: averages tree predictions, OOB predictions with
+    # R^2 score, and fast recursion-based partial dependence.
     """
     Base class for forest of trees-based regressors.
 
@@ -1028,6 +1182,8 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         warm_start=False,
         max_samples=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseForest.
         super().__init__(
             estimator,
             n_estimators=n_estimators,
@@ -1042,6 +1198,9 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         )
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Validates X and averages tree predictions accumulated in a shared array under a lock.
+        # Outputs: float64 array (n_samples,) or (n_samples, n_outputs).
         """
         Predict regression target for X.
 
@@ -1086,6 +1245,8 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
 
     @staticmethod
     def _get_oob_predictions(tree, X):
+        # [FUNCTION DOC]
+        # HELPER: Tree predict on OOB rows reshaped to (n_samples, 1, n_outputs).
         """Compute the OOB predictions for an individual tree.
 
         Parameters
@@ -1110,6 +1271,9 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         return y_pred
 
     def _set_oob_score_and_attributes(self, X, y, scoring_function=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets oob_prediction_ (class axis dropped; output axis dropped for a single
+        # output) and oob_score_ with the scoring function (default r2_score).
         """Compute and set the OOB score and attributes.
 
         Parameters
@@ -1132,6 +1296,12 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         self.oob_score_ = scoring_function(y, self.oob_prediction_)
 
     def _compute_partial_dependence_recursion(self, grid, target_features):
+        # [FUNCTION DOC]
+        # HELPER: Sums each tree's recursion-based partial dependence over the grid into one
+        # float64 buffer (sequentially) and divides by the number of trees.
+        # Inputs: grid - (n_points, n_target_features) cast to float32; target_features -
+        # indices cast to intp.
+        # Outputs: array (n_points,).
         """Fast partial dependence computation.
 
         Parameters
@@ -1166,12 +1336,17 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         return averaged_predictions
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks sparse input acceptance.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class RandomForestClassifier(ForestClassifier):
+    # [CLASS DOC]
+    # Concrete forest of DecisionTreeClassifier with bootstrap=True by default; tree
+    # hyperparameters are forwarded through estimator_params. Splitter is not exposed.
     """
     A random forest classifier.
 
@@ -1535,6 +1710,8 @@ class RandomForestClassifier(ForestClassifier):
         max_samples=None,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores forest and tree hyperparameters; no validation here.
         super().__init__(
             estimator=DecisionTreeClassifier(),
             n_estimators=n_estimators,
@@ -1574,6 +1751,9 @@ class RandomForestClassifier(ForestClassifier):
 
 
 class RandomForestRegressor(ForestRegressor):
+    # [CLASS DOC]
+    # Concrete forest of DecisionTreeRegressor with bootstrap=True and max_features=1.0 by
+    # default.
     """
     A random forest regressor.
 
@@ -1911,6 +2091,11 @@ class RandomForestRegressor(ForestRegressor):
         max_samples=None,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores forest and tree hyperparameters, mapping the deprecated "friedman_mse"
+        # criterion to "squared_error" with a FutureWarning.
+        # KNOWN ISSUE: changing a parameter in __init__ breaks the estimator convention that
+        # get_params returns what was passed; the warning fires at construction and on clone.
         super().__init__(
             estimator=DecisionTreeRegressor(),
             n_estimators=n_estimators,
@@ -1959,6 +2144,9 @@ class RandomForestRegressor(ForestRegressor):
 
 
 class ExtraTreesClassifier(ForestClassifier):
+    # [CLASS DOC]
+    # Concrete forest of ExtraTreeClassifier (random thresholds), bootstrap=False by
+    # default.
     """
     An extra-trees classifier.
 
@@ -2308,6 +2496,8 @@ class ExtraTreesClassifier(ForestClassifier):
         max_samples=None,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores forest and tree hyperparameters; no validation here.
         super().__init__(
             estimator=ExtraTreeClassifier(),
             n_estimators=n_estimators,
@@ -2347,6 +2537,9 @@ class ExtraTreesClassifier(ForestClassifier):
 
 
 class ExtraTreesRegressor(ForestRegressor):
+    # [CLASS DOC]
+    # Concrete forest of ExtraTreeRegressor, bootstrap=False and max_features=1.0 by
+    # default.
     """
     An extra-trees regressor.
 
@@ -2663,6 +2856,10 @@ class ExtraTreesRegressor(ForestRegressor):
         max_samples=None,
         monotonic_cst=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters, mapping deprecated "friedman_mse" to "squared_error" with a
+        # FutureWarning.
+        # KNOWN ISSUE: same __init__ parameter rewriting issue as RandomForestRegressor.
         super().__init__(
             estimator=ExtraTreeRegressor(),
             n_estimators=n_estimators,
@@ -2711,6 +2908,11 @@ class ExtraTreesRegressor(ForestRegressor):
 
 
 class RandomTreesEmbedding(TransformerMixin, BaseForest):
+    # [CLASS DOC]
+    # Unsupervised transformer: fits ExtraTreeRegressor trees (max_features fixed to 1,
+    # squared_error criterion as class attributes) to uniformly random targets, then
+    # one-hot encodes the leaf index of each tree. Fitted state adds one_hot_encoder_ and
+    # _n_features_out. No bootstrap or OOB.
     """
     An ensemble of totally random trees.
 
@@ -2925,6 +3127,9 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
         verbose=0,
         warm_start=False,
     ):
+        # [FUNCTION DOC]
+        # Stores tree and forest hyperparameters; bootstrap, oob_score and max_samples are
+        # fixed for the base class.
         super().__init__(
             estimator=ExtraTreeRegressor(),
             n_estimators=n_estimators,
@@ -2957,9 +3162,13 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
         self.sparse_output = sparse_output
 
     def _set_oob_score_and_attributes(self, X, y, scoring_function=None):
+        # [FUNCTION DOC]
+        # Always raises NotImplementedError (OOB is not supported).
         raise NotImplementedError("OOB score not supported by tree embedding")
 
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits by calling fit_transform and discarding the output. Outputs: self.
         """
         Fit estimator.
 
@@ -2991,6 +3200,14 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Draws a uniform random target per sample from random_state, fits the forest on it,
+        # fits a OneHotEncoder (sparse or dense per sparse_output) on apply(X) and returns the
+        # encoding.
+        # Outputs: matrix (n_samples, total number of leaves).
+        # Side effects: sets forest attributes, one_hot_encoder_, _n_features_out.
+        # KNOWN ISSUE: with warm_start the new trees are fit on a freshly drawn random target,
+        # and the encoder is refit over all trees, so earlier output columns may change.
         """
         Fit estimator and transform dataset.
 
@@ -3025,6 +3242,11 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
         return output
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Returns names "randomtreesembedding_<tree>_<leaf node id>" for each encoder category.
+        # Exceptions: NotFittedError; ValueError on input_features mismatch.
+        # KNOWN ISSUE: iterates over n_estimators rather than the number of fitted trees, so a
+        # changed n_estimators after fit gives wrong names or IndexError.
         """Get output feature names for transformation.
 
         Parameters
@@ -3057,6 +3279,10 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
         return np.asarray(feature_names, dtype=object)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # One-hot encodes the leaf indices of X using the fitted encoder.
+        # Exceptions: NotFittedError; unknown leaves cannot occur since every sample reaches a
+        # leaf.
         """
         Transform dataset.
 
@@ -3076,6 +3302,8 @@ class RandomTreesEmbedding(TransformerMixin, BaseForest):
         return self.one_hot_encoder_.transform(self.apply(X))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks sparse input acceptance.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
