@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Root pytest configuration for the sklearn package. At import time: records
+# whether pytest-run-parallel is available (PARALLEL_RUN_AVAILABLE), optionally
+# loads scipy_doctest's dt_config, raises ImportError if pytest is older than
+# PYTEST_MIN_VERSION, builds the dataset_fetchers map (fixture name to fetch
+# function) and defines dataset fixtures (*_fxt), global fixtures (global_dtype,
+# pyplot, hide_available_pandas) and pytest hooks (collection, parametrization of
+# global_random_seed, options, setup, configure). If dt_config is available it is
+# put in strict mode.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -58,6 +67,11 @@ if parse_version(pytest.__version__) < parse_version(PYTEST_MIN_VERSION):
 
 
 def raccoon_face_or_skip():
+    # [FUNCTION DOC]
+    # HELPER: returns the grayscale raccoon face image from scipy.datasets.face.
+    # Exceptions: raises SkipTest unless SKLEARN_SKIP_NETWORK_TESTS is "0", or if
+    # pooch is not installed (needed by scipy to download the data).
+    # Outputs: 2D ndarray image.
     # SciPy requires network access to get data
     run_network_tests = environ.get("SKLEARN_SKIP_NETWORK_TESTS", "1") == "0"
     if not run_network_tests:
@@ -94,15 +108,29 @@ _SKIP32_MARK = pytest.mark.skipif(
 # Global fixtures
 @pytest.fixture(params=[pytest.param(np.float32, marks=_SKIP32_MARK), np.float64])
 def global_dtype(request):
+    # [FUNCTION DOC]
+    # Fixture parametrized over float32 (skipped unless SKLEARN_RUN_FLOAT32_TESTS=1)
+    # and float64; yields the dtype.
     yield request.param
 
 
 def _fetch_fixture(f):
+    # [FUNCTION DOC]
+    # HELPER: builds a pytest fixture returning a wrapped version of dataset fetcher
+    # f. download_if_missing is read from SKLEARN_SKIP_NETWORK_TESTS ("0" means allow
+    # download) once, when the fixture is built.
+    # Inputs: f - a sklearn.datasets fetch_* function.
+    # Outputs: a pytest fixture whose value is the wrapped fetcher.
     """Fetch dataset (download if missing and requested by environment)."""
     download_if_missing = environ.get("SKLEARN_SKIP_NETWORK_TESTS", "1") == "0"
 
     @wraps(f)
     def wrapped(*args, **kwargs):
+        # [FUNCTION DOC]
+        # Calls f with download_if_missing forced into kwargs; if f raises OSError with
+        # the exact "Data not found ..." message, skips the test, otherwise re-raises.
+        # Inputs: any args/kwargs for f. Outputs: f's return value.
+        # Side effects: overrides any caller-provided download_if_missing.
         kwargs["download_if_missing"] = download_if_missing
         try:
             return f(*args, **kwargs)
@@ -129,6 +157,20 @@ raccoon_face_fxt = pytest.fixture(raccoon_face_or_skip)
 
 
 def pytest_collection_modifyitems(config, items):
+    # [FUNCTION DOC]
+    # pytest hook after collection. Steps: (1) for each item, find dataset fixtures it
+    # needs (doctest items whose name contains "fetch_" map to "<fetcher>_fxt");
+    # when network tests are enabled collect them for download, otherwise add a skip
+    # marker. (2) On xdist worker gw0 (or no xdist) with network tests enabled, call
+    # each needed fetcher once, ignoring SkipTest. (3) xfail items ending in
+    # GradientBoostingClassifier on aarch64. (4) Decide whether to skip doctests:
+    # matplotlib missing, 32-bit, Windows, numpy < 2 or scipy < 1.14 (later reasons
+    # override earlier ones). (5) Empty the globals of every doctest item. (6) If
+    # skipping, add skip marker to all doctests except sklearn._config.config_context.
+    # (7) If Pillow is missing, skip the PatchExtractor and extract_patches_2d
+    # doctests.
+    # Inputs: config - pytest config; items - list of collected items.
+    # Side effects: mutates item markers and doctest globals; may download datasets.
     """Called after collect is completed.
 
     Parameters
@@ -254,6 +296,9 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="function")
 def pyplot():
+    # [FUNCTION DOC]
+    # Function-scoped fixture: imports matplotlib.pyplot (skips test if missing),
+    # closes all figures, yields the module, then closes all figures on teardown.
     """Setup and teardown fixture for matplotlib.
 
     This fixture checks if we can import matplotlib. If not, the tests will be
@@ -272,9 +317,19 @@ def pyplot():
 
 
 def munge_scipy_to_check_spmatrix_usage():
+    # [FUNCTION DOC]
+    # HELPER: monkeypatches scipy.sparse so that legacy spmatrix usage raises. Replaces
+    # bmat and rand in scipy.sparse._construct with a function raising ValueError and
+    # replaces the coo/bsr/csr/csc/dok/lil/dia matrix classes in scipy.sparse and its
+    # private submodules (_coo, _bsr, ..., _construct, _matrix) with strict subclasses.
+    # Side effects: global, irreversible mutation of scipy.sparse for the process.
+    # KNOWN ISSUE: the rand assignment is duplicated; probably another function
+    # (e.g. random) was intended. dok and lil are not patched in _construct.
     import scipy
 
     def flag_this_call(*args, **kwds):
+        # [FUNCTION DOC]
+        # HELPER: replacement for removed spmatrix constructors; always raises ValueError.
         raise ValueError("Old spmatrix function called. Use e.g. block or random.")
 
     scipy.sparse._construct.bmat = flag_this_call
@@ -282,75 +337,127 @@ def munge_scipy_to_check_spmatrix_usage():
     scipy.sparse._construct.rand = flag_this_call
 
     class _strict_mul_mixin:
+        # [CLASS DOC]
+        # HELPER: mixin for the strict sparse matrix classes. Forbids elementwise "*"
+        # with non-scalars, "**", the A/H properties and several legacy spmatrix methods
+        # by raising ValueError/TypeError with a hint about the sparray replacement.
         def __mul__(self, other):
+            # [FUNCTION DOC]
+            # Raises ValueError unless other is scalar-like; then delegates to the parent.
             if not scipy.sparse._sputils.isscalarlike(other):
                 raise ValueError("Operator * used here! Change to @?")
             return super().__mul__(other)
 
         def __rmul__(self, other):
+            # [FUNCTION DOC]
+            # Reflected multiply; raises ValueError unless other is scalar-like, else delegates.
             if not scipy.sparse._sputils.isscalarlike(other):
                 raise ValueError("Operator * used here! Change to @?")
             return super().__rmul__(other)
 
         def __imul__(self, other):
+            # [FUNCTION DOC]
+            # In-place multiply; raises ValueError unless other is scalar-like, else delegates.
             if not scipy.sparse._sputils.isscalarlike(other):
                 raise ValueError("Operator * used here! Change to @?")
             return super().__imul__(other)
 
         def __pow__(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # Always raises ValueError (matrix power via ** is forbidden).
             raise ValueError("spmatrix ** used here! Use sparse.linalg.matrix_power?")
 
         @property
         def A(self):
+            # [FUNCTION DOC]
+            # Property; always raises TypeError (use toarray instead).
             raise TypeError("spmatrix A property is not allowed! Use .toarray()")
 
         @property
         def H(self):
+            # [FUNCTION DOC]
+            # Property; always raises TypeError (use conjugate().T instead).
             raise TypeError("spmatrix H property is not allowed! Use .conjugate().T")
 
         def asfptype(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
             raise TypeError("spmatrix asfptype is not allowed! rewrite needed")
 
         def get_shape(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError (use shape).
             raise TypeError("spmatrix get_shape is not allowed! Use .shape")
 
         def getformat(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" is misleading for getformat (format attribute).
             raise TypeError("spmatrix getformat is not allowed! Use .shape")
 
         def getmaxprint(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" does not relate to getmaxprint.
             raise TypeError("spmatrix getmaxprint is not allowed! Use .shape")
 
         def getnnz(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" is misleading; nnz is the replacement.
             raise TypeError("spmatrix getnnz is not allowed! Use .shape")
 
         def getH(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" is misleading; conjugate().T is the replacement.
             raise TypeError("spmatrix getH is not allowed! Use .shape")
 
         def getrow(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" is misleading for getrow (row indexing).
             raise TypeError("spmatrix getrow is not allowed! Use .shape")
 
         def getcol(self):
+            # [FUNCTION DOC]
+            # Always raises TypeError.
+            # KNOWN ISSUE: hint "Use .shape" is misleading for getcol (column indexing).
             raise TypeError("spmatrix getcol is not allowed! Use .shape")
 
     class _strict_coo_matrix(_strict_mul_mixin, scipy.sparse.coo_matrix):
+        # [CLASS DOC]
+        # HELPER: coo_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_bsr_matrix(_strict_mul_mixin, scipy.sparse.bsr_matrix):
+        # [CLASS DOC]
+        # HELPER: bsr_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_csr_matrix(_strict_mul_mixin, scipy.sparse.csr_matrix):
+        # [CLASS DOC]
+        # HELPER: csr_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_csc_matrix(_strict_mul_mixin, scipy.sparse.csc_matrix):
+        # [CLASS DOC]
+        # HELPER: csc_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_dok_matrix(_strict_mul_mixin, scipy.sparse.dok_matrix):
+        # [CLASS DOC]
+        # HELPER: dok_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_lil_matrix(_strict_mul_mixin, scipy.sparse.lil_matrix):
+        # [CLASS DOC]
+        # HELPER: lil_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     class _strict_dia_matrix(_strict_mul_mixin, scipy.sparse.dia_matrix):
+        # [CLASS DOC]
+        # HELPER: dia_matrix subclass with the strict mixin; no extra behavior.
         pass
 
     scipy.sparse.coo_matrix = scipy.sparse._coo.coo_matrix = _strict_coo_matrix
@@ -377,6 +484,13 @@ def munge_scipy_to_check_spmatrix_usage():
 
 
 def pytest_generate_tests(metafunc):
+    # [FUNCTION DOC]
+    # pytest hook: parametrizes the global_random_seed fixture for tests using it.
+    # Seeds from SKLEARN_TESTS_GLOBAL_RANDOM_SEED: unset gives [42]; "all" gives
+    # 0..99; "a-b" gives the inclusive range; otherwise a single integer.
+    # Inputs: metafunc - pytest Metafunc.
+    # Exceptions: ValueError if any seed is outside [0, 99]; ValueError from int() on
+    # malformed values.
     """Parametrization of global_random_seed fixture
 
     based on the SKLEARN_TESTS_GLOBAL_RANDOM_SEED environment variable.
@@ -422,6 +536,10 @@ def pytest_generate_tests(metafunc):
 
 
 def pytest_addoption(parser, pluginmanager):
+    # [FUNCTION DOC]
+    # pytest hook: registers the thread_unsafe_fixtures ini key when
+    # pytest-run-parallel is missing (so configs referencing it don't fail) and adds
+    # the --check_spmatrix flag (bool, default False).
     if not PARALLEL_RUN_AVAILABLE:
         parser.addini("thread_unsafe_fixtures", "list of stuff")
     parser.addoption(
@@ -433,11 +551,21 @@ def pytest_addoption(parser, pluginmanager):
 
 
 def pytest_runtest_setup(item):
+    # [FUNCTION DOC]
+    # pytest hook: skips items marked no_check_spmatrix when --check_spmatrix is on.
     if "no_check_spmatrix" in item.keywords and item.config.option.check_spmatrix:
         pytest.skip("skip due to check_spmatrix scipy patch breaking this test")
 
 
 def pytest_configure(config):
+    # [FUNCTION DOC]
+    # pytest hook: selects matplotlib's agg backend if available; limits BLAS/OpenMP
+    # threads to physical cores divided by the xdist worker count (minimum 1); if
+    # SKLEARN_WARNINGS_AS_ERRORS is not "0", adds filterwarnings lines turning
+    # warnings into errors; patches scipy.sparse when --check_spmatrix is set; and,
+    # without pytest-run-parallel, registers its markers so they are not unknown.
+    # Side effects: global threadpool limits, matplotlib backend, scipy patching.
+    # KNOWN ISSUE: the "iterations(n)" marker line is registered twice.
     # Use matplotlib agg backend during the tests including doctests
     try:
         import matplotlib
@@ -491,10 +619,16 @@ def pytest_configure(config):
 
 @pytest.fixture
 def hide_available_pandas(monkeypatch):
+    # [FUNCTION DOC]
+    # Fixture: monkeypatches builtins.__import__ so that importing pandas raises
+    # ImportError for the duration of the test (restored by monkeypatch).
     """Pretend pandas was not installed."""
     import_orig = builtins.__import__
 
     def mocked_import(name, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: raises ImportError for name "pandas", otherwise calls the original
+        # __import__ with all arguments.
         if name == "pandas":
             raise ImportError()
         return import_orig(name, *args, **kwargs)

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Maximum-likelihood (empirical) covariance estimation: the log_likelihood and
+# empirical_covariance functions and the EmpiricalCovariance estimator, which is
+# the base class for the other covariance estimators in this package (they reuse
+# _set_covariance, get_precision, score, error_norm and mahalanobis).
+# KNOWN ISSUE: the "# avoid division truncation" comment near the imports is a
+# stale leftover (it used to precede a __future__ division import).
 """
 Maximum likelihood covariance estimator.
 
@@ -29,6 +36,15 @@ from sklearn.utils.validation import validate_data
     prefer_skip_nested_validation=True,
 )
 def log_likelihood(emp_cov, precision):
+    # [FUNCTION DOC]
+    # Gaussian average log-likelihood of data summarised by emp_cov under a model with
+    # the given precision: computes minus the sum of the elementwise product of
+    # emp_cov and precision (i.e. minus the trace of their product), adds the log
+    # determinant of precision (fast_logdet, -inf if not positive definite), subtracts
+    # p * log(2*pi) with p = number of features, and halves the result.
+    # Inputs: emp_cov - ndarray (p, p); precision - ndarray (p, p).
+    # Outputs: float.
+    # Exceptions: InvalidParameterError from validate_params if not ndarrays.
     """Compute the sample mean of the log_likelihood under a covariance model.
 
     Computes the empirical expected log-likelihood, allowing for universal
@@ -63,6 +79,15 @@ def log_likelihood(emp_cov, precision):
     prefer_skip_nested_validation=True,
 )
 def empirical_covariance(X, *, assume_centered=False):
+    # [FUNCTION DOC]
+    # Computes the MLE covariance (normalised by n_samples). X is validated with
+    # check_array (2D not required, non-finite allowed); a 1D input becomes one row.
+    # If assume_centered, returns X^T X / n_samples; otherwise numpy covariance of the
+    # columns with bias (divide by n). A 0-d result (single feature) is wrapped to
+    # shape (1, 1).
+    # Inputs: X - array-like (n_samples, n_features) or 1D; assume_centered - bool.
+    # Outputs: ndarray (n_features, n_features).
+    # Side effects: emits UserWarning when only one sample is available.
     """Compute the Maximum likelihood covariance estimator.
 
     Parameters
@@ -112,6 +137,11 @@ def empirical_covariance(X, *, assume_centered=False):
 
 
 class EmpiricalCovariance(BaseEstimator):
+    # [CLASS DOC]
+    # Maximum-likelihood covariance estimator. fit stores location_ (mean or zeros),
+    # covariance_ and optionally precision_ (pseudo-inverse). Class attributes:
+    # __metadata_request__score marks score's X_test as unused for metadata routing;
+    # _parameter_constraints validates store_precision and assume_centered as bools.
     """Maximum likelihood covariance estimator.
 
     Read more in the :ref:`User Guide <covariance>`.
@@ -190,10 +220,20 @@ class EmpiricalCovariance(BaseEstimator):
     }
 
     def __init__(self, *, store_precision=True, assume_centered=False):
+        # [FUNCTION DOC]
+        # Stores the hyperparameters store_precision (bool, default True) and
+        # assume_centered (bool, default False) on self; no validation.
         self.store_precision = store_precision
         self.assume_centered = assume_centered
 
     def _set_covariance(self, covariance):
+        # [FUNCTION DOC]
+        # HELPER: validates covariance with check_array, stores it as covariance_ and sets
+        # precision_ to its pseudo-inverse (scipy pinvh) if store_precision, else None.
+        # Inputs: covariance - array-like (n_features, n_features), assumed symmetric.
+        # Side effects: sets covariance_ and precision_.
+        # KNOWN ISSUE: docstring says precision is stored "only if invertible"; the code
+        # always stores the pseudo-inverse when store_precision is True.
         """Saves the covariance and precision estimates
 
         Storage is done accordingly to `self.store_precision`.
@@ -215,6 +255,11 @@ class EmpiricalCovariance(BaseEstimator):
             self.precision_ = None
 
     def get_precision(self):
+        # [FUNCTION DOC]
+        # Returns precision_ if store_precision, else computes pinvh(covariance_) on the
+        # fly (not cached).
+        # Outputs: ndarray (n_features, n_features).
+        # Exceptions: AttributeError if not fitted.
         """Getter for the precision matrix.
 
         Returns
@@ -230,6 +275,14 @@ class EmpiricalCovariance(BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (validate_data, sets n_features_in_/feature_names_in_), sets
+        # location_ to zeros if assume_centered else the column means, computes
+        # empirical_covariance with the same assume_centered flag and stores it via
+        # _set_covariance.
+        # Inputs: X - array-like (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Side effects: sets location_, covariance_, precision_ and feature metadata.
         """Fit the maximum likelihood covariance estimator to X.
 
         Parameters
@@ -257,6 +310,13 @@ class EmpiricalCovariance(BaseEstimator):
         return self
 
     def score(self, X_test, y=None):
+        # [FUNCTION DOC]
+        # Average Gaussian log-likelihood of X_test: validates X_test (reset=False),
+        # centers it by location_, computes its empirical covariance with
+        # assume_centered=True and evaluates log_likelihood with get_precision().
+        # Inputs: X_test - array-like (n_samples, n_features); y - ignored.
+        # Outputs: float.
+        # Exceptions: validation errors on feature mismatch; AttributeError if not fitted.
         """Compute the log-likelihood of `X_test` under the estimated Gaussian model.
 
         The Gaussian model is defined by its mean and covariance matrix which are
@@ -288,6 +348,15 @@ class EmpiricalCovariance(BaseEstimator):
         return res
 
     def error_norm(self, comp_cov, norm="frobenius", scaling=True, squared=True):
+        # [FUNCTION DOC]
+        # Distance between comp_cov and covariance_: error = comp_cov - covariance_;
+        # squared norm is the sum of squared entries ("frobenius") or the largest
+        # singular value of error^T error ("spectral", i.e. squared 2-norm). If scaling,
+        # divides by n_features (error.shape[0]); returns the square root if not squared.
+        # Inputs: comp_cov - array (n_features, n_features); norm - str; scaling, squared
+        # - bools, both default True.
+        # Outputs: float.
+        # Exceptions: NotImplementedError for any other norm value.
         """Compute the Mean Squared Error between two covariance estimators.
 
         Parameters
@@ -339,6 +408,13 @@ class EmpiricalCovariance(BaseEstimator):
         return result
 
     def mahalanobis(self, X):
+        # [FUNCTION DOC]
+        # Squared Mahalanobis distances of each row of X to location_ using
+        # get_precision() as VI in pairwise_distances (with finiteness checks disabled),
+        # reshaped to 1D and squared.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples,).
+        # Exceptions: validation errors on feature mismatch; AttributeError if not fitted.
         """Compute the squared Mahalanobis distances of given observations.
 
         For a detailed example of how outliers affects the Mahalanobis distance,

@@ -1,3 +1,12 @@
+# [PACKAGE DOC]
+# Package sklearn.covariance: estimators and functions for (robust) covariance and
+# precision-matrix estimation. Re-exports from private submodules:
+# EllipticEnvelope (_elliptic_envelope); EmpiricalCovariance, empirical_covariance,
+# log_likelihood (_empirical_covariance); GraphicalLasso, GraphicalLassoCV,
+# graphical_lasso (_graph_lasso); MinCovDet, fast_mcd (_robust_covariance); OAS,
+# LedoitWolf, ShrunkCovariance, ledoit_wolf, ledoit_wolf_shrinkage, oas,
+# shrunk_covariance (_shrunk_covariance). __all__ lists exactly these names.
+# Import-time side effects: only importing those submodules; no global state.
 """Methods and algorithms to robustly estimate covariance.
 
 They estimate the covariance of features at given sets of points, as well as the

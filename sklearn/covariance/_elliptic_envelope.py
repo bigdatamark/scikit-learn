@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines EllipticEnvelope, an outlier detector that fits a robust (Minimum
+# Covariance Determinant) Gaussian model and flags points whose Mahalanobis
+# distance is in the top `contamination` fraction of the training distances.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +17,13 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class EllipticEnvelope(OutlierMixin, MinCovDet):
+    # [CLASS DOC]
+    # Outlier detector built on MinCovDet. fit runs the MCD fit, then sets offset_ to
+    # the percentile (100 * contamination) of the negated training distances dist_.
+    # Scores are negated squared Mahalanobis distances; decision_function subtracts
+    # offset_ so that 0 is the inlier/outlier threshold.
+    # Class attribute _parameter_constraints extends MinCovDet's with contamination in
+    # (0, 0.5].
     """An object for detecting outliers in a Gaussian distributed dataset.
 
     Read more in the :ref:`User Guide <outlier_detection>`.
@@ -155,6 +166,12 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
         contamination=0.1,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters only (sklearn convention, no validation here).
+        # Inputs: store_precision, assume_centered, support_fraction, random_state -
+        # forwarded to MinCovDet.__init__; contamination - float in (0, 0.5], expected
+        # proportion of outliers, default 0.1.
+        # Side effects: sets the matching attributes on self.
         super().__init__(
             store_precision=store_precision,
             assume_centered=assume_centered,
@@ -165,6 +182,14 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the robust covariance (MinCovDet.fit on X) then computes offset_ as the
+        # (100 * contamination)-th percentile of -dist_ (negated squared robust
+        # Mahalanobis distances of the training samples).
+        # Inputs: X - array-like (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Exceptions: parameter validation errors via _fit_context; those of MinCovDet.fit.
+        # Side effects: sets all MinCovDet fitted attributes plus offset_.
         """Fit the EllipticEnvelope model.
 
         Parameters
@@ -185,6 +210,13 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
         return self
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns score_samples(X) minus offset_; negative values indicate outliers.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples,).
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: docstring says "shifted Mahalanobis distances"; the values are
+        # actually negated squared Mahalanobis distances shifted by offset_.
         """Compute the decision function of the given observations.
 
         Parameters
@@ -205,6 +237,12 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
         return negative_mahal_dist - self.offset_
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Returns the negation of self.mahalanobis(X), i.e. minus the squared Mahalanobis
+        # distance of each sample to the robust location under the robust precision.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray (n_samples,).
+        # Exceptions: NotFittedError if not fitted.
         """Compute the negative Mahalanobis distances.
 
         Parameters
@@ -221,6 +259,12 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
         return -self.mahalanobis(X)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Labels samples: computes decision_function, then returns an int array filled
+        # with -1 and set to +1 where the decision value is >= 0.
+        # Inputs: X - array-like (n_samples, n_features).
+        # Outputs: ndarray of int (n_samples,) with values in {-1, 1}.
+        # Exceptions: NotFittedError if not fitted.
         """
         Predict labels (1 inlier, -1 outlier) of X according to fitted model.
 
@@ -241,6 +285,13 @@ class EllipticEnvelope(OutlierMixin, MinCovDet):
         return is_inlier
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Accuracy of predict(X) against y (expected in {-1, 1} labels), computed with
+        # accuracy_score, optionally weighted.
+        # Inputs: X - array-like (n_samples, n_features); y - true labels (n_samples,);
+        # sample_weight - optional array (n_samples,), default None.
+        # Outputs: float mean (weighted) accuracy.
+        # Overrides the log-likelihood score inherited from EmpiricalCovariance.
         """Return the mean accuracy on the given test data and labels.
 
         In multi-label classification, this is the subset accuracy
