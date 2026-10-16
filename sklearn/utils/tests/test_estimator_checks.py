@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.estimator_checks. Defines many deliberately broken toy
+# estimators (each violating one API contract) and asserts the corresponding check
+# function detects the violation, plus tests for check_estimator itself
+# (on_fail modes, expected failures, generator, clones, tags, warnings). Written
+# without a hard pytest dependency: it uses sklearn's own raises/SkipTest helpers and
+# only applies pytest marks when pytest is already imported.
 # We can not use pytest here, because we run
 # build_tools/github/test_pytest_soft_dependency.sh on these
 # tests to make sure estimator_checks works without pytest.
@@ -106,6 +113,10 @@ from sklearn.utils.validation import (
 
 
 def _mark_thread_unsafe_if_pytest_imported(f):
+    # [FUNCTION DOC]
+    # HELPER: Decorator that applies pytest.mark.thread_unsafe to f when pytest is already
+    # imported (looked up in sys.modules), else returns f unchanged.
+    # Inputs: f - test function. Outputs: f or the marked function.
     pytest = sys.modules.get("pytest")
     if pytest is not None:
         return pytest.mark.thread_unsafe(f)
@@ -114,6 +125,12 @@ def _mark_thread_unsafe_if_pytest_imported(f):
 
 
 def _mark_no_check_spmatrix_if_pytest_imported(f):
+    # [FUNCTION DOC]
+    # HELPER: Decorator meant to apply pytest.mark.no_check_spmatrix to f when pytest is
+    # imported, else return f unchanged.
+    # KNOWN ISSUE: when pytest is imported it returns the bare MarkDecorator instead of
+    # applying it to f, so the decorated test is replaced by the marker object itself
+    # (unlike _mark_thread_unsafe_if_pytest_imported, which calls the mark on f).
     pytest = sys.modules.get("pytest")
     if pytest is not None:
         return pytest.mark.no_check_spmatrix
@@ -122,6 +139,9 @@ def _mark_no_check_spmatrix_if_pytest_imported(f):
 
 
 class CorrectNotFittedError(ValueError):
+    # [CLASS DOC]
+    # HELPER: ValueError subclass (not AttributeError) used to emulate a custom
+    # not-fitted error in tests; no behavior of its own.
     """Exception class to raise if estimator is used before fitting.
 
     Like NotFittedError, it inherits from ValueError, but not from
@@ -130,59 +150,102 @@ class CorrectNotFittedError(ValueError):
 
 
 class BaseBadClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal classifier base that does no validation: fit returns self and
+    # predict returns ones. Subclassed by other broken estimators.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit; ignores X and y. Outputs: self.
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns a float array of ones of length X.shape[0]; no input validation.
         return np.ones(X.shape[0])
 
 
 class ChangesDict(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Broken estimator that mutates its key parameter during predict, used to
+    # trigger check_dict_unchanged.
     def __init__(self, key=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores key (default 0) as a parameter.
         self.key = key
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, y via validate_data (sets n_features_in_). Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, then sets self.key to 1000 (the deliberate state change) and
+        # returns ones of length n_samples.
         X = check_array(X)
         self.key = 1000
         return np.ones(X.shape[0])
 
 
 class SetsWrongAttribute(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Broken estimator that adds a public attribute wrong_attribute in fit, used
+    # to trigger check_dont_overwrite_parameters.
     def __init__(self, acceptable_key=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores acceptable_key (default 0).
         self.acceptable_key = acceptable_key
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets public wrong_attribute = 0 then validates data. Outputs: self.
         self.wrong_attribute = 0
         X, y = validate_data(self, X, y)
         return self
 
 
 class ChangesWrongAttribute(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Broken estimator whose fit overwrites its own constructor parameter, used to
+    # trigger check_estimators_overwrite_params.
     def __init__(self, wrong_attribute=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores wrong_attribute (default 0).
         self.wrong_attribute = wrong_attribute
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets wrong_attribute to 1 (mutating a parameter) then validates data.
         self.wrong_attribute = 1
         X, y = validate_data(self, X, y)
         return self
 
 
 class ChangesUnderscoreAttribute(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Conforming estimator that only sets a private underscore attribute in fit.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets _good_attribute = 1 and validates data. Outputs: self.
         self._good_attribute = 1
         X, y = validate_data(self, X, y)
         return self
 
 
 class RaisesErrorInSetParams(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose set_params raises ValueError for negative p, used to check
+    # check_set_params tolerates (with a warning) errors raised in set_params.
     def __init__(self, p=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores p (default 0).
         self.p = p
 
     def set_params(self, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: If p is passed, raises ValueError when p < 0, else assigns it; remaining
+        # kwargs are forwarded to BaseEstimator.set_params. Outputs: self.
         if "p" in kwargs:
             p = kwargs.pop("p")
             if p < 0:
@@ -191,36 +254,60 @@ class RaisesErrorInSetParams(BaseEstimator):
         return super().set_params(**kwargs)
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class HasMutableParameters(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator with a mutable default parameter (an object instance), which
+    # check_parameters_default_constructible must reject.
     def __init__(self, p=object()):
+        # [FUNCTION DOC]
+        # HELPER: Stores p, defaulting to a shared object() instance created at definition.
         self.p = p
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class HasImmutableParameters(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose defaults are all allowed immutable values (int, numpy int,
+    # a class object).
     # Note that object is an uninitialized class, thus immutable.
     def __init__(self, p=42, q=np.int32(42), r=object):
+        # [FUNCTION DOC]
+        # HELPER: Stores p (42), q (np.int32 42) and r (the object class).
         self.p = p
         self.q = q
         self.r = r
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class ModifiesValueInsteadOfRaisingError(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose set_params silently clamps negative p to 0 instead of
+    # raising, so get_params disagrees with what was set.
     def __init__(self, p=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores p (default 0).
         self.p = p
 
     def set_params(self, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: If p is passed, replaces negative values by 0 and assigns it; forwards the
+        # rest to BaseEstimator.set_params. Outputs: self.
         if "p" in kwargs:
             p = kwargs.pop("p")
             if p < 0:
@@ -229,16 +316,27 @@ class ModifiesValueInsteadOfRaisingError(BaseEstimator):
         return super().set_params(**kwargs)
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class ModifiesAnotherValue(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose set_params changes parameter b as a side effect of setting
+    # a to None, so check_set_params detects a mismatch.
     def __init__(self, a=0, b="method1"):
+        # [FUNCTION DOC]
+        # HELPER: Stores a (default 0) and b (default "method1").
         self.a = a
         self.b = b
 
     def set_params(self, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: If a is passed, assigns it; when a is None also drops b from kwargs and
+        # forces b to "method2". Forwards remaining kwargs to BaseEstimator.set_params.
+        # Exceptions: KeyError if a is None and b is not among the kwargs.
         if "a" in kwargs:
             a = kwargs.pop("a")
             self.a = a
@@ -248,22 +346,40 @@ class ModifiesAnotherValue(BaseEstimator):
         return super().set_params(**kwargs)
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class NoCheckinPredict(BaseBadClassifier):
+    # [CLASS DOC]
+    # HELPER: Classifier that validates in fit but not in predict (inherits the
+    # unvalidated predict), so NaN/inf in predict are not rejected.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, y. Outputs: self.
         X, y = validate_data(self, X, y)
         return self
 
 
 class NoSparseClassifier(BaseBadClassifier):
+    # [CLASS DOC]
+    # HELPER: Classifier that accepts sparse CSR/CSC in validation but then raises an
+    # uninformative ValueError for the configured sparse type, used to check
+    # check_estimator_sparse_matrix/array detect non-graceful failures.
     def __init__(self, raise_for_type=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores raise_for_type: "sparse_array", "sparse_matrix" or None.
         # raise_for_type : str, expects "sparse_array" or "sparse_matrix"
         self.raise_for_type = raise_for_type
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (accepting csr/csc), then raises ValueError "Nonsensical Error"
+        # if X is a scipy sparray (resp. spmatrix) per raise_for_type. Outputs: self.
+        # KNOWN ISSUE: if raise_for_type is neither value (e.g. the default None),
+        # correct_type is never assigned and an UnboundLocalError is raised.
         X, y = validate_data(self, X, y, accept_sparse=["csr", "csc"])
         if self.raise_for_type == "sparse_array":
             correct_type = isinstance(X, sp.sparray)
@@ -274,24 +390,38 @@ class NoSparseClassifier(BaseBadClassifier):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates X and returns ones; does not check fitted state.
         X = check_array(X)
         return np.ones(X.shape[0])
 
 
 class CorrectNotFittedErrorClassifier(BaseBadClassifier):
+    # [CLASS DOC]
+    # HELPER: Classifier that correctly raises NotFittedError (via check_is_fitted) when
+    # predict is called before fit.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data and sets coef_ to ones of length n_features. Outputs: self.
         X, y = validate_data(self, X, y)
         self.coef_ = np.ones(X.shape[1])
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted state, validates X, returns ones of length n_samples.
         check_is_fitted(self)
         X = check_array(X)
         return np.ones(X.shape[0])
 
 
 class NoSampleWeightPandasSeriesType(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Regressor-like estimator that rejects sample_weight given as a pandas Series.
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data (sparse csr/csc, multi-output, numeric y), then raises
+        # ValueError if sample_weight is a pandas Series (pandas imported lazily).
         # Convert data
         X, y = validate_data(
             self, X, y, accept_sparse=("csr", "csc"), multi_output=True, y_numeric=True
@@ -306,15 +436,25 @@ class NoSampleWeightPandasSeriesType(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates X and returns ones.
         X = check_array(X)
         return np.ones(X.shape[0])
 
 
 class BadBalancedWeightsClassifier(BaseBadClassifier):
+    # [CLASS DOC]
+    # HELPER: Classifier whose "balanced" class weights are deliberately off by one, to
+    # trigger check_class_weight_balanced_linear_classifier.
     def __init__(self, class_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores class_weight (default None).
         self.class_weight = class_weight
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Computes class weights for the label-encoded classes, adds 1 when
+        # class_weight is "balanced", and stores the result as coef_. Outputs: self.
         from sklearn.preprocessing import LabelEncoder
         from sklearn.utils import compute_class_weight
 
@@ -333,18 +473,29 @@ class BadBalancedWeightsClassifier(BaseBadClassifier):
 
 
 class BadTransformerWithoutMixin(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Transformer that lacks TransformerMixin (thus no transformer tags), used to
+    # check check_estimator complains about the missing tag.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (sets n_features_in_). Outputs: self.
         X = validate_data(self, X)
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted state and returns the validated X unchanged.
         check_is_fitted(self)
         X = validate_data(self, X, reset=False)
         return X
 
 
 class NotInvariantPredict(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose predictions depend on batch size (not subset invariant).
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data. Outputs: self.
         # Convert data
         X, y = validate_data(
             self, X, y, accept_sparse=("csr", "csc"), multi_output=True, y_numeric=True
@@ -352,6 +503,8 @@ class NotInvariantPredict(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns ones when more than one sample is given, zeros for a single sample.
         # return 1 if X has more than one element else return 0
         X = check_array(X)
         if X.shape[0] > 1:
@@ -360,7 +513,11 @@ class NotInvariantPredict(BaseEstimator):
 
 
 class NotInvariantSampleOrder(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose predictions change when samples are permuted.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data and stores the training X in self._X. Outputs: self.
         X, y = validate_data(
             self, X, y, accept_sparse=("csr", "csc"), multi_output=True, y_numeric=True
         )
@@ -369,6 +526,9 @@ class NotInvariantSampleOrder(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: If X has the same per-column sorted content as the training X but differs
+        # element-wise (a reordering), returns zeros; otherwise returns the first column.
         X = check_array(X)
         # if the input contains the same elements but different sample order,
         # then just return zeros.
@@ -381,13 +541,24 @@ class NotInvariantSampleOrder(BaseEstimator):
 
 
 class OneClassSampleErrorClassifier(BaseBadClassifier):
+    # [CLASS DOC]
+    # HELPER: Classifier whose error when sample weights leave a single class lacks the
+    # word "class" unless raise_when_single_class triggers the normal message.
     """Classifier allowing to trigger different behaviors when `sample_weight` reduces
     the number of classes to 1."""
 
     def __init__(self, raise_when_single_class=False):
+        # [FUNCTION DOC]
+        # HELPER: Stores raise_when_single_class (default False).
         self.raise_when_single_class = raise_when_single_class
 
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates data, sets has_single_class_ False and classes_ via unique. Raises
+        # ValueError "normal class error" if there is one class and the flag is set. If
+        # sample_weight is a non-empty ndarray, counts classes with non-zero total weight;
+        # if fewer than two remain raises ValueError "Nonsensical Error" (setting
+        # has_single_class_ True first). Outputs: self.
         X, y = check_X_y(
             X, y, accept_sparse=("csr", "csc"), multi_output=True, y_numeric=True
         )
@@ -410,6 +581,8 @@ class OneClassSampleErrorClassifier(BaseBadClassifier):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X; returns zeros if has_single_class_ else ones.
         check_is_fitted(self)
         X = check_array(X)
         if self.has_single_class_:
@@ -418,14 +591,25 @@ class OneClassSampleErrorClassifier(BaseBadClassifier):
 
 
 class LargeSparseNotSupportedClassifier(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator that declares accept_large_sparse=True but fails on 64-bit index
+    # arrays for the configured sparse type.
     """Estimator that claims to support large sparse data
     (accept_large_sparse=True), but doesn't"""
 
     def __init__(self, raise_for_type=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores raise_for_type: "sparse_array", "sparse_matrix" or None.
         # raise_for_type : str, expects "sparse_array" or "sparse_matrix"
         self.raise_for_type = raise_for_type
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (csr/csc/coo, large sparse allowed). If X matches the configured
+        # sparse type: for COO raises ValueError when row or col indices are int64; for
+        # CSR/CSC fails an assert when indices or indptr are int64. Outputs: self.
+        # KNOWN ISSUE: same as NoSparseClassifier, correct_type is unbound when
+        # raise_for_type is None, causing UnboundLocalError.
         X, y = validate_data(
             self,
             X,
@@ -453,24 +637,43 @@ class LargeSparseNotSupportedClassifier(BaseEstimator):
 
 
 class SparseTransformer(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Transformer that returns its input wrapped in a configurable sparse
+    # container (non-regression for estimators that output sparse data).
     def __init__(self, sparse_container=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores sparse_container, a callable such as a CSR class.
         self.sparse_container = sparse_container
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (sets n_features_in_). Outputs: self.
         validate_data(self, X)
         return self
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Fits then transforms X.
         return self.fit(X, y).transform(X)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X (sparse allowed) and returns
+        # sparse_container(X).
         check_is_fitted(self)
         X = validate_data(self, X, accept_sparse=True, reset=False)
         return self.sparse_container(X)
 
 
 class EstimatorInconsistentForPandas(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator that memorises a different cell depending on whether X is a
+    # pandas DataFrame (first cell) or an array (row 1, col 0), so its results differ
+    # between data containers.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Sets value_ to X.iloc[0, 0] for DataFrames, otherwise to the validated
+        # X[1, 0] (also when pandas is not installed). Outputs: self.
         try:
             from pandas import DataFrame
 
@@ -487,19 +690,28 @@ class EstimatorInconsistentForPandas(BaseEstimator):
             return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns an array repeating value_ once per sample.
         X = check_array(X)
         return np.array([self.value_] * X.shape[0])
 
 
 class UntaggedBinaryClassifier(SGDClassifier):
+    # [CLASS DOC]
+    # HELPER: SGDClassifier that raises on more than two classes but does not declare it
+    # in its tags, so check_estimator fails.
     # Toy classifier that only supports binary classification, will fail tests.
     def fit(self, X, y, coef_init=None, intercept_init=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Fits via SGDClassifier then raises ValueError if more than 2 classes.
         super().fit(X, y, coef_init, intercept_init, sample_weight)
         if len(self.classes_) > 2:
             raise ValueError("Only 2 classes are supported")
         return self
 
     def partial_fit(self, X, y, classes=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: partial_fit via SGDClassifier then raises ValueError if more than 2 classes.
         super().partial_fit(X=X, y=y, classes=classes, sample_weight=sample_weight)
         if len(self.classes_) > 2:
             raise ValueError("Only 2 classes are supported")
@@ -507,7 +719,12 @@ class UntaggedBinaryClassifier(SGDClassifier):
 
 
 class TaggedBinaryClassifier(UntaggedBinaryClassifier):
+    # [CLASS DOC]
+    # HELPER: Binary-only classifier that declares multi_class=False in its tags and
+    # raises an informative error for non-binary targets.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Raises ValueError unless type_of_target(y) is "binary", then fits.
         y_type = type_of_target(y, input_name="y", raise_unknown=True)
         if y_type != "binary":
             raise ValueError(
@@ -518,13 +735,21 @@ class TaggedBinaryClassifier(UntaggedBinaryClassifier):
 
     # Toy classifier that only supports binary classification.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with classifier_tags.multi_class set False.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_class = False
         return tags
 
 
 class RequiresPositiveXRegressor(LinearRegression):
+    # [CLASS DOC]
+    # HELPER: LinearRegression that rejects negative X and declares positive_only and
+    # non-sparse input tags.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates dense X (multi-output y), raises ValueError on any negative X,
+        # then fits LinearRegression.
         # reject sparse X to be able to call (X < 0).any()
         X, y = validate_data(self, X, y, accept_sparse=False, multi_output=True)
         if (X < 0).any():
@@ -532,6 +757,8 @@ class RequiresPositiveXRegressor(LinearRegression):
         return super().fit(X, y)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with input_tags.positive_only True and sparse False.
         tags = super().__sklearn_tags__()
         tags.input_tags.positive_only = True
         # reject sparse X to be able to call (X < 0).any()
@@ -540,34 +767,55 @@ class RequiresPositiveXRegressor(LinearRegression):
 
 
 class RequiresPositiveYRegressor(LinearRegression):
+    # [CLASS DOC]
+    # HELPER: LinearRegression that rejects non-positive y and declares
+    # target_tags.positive_only.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data (sparse ok), raises ValueError if any y <= 0, then fits.
         X, y = validate_data(self, X, y, accept_sparse=True, multi_output=True)
         if (y <= 0).any():
             raise ValueError("negative y values not supported!")
         return super().fit(X, y)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with target_tags.positive_only True.
         tags = super().__sklearn_tags__()
         tags.target_tags.positive_only = True
         return tags
 
 
 class PoorScoreLogisticRegression(LogisticRegression):
+    # [CLASS DOC]
+    # HELPER: LogisticRegression with shifted decision function (worse score) that sets
+    # the poor_score classifier tag so score checks are relaxed.
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the parent decision function plus 1.
         return super().decision_function(X) + 1
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with classifier_tags.poor_score True.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.poor_score = True
         return tags
 
 
 class PartialFitChecksName(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose partial_fit validates feature names consistently across
+    # calls (reset only on first call).
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data (records feature names). Outputs: self.
         validate_data(self, X, y)
         return self
 
     def partial_fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates data with reset only when not yet fitted, then sets _fitted True.
         reset = not hasattr(self, "_fitted")
         validate_data(self, X, y, reset=reset)
         self._fitted = True
@@ -575,12 +823,20 @@ class PartialFitChecksName(BaseEstimator):
 
 
 class BrokenArrayAPI(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator returning different predictions with and without array API
+    # dispatch, used to make check_array_api_input fail.
     """Make different predictions when using Numpy and the Array API"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit. Outputs: self.
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns [1, 2, 3] in X's namespace when array_api_dispatch is enabled,
+        # else the NumPy array [3, 2, 1] (ignores X's length).
         enabled = get_config()["array_api_dispatch"]
         xp, _ = _array_api.get_namespace(X)
         if enabled:
@@ -590,6 +846,10 @@ class BrokenArrayAPI(BaseEstimator):
 
 
 def test_check_array_api_input():
+    # [FUNCTION DOC]
+    # Verifies check_array_api_input with array_api_strict and check_values detects
+    # BrokenArrayAPI's mismatch ("Not equal to tolerance"). Skips without
+    # array-api-strict.
     try:
         importlib.import_module("array_api_strict")
     except ModuleNotFoundError:  # pragma: nocover
@@ -605,6 +865,9 @@ def test_check_array_api_input():
 
 
 def test_not_an_array_array_function():
+    # [FUNCTION DOC]
+    # Verifies _NotAnArray raises TypeError when NumPy's array_function protocol is used
+    # (np.sum), while np.may_share_memory always returns True for it.
     not_array = _NotAnArray(np.ones(10))
     msg = "Don't want to call array_function sum!"
     with raises(TypeError, match=msg):
@@ -614,18 +877,27 @@ def test_not_an_array_array_function():
 
 
 def test_check_fit_score_takes_y_works_on_deprecated_fit():
+    # [FUNCTION DOC]
+    # Verifies check_fit_score_takes_y runs on an estimator whose fit is wrapped by the
+    # deprecated decorator (signature inspection must see through it).
     # Tests that check_fit_score_takes_y works on a class with
     # a deprecated fit method
 
     class TestEstimatorWithDeprecatedFitMethod(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator with a deprecated no-op fit(X, y).
         @deprecated("Deprecated for the purpose of testing check_fit_score_takes_y")
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Deprecated no-op fit (emits FutureWarning when called). Outputs: self.
             return self
 
     check_fit_score_takes_y("test", TestEstimatorWithDeprecatedFitMethod())
 
 
 def test_check_estimator_with_class_removed():
+    # [FUNCTION DOC]
+    # Verifies check_estimator raises TypeError when given a class instead of an instance.
     """Test that passing a class instead of an instance fails."""
     msg = "Passing a class was deprecated"
     with raises(TypeError, match=msg):
@@ -633,6 +905,9 @@ def test_check_estimator_with_class_removed():
 
 
 def test_mutable_default_params():
+    # [FUNCTION DOC]
+    # Verifies check_parameters_default_constructible passes for immutable defaults and
+    # raises AssertionError naming the parameter for an object() default.
     """Test that constructor cannot have mutable default parameters."""
     msg = (
         "Parameter 'p' of estimator 'HasMutableParameters' is of type "
@@ -648,6 +923,9 @@ def test_mutable_default_params():
 
 @_mark_thread_unsafe_if_pytest_imported
 def test_check_set_params():
+    # [FUNCTION DOC]
+    # Verifies check_set_params fails on clamping and on cross-parameter-modifying
+    # set_params, and only warns (UserWarning) when set_params raises. Thread-unsafe.
     """Check set_params doesn't fail and sets the right values."""
     # check that values returned by get_params match set_params
     msg = "get_params result does not match what was passed to set_params"
@@ -663,6 +941,8 @@ def test_check_set_params():
 
 
 def test_check_estimators_nan_inf():
+    # [FUNCTION DOC]
+    # Verifies check_estimators_nan_inf flags an estimator not validating predict input.
     # check that predict does input validation (doesn't accept dicts in input)
     msg = "Estimator NoCheckinPredict doesn't check for NaN and inf in predict"
     with raises(AssertionError, match=msg):
@@ -670,6 +950,8 @@ def test_check_estimators_nan_inf():
 
 
 def test_check_dict_unchanged():
+    # [FUNCTION DOC]
+    # Verifies check_dict_unchanged flags an estimator mutating __dict__ in predict.
     # check that estimator state does not change
     # at transform/predict/predict_proba time
     msg = "Estimator changes __dict__ during predict"
@@ -678,6 +960,9 @@ def test_check_dict_unchanged():
 
 
 def test_check_sample_weights_pandas_series():
+    # [FUNCTION DOC]
+    # Verifies check_sample_weights_pandas_series propagates a ValueError mentioning the
+    # estimator when it rejects Series weights; silently passes without pandas.
     # check that sample_weights in fit accepts pandas.Series type
     try:
         from pandas import Series  # noqa: F401
@@ -695,6 +980,9 @@ def test_check_sample_weights_pandas_series():
 
 
 def test_check_estimators_overwrite_params():
+    # [FUNCTION DOC]
+    # Verifies check_estimators_overwrite_params flags mutation of a public parameter in
+    # fit and accepts setting only a private attribute.
     # check that `fit` only changes attributes that
     # are private (start with an _ or end with a _).
     msg = (
@@ -709,6 +997,8 @@ def test_check_estimators_overwrite_params():
 
 
 def test_check_dont_overwrite_parameters():
+    # [FUNCTION DOC]
+    # Verifies check_dont_overwrite_parameters flags a public attribute added during fit.
     # check that `fit` doesn't add any public attribute
     msg = (
         r"Estimator adds public attribute\(s\) during the fit method."
@@ -721,6 +1011,8 @@ def test_check_dont_overwrite_parameters():
 
 
 def test_check_methods_sample_order_invariance():
+    # [FUNCTION DOC]
+    # Verifies check_methods_sample_order_invariance flags NotInvariantSampleOrder.
     # check for sample order invariance
     name = NotInvariantSampleOrder.__name__
     method = "predict"
@@ -735,6 +1027,8 @@ def test_check_methods_sample_order_invariance():
 
 
 def test_check_methods_subset_invariance():
+    # [FUNCTION DOC]
+    # Verifies check_methods_subset_invariance flags NotInvariantPredict.
     # check for invariant method
     name = NotInvariantPredict.__name__
     method = "predict"
@@ -746,6 +1040,10 @@ def test_check_methods_subset_invariance():
 
 
 def test_check_estimator_sparse_data():
+    # [FUNCTION DOC]
+    # Verifies sparse checks (matrix and, when available, array variants) flag a
+    # classifier that fails non-gracefully on sparse input and one that claims 64-bit
+    # index support but fails on it.
     # check for sparse data input handling
     name = NoSparseClassifier.__name__
     msg = "Estimator %s doesn't seem to fail gracefully on sparse data" % name
@@ -776,6 +1074,9 @@ def test_check_estimator_sparse_data():
 
 
 def test_check_classifiers_one_label_sample_weights():
+    # [FUNCTION DOC]
+    # Verifies check_classifiers_one_label_sample_weights flags an error message lacking
+    # "class" when sample weights reduce training data to one label.
     # check for classifiers reducing to less than two classes via sample weights
     name = OneClassSampleErrorClassifier.__name__
     msg = (
@@ -790,6 +1091,9 @@ def test_check_classifiers_one_label_sample_weights():
 
 
 def test_check_estimator_not_fail_fast():
+    # [FUNCTION DOC]
+    # Verifies check_estimator with on_fail=None returns a non-empty list of result dicts
+    # with the expected keys, containing both failed and passed checks for BaseEstimator.
     """Check the contents of the results returned with on_fail!="raise".
 
     This results should contain details about the observed failures, expected
@@ -822,6 +1126,11 @@ def test_check_estimator_not_fail_fast():
 # need to mark the test function as thread-unsafe.
 @_mark_thread_unsafe_if_pytest_imported
 def test_check_estimator():
+    # [FUNCTION DOC]
+    # Verifies check_estimator fails on BaseEstimator (no fit) and on the untagged binary
+    # classifier, but passes on sparse-output transformers, LogisticRegression,
+    # MultiTaskElasticNet, tagged binary and positive-X regressors and the poor-score
+    # classifier; and that the positive-y regressor still raises its ValueError.
     # tests that the estimator actually fails on "bad" estimators.
     # not a complete test of all checks, which are very extensive.
 
@@ -858,6 +1167,9 @@ def test_check_estimator():
 
 
 def test_check_outlier_corruption():
+    # [FUNCTION DOC]
+    # Verifies check_outlier_corruption raises when decision values at the threshold
+    # boundary are not tied as expected and passes when they are.
     # should raise AssertionError
     decision = np.array([0.0, 1.0, 1.5, 2.0])
     with raises(AssertionError):
@@ -868,22 +1180,35 @@ def test_check_outlier_corruption():
 
 
 def test_check_estimator_sparse_tag():
+    # [FUNCTION DOC]
+    # Verifies check_estimator_sparse_tag passes when the sparse tag matches actual sparse
+    # support and raises AssertionError otherwise, including when fit fails on sparse
+    # data with an unexpected exception type (TypeError, KeyError).
     """Test that check_estimator_sparse_tag raises error when sparse tag is
     misaligned."""
 
     class EstimatorWithSparseConfig(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator with configurable sparse tag, sparse acceptance and an optional
+        # exception to raise in fit.
         def __init__(self, tag_sparse, accept_sparse, fit_error=None):
+            # [FUNCTION DOC]
+            # HELPER: Stores tag_sparse, accept_sparse and fit_error (default None).
             self.tag_sparse = tag_sparse
             self.accept_sparse = accept_sparse
             self.fit_error = fit_error
 
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: Raises fit_error if set; otherwise validates data with accept_sparse.
             if self.fit_error:
                 raise self.fit_error
             validate_data(self, X, y, accept_sparse=self.accept_sparse)
             return self
 
         def __sklearn_tags__(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns parent tags with input_tags.sparse set to tag_sparse.
             tags = super().__sklearn_tags__()
             tags.input_tags.sparse = self.tag_sparse
             return tags
@@ -915,6 +1240,9 @@ def test_check_estimator_sparse_tag():
 
 
 def test_check_estimator_transformer_no_mixin():
+    # [FUNCTION DOC]
+    # Verifies check_estimator raises RuntimeError about missing transformer_tags for a
+    # transformer without TransformerMixin (pattern passed positionally as match).
     # check that TransformerMixin is not required for transformer tests to run
     # but it fails since the tag is not set
     with raises(RuntimeError, "the `transformer_tags` tag is not set"):
@@ -923,6 +1251,9 @@ def test_check_estimator_transformer_no_mixin():
 
 @_mark_no_check_spmatrix_if_pytest_imported  # pickle breaks check_spmatrix
 def test_check_estimator_clones():
+    # [FUNCTION DOC]
+    # Verifies check_estimator does not mutate the passed estimator: joblib hashes before
+    # and after are equal for several estimators, both unfitted and fitted on iris.
     # check that check_estimator doesn't modify the estimator it receives
 
     iris = load_iris()
@@ -957,6 +1288,9 @@ def test_check_estimator_clones():
 
 
 def test_check_estimators_unfitted():
+    # [FUNCTION DOC]
+    # Verifies check_estimators_unfitted flags an estimator that does not raise when
+    # unfitted, and accepts one raising NotFittedError.
     # check that a ValueError/AttributeError is raised when calling predict
     # on an unfitted estimator
     msg = "Estimator should raise a NotFittedError when calling"
@@ -969,19 +1303,35 @@ def test_check_estimators_unfitted():
 
 
 def test_check_no_attributes_set_in_init():
+    # [FUNCTION DOC]
+    # Verifies check_no_attributes_set_in_init flags extra attributes set in __init__,
+    # raises AttributeError when a parameter is not stored, and accepts class-level
+    # __metadata_request__ attributes and set_fit_request with routing enabled.
     class NonConformantEstimatorPrivateSet(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Sets a non-parameter attribute in __init__.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: Sets you_should_not_set_this_ to None.
             self.you_should_not_set_this_ = None
 
     class NonConformantEstimatorNoParamSet(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Declares a parameter but does not store it.
         def __init__(self, you_should_set_this_=None):
+            # [FUNCTION DOC]
+            # HELPER: Ignores its you_should_set_this_ parameter.
             pass
 
     class ConformantEstimatorClassAttribute(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Conforming estimator with a class-level metadata request for "foo" in fit.
         # making sure our __metadata_request__* class attributes are okay!
         __metadata_request__fit = {"foo": True}
 
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: No-op fit. Outputs: self.
             return self  # pragma: no cover
 
     msg = (
@@ -1022,6 +1372,9 @@ def test_check_no_attributes_set_in_init():
 # need to mark the test function as thread-unsafe.
 @_mark_thread_unsafe_if_pytest_imported
 def test_check_estimator_pairwise():
+    # [FUNCTION DOC]
+    # Verifies check_estimator passes on SVC with precomputed kernel and on
+    # KNeighborsRegressor with precomputed metric (with its expected failures).
     # check that check_estimator() works on estimator with _pairwise
     # kernel or metric
 
@@ -1035,6 +1388,8 @@ def test_check_estimator_pairwise():
 
 
 def test_check_classifier_data_not_an_array():
+    # [FUNCTION DOC]
+    # Verifies check_classifier_data_not_an_array flags container-dependent results.
     with raises(AssertionError, match="Not equal to tolerance"):
         check_classifier_data_not_an_array(
             "estimator_name", EstimatorInconsistentForPandas()
@@ -1042,6 +1397,8 @@ def test_check_classifier_data_not_an_array():
 
 
 def test_check_regressor_data_not_an_array():
+    # [FUNCTION DOC]
+    # Verifies check_regressor_data_not_an_array flags container-dependent results.
     with raises(AssertionError, match="Not equal to tolerance"):
         check_regressor_data_not_an_array(
             "estimator_name", EstimatorInconsistentForPandas()
@@ -1049,6 +1406,11 @@ def test_check_regressor_data_not_an_array():
 
 
 def test_check_dataframe_column_names_consistency():
+    # [FUNCTION DOC]
+    # Verifies check_dataframe_column_names_consistency raises when feature_names_in_ is
+    # not set, passes for PartialFitChecksName and LogisticRegression, and raises when the
+    # docstring does not document feature_names_in_.
+    # Side effects: overrides the __doc__ of a LogisticRegression instance.
     err_msg = "Estimator does not have a feature_names_in_"
     with raises(ValueError, match=err_msg):
         check_dataframe_column_names_consistency("estimator_name", BaseBadClassifier())
@@ -1065,19 +1427,31 @@ def test_check_dataframe_column_names_consistency():
 
 
 class _BaseMultiLabelClassifierMock(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Base mock multilabel classifier returning a fixed response_output from its
+    # response methods (defined in subclasses); tagged multi_label.
     def __init__(self, response_output):
+        # [FUNCTION DOC]
+        # HELPER: Stores response_output (the value returned by response methods).
         self.response_output = response_output
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit. Outputs: self.
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with classifier_tags.multi_label True.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_label = True
         return tags
 
 
 def test_check_classifiers_multilabel_output_format_predict():
+    # [FUNCTION DOC]
+    # Verifies check_classifiers_multilabel_output_format_predict raises AssertionError
+    # when predict returns a list, an array of wrong shape, or an array of wrong dtype.
     n_samples, test_size, n_outputs = 100, 25, 5
     _, y = make_multilabel_classification(
         n_samples=n_samples,
@@ -1091,7 +1465,11 @@ def test_check_classifiers_multilabel_output_format_predict():
     y_test = y[-test_size:]
 
     class MultiLabelClassifierPredict(_BaseMultiLabelClassifierMock):
+        # [CLASS DOC]
+        # HELPER: Mock whose predict returns response_output.
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns response_output regardless of X.
             return self.response_output
 
     # 1. inconsistent array type
@@ -1121,6 +1499,10 @@ def test_check_classifiers_multilabel_output_format_predict():
 
 
 def test_check_classifiers_multilabel_output_format_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies check_classifiers_multilabel_output_format_predict_proba raises for sparse
+    # output (ValueError), lists of wrong length, shape, dtype or non-probabilities, and
+    # for arrays of wrong shape, dtype or values out of [0, 1].
     n_samples, test_size, n_outputs = 100, 25, 5
     _, y = make_multilabel_classification(
         n_samples=n_samples,
@@ -1134,7 +1516,11 @@ def test_check_classifiers_multilabel_output_format_predict_proba():
     y_test = y[-test_size:]
 
     class MultiLabelClassifierPredictProba(_BaseMultiLabelClassifierMock):
+        # [CLASS DOC]
+        # HELPER: Mock whose predict_proba returns response_output.
         def predict_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns response_output regardless of X.
             return self.response_output
 
     for csr_container in CSR_CONTAINERS:
@@ -1245,6 +1631,9 @@ def test_check_classifiers_multilabel_output_format_predict_proba():
 
 
 def test_check_classifiers_multilabel_output_format_decision_function():
+    # [FUNCTION DOC]
+    # Verifies check_classifiers_multilabel_output_format_decision_function raises when
+    # decision_function returns a list, an array of wrong shape, or a non-float array.
     n_samples, test_size, n_outputs = 100, 25, 5
     _, y = make_multilabel_classification(
         n_samples=n_samples,
@@ -1258,7 +1647,11 @@ def test_check_classifiers_multilabel_output_format_decision_function():
     y_test = y[-test_size:]
 
     class MultiLabelClassifierDecisionFunction(_BaseMultiLabelClassifierMock):
+        # [CLASS DOC]
+        # HELPER: Mock whose decision_function returns response_output.
         def decision_function(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns response_output regardless of X.
             return self.response_output
 
     # 1. inconsistent array type
@@ -1298,6 +1691,12 @@ def test_check_classifiers_multilabel_output_format_decision_function():
 
 
 def run_tests_without_pytest():
+    # [FUNCTION DOC]
+    # HELPER: Runs every test_* function found on the __main__ module through unittest
+    # (FunctionTestCase in a TestSuite with a TextTestRunner) so the file can be
+    # executed without pytest. Side effects: runs tests and prints results to stderr.
+    # KNOWN ISSUE: it is invoked from the __main__ guard placed in the middle of the
+    # file, so test functions defined after that guard do not exist yet and are not run.
     """Runs the tests in this file without using pytest."""
     main_module = sys.modules["__main__"]
     test_functions = [
@@ -1313,6 +1712,9 @@ def run_tests_without_pytest():
 
 
 def test_check_class_weight_balanced_linear_classifier():
+    # [FUNCTION DOC]
+    # Verifies check_class_weight_balanced_linear_classifier flags a classifier whose
+    # balanced class weights are wrong.
     # check that ill-computed balanced weights raises an exception
     msg = "Classifier estimator_name is not computing class_weight=balanced properly"
     with raises(AssertionError, match=msg):
@@ -1323,6 +1725,10 @@ def test_check_class_weight_balanced_linear_classifier():
 
 @_mark_thread_unsafe_if_pytest_imported
 def test_all_estimators_all_public():
+    # [FUNCTION DOC]
+    # Verifies all_estimators emits no warnings and returns no private estimators.
+    # KNOWN ISSUE: all_estimators returns (name, class) tuples, so est.__class__.__name__
+    # is always "tuple" and the privacy assertion is vacuous.
     # all_estimator should not fail when pytest is not installed and return
     # only public estimators
     with warnings.catch_warnings(record=True) as record:
@@ -1340,6 +1746,9 @@ if __name__ == "__main__":
 
 
 def test_estimator_checks_generator_strict_none():
+    # [FUNCTION DOC]
+    # Verifies estimator_checks_generator with mark="xfail" and no xfail_strict produces
+    # xfail marks without a "strict" kwarg, for NuSVC which has expected failures.
     # Check that no "strict" mark is included in the generated checks
     est = next(_construct_instances(NuSVC))
     expected_to_fail = _get_expected_failed_checks(est)
@@ -1363,6 +1772,9 @@ def test_estimator_checks_generator_strict_none():
 
 
 def test_estimator_checks_generator_strict_xfail_tests():
+    # [FUNCTION DOC]
+    # Verifies with xfail_strict=True that exactly the expected-to-fail checks of NuSVC
+    # are marked as strict xfail (collected by check name from ParameterSet values).
     # Make sure that the checks generator marks tests that are expected to fail
     # as strict xfail
     est = next(_construct_instances(NuSVC))
@@ -1396,6 +1808,9 @@ def test_estimator_checks_generator_strict_xfail_tests():
 
 @_mark_thread_unsafe_if_pytest_imported  # Some checks use warnings.
 def test_estimator_checks_generator_skipping_tests():
+    # [FUNCTION DOC]
+    # Verifies with mark="skip" that every expected-to-fail NuSVC check raises SkipTest
+    # when run (others may also skip). Runs the checks; thread-unsafe.
     # Make sure the checks generator skips tests that are expected to fail
     est = next(_construct_instances(NuSVC))
     expected_to_fail = _get_expected_failed_checks(est)
@@ -1417,6 +1832,9 @@ def test_estimator_checks_generator_skipping_tests():
 
 @_mark_thread_unsafe_if_pytest_imported
 def test_xfail_count_with_no_fast_fail():
+    # [FUNCTION DOC]
+    # Verifies check_estimator with on_fail="warn" emits one EstimatorCheckFailedWarning
+    # per expected failure (ignoring SkipTestWarning) and logs that many "xfail" results.
     """Test that the right number of xfail warnings are raised when on_fail is "warn".
 
     It also checks the number of raised EstimatorCheckFailedWarning, and checks the
@@ -1441,6 +1859,9 @@ def test_xfail_count_with_no_fast_fail():
 
 
 def test_check_estimator_callback():
+    # [FUNCTION DOC]
+    # Verifies the callback receives one call per check: xfail count equals expected
+    # failures, some pass, none fail, and skipped accounts for the remainder of all checks.
     """Test that the callback is called with the right arguments."""
     call_count = {"xfail": 0, "skipped": 0, "passed": 0, "failed": 0}
 
@@ -1453,6 +1874,9 @@ def test_check_estimator_callback():
         expected_to_fail,
         expected_to_fail_reason,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Keyword-only callback that asserts status is valid and increments the
+        # enclosing call_count entry for that status (via nonlocal).
         assert status in ("xfail", "skipped", "passed", "failed")
         nonlocal call_count
         call_count[status] += 1
@@ -1480,6 +1904,10 @@ def test_check_estimator_callback():
 # FIXME: this test should be uncommented when the checks will be granular
 # enough. In 0.24, these tests fail due to low estimator performance.
 def test_minimal_class_implementation_checks():
+    # [FUNCTION DOC]
+    # Intended to check that minimal estimators not inheriting BaseEstimator pass
+    # check_estimator; currently always raises SkipTest.
+    # KNOWN ISSUE: the code after the unconditional raise SkipTest is dead.
     # Check that third-party library can run tests without inheriting from
     # BaseEstimator.
     # FIXME
@@ -1490,11 +1918,21 @@ def test_minimal_class_implementation_checks():
 
 
 def test_check_fit_check_is_fitted():
+    # [FUNCTION DOC]
+    # Verifies check_fit_check_is_fitted fails for an estimator that claims to be fitted
+    # before fit, and passes for one using __sklearn_is_fitted__ or a fitted attribute.
     class Estimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator whose fitted-state signalling is selected by behavior:
+        # "attribute", "method" or "always-true".
         def __init__(self, behavior="attribute"):
+            # [FUNCTION DOC]
+            # HELPER: Stores behavior (default "attribute").
             self.behavior = behavior
 
         def fit(self, X, y, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Sets is_fitted_ ("attribute") or _is_fitted ("method"). Outputs: self.
             if self.behavior == "attribute":
                 self.is_fitted_ = True
             elif self.behavior == "method":
@@ -1503,6 +1941,9 @@ def test_check_fit_check_is_fitted():
 
         @available_if(lambda self: self.behavior in {"method", "always-true"})
         def __sklearn_is_fitted__(self):
+            # [FUNCTION DOC]
+            # HELPER: Available only for "method" and "always-true"; returns True for the latter,
+            # otherwise whether _is_fitted was set.
             if self.behavior == "always-true":
                 return True
             return hasattr(self, "_is_fitted")
@@ -1515,8 +1956,17 @@ def test_check_fit_check_is_fitted():
 
 
 def test_check_requires_y_none():
+    # [FUNCTION DOC]
+    # Verifies check_requires_y_none emits no warnings for an estimator raising the
+    # standard y-is-None error, and raises ValueError for one re-raising a different
+    # message.
     class Estimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator whose fit only validates X and y.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Validates X, y with check_X_y (raises when y is None).
+            # KNOWN ISSUE: does not return self, unlike the estimator API convention.
             X, y = check_X_y(X, y)
 
     with warnings.catch_warnings(record=True) as record:
@@ -1527,7 +1977,12 @@ def test_check_requires_y_none():
 
     # Make an estimator that throws the wrong error to make sure we catch it
     class EstimatorWithWrongError(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator that replaces the y-is-None ValueError with a wrong message.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Calls check_X_y; on ValueError asserts it is the y-is-None message and
+            # raises ValueError with an unrelated message. Returns None on success.
             try:
                 X, y = check_X_y(X, y)
             except ValueError as ve:
@@ -1548,6 +2003,9 @@ def test_check_requires_y_none():
 
 
 def test_non_deterministic_estimator_skip_tests():
+    # [FUNCTION DOC]
+    # Verifies _yield_all_checks includes sample-order and subset invariance checks for
+    # minimal estimators, and excludes them for subclasses tagged non_deterministic.
     # check estimators with non_deterministic tag set to True
     # will skip certain tests, refer to issue #22313 for details
     for Estimator in [MinimalTransformer, MinimalRegressor, MinimalClassifier]:
@@ -1556,7 +2014,11 @@ def test_non_deterministic_estimator_skip_tests():
         assert check_methods_subset_invariance in all_tests
 
         class MyEstimator(Estimator):
+            # [CLASS DOC]
+            # HELPER: Subclass of a minimal estimator tagged non_deterministic.
             def __sklearn_tags__(self):
+                # [FUNCTION DOC]
+                # HELPER: Returns parent tags with non_deterministic True.
                 tags = super().__sklearn_tags__()
                 tags.non_deterministic = True
                 return tags
@@ -1567,20 +2029,33 @@ def test_non_deterministic_estimator_skip_tests():
 
 
 def test_check_outlier_contamination():
+    # [FUNCTION DOC]
+    # Verifies check_outlier_contamination: returns None without parameter constraints,
+    # requires a Real Interval constraint, accepts Interval(Real, 0, 0.5, right-closed),
+    # and rejects integral, negative-lower, >1 upper or left-closed intervals.
+    # Side effects: mutates the local class's _parameter_constraints dict across cases.
     """Check the test for the contamination parameter in the outlier detectors."""
 
     # Without any parameter constraints, the estimator will early exit the test by
     # returning None.
     class OutlierDetectorWithoutConstraint(OutlierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Outlier detector with a contamination parameter and no constraints.
         """Outlier detector without parameter validation."""
 
         def __init__(self, contamination=0.1):
+            # [FUNCTION DOC]
+            # HELPER: Stores contamination (default 0.1).
             self.contamination = contamination
 
         def fit(self, X, y=None, sample_weight=None):
+            # [FUNCTION DOC]
+            # HELPER: No-op fit. Outputs: self.
             return self  # pragma: no cover
 
         def predict(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns ones (all inliers) for each sample.
             return np.ones(X.shape[0])
 
     detector = OutlierDetectorWithoutConstraint()
@@ -1589,6 +2064,9 @@ def test_check_outlier_contamination():
     # Now, we check that with the parameter constraints, the test should only be valid
     # if an Interval constraint with bound in [0, 1] is provided.
     class OutlierDetectorWithConstraint(OutlierDetectorWithoutConstraint):
+        # [CLASS DOC]
+        # HELPER: Same detector with a class-level _parameter_constraints for contamination,
+        # initially only StrOptions({"auto"}).
         _parameter_constraints = {"contamination": [StrOptions({"auto"})]}
 
     detector = OutlierDetectorWithConstraint()
@@ -1621,6 +2099,9 @@ def test_check_outlier_contamination():
 
 
 def test_decision_proba_tie_ranking():
+    # [FUNCTION DOC]
+    # Non-regression (issue 24025): check_decision_proba_consistency passes for
+    # SGDClassifier with log loss despite probability ties.
     """Check that in case with some probabilities ties, we relax the
     ranking comparison with the decision function.
     Non-regression test for:
@@ -1631,6 +2112,9 @@ def test_decision_proba_tie_ranking():
 
 
 def test_yield_all_checks_legacy():
+    # [FUNCTION DOC]
+    # Verifies legacy=True yields strictly more checks than legacy=False and that the
+    # non-legacy check names are a subset of the legacy ones.
     # Test that _yield_all_checks with legacy=True returns more checks.
     estimator = MinimalClassifier()
 
@@ -1640,6 +2124,8 @@ def test_yield_all_checks_legacy():
     assert len(legacy_checks) > len(non_legacy_checks)
 
     def get_check_name(check):
+        # [FUNCTION DOC]
+        # HELPER: Returns a check's __name__, falling back to .func.__name__ for partials.
         try:
             return check.__name__
         except AttributeError:
@@ -1652,10 +2138,16 @@ def test_yield_all_checks_legacy():
 
 
 def test_check_estimator_cloneable_error():
+    # [FUNCTION DOC]
+    # Verifies check_estimator_cloneable raises AssertionError when cloning fails.
     """Check that the right error is raised when the estimator is not cloneable."""
 
     class NotCloneable(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator whose __sklearn_clone__ raises NotImplementedError.
         def __sklearn_clone__(self):
+            # [FUNCTION DOC]
+            # HELPER: Always raises NotImplementedError.
             raise NotImplementedError("This estimator is not cloneable.")
 
     estimator = NotCloneable()
@@ -1665,10 +2157,16 @@ def test_check_estimator_cloneable_error():
 
 
 def test_estimator_repr_error():
+    # [FUNCTION DOC]
+    # Verifies check_estimator_repr raises AssertionError when repr fails.
     """Check that the right error is raised when the estimator does not have a repr."""
 
     class NotRepr(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator whose __repr__ raises NotImplementedError.
         def __repr__(self):
+            # [FUNCTION DOC]
+            # HELPER: Always raises NotImplementedError.
             raise NotImplementedError("This estimator does not have a repr.")
 
     estimator = NotRepr()
@@ -1678,19 +2176,36 @@ def test_estimator_repr_error():
 
 
 def test_check_estimator_tags_renamed():
+    # [FUNCTION DOC]
+    # Verifies check_estimator_tags_renamed raises TypeError for objects defining only
+    # legacy _more_tags or _get_tags, and accepts one also defining __sklearn_tags__.
     class BadEstimator1:
+        # [CLASS DOC]
+        # HELPER: Defines only the legacy _more_tags.
         def _more_tags(self):
+            # [FUNCTION DOC]
+            # HELPER: Never called; returns None.
             return None  # pragma: no cover
 
     class BadEstimator2:
+        # [CLASS DOC]
+        # HELPER: Defines only the legacy _get_tags.
         def _get_tags(self):
+            # [FUNCTION DOC]
+            # HELPER: Never called; returns None.
             return None  # pragma: no cover
 
     class OkayEstimator:
+        # [CLASS DOC]
+        # HELPER: Defines both __sklearn_tags__ and _more_tags.
         def __sklearn_tags__(self):
+            # [FUNCTION DOC]
+            # HELPER: Never called; returns None.
             return None  # pragma: no cover
 
         def _more_tags(self):
+            # [FUNCTION DOC]
+            # HELPER: Never called; returns None.
             return None  # pragma: no cover
 
     msg = "has defined either `_more_tags` or `_get_tags`"
@@ -1706,13 +2221,22 @@ def test_check_estimator_tags_renamed():
 
 
 def test_check_classifier_not_supporting_multiclass():
+    # [FUNCTION DOC]
+    # Verifies check_classifier_not_supporting_multiclass fails for an estimator whose
+    # multi_class tag is False but which does not raise on multiclass targets.
     """Check that when the estimator has the wrong tags.classifier_tags.multi_class
     set, the test fails."""
 
     class BadEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator with a no-op fit and default tags.
+        # KNOWN ISSUE: the comment mentions multi_output=False, but the relevant tag is
+        # classifier_tags.multi_class.
         # we don't actually need to define the tag here since we're running the test
         # manually, and BaseEstimator defaults to multi_output=False.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: No-op fit. Outputs: self.
             return self
 
     msg = "The estimator tag `tags.classifier_tags.multi_class` is False"
@@ -1723,6 +2247,10 @@ def test_check_classifier_not_supporting_multiclass():
 # Test that set_output doesn't make the tests to fail.
 @_mark_thread_unsafe_if_pytest_imported
 def test_estimator_with_set_output():
+    # [FUNCTION DOC]
+    # Verifies check_estimator passes for StandardScaler with set_output pandas and
+    # polars, marking the array API checks as expected failures. Raises SkipTest if
+    # either library is missing.
     # Doing this since pytest is not available for this file.
     for lib in ["pandas", "polars"]:
         try:
@@ -1751,12 +2279,17 @@ def test_estimator_with_set_output():
 
 
 def test_estimator_checks_generator():
+    # [FUNCTION DOC]
+    # Verifies estimator_checks_generator returns a generator object.
     """Check that checks_generator returns a generator."""
     all_instance_gen_checks = estimator_checks_generator(LogisticRegression())
     assert isgenerator(all_instance_gen_checks)
 
 
 def test_check_estimator_callback_with_fast_fail_error():
+    # [FUNCTION DOC]
+    # Verifies check_estimator raises ValueError when a callback is given with
+    # on_fail="raise".
     """Check that check_estimator fails correctly with on_fail='raise' and callback."""
     with raises(
         ValueError, match="callback cannot be provided together with on_fail='raise'"
@@ -1765,10 +2298,17 @@ def test_check_estimator_callback_with_fast_fail_error():
 
 
 def test_check_mixin_order():
+    # [FUNCTION DOC]
+    # Verifies check_mixin_order flags a class listing BaseEstimator before
+    # TransformerMixin in its bases.
     """Test that the check raises an error when the mixin order is incorrect."""
 
     class BadEstimator(BaseEstimator, TransformerMixin):
+        # [CLASS DOC]
+        # HELPER: Transformer with mixins in the wrong order.
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: No-op fit. Outputs: self.
             return self
 
     msg = "TransformerMixin comes before/left side of BaseEstimator"
@@ -1777,8 +2317,15 @@ def test_check_mixin_order():
 
 
 def test_check_positive_only_tag_during_fit():
+    # [FUNCTION DOC]
+    # Verifies check_positive_only_tag_during_fit flags an estimator that rejects
+    # negative X while its positive_only tag is False.
     class RequiresPositiveXBadTag(RequiresPositiveXRegressor):
+        # [CLASS DOC]
+        # HELPER: RequiresPositiveXRegressor with input_tags.positive_only set False.
         def __sklearn_tags__(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns parent tags with input_tags.positive_only False.
             tags = super().__sklearn_tags__()
             tags.input_tags.positive_only = False
             return tags
