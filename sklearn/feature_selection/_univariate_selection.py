@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Univariate feature selection: per-feature scoring functions (f_oneway, f_classif,
+#   chi2, r_regression, f_regression) and filter selectors built on _BaseFilter that
+#   keep features by score rank (SelectPercentile, SelectKBest) or by p-value tests
+#   (SelectFpr, SelectFdr, SelectFwe), plus GenericUnivariateSelect which delegates to
+#   one of them according to a mode string.
 """Univariate features selection."""
 
 # Authors: The scikit-learn developers
@@ -20,6 +26,12 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 def _clean_nans(scores):
+    # [FUNCTION DOC]
+    # HELPER: Returns a float copy of scores with NaN replaced by the smallest finite
+    #   value of the dtype, so NaN scores rank last.
+    # Inputs: scores - array-like.
+    # Outputs: float ndarray.
+    # Side effects: none.
     """
     Fixes Issue #1240: NaNs can't be properly compared, so change them to the
     smallest value of scores's dtype. -inf seems to be unreliable.
@@ -39,6 +51,19 @@ def _clean_nans(scores):
 # Contrary to the scipy.stats.f_oneway implementation it does not
 # copy the data while keeping the inputs unchanged.
 def f_oneway(*args):
+    # [FUNCTION DOC]
+    # One-way ANOVA F-test applied column-wise without copying the inputs. With groups
+    #   indexed by k: total sum of squares is the sum of squared values minus the
+    #   squared grand sum over n; between-group sum is the sum over groups of squared
+    #   group sums over group size, minus the same correction; within-group is total
+    #   minus between. Degrees of freedom are n_classes - 1 and n_samples - n_classes. F
+    #   is the ratio of the mean squares; p-values come from the F survival function
+    #   (fdtrc).
+    # Inputs: args - one array (n_samples_k, n_features), dense or sparse, per group.
+    # Outputs: tuple (F ndarray (n_features,), p-value ndarray (n_features,)).
+    # Exceptions: none raised directly; zero within-group variance yields inf or NaN.
+    # Side effects: warns (UserWarning) listing constant features when some features
+    #   have zero within-group variance and some between-group mean square is zero.
     """Perform a 1-way ANOVA.
 
     The one-way ANOVA tests the null hypothesis that 2 or more groups have
@@ -123,6 +148,10 @@ def f_oneway(*args):
     prefer_skip_nested_validation=True,
 )
 def f_classif(X, y):
+    # [FUNCTION DOC]
+    # Validates X (CSR/CSC/COO) and y, splits the rows of X by class label (sorted
+    #   unique labels) and returns f_oneway over the groups.
+    # Outputs: tuple (F, p-values), each (n_features,).
     """Compute the ANOVA F-value for the provided sample.
 
     Read more in the :ref:`User Guide <univariate_feature_selection>`.
@@ -172,6 +201,14 @@ def f_classif(X, y):
 
 
 def _chisquare(f_obs, f_exp):
+    # [FUNCTION DOC]
+    # HELPER: Column-wise chi-squared statistic: sum over rows of the squared difference
+    #   between observed and expected, divided by expected, with p-values from the chi-
+    #   squared survival function using k - 1 degrees of freedom (k = number of rows).
+    #   Division by zero expected values yields NaN without warnings.
+    # Inputs: f_obs, f_exp - 2D arrays (n_classes, n_features).
+    # Outputs: tuple (chi2 ndarray (n_features,), p-values).
+    # Side effects: when f_obs is already a float64 ndarray, it is overwritten in place.
     """Fast replacement for scipy.stats.chisquare.
 
     Version from https://github.com/scipy/scipy/pull/2525 with additional
@@ -198,6 +235,15 @@ def _chisquare(f_obs, f_exp):
     prefer_skip_nested_validation=True,
 )
 def chi2(X, y):
+    # [FUNCTION DOC]
+    # Chi-squared statistic between each non-negative feature and the class. Converts X
+    #   to float (CSR allowed), binarizes y sparsely (binary y gets a complementary
+    #   column added, densified), computes observed per-class feature sums as Y
+    #   transposed times X, expected as the outer product of class frequencies and
+    #   feature totals, and calls _chisquare.
+    # Inputs: X - (n_samples, n_features) non-negative; y - (n_samples,) labels.
+    # Outputs: tuple (chi2 stats, p-values), each (n_features,).
+    # Exceptions: ValueError if any value of X is negative.
     """Compute chi-squared stats between each non-negative feature and class.
 
     This score can be used to select the `n_features` features with the
@@ -299,6 +345,16 @@ def chi2(X, y):
     prefer_skip_nested_validation=True,
 )
 def r_regression(X, y, *, center=True, force_finite=True):
+    # [FUNCTION DOC]
+    # Pearson correlation between each feature and y. With center, y is centered and
+    #   feature norms are computed from moments (sum of squares minus n times squared
+    #   mean) so sparse X need not be centered; without center, plain column norms are
+    #   used. The coefficient is y dotted with each column, divided by the feature norm
+    #   and by the norm of y. With force_finite, NaN results (constant feature or
+    #   target) are set to 0.
+    # Inputs: X - (n_samples, n_features), sparse allowed; y - (n_samples,); center,
+    #   force_finite - bool, default True.
+    # Outputs: ndarray (n_features,) of float64.
     """Compute Pearson's r for each features and the target.
 
     Pearson's r is also known as the Pearson correlation coefficient.
@@ -404,6 +460,16 @@ def r_regression(X, y, *, center=True, force_finite=True):
     prefer_skip_nested_validation=True,
 )
 def f_regression(X, y, *, center=True, force_finite=True):
+    # [FUNCTION DOC]
+    # Converts the correlation r into an F statistic r^2 / (1 - r^2) times the degrees
+    #   of freedom (n - 2 with center, n - 1 without) and p-values from the F(1, dof)
+    #   survival function. With force_finite: infinite F (perfect correlation) becomes
+    #   the largest finite float, and NaN F (constant input) becomes 0 with p-value 1.
+    # Inputs: X, y, center, force_finite - as r_regression.
+    # Outputs: tuple (F ndarray, p-values ndarray), each (n_features,).
+    # KNOWN ISSUE: the degrees of freedom use y.size on the raw argument, so a plain
+    #   list y (accepted by parameter validation and by r_regression) raises
+    #   AttributeError.
     """Univariate linear regression tests returning F-statistic and p-values.
 
     Quick linear model for testing the effect of a single regressor,
@@ -525,6 +591,9 @@ def f_regression(X, y, *, center=True, force_finite=True):
 
 
 class _BaseFilter(SelectorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Base for univariate filters: fit computes scores_ and pvalues_ with
+    #   score_func; subclasses implement _get_support_mask from them.
     """Initialize the univariate feature selection.
 
     Parameters
@@ -537,10 +606,20 @@ class _BaseFilter(SelectorMixin, BaseEstimator):
     _parameter_constraints: dict = {"score_func": [callable]}
 
     def __init__(self, score_func):
+        # [FUNCTION DOC]
+        # Stores score_func.
         self.score_func = score_func
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR/CSC, multi-output y allowed; y may be None), runs the
+        #   subclass _check_params hook, then calls score_func(X, y). A tuple or list
+        #   result is unpacked into scores_ and pvalues_ (as arrays); a single array
+        #   result sets scores_ and pvalues_ to None.
+        # Inputs: X - (n_samples, n_features); y - targets or None.
+        # Outputs: self.
+        # Side effects: sets scores_, pvalues_, n_features_in_ / feature_names_in_.
         """Run score function on (X, y) and get the appropriate features.
 
         Parameters
@@ -578,9 +657,13 @@ class _BaseFilter(SelectorMixin, BaseEstimator):
         return self
 
     def _check_params(self, X, y):
+        # [FUNCTION DOC]
+        # Hook for subclass parameter checks against the data; does nothing here.
         pass
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares that y is required and sparse input is supported.
         tags = super().__sklearn_tags__()
         tags.target_tags.required = True
         tags.input_tags.sparse = True
@@ -591,6 +674,8 @@ class _BaseFilter(SelectorMixin, BaseEstimator):
 # Specific filters
 ######################################################################
 class SelectPercentile(_BaseFilter):
+    # [CLASS DOC]
+    # Keeps the given percentile of features with the highest scores.
     """Select features according to a percentile of the highest scores.
 
     Read more in the :ref:`User Guide <univariate_feature_selection>`.
@@ -667,10 +752,19 @@ class SelectPercentile(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, percentile=10):
+        # [FUNCTION DOC]
+        # Stores score_func (default f_classif) and percentile (default 10).
         super().__init__(score_func=score_func)
         self.percentile = percentile
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # 100 keeps all and 0 keeps none. Otherwise NaN-cleaned scores are compared to
+        #   the (100 - percentile)-th percentile: strictly greater scores are kept, and
+        #   tied scores are added in index order until int(n_features * percentile /
+        #   100) features are selected.
+        # Outputs: bool array.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
 
         # Cater for NaNs
@@ -690,12 +784,16 @@ class SelectPercentile(_BaseFilter):
         return mask
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Unsupervised score functions are allowed, so y is not required.
         tags = super().__sklearn_tags__()
         tags.target_tags.required = False
         return tags
 
 
 class SelectKBest(_BaseFilter):
+    # [CLASS DOC]
+    # Keeps the k features with the highest scores (or all with k "all").
     """Select features according to the k highest scores.
 
     Read more in the :ref:`User Guide <univariate_feature_selection>`.
@@ -774,10 +872,14 @@ class SelectKBest(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, k=10):
+        # [FUNCTION DOC]
+        # Stores score_func (default f_classif) and k (default 10).
         super().__init__(score_func=score_func)
         self.k = k
 
     def _check_params(self, X, y):
+        # [FUNCTION DOC]
+        # Warns (UserWarning) when integer k exceeds the number of features.
         if not isinstance(self.k, str) and self.k > X.shape[1]:
             warnings.warn(
                 f"k={self.k} is greater than n_features={X.shape[1]}. "
@@ -785,6 +887,12 @@ class SelectKBest(_BaseFilter):
             )
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # "all" keeps everything, 0 keeps nothing; otherwise marks the last k entries of
+        #   a stable ascending sort of NaN-cleaned scores, so among ties the higher
+        #   indices win.
+        # Outputs: bool array.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
 
         if self.k == "all":
@@ -801,12 +909,16 @@ class SelectKBest(_BaseFilter):
             return mask
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # y not required.
         tags = super().__sklearn_tags__()
         tags.target_tags.required = False
         return tags
 
 
 class SelectFpr(_BaseFilter):
+    # [CLASS DOC]
+    # Keeps features whose p-value is strictly below alpha (false positive rate test).
     """Filter: Select the pvalues below alpha based on a FPR test.
 
     FPR test stands for False Positive Rate test. It controls the total
@@ -877,16 +989,24 @@ class SelectFpr(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, alpha=5e-2):
+        # [FUNCTION DOC]
+        # Stores score_func and alpha (default 0.05).
         super().__init__(score_func=score_func)
         self.alpha = alpha
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Mask of p-values below alpha.
+        # Exceptions: NotFittedError; TypeError if the score function returned no
+        #   p-values.
         check_is_fitted(self)
 
         return self.pvalues_ < self.alpha
 
 
 class SelectFdr(_BaseFilter):
+    # [CLASS DOC]
+    # Benjamini-Hochberg false discovery rate selection on p-values.
     """Filter: Select the p-values for an estimated false discovery rate.
 
     This uses the Benjamini-Hochberg procedure. ``alpha`` is an upper bound
@@ -961,10 +1081,18 @@ class SelectFdr(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, alpha=5e-2):
+        # [FUNCTION DOC]
+        # Stores score_func and alpha (default 0.05).
         super().__init__(score_func=score_func)
         self.alpha = alpha
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Sorts p-values; keeps those whose sorted value is at most alpha times rank
+        #   over n_features; if none qualifies selects nothing, else selects all
+        #   features with p-value at most the largest qualifying sorted p-value.
+        # Outputs: bool array.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
 
         n_features = len(self.pvalues_)
@@ -978,6 +1106,8 @@ class SelectFdr(_BaseFilter):
 
 
 class SelectFwe(_BaseFilter):
+    # [CLASS DOC]
+    # Bonferroni family-wise error rate selection on p-values.
     """Filter: Select the p-values corresponding to Family-wise error rate.
 
     Read more in the :ref:`User Guide <univariate_feature_selection>`.
@@ -1043,10 +1173,14 @@ class SelectFwe(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, alpha=5e-2):
+        # [FUNCTION DOC]
+        # Stores score_func and alpha (default 0.05).
         super().__init__(score_func=score_func)
         self.alpha = alpha
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Mask of p-values strictly below alpha divided by the number of features.
         check_is_fitted(self)
 
         return self.pvalues_ < self.alpha / len(self.pvalues_)
@@ -1060,6 +1194,9 @@ class SelectFwe(_BaseFilter):
 # TODO this class should fit on either p-values or scores,
 # depending on the mode.
 class GenericUnivariateSelect(_BaseFilter):
+    # [CLASS DOC]
+    # Configurable filter: mode picks a selector class from _selection_modes and param
+    #   is passed as that selector's only non-score_func parameter.
     """Univariate feature selector with configurable strategy.
 
     Read more in the :ref:`User Guide <univariate_feature_selection>`.
@@ -1139,11 +1276,17 @@ class GenericUnivariateSelect(_BaseFilter):
     }
 
     def __init__(self, score_func=f_classif, *, mode="percentile", param=1e-5):
+        # [FUNCTION DOC]
+        # Stores score_func, mode (default "percentile") and param (default 1e-5).
         super().__init__(score_func=score_func)
         self.mode = mode
         self.param = param
 
     def _make_selector(self):
+        # [FUNCTION DOC]
+        # HELPER: Instantiates the selector for mode and sets its single remaining
+        #   constructor parameter (found by name introspection) to param.
+        # Outputs: unfitted selector.
         selector = self._selection_modes[self.mode](score_func=self.score_func)
 
         # Now perform some acrobatics to set the right named parameter in
@@ -1155,14 +1298,22 @@ class GenericUnivariateSelect(_BaseFilter):
         return selector
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares float64/float32 dtype preservation.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         return tags
 
     def _check_params(self, X, y):
+        # [FUNCTION DOC]
+        # Delegates the data-dependent parameter check to a freshly built selector.
         self._make_selector()._check_params(X, y)
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Builds a selector, copies the fitted scores_ and pvalues_ onto it and returns
+        #   its mask.
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
 
         selector = self._make_selector()

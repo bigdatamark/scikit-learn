@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for the chi2 scoring function and the _chisquare helper on a small 4x3 dataset
+#   where feature 0 is very informative, feature 1 constant and feature 2 weakly
+#   informative; covers dense, CSR and COO input.
 """
 Tests for chi2, currently the only feature selection function designed
 specifically to work with sparse matrices.
@@ -22,12 +26,18 @@ y = [0, 1, 2, 2]
 
 
 def mkchi2(k):
+    # [FUNCTION DOC]
+    # HELPER: Builds a SelectKBest with chi2 scoring and the given k.
     """Make k-best chi2 selector"""
     return SelectKBest(chi2, k=k)
 
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_chi2(csr_container):
+    # [FUNCTION DOC]
+    # Verifies SelectKBest(chi2) picks feature 0 for k=1 and features 0 and 2 for k=2 on
+    #   dense and CSR input, and that sparse transform and fit_transform agree.
+    # KNOWN ISSUE: the k=1 selector is fitted twice by a duplicated line (harmless).
     # Test Chi2 feature extraction
 
     chi2 = mkchi2(k=1).fit(X, y)
@@ -52,6 +62,8 @@ def test_chi2(csr_container):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_chi2_coo(coo_container):
+    # [FUNCTION DOC]
+    # Smoke test: fit_transform on COO input must not raise.
     # Check that chi2 works with a COO matrix
     # (as returned by CountVectorizer, DictVectorizer)
     Xcoo = coo_container(X)
@@ -61,6 +73,9 @@ def test_chi2_coo(coo_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_chi2_negative(csr_container):
+    # [FUNCTION DOC]
+    # Verifies chi2 raises ValueError for a tiny negative value in list, ndarray and CSR
+    #   inputs.
     # Check for proper error on negative numbers in the input X.
     X, y = [[0, 1], [-1e-20, 1]], [0, 1]
     for X in (X, np.array(X), csr_container(X)):
@@ -69,6 +84,9 @@ def test_chi2_negative(csr_container):
 
 
 def test_chi2_unused_feature():
+    # [FUNCTION DOC]
+    # Verifies an all-zero feature gives NaN statistic and p-value without a "divide by
+    #   zero" warning.
     # Unused feature should evaluate to NaN
     # and should issue no runtime warning
     with warnings.catch_warnings(record=True) as warned:
@@ -82,6 +100,9 @@ def test_chi2_unused_feature():
 
 
 def test_chisquare():
+    # [FUNCTION DOC]
+    # Compares _chisquare against scipy.stats.chisquare (called first since _chisquare
+    #   overwrites its float64 input).
     # Test replacement for scipy.stats.chisquare against the original.
     obs = np.array([[2.0, 2.0], [1.0, 1.0]])
     exp = np.array([[1.5, 1.5], [1.5, 1.5]])

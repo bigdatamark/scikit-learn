@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for SelectorMixin using a minimal StepSelector that keeps every step-th feature,
+#   checking transform, inverse_transform and get_support on dense, sparse and pandas
+#   inputs. Module-level fixtures: a 2x10 integer X, its expected transformed and
+#   inverse-transformed versions, the support mask and feature names.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -9,19 +14,29 @@ from sklearn.utils.validation import validate_data
 
 
 class StepSelector(SelectorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Test selector keeping features 0, step, 2*step, ...; selects nothing when
+    #   step is below 1.
     """Retain every `step` features (beginning with 0).
 
     If `step < 1`, then no features are selected.
     """
 
     def __init__(self, step=2):
+        # [FUNCTION DOC]
+        # Stores step (default 2).
         self.step = step
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSC allowed) to set n_features_in_ and returns self; y ignored.
         X = validate_data(self, X, accept_sparse="csc")
         return self
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Boolean mask with every step-th position True starting at 0, all False if step
+        #   < 1.
         mask = np.zeros(self.n_features_in_, dtype=bool)
         if self.step >= 1:
             mask[:: self.step] = True
@@ -42,6 +57,10 @@ feature_names_inv[1::2] = ""
 
 
 def test_transform_dense():
+    # [FUNCTION DOC]
+    # Verifies dense transform and fit_transform give the expected columns, preserve
+    #   int32 / float32 dtypes, work on a list of strings, and raise ValueError for a
+    #   wrong number of features.
     sel = StepSelector()
     Xt_actual = sel.fit(X, y).transform(X)
     Xt_actual2 = StepSelector().fit_transform(X, y)
@@ -63,6 +82,9 @@ def test_transform_dense():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_transform_sparse(csc_container):
+    # [FUNCTION DOC]
+    # Same checks as the dense test for each CSC container: values, dtype preservation,
+    #   and ValueError on a wrongly shaped dense input.
     X_sp = csc_container(X)
     sel = StepSelector()
     Xt_actual = sel.fit(X_sp).transform(X_sp)
@@ -80,6 +102,9 @@ def test_transform_sparse(csc_container):
 
 
 def test_inverse_transform_dense():
+    # [FUNCTION DOC]
+    # Verifies inverse_transform re-inserts zero columns, preserves dtypes, fills string
+    #   input with empty strings, and raises ValueError on a wrong column count.
     sel = StepSelector()
     Xinv_actual = sel.fit(X, y).inverse_transform(Xt)
     assert_array_equal(Xinv, Xinv_actual)
@@ -99,6 +124,9 @@ def test_inverse_transform_dense():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_inverse_transform_sparse(csc_container):
+    # [FUNCTION DOC]
+    # Verifies sparse inverse_transform values and dtypes for each CSC container and the
+    #   ValueError on a wrong dense shape.
     X_sp = csc_container(X)
     Xt_sp = csc_container(Xt)
     sel = StepSelector()
@@ -115,6 +143,8 @@ def test_inverse_transform_sparse(csc_container):
 
 
 def test_get_support():
+    # [FUNCTION DOC]
+    # Checks get_support as a boolean mask and as indices.
     sel = StepSelector()
     sel.fit(X, y)
     assert_array_equal(support, sel.get_support())
@@ -122,6 +152,11 @@ def test_get_support():
 
 
 def test_output_dataframe():
+    # [FUNCTION DOC]
+    # With pandas output, checks that selected columns keep their original dtypes
+    #   (including categoricals), and that selecting nothing warns "No features were
+    #   selected" and returns an empty-column DataFrame with the original index. Skipped
+    #   without pandas.
     """Check output dtypes for dataframes is consistent with the input dtypes."""
     pd = pytest.importorskip("pandas")
 
