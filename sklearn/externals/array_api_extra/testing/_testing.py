@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Implementation of array_api_extra.testing: backend-agnostic assertion helpers
+# that validate namespace/shape/dtype/device and then delegate to numpy.testing,
+# plus the lazy_xp_function / patch_lazy_xp_functions machinery that re-runs tagged
+# functions under jax.jit or under a Dask scheduler that limits graph
+# materialization. Module state: _ufuncs_tags, a global dict holding tags for
+# callables that cannot carry attributes (e.g. ufuncs).
+# KNOWN ISSUE: __all__ is assigned twice with identical contents (harmless
+# duplication).
 """Implementation of `array_api_extra.testing`."""
 
 from __future__ import annotations
@@ -55,6 +64,9 @@ _ufuncs_tags: dict[object, dict[str, Any]] = {}
 
 
 class _Deprecated(enum.Enum):
+    # [CLASS DOC]
+    # HELPER: Single-member enum used as a sentinel default for deprecated parameters,
+    # so that passing any value (including None) can be detected.
     """Unique type for deprecated parameters."""
 
     DEPRECATED = 1
@@ -66,6 +78,13 @@ DEPRECATED = _Deprecated.DEPRECATED
 def _clone_function(  # numpydoc ignore=PR01,RT01
     f: Callable[..., Any],
 ) -> Callable[..., Any]:
+    # [FUNCTION DOC]
+    # HELPER: Creates a new function object sharing code, globals, defaults, closure
+    # and keyword defaults with f, then copies metadata (name, doc, __dict__, wrapped)
+    # via functools.update_wrapper.
+    # Inputs: f - plain Python function. Outputs: the independent clone, so attributes
+    # set on it do not affect f. Exceptions: TypeError if f is not a Python function.
+    # Side effects: none.
     """Return a clone of an existing function."""
     f_new = FunctionType(
         f.__code__,
@@ -86,6 +105,18 @@ def lazy_xp_function(
     static_argnums: _Deprecated = DEPRECATED,
     static_argnames: _Deprecated = DEPRECATED,
 ) -> None:  # numpydoc ignore=GL07
+    # [FUNCTION DOC]
+    # Tags a function, or a (class, method name) pair, for lazy-backend testing.
+    # Emits DeprecationWarning if static_argnums/static_argnames are passed. Builds a
+    # tags dict with allow_dask_compute and jax_jit. For a tuple, fetches the raw
+    # class attribute statically, unwraps classmethods, clones the underlying function
+    # (so a parent class's method is not tagged), re-wraps it as static/class method as
+    # needed, sets it on the class, and records the class under the "owner" tag. Then
+    # stores tags in the function's _lazy_xp_function attribute; if the object does not
+    # accept attributes, stores them in the global _ufuncs_tags dict instead.
+    # Inputs: see docstring. Outputs: None.
+    # Side effects: mutates func (attribute) or the class (replaces the method) or the
+    # module-level _ufuncs_tags; may warn.
     """
     Tag a function to be tested on lazy backends.
 
@@ -286,6 +317,20 @@ def patch_lazy_xp_functions(
     *,
     xp: ArrayNamespace,
 ) -> contextlib.AbstractContextManager[None]:
+    # [FUNCTION DOC]
+    # Patches tagged functions for the duration of a test. Collects search targets:
+    # the test's module, modules listed in its lazy_xp_modules, and every class found
+    # in those namespaces. For dask: wraps each tagged function with _dask_wrap using
+    # a compute budget (True maps to 1,000,000, False to 0). For jax: wraps with
+    # _helpers.jax_autojit when the jax_jit tag is set. Static/class method wrapping is
+    # preserved. Other namespaces: nothing is patched.
+    # Inputs: request - pytest request (its module is searched); monkeypatch -
+    # deprecated, if given its setattr is used instead of internal revertable patching;
+    # xp - namespace under test.
+    # Outputs: a context manager that restores all originals on exit (a no-op revert
+    # when monkeypatch was used, because to_revert stays empty).
+    # Side effects: setattr on modules/classes immediately at call time, not on
+    # entering the context; DeprecationWarning if monkeypatch is given. Thread unsafe.
     """
     Test lazy execution of functions tagged with :func:`lazy_xp_function`.
 
@@ -362,6 +407,9 @@ def patch_lazy_xp_functions(
     def temp_setattr(  # numpydoc ignore=PR01
         target: ModuleType | type, name: str, func: object
     ) -> None:
+        # [FUNCTION DOC]
+        # HELPER: Records the statically fetched original attribute in to_revert, then sets
+        # the new value. Exceptions: AssertionError if the attribute does not exist.
         """
         Temporary setattr.
 
@@ -391,6 +439,12 @@ def patch_lazy_xp_functions(
     def iter_tagged() -> Iterator[
         tuple[ModuleType | type, str, Any, Callable[..., Any], dict[str, Any]]
     ]:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Generator over search_targets yielding (target, name, raw attr, unwrapped
+        # function, tags) for every attribute carrying lazy tags, found either as the
+        # _lazy_xp_function attribute or in _ufuncs_tags (unhashable keys ignored). Tagged
+        # functions found in a class are skipped unless that class is the recorded owner,
+        # so "naked" namespace classes are not patched.
         for target in search_targets:
             for name, attr in target.__dict__.items():
                 # attr might be a staticmethod or classmethod. If so we need
@@ -458,6 +512,9 @@ def patch_lazy_xp_functions(
     # deprecated monkeypatch when not used as a context manager.
     @contextlib.contextmanager
     def revert_on_exit() -> Generator[None]:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Context manager body that yields once and, in a finally clause, restores
+        # every recorded (target, name, original) pair in to_revert.
         try:
             yield
         finally:
@@ -468,6 +525,10 @@ def patch_lazy_xp_functions(
 
 
 class _CountingDaskScheduler(SchedulerGetCallable):
+    # [CLASS DOC]
+    # HELPER: Callable Dask scheduler that counts compute invocations and fails with
+    # an assertion once the count exceeds max_count, otherwise delegating to the
+    # synchronous dask.get scheduler. Attributes: count, max_count, msg.
     """
     Dask scheduler that counts how many times `dask.compute` is called.
 
@@ -487,6 +548,8 @@ class _CountingDaskScheduler(SchedulerGetCallable):
     msg: str
 
     def __init__(self, max_count: int, msg: str) -> None:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # Initializes count to 0 and stores max_count and the assertion message.
         self.count = 0
         self.max_count = max_count
         self.msg = msg
@@ -495,6 +558,11 @@ class _CountingDaskScheduler(SchedulerGetCallable):
     def __call__(
         self, dsk: Graph, keys: Sequence[Key] | Key, **kwargs: Any
     ) -> Any:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # Increments count, asserts count <= max_count (AssertionError with msg
+        # otherwise), then executes the graph synchronously and returns dask.get's result.
+        # Inputs: dsk - graph; keys - key(s) to compute; kwargs - forwarded.
+        # Side effects: mutates count; imports dask.
         import dask
 
         self.count += 1
@@ -508,6 +576,15 @@ class _CountingDaskScheduler(SchedulerGetCallable):
 def _dask_wrap(
     func: Callable[P, T], n: int
 ) -> Callable[P, T]:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Wraps func so each call runs under a fresh _CountingDaskScheduler
+    # allowing n computes, with an error message telling the user what
+    # allow_dask_compute value to set. After func returns, all dask arrays in the
+    # output (found via pickle_flatten) are persisted with the threads scheduler so that
+    # lazy exceptions and warnings surface eagerly, and the output is rebuilt with
+    # pickle_unflatten.
+    # Inputs: func - callable; n - allowed compute count. Outputs: the wrapper.
+    # Side effects: imports dask; wrapper sets dask config temporarily.
     """
     Wrap `func` to raise if it attempts to call `dask.compute` more than `n` times.
 
@@ -527,6 +604,10 @@ def _dask_wrap(
 
     @functools.wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:  # numpydoc ignore=GL08
+        # [FUNCTION DOC]
+        # HELPER: Calls func under the counting scheduler, then persists output dask arrays
+        # and returns the reconstructed output. Exceptions: AssertionError when the compute
+        # budget is exceeded; anything func or materialization raises.
         scheduler = _CountingDaskScheduler(n, msg)
         with dask.config.set({"scheduler": scheduler}):  # pyright: ignore[reportPrivateImportUsage]
             out = func(*args, **kwargs)
@@ -542,6 +623,9 @@ def _dask_wrap(
 
 
 def _require_numpy() -> ArrayNamespace:  # numpydoc ignore=RT01
+    # [FUNCTION DOC]
+    # HELPER: Imports numpy and returns it. Exceptions: ImportError with an explanatory
+    # message (chained from the original) when numpy is unavailable.
     """
     Import and return `numpy` if it is available, otherwise raise informative error.
     """
@@ -566,6 +650,18 @@ def _check_ns_shape_dtype_device(
     check_device: bool,
     xp: ArrayNamespace | None = None,
 ) -> tuple[Array, Array, ArrayNamespace, ArrayNamespace]:  # numpydoc ignore=RT03
+    # [FUNCTION DOC]
+    # HELPER: Shared precondition checks for the assert_* functions. Asserts the
+    # namespace of actual equals xp (if given) or the namespace of desired; for numpy
+    # with check_scalar asserts both are scalars or both are not; asserts no shape entry
+    # is None; for dask computes unknown (NaN) chunk sizes; checks shapes equal (or,
+    # when check_shape is false and desired is not 0-D, equal total sizes); converts
+    # desired with asarray of the namespace; optionally checks dtype and device; finally
+    # broadcasts desired to actual's shape.
+    # Outputs: (actual, broadcast desired, namespace, numpy module).
+    # Exceptions: AssertionError on any mismatch; ImportError if numpy missing; errors
+    # from array_namespace for non-array inputs (e.g. Python scalars, lists).
+    # Side effects: may call compute_chunk_sizes on dask arrays (mutates them in place).
     """
     Assert that namespace, shape and dtype of the two arrays match.
 
@@ -662,6 +758,9 @@ def _check_ns_shape_dtype_device(
 
 
 def _is_materializable(x: Array) -> bool:  # numpydoc ignore=PR01,RT01
+    # [FUNCTION DOC]
+    # HELPER: Returns False only for torch tensors on the "meta" device (no data);
+    # True otherwise. Assumes not running under tracing.
     """
     Return True if you can call `as_numpy_array(x)`; False otherwise.
     """
@@ -673,6 +772,13 @@ def _is_materializable(x: Array) -> bool:  # numpydoc ignore=PR01,RT01
 def _as_numpy_array(  # numpydoc ignore=PR01,RT01
     array: Array, *, xp: ArrayNamespace
 ) -> np.typing.NDArray[Any]:
+    # [FUNCTION DOC]
+    # HELPER: Converts an array of namespace xp to a NumPy array: cupy via asnumpy,
+    # pydata sparse via todense, torch resolves conjugation and moves to cpu,
+    # array_api_strict moves to CPU_DEVICE, jax moves to the cpu device; then tries
+    # numpy from_dlpack when the object supports dlpack (falling back on TypeError or
+    # BufferError) and finally numpy asarray.
+    # Outputs: numpy ndarray (may share memory with the input). Side effects: none.
     """
     Convert array to NumPy, bypassing GPU-CPU transfer guards and densification guards.
     """
@@ -719,6 +825,14 @@ def assert_close(
     check_device: bool = True,
     xp: ArrayNamespace | None = None,
 ) -> None:
+    # [FUNCTION DOC]
+    # Asserts closeness after the shared checks. Skips value comparison for
+    # non-materializable arrays. Default rtol: 4 times sqrt(eps) of actual's dtype for
+    # real/complex floating dtypes, else 1e-7; rtol and atol are coerced to float.
+    # Converts both to numpy and calls numpy.testing.assert_allclose with equal_nan,
+    # err_msg and verbose. Hides its own frame from pytest tracebacks.
+    # Exceptions: AssertionError, ImportError (see docstring); TypeError/ValueError if
+    # array tolerances cannot convert to float.
     """
     Check that two arrays are close, up to tolerance ``atol + rtol * abs(desired)``.
 
@@ -826,6 +940,9 @@ def assert_equal(
     check_device: bool = True,
     xp: ArrayNamespace | None = None,
 ) -> None:
+    # [FUNCTION DOC]
+    # Asserts exact equality: shared checks, skip if not materializable, convert to
+    # numpy, then numpy.testing.assert_array_equal with err_msg and verbose.
     """
     Check that two arrays are equal.
 
@@ -893,6 +1010,10 @@ def assert_less(
     check_device: bool = True,
     xp: ArrayNamespace | None = None,
 ) -> None:
+    # [FUNCTION DOC]
+    # Asserts x < y elementwise: shared checks (x treated as actual, y as desired and
+    # broadcast to x's shape), skip if not materializable, then
+    # numpy.testing.assert_array_less.
     """
     Check that two arrays are ordered by less than.
 
@@ -955,6 +1076,10 @@ def assert_close_nulp(
     check_device: bool = True,
     xp: ArrayNamespace | None = None,
 ) -> None:
+    # [FUNCTION DOC]
+    # Asserts values agree within nulp units in the last place: shared checks, skip
+    # if not materializable, then numpy.testing.assert_array_almost_equal_nulp.
+    # Unlike the other asserters it does not set __tracebackhide__.
     """
     Compare two arrays relatively to their spacing.
 
