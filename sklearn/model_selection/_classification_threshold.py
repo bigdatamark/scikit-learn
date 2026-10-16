@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Meta-estimators for binary classification with a non-default decision threshold:
+#   BaseThresholdClassifier (shared fit/predict_proba/decision_function plumbing),
+#   FixedThresholdClassifier (user-given threshold) and TunedThresholdClassifierCV
+#   (threshold chosen by maximizing a cross-validated score over candidate thresholds),
+#   plus private helpers for per-fold scoring and averaging score curves.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -40,6 +46,11 @@ from sklearn.utils.validation import (
 
 
 def _check_is_fitted(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Considers the meta-estimator fitted if either its wrapped estimator is
+    #   fitted (prefit use) or it has an estimator_ attribute.
+    # Inputs: estimator - a threshold meta-estimator.
+    # Exceptions: NotFittedError when neither holds.
     try:
         check_is_fitted(estimator.estimator)
     except NotFittedError:
@@ -47,6 +58,12 @@ def _check_is_fitted(estimator):
 
 
 class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Abstract base for threshold meta-estimators. Validates that y is binary in fit,
+    #   delegates the actual fitting to subclass _fit, copies n_features_in_ /
+    #   feature_names_in_ from the fitted inner estimator, and forwards predict_proba,
+    #   predict_log_proba and decision_function to the fitted (or prefitted) inner
+    #   estimator when it provides them. Subclasses must implement _fit and predict.
     """Base class for binary classifiers that set a non-default decision threshold.
 
     In this base class, we define the following interface:
@@ -82,10 +99,15 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
     }
 
     def __init__(self, estimator, *, response_method="auto"):
+        # [FUNCTION DOC]
+        # Stores estimator and response_method without validation.
         self.estimator = estimator
         self.response_method = response_method
 
     def _get_response_method(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the list ["predict_proba", "decision_function"] (try in order)
+        #   when response_method is "auto", otherwise the configured method name string.
         """Define the response method."""
         if self.response_method == "auto":
             response_method = ["predict_proba", "decision_function"]
@@ -98,6 +120,17 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Validates params against metadata routing, makes X and y indexable, checks y
+        #   is binary, calls _fit, then mirrors n_features_in_ and feature_names_in_
+        #   from estimator_ when present.
+        # Inputs: X (n_samples, n_features); y (n_samples,); **params routed fit
+        #   metadata.
+        # Outputs: self.
+        # Exceptions: ValueError if y is not binary; ValueError from _raise_for_params
+        #   when metadata is passed without routing enabled.
+        # Side effects: sets estimator_ (via _fit) and optionally n_features_in_,
+        #   feature_names_in_.
         """Fit the classifier.
 
         Parameters
@@ -138,11 +171,20 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
 
     @property
     def classes_(self):
+        # [FUNCTION DOC]
+        # Returns the class labels of the fitted inner estimator_ (AttributeError if not
+        #   fitted).
         """Classes labels."""
         return self.estimator_.classes_
 
     @available_if(_estimator_has("predict_proba"))
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Checks fittedness and returns predict_proba of estimator_ if present, else of
+        #   the prefitted estimator. Only available if the inner estimator has
+        #   predict_proba.
+        # Outputs: array (n_samples, n_classes).
+        # Exceptions: NotFittedError.
         """Predict class probabilities for `X` using the fitted estimator.
 
         Parameters
@@ -162,6 +204,8 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
 
     @available_if(_estimator_has("predict_log_proba"))
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Same delegation as predict_proba but for predict_log_proba.
         """Predict logarithm class probabilities for `X` using the fitted estimator.
 
         Parameters
@@ -181,6 +225,9 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
 
     @available_if(_estimator_has("decision_function"))
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Same delegation as predict_proba but for decision_function; returns array
+        #   (n_samples,).
         """Decision function for samples in `X` using the fitted estimator.
 
         Parameters
@@ -199,6 +246,9 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
         return estimator.decision_function(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks the estimator as not multi-class and inherits sparse input support from
+        #   the wrapped estimator's tags.
         tags = super().__sklearn_tags__()
         tags.classifier_tags.multi_class = False
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
@@ -206,6 +256,10 @@ class BaseThresholdClassifier(ClassifierMixin, MetaEstimatorMixin, BaseEstimator
 
 
 class FixedThresholdClassifier(BaseThresholdClassifier):
+    # [CLASS DOC]
+    # Binary classifier applying a fixed threshold to the wrapped estimator's scores.
+    #   Works with an already fitted estimator without calling fit (predict falls back
+    #   directly to the wrapped estimator when estimator_ does not exist).
     """Binary classifier that manually sets the decision threshold.
 
     This classifier allows to change the default decision threshold used for
@@ -307,12 +361,22 @@ class FixedThresholdClassifier(BaseThresholdClassifier):
         pos_label=None,
         response_method="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, threshold, pos_label and response_method without validation.
         super().__init__(estimator=estimator, response_method=response_method)
         self.pos_label = pos_label
         self.threshold = threshold
 
     @property
     def classes_(self):
+        # [FUNCTION DOC]
+        # Returns classes_ of estimator_ if fitted, else of the wrapped estimator if it
+        #   is itself fitted.
+        # Exceptions: AttributeError when neither is fitted.
+        # KNOWN ISSUE: uses the truthiness of estimator_ via the walrus check, so an
+        #   estimator defining a falsy __len__ (e.g. empty-length container) would be
+        #   skipped; also chains from the NotFittedError class rather than the caught
+        #   instance.
         if estimator := getattr(self, "estimator_", None):
             return estimator.classes_
         try:
@@ -324,6 +388,9 @@ class FixedThresholdClassifier(BaseThresholdClassifier):
             ) from NotFittedError
 
     def _fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Routes fit metadata and fits a clone of estimator on X, y.
+        # Outputs: self. Side effects: sets estimator_.
         """Fit the classifier.
 
         Parameters
@@ -348,6 +415,15 @@ class FixedThresholdClassifier(BaseThresholdClassifier):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Computes binary scores for pos_label using the configured response method
+        #   (first available for "auto"), chooses the threshold (for "auto": 0.5 for
+        #   predict_proba, 0.0 for decision_function; otherwise the user value) and maps
+        #   scores at or above it to the positive class, else the other class.
+        # Inputs: X (n_samples, n_features). Outputs: array (n_samples,) of class
+        #   labels.
+        # Exceptions: NotFittedError if neither this nor the wrapped estimator is
+        #   fitted.
         """Predict the target of new samples.
 
         Parameters
@@ -382,6 +458,8 @@ class FixedThresholdClassifier(BaseThresholdClassifier):
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter routing fit metadata to the wrapped estimator's fit.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -411,6 +489,15 @@ def _fit_and_score_over_thresholds(
     curve_scorer,
     score_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: For one CV split, fits the classifier on the training subset (with fit
+    #   params sliced to train indices) and evaluates the curve scorer on the validation
+    #   subset (with score params sliced to validation indices). When train_idx is None
+    #   (prefit), the classifier is not refit and the full X, y, score_params are used.
+    # Inputs: classifier - estimator (mutated by fit); X, y indexable; fit_params,
+    #   score_params dicts; train_idx, val_idx index arrays or None; curve_scorer -
+    #   _CurveScorer.
+    # Outputs: tuple (scores array, thresholds array) returned by the curve scorer.
     """Fit a classifier and compute the scores for different decision thresholds.
 
     Parameters
@@ -469,6 +556,12 @@ def _fit_and_score_over_thresholds(
 
 
 def _mean_interpolated_score(target_thresholds, cv_thresholds, cv_scores):
+    # [FUNCTION DOC]
+    # HELPER: For each fold, linearly interpolates its score curve at target_thresholds,
+    #   then averages across folds.
+    # Inputs: target_thresholds (n_thresholds,); cv_thresholds, cv_scores - sequences of
+    #   per-fold 1-D arrays (thresholds must be increasing for np.interp).
+    # Outputs: array (n_thresholds,).
     """Compute the mean interpolated score across folds by defining common thresholds.
 
     Parameters
@@ -497,6 +590,11 @@ def _mean_interpolated_score(target_thresholds, cv_thresholds, cv_scores):
 
 
 class TunedThresholdClassifierCV(BaseThresholdClassifier):
+    # [CLASS DOC]
+    # Meta-estimator that fits the wrapped classifier and selects the decision threshold
+    #   maximizing a (cross-validated) score. Fitted attributes: estimator_,
+    #   best_threshold_, best_score_, optional cv_results_, plus the internal
+    #   _curve_scorer used at predict time.
     """Classifier that post-tunes the decision threshold using cross-validation.
 
     This estimator post-tunes the decision threshold (cut-off point) that is
@@ -692,6 +790,8 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         random_state=None,
         store_cv_results=False,
     ):
+        # [FUNCTION DOC]
+        # Stores all constructor parameters without validation.
         super().__init__(estimator=estimator, response_method=response_method)
         self.scoring = scoring
         self.thresholds = thresholds
@@ -702,6 +802,28 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         self.store_cv_results = store_cv_results
 
     def _fit(self, X, y, **params):
+        # [FUNCTION DOC]
+        # Builds the CV strategy: a single stratified shuffle split when cv is a float
+        #   in (0, 1); the prefit mode when cv == "prefit" (requires refit False and a
+        #   fitted estimator); otherwise check_cv (requires refit True when there are
+        #   several folds). Fits estimator_ on all data (refit True) or on the training
+        #   part of the first split (refit False); in prefit mode estimator_ is the
+        #   user's estimator itself. Then, in parallel per split, fits a clone and
+        #   computes score/threshold curves on the validation part. Candidate thresholds
+        #   are either n linearly spaced values between the global min and max fold
+        #   thresholds or the user-given array; per-fold curves are interpolated and
+        #   averaged, and the argmax gives best_threshold_ and best_score_.
+        # Inputs: X, y; **params routed metadata.
+        # Outputs: self.
+        # Exceptions: ValueError for prefit with refit True, multiple folds with refit
+        #   False, or constant predictions (first and last fold threshold close);
+        #   NotFittedError for prefit with unfitted estimator.
+        # Side effects: sets estimator_, _curve_scorer, best_score_, best_threshold_,
+        #   cv_results_ (if store_cv_results); uses random_state for the float cv split;
+        #   parallel jobs.
+        # KNOWN ISSUE: with refit False the first split is generated twice (once to
+        #   train estimator_, once in the parallel loop); for non-deterministic
+        #   splitters without a fixed random_state these could differ.
         """Fit the classifier and post-tune the decision threshold.
 
         Parameters
@@ -821,6 +943,11 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Computes binary scores of estimator_ for the scorer's pos_label using the
+        #   response method, and thresholds them at best_threshold_ to class labels.
+        # Inputs: X (n_samples, n_features). Outputs: array (n_samples,).
+        # Exceptions: NotFittedError if not fitted.
         """Predict the target of new samples.
 
         Parameters
@@ -847,6 +974,9 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter routing fit metadata to the estimator's fit, the cv
+        #   splitter's split and the curve scorer's score.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -876,6 +1006,10 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         return router
 
     def _get_curve_scorer(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds a scorer from scoring via check_scoring and wraps it into a
+        #   _CurveScorer using the response method and thresholds setting.
+        # Outputs: _CurveScorer.
         """Get the curve scorer based on the objective metric used."""
         scoring = check_scoring(self.estimator, scoring=self.scoring)
         curve_scorer = _CurveScorer.from_scorer(
@@ -884,6 +1018,9 @@ class TunedThresholdClassifierCV(BaseThresholdClassifier):
         return curve_scorer
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # HELPER: HTML repr block showing the fitted estimator_ (or the unfitted
+        #   estimator) as a single serial element.
         estimator = getattr(self, "estimator_", self.estimator)
         return _VisualBlock(
             "serial",

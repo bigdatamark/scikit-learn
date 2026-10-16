@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Cross-validation drivers: cross_validate, cross_val_score, cross_val_predict,
+# permutation_test_score, learning_curve and validation_curve, plus private helpers
+# for fitting/scoring a single split, enforcing prediction column order, translating
+# train sizes, incremental fitting and aggregating per-split result dicts. Every
+# public entry point validates params, builds a CV splitter via check_cv, routes
+# metadata (process_routing when routing is enabled, otherwise _manual_routing with
+# groups to the splitter and params to fit), and parallelises with joblib over
+# cloned estimators.
 """
 The :mod:`sklearn.model_selection._validation` module includes classes and
 functions to validate the model.
@@ -63,6 +72,11 @@ __all__ = [
 # TODO(SLEP6): To be removed when set_config(enable_metadata_routing=False) is not
 # possible.
 def _check_groups_routing_disabled(groups):
+    # [FUNCTION DOC]
+    # HELPER: Rejects the legacy `groups` argument when metadata routing is enabled.
+    # Inputs: groups - array-like or None.
+    # Exceptions: ValueError if groups is not None and routing is enabled.
+    # Outputs/side effects: none.
     if groups is not None and _routing_enabled():
         raise ValueError(
             "`groups` can only be passed if metadata routing is not enabled via"
@@ -115,6 +129,22 @@ def cross_validate(
     return_indices=False,
     error_score=np.nan,
 ):
+    # [FUNCTION DOC]
+    # Steps: reject groups under routing; make X, y indexable; default params to {};
+    # check_cv (stratified for classifiers); check_scoring (single scorer, or a
+    # _MultimetricScorer for list/tuple/dict; raise_exc follows error_score == "raise");
+    # route params to splitter.split, estimator.fit and scorer.score (re-raising
+    # UnsetMetadataPassedError with "cross_validate" instead of "cross_validate.fit");
+    # generate splits (materialised as a list only if return_indices); run
+    # _fit_and_score on a clone per split in parallel with return_times=True; warn or
+    # raise about fit failures; for callable scoring fill failed splits' dict scores
+    # with error_score; aggregate per-split dicts.
+    # Outputs: dict with fit_time, score_time (arrays of length n_splits), test_<name>
+    # (and train_<name> if return_train_score) where name is "score" for a single
+    # metric, plus "estimator" (list) and "indices" ({"train": tuple, "test": tuple}).
+    # Exceptions: ValueError if all fits fail (or error_score="raise" re-raises the fit
+    # error); UnsetMetadataPassedError for unrequested metadata.
+    # Side effects: FitFailedWarning when some fits fail; prints when verbose.
     """Evaluate metric(s) by cross-validation and also record fit/score times.
 
     Read more in the :ref:`User Guide <multimetric_cross_validation>`.
@@ -428,6 +458,13 @@ def cross_validate(
 
 
 def _insert_error_scores(results, error_score):
+    # [FUNCTION DOC]
+    # HELPER: For results of failed fits (fit_error not None), replaces test_scores (and
+    # train_scores if present) with a dict mapping every metric name of the first
+    # successful result to error_score. Only acts if that successful score is a dict
+    # (multimetric callable); if no fit succeeded nothing is changed.
+    # Inputs: results - list of _fit_and_score dicts; error_score - number.
+    # Side effects: mutates the result dicts in place; returns None.
     """Insert error in `results` by replacing them inplace with `error_score`.
 
     This only applies to multimetric scores because `_fit_and_score` will
@@ -450,6 +487,13 @@ def _insert_error_scores(results, error_score):
 
 
 def _normalize_score_results(scores, scaler_score_key="score"):
+    # [FUNCTION DOC]
+    # HELPER: Normalises a list of per-split scores to a dict of arrays: if elements are
+    # dicts, aggregate them by key; otherwise wrap the list under scaler_score_key
+    # (default "score").
+    # Outputs: dict name -> array (numbers) or list. The scalar branch returns the input
+    # list unchanged (not converted to an array).
+    # KNOWN ISSUE: "scaler" in the parameter name is a misspelling of "scalar".
     """Creates a scoring dictionary based on the type of `scores`"""
     if isinstance(scores[0], dict):
         # multimetric scoring
@@ -459,6 +503,12 @@ def _normalize_score_results(scores, scaler_score_key="score"):
 
 
 def _warn_or_raise_about_fit_failures(results, error_score):
+    # [FUNCTION DOC]
+    # HELPER: Collects formatted tracebacks of failed fits from results, counts identical
+    # ones, and builds a summary message.
+    # Inputs: results - list of _fit_and_score dicts; error_score - value used in message.
+    # Exceptions: ValueError if every fit failed.
+    # Side effects: FitFailedWarning if some (not all) fits failed; nothing otherwise.
     fit_errors = [
         result["fit_error"] for result in results if result["fit_error"] is not None
     ]
@@ -523,6 +573,11 @@ def cross_val_score(
     pre_dispatch="2*n_jobs",
     error_score=np.nan,
 ):
+    # [FUNCTION DOC]
+    # Thin wrapper: converts scoring to a single scorer with check_scoring (so multimetric
+    # input is rejected), calls cross_validate with scoring {"score": scorer} and the same
+    # cv/params/parallel options, and returns cv_results["test_score"] (array of
+    # length n_splits). Exceptions and warnings are those of cross_validate.
     """Evaluate a score by cross-validation.
 
     Read more in the :ref:`User Guide <cross_validation>`.
@@ -690,6 +745,27 @@ def _fit_and_score(
     caller=None,
     callback_ctx=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits a (cloned) estimator on one train split and scores it on the test
+    # split (and optionally the train split).
+    # Steps: move train/test indices to X's array namespace/device; validate
+    # error_score; build verbose messages; slice fit_params and score_params to the
+    # train/test indices; if parameters given, set them on the estimator (values cloned
+    # with safe=False); split X/y via _safe_split (pairwise-aware); fit, within the
+    # callback context when callback_ctx is given (calling fit-task begin/end hooks with
+    # sample_weight as metadata). On fit exception: re-raise if error_score == "raise",
+    # else scores become error_score (dict per metric for _MultimetricScorer) and
+    # fit_error stores the traceback text. On success: score via _score and time it.
+    # Inputs: train/test - index arrays; parameters - dict or None; split_progress /
+    # candidate_progress - (index, total) pairs for messages; caller - the search
+    # object passed to callbacks; return_* flags select output keys.
+    # Outputs: dict with fit_error, test_scores, and optionally train_scores,
+    # n_test_samples, fit_time, score_time, parameters, estimator.
+    # Exceptions: ValueError for an invalid error_score; fit errors when "raise".
+    # Side effects: mutates/fits estimator; prints when verbose > 1 (start line only
+    # when verbose > 9).
+    # KNOWN ISSUE: with callable non-multimetric scoring returning a dict, a failed fit
+    # stores a scalar error_score; callers patch this later with _insert_error_scores.
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -935,6 +1011,17 @@ def _fit_and_score(
 
 
 def _score(estimator, X_test, y_test, scorer, score_params, error_score="raise"):
+    # [FUNCTION DOC]
+    # HELPER: Calls scorer(estimator, X_test[, y_test], **score_params) and checks the
+    # result is numeric.
+    # Behaviour: on exception, a _MultimetricScorer re-raises (it only raises when
+    # error_score is "raise"); a single scorer re-raises if error_score == "raise",
+    # otherwise returns error_score with a UserWarning. For multimetric output, string
+    # entries (captured error messages) are replaced by error_score with a UserWarning.
+    # Values with an item method are unwrapped to Python scalars when possible.
+    # Outputs: number, or dict name -> number.
+    # Exceptions: ValueError if any score is not a number.
+    # Side effects: may mutate the returned scores dict in place; warnings.
     """Compute the score(s) of an estimator on a given test set.
 
     Will return a dict of floats if `scorer` is a _MultiMetricScorer, otherwise a single
@@ -1041,6 +1128,21 @@ def cross_val_predict(
     pre_dispatch="2*n_jobs",
     method="predict",
 ):
+    # [FUNCTION DOC]
+    # Returns, for each sample, the prediction made when it was in the test fold.
+    # Steps: reject groups under routing; route params; check_cv; materialise splits;
+    # require test indices to form a permutation of all samples; for probability /
+    # decision methods with y given, label-encode y (column-wise for 2D y) so columns
+    # can be aligned; move y to X's namespace/device; fit/predict per split in parallel
+    # with _fit_and_predict; concatenate fold outputs (sparse vstack, per-label
+    # concatenation for multioutput lists, or array concat) and reorder rows back to
+    # original sample order using the inverse permutation of the test indices.
+    # Outputs: array (or sparse matrix, or list of arrays for multioutput
+    # probabilities) of shape (n_samples,) or (n_samples, n_classes).
+    # Exceptions: ValueError "cross_val_predict only works for partitions";
+    # UnsetMetadataPassedError; errors from _enforce_prediction_order.
+    # KNOWN ISSUE: the 2D encoding builds the encoded y with NumPy even when y comes from
+    # another array namespace.
     """Generate cross-validated estimates for each input data point.
 
     The data is split according to the cv parameter. Each sample belongs
@@ -1286,6 +1388,14 @@ def cross_val_predict(
 
 
 def _fit_and_predict(estimator, X, y, train, test, fit_params, method):
+    # [FUNCTION DOC]
+    # HELPER: Fits estimator on the train rows (fit_params sliced to train) and returns
+    # getattr(estimator, method) applied to the test rows. For probability/decision
+    # methods with y given, pads/reorders columns to all classes via
+    # _enforce_prediction_order (per output for list predictions, number of classes
+    # taken from y, or y's column count for 2D indicator y).
+    # Outputs: array (or list of arrays) of predictions for the test rows.
+    # Side effects: fits estimator in place.
     """Fit estimator and predict values for a given dataset split.
 
     Read more in the :ref:`User Guide <cross_validation>`.
@@ -1365,6 +1475,17 @@ def _fit_and_predict(estimator, X, y, train, test, fit_params, method):
 
 
 def _enforce_prediction_order(classes, predictions, n_classes, method):
+    # [FUNCTION DOC]
+    # HELPER: If the fold's classifier saw fewer classes than n_classes, expands
+    # predictions to n_classes columns: columns indexed by the (encoded) classes get the
+    # fold predictions, missing ones get 0 for predict_proba or the dtype's minimum
+    # float for decision_function / predict_log_proba.
+    # Inputs: classes - encoded class labels of the fold; predictions - (n, k) array;
+    # n_classes - total classes; method - name of the prediction method.
+    # Outputs: predictions unchanged if counts match, else new (n, n_classes) array.
+    # Exceptions: ValueError for decision_function when output width differs from the
+    # fold class count (e.g. ovo SVC) or when the fold has <= 2 classes (1D output).
+    # Side effects: RuntimeWarning when class counts differ.
     """Ensure that prediction arrays have correct column order
 
     When doing cross-validation, if one or more classes are
@@ -1435,6 +1556,9 @@ def _enforce_prediction_order(classes, predictions, n_classes, method):
 
 
 def _check_is_permutation(indices, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Returns True iff indices has exactly n_samples entries and covers every
+    # index in 0..n_samples-1 (hence each exactly once); False otherwise.
     """Check whether indices is a reordering of the array np.arange(n_samples)
 
     Parameters
@@ -1488,6 +1612,17 @@ def permutation_test_score(
     scoring=None,
     params=None,
 ):
+    # [FUNCTION DOC]
+    # Computes the cross-validated score on the true y, then n_permutations scores on y
+    # shuffled (within groups when groups is given) using random_state, all on clones
+    # with the same splits/params. p-value = (count of permutation scores >= true score,
+    # plus 1) / (n_permutations + 1).
+    # Outputs: (score float, permutation_scores ndarray of shape (n_permutations,),
+    # pvalue float).
+    # Exceptions: ValueError for groups under routing; UnsetMetadataPassedError.
+    # Side effects: consumes random_state; fit errors are not caught (no error_score).
+    # KNOWN ISSUE: with routing enabled, groups given via params reach only the splitter;
+    # the groups argument must be None, so _shuffle never restricts permutations to groups.
     """Evaluate the significance of a cross-validated score with permutations.
 
     Permutes targets to generate 'randomized data' and compute the empirical
@@ -1724,6 +1859,10 @@ def permutation_test_score(
 def _permutation_test_score(
     estimator, X, y, cv, scorer, split_params, fit_params, score_params
 ):
+    # [FUNCTION DOC]
+    # HELPER: For each split of cv, fits estimator on the train part (fit_params sliced to
+    # train) and scores on the test part (score_params sliced to test); returns the
+    # mean score as a float. Always passes y to fit. Side effects: refits estimator.
     """Auxiliary function for permutation_test_score"""
     # Adjust length of sample weights
     fit_params = fit_params if fit_params is not None else {}
@@ -1741,6 +1880,10 @@ def _permutation_test_score(
 
 
 def _shuffle(y, groups, random_state):
+    # [FUNCTION DOC]
+    # HELPER: Returns y reordered by a random permutation; if groups is given, indices
+    # are permuted only within each group so samples stay in their group.
+    # Inputs: random_state - RandomState instance (consumed).
     """Return a shuffled copy of y eventually shuffle among same groups."""
     if groups is None:
         indices = random_state.permutation(len(y))
@@ -1792,6 +1935,20 @@ def learning_curve(
     return_times=False,
     params=None,
 ):
+    # [FUNCTION DOC]
+    # Steps: require partial_fit if exploit_incremental_learning (ValueError); route
+    # params (fit and partial_fit both receive params); materialise cv splits; use the
+    # first split's training size as the maximum and convert train_sizes to absolute
+    # unique sizes; optionally shuffle each training index array with random_state.
+    # Incremental mode: one _incremental_fit_estimator call per split (classes from
+    # np.unique(y) for classifiers), then transpose to (metric, size, split).
+    # Otherwise: one _fit_and_score per (split, size) using the first n training
+    # indices, warn/raise on fit failures, and reshape scores to (n_sizes, n_splits).
+    # Outputs: (train_sizes_abs, train_scores, test_scores[, fit_times, score_times]),
+    # score arrays of shape (n_unique_ticks, n_cv_folds).
+    # Side effects: prints sizes when verbose; FitFailedWarning.
+    # KNOWN ISSUE: the incremental path does not catch fit errors (error_score only
+    # applies to scoring there), unlike the non-incremental path.
     """Learning curve.
 
     Determines cross-validated training and test scores for different training
@@ -2112,6 +2269,14 @@ def learning_curve(
 
 
 def _translate_train_sizes(train_sizes, n_max_training_samples):
+    # [FUNCTION DOC]
+    # HELPER: Converts train_sizes to absolute sample counts. Float dtype: values must be
+    # in (0, 1]; multiplied by n_max_training_samples, truncated to int and clipped to
+    # [1, n_max]. Integer dtype: values must be in (0, n_max]. Duplicates are removed
+    # (result sorted).
+    # Outputs: ndarray of unique ints.
+    # Exceptions: ValueError for out-of-range values.
+    # Side effects: RuntimeWarning if duplicates were removed.
     """Determine absolute sizes of training subsets and validate 'train_sizes'.
 
     Examples:
@@ -2193,6 +2358,14 @@ def _incremental_fit_estimator(
     fit_params,
     score_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Trains estimator with partial_fit on successive chunks of train delimited by
+    # train_sizes, and after each chunk scores on the cumulative training subset and on
+    # test (via _score with error_score). classes is passed to partial_fit if not None.
+    # fit_params / score_params are sliced to the chunk / the scored indices.
+    # Outputs: array of shape (n_sizes, 2) or (n_sizes, 4) with columns train score,
+    # test score[, fit time, score time].
+    # Side effects: fits estimator in place; fit errors propagate.
     """Train estimator on training subsets incrementally and compute scores."""
     train_scores, test_scores, fit_times, score_times = [], [], [], []
     partitions = zip(train_sizes, np.split(train, train_sizes)[:-1])
@@ -2296,6 +2469,15 @@ def validation_curve(
     error_score=np.nan,
     params=None,
 ):
+    # [FUNCTION DOC]
+    # For every split and every value v in param_range, fits a clone with param_name=v
+    # via _fit_and_score (train scores always returned) and reshapes results to
+    # (n_params, n_splits). Iteration order is split-major so one-shot splitters work.
+    # Outputs: (train_scores, test_scores) arrays of shape (n_params, n_cv_folds).
+    # Exceptions: ValueError for groups under routing; UnsetMetadataPassedError.
+    # KNOWN ISSUE: unlike cross_validate and learning_curve, it never calls
+    # _warn_or_raise_about_fit_failures, so failed fits silently become error_score
+    # (no FitFailedWarning, no error when all fits fail).
     """Validation curve.
 
     Determine training and test scores for varying parameter values.
@@ -2515,6 +2697,10 @@ def validation_curve(
 
 
 def _aggregate_score_dicts(scores):
+    # [FUNCTION DOC]
+    # HELPER: Turns a list of dicts with identical keys into a dict of key -> array of
+    # values when the first dict's value is a number, else key -> list of values.
+    # Inputs: scores - non-empty list of dicts (IndexError if empty).
     """Aggregate the list of dict to dict of np ndarray
 
     The aggregated output of _aggregate_score_dicts will be a list of dict
