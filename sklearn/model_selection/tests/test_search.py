@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# Test suite for sklearn.model_selection._search: ParameterGrid, ParameterSampler,
+#   GridSearchCV, RandomizedSearchCV, the Halving*SearchCV variants and BaseSearchCV.
+# Covers parameter validation, cv_results_ structure/dtypes/masking, refit (bool, str,
+#   callable), multi-metric and callable scoring, error_score handling, sample_weight,
+#   metadata routing, pairwise tags, HTML repr, array API dispatch, and the callback
+#   hooks.
+# Module-level fixtures: a tiny 4-sample dataset X (2 features) and y (labels 1/2)
+#   shared by many tests; one_hot_encoder, ordinal_encoder and ma_with_tuples are module
+#   objects reused as parametrize inputs and expectations.
+# Side effects at import: enables experimental halving search via
+#   enable_halving_search_cv.
 """Test the search module"""
 
 import pickle
@@ -114,23 +126,43 @@ from sklearn.utils.validation import _num_samples
 # Neither of the following two estimators inherit from BaseEstimator,
 # to test hyperparameter search on user-defined classifiers.
 class MockClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: minimal classifier with one hyperparameter foo_param; its score is 1.0
+    #   when foo_param > 1 else 0.0, so the best grid point is the smallest foo_param
+    #   above 1 (tie-breaking checks).
+    # KNOWN ISSUE: the comment above says neither estimator inherits from BaseEstimator,
+    #   but both MockClassifier and LinearSVCNoScore do.
     """Dummy classifier to test the parameter search algorithms"""
 
     def __init__(self, foo_param=0):
+        # [FUNCTION DOC]
+        # HELPER: stores foo_param (default 0) unchanged.
         self.foo_param = foo_param
 
     def fit(self, X, Y):
+        # [FUNCTION DOC]
+        # HELPER: asserts X and Y have the same length, sets classes_ to the unique
+        #   labels of Y, returns self.
+        # Exceptions: AssertionError on length mismatch.
         assert len(X) == len(Y)
         self.classes_ = np.unique(Y)
         return self
 
     def predict(self, T):
+        # [FUNCTION DOC]
+        # HELPER: returns the number of rows of T (an int, not an array); also aliased
+        #   as predict_proba, predict_log_proba and decision_function.
         return T.shape[0]
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: returns X shifted by adding foo_param elementwise.
         return X + self.foo_param
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: returns X shifted by subtracting foo_param elementwise (inverse of
+        #   transform).
         return X - self.foo_param
 
     predict_proba = predict
@@ -138,6 +170,8 @@ class MockClassifier(ClassifierMixin, BaseEstimator):
     decision_function = predict
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: ignores X and Y; returns 1.0 if foo_param > 1 else 0.0.
         if self.foo_param > 1:
             score = 1.0
         else:
@@ -145,18 +179,30 @@ class MockClassifier(ClassifierMixin, BaseEstimator):
         return score
 
     def get_params(self, deep=False):
+        # [FUNCTION DOC]
+        # HELPER: returns a dict with only foo_param; deep is ignored.
         return {"foo_param": self.foo_param}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: sets foo_param from params and returns self.
+        # Exceptions: KeyError if foo_param is not among params; other keys are silently
+        #   ignored.
         self.foo_param = params["foo_param"]
         return self
 
 
 class LinearSVCNoScore(LinearSVC):
+    # [CLASS DOC]
+    # HELPER: LinearSVC whose score attribute is hidden so that hasattr(est, "score") is
+    #   False, used to test search behaviour without an estimator score method.
     """A LinearSVC classifier that has no score method."""
 
     @property
     def score(self):
+        # [FUNCTION DOC]
+        # HELPER: property that always raises AttributeError, hiding the inherited score
+        #   method.
         raise AttributeError
 
 
@@ -165,6 +211,9 @@ y = np.array([1, 1, 2, 2])
 
 
 def assert_grid_iter_equals_getitem(grid):
+    # [FUNCTION DOC]
+    # HELPER: asserts that iterating over grid yields the same sequence as indexing
+    #   grid[i] for i in range(len(grid)).
     assert list(grid) == [grid[i] for i in range(len(grid))]
 
 
@@ -183,11 +232,20 @@ def assert_grid_iter_equals_getitem(grid):
     ],
 )
 def test_validate_parameter_input(klass, input, error_type, error_message):
+    # [FUNCTION DOC]
+    # Verifies that ParameterGrid and ParameterSampler reject invalid param
+    #   specifications (non dict/list, list containing non-dict, non-iterable values)
+    #   with the expected exception type and message.
     with pytest.raises(error_type, match=error_message):
         klass(input)
 
 
 def test_parameter_grid():
+    # [FUNCTION DOC]
+    # Verifies ParameterGrid basics: Iterable/Sized, length equals product of value list
+    #   sizes, repeated iteration yields the full cartesian product, an empty dict
+    #   yields a single empty point (IndexError beyond it), and a list of grids
+    #   including an empty dict is concatenated in order.
     # Test basic properties of ParameterGrid.
     params1 = {"foo": [1, 2, 3]}
     grid1 = ParameterGrid(params1)
@@ -224,6 +282,11 @@ def test_parameter_grid():
 
 
 def test_grid_search():
+    # [FUNCTION DOC]
+    # Verifies GridSearchCV with MockClassifier picks foo_param=2 (smallest among tied
+    #   best), records param_foo_param values, smoke tests delegated methods, and raises
+    #   ValueError for an invalid scoring string. Temporarily redirects sys.stdout to
+    #   swallow verbose output.
     # Test that the best estimator contains the right value for foo_param
     clf = MockClassifier()
     grid_search = GridSearchCV(clf, {"foo_param": [1, 2, 3]}, cv=2, verbose=3)
@@ -249,6 +312,10 @@ def test_grid_search():
 
 
 def test_grid_search_pipeline_steps():
+    # [FUNCTION DOC]
+    # Verifies estimators given as grid values are cloned: cv_results_ entries are
+    #   unfitted instances distinct from best_estimator_, and the user's param_grid
+    #   objects are not fitted.
     # check that parameters that are estimators are cloned before fitting
     pipe = Pipeline([("regressor", LinearRegression())])
     param_grid = {"regressor": [LinearRegression(), Ridge()]}
@@ -268,6 +335,10 @@ def test_grid_search_pipeline_steps():
 
 @pytest.mark.parametrize("SearchCV", [GridSearchCV, RandomizedSearchCV])
 def test_SearchCV_with_fit_params(SearchCV):
+    # [FUNCTION DOC]
+    # Verifies fit params are forwarded and sliced per split for Grid/RandomizedSearchCV
+    #   via CheckingClassifier: missing param or wrong-length param raises
+    #   AssertionError (error_score="raise"), correct ones pass.
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
     clf = CheckingClassifier(expected_fit_params=["spam", "eggs"])
@@ -286,6 +357,10 @@ def test_SearchCV_with_fit_params(SearchCV):
 
 
 def test_grid_search_no_score():
+    # [FUNCTION DOC]
+    # Verifies that with an explicit scoring, an estimator lacking score gives the same
+    #   best_params_ and score as one with score; without scoring, fit raises TypeError
+    #   mentioning "no scoring".
     # Test grid-search on classifier that has no score function.
     clf = LinearSVC(random_state=0)
     X, y = make_blobs(random_state=0, centers=2)
@@ -310,6 +385,10 @@ def test_grid_search_no_score():
 
 
 def test_grid_search_score_method():
+    # [FUNCTION DOC]
+    # Verifies SearchCV.score uses the scoring parameter: scoring=None equals accuracy,
+    #   and roc_auc results match whether or not the estimator has a score method;
+    #   sanity checks that the two metrics differ.
     X, y = make_classification(n_samples=100, n_classes=2, flip_y=0.2, random_state=0)
     clf = LinearSVC(random_state=0)
     grid = {"C": [0.1]}
@@ -338,6 +417,9 @@ def test_grid_search_score_method():
 
 
 def test_grid_search_groups():
+    # [FUNCTION DOC]
+    # Verifies group-based CV splitters raise ValueError when groups is None and work
+    #   when groups is passed, while non-group splitters work without groups.
     # Check if ValueError (when groups is None) propagates to GridSearchCV
     # And also check if groups is correctly passed to the cv object
     rng = np.random.RandomState(0)
@@ -369,6 +451,9 @@ def test_grid_search_groups():
 
 
 def test_classes__property():
+    # [FUNCTION DOC]
+    # Verifies classes_ on the search equals best_estimator_.classes_ for classifiers
+    #   and is absent for regressors, before fit, and when refit=False.
     # Test that classes_ property matches best_estimator_.classes_
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
@@ -394,6 +479,8 @@ def test_classes__property():
 
 
 def test_trivial_cv_results_attr():
+    # [FUNCTION DOC]
+    # Verifies cv_results_ is set when the grid / sampled space has a single point.
     # Test search over a "grid" with only one point.
     clf = MockClassifier()
     grid_search = GridSearchCV(clf, {"foo_param": [1]}, cv=2)
@@ -406,6 +493,11 @@ def test_trivial_cv_results_attr():
 
 
 def test_no_refit():
+    # [FUNCTION DOC]
+    # Verifies refit=False keeps best_index_/best_params_ but not best_estimator_, and
+    #   that predict-like methods raise AttributeError chained from an inner
+    #   AttributeError explaining refit=False. Also checks invalid refit values with
+    #   dict multi-metric scoring raise ValueError.
     # Test that GSCV can be used for model selection alone without refitting
     clf = MockClassifier()
     for scoring in [None, ["accuracy", "precision"]]:
@@ -449,6 +541,8 @@ def test_no_refit():
 
 
 def test_grid_search_error():
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when X and y have different lengths.
     # Test that grid search will capture errors on data with different length
     X_, y_ = make_classification(n_samples=200, n_features=100, random_state=0)
 
@@ -459,6 +553,9 @@ def test_grid_search_error():
 
 
 def test_grid_search_one_grid_point():
+    # [FUNCTION DOC]
+    # Verifies a single-point grid yields a best_estimator_ identical (dual_coef_) to
+    #   directly fitting SVC with those params.
     X_, y_ = make_classification(n_samples=200, n_features=100, random_state=0)
     param_dict = {"C": [1.0], "kernel": ["rbf"], "gamma": [0.1]}
 
@@ -473,6 +570,9 @@ def test_grid_search_one_grid_point():
 
 
 def test_grid_search_when_param_grid_includes_range():
+    # [FUNCTION DOC]
+    # Verifies a range object is accepted as grid values and foo_param=2 is chosen.
+    # KNOWN ISSUE: the initial assignment of grid_search to None is dead code.
     # Test that the best estimator contains the right value for foo_param
     clf = MockClassifier()
     grid_search = None
@@ -482,6 +582,10 @@ def test_grid_search_when_param_grid_includes_range():
 
 
 def test_grid_search_bad_param_grid():
+    # [FUNCTION DOC]
+    # Verifies param grid validation at fit: scalar value and string raise TypeError
+    #   with a wrap-in-list hint, empty list raises ValueError, and a 2D array raises
+    #   ValueError.
     X, y = make_classification(n_samples=10, n_features=5, random_state=0)
     param_dict = {"C": 1}
     clf = SVC(gamma="auto")
@@ -523,6 +627,9 @@ def test_grid_search_bad_param_grid():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_grid_search_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies dense vs sparse (COO from CSR container) training give the same chosen C
+    #   and >= 90% identical predictions.
     # Test that grid search works with both dense and sparse matrices
     X_, y_ = make_classification(n_samples=200, n_features=100, random_state=0)
 
@@ -545,6 +652,10 @@ def test_grid_search_sparse(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_grid_search_sparse_scoring(csr_container):
+    # [FUNCTION DOC]
+    # Verifies dense vs sparse with scoring="f1" give identical predictions and C, and
+    #   that a custom loss scorer (greater_is_better=False, negated f1) yields the same
+    #   choice.
     X_, y_ = make_classification(n_samples=200, n_features=100, random_state=0)
 
     clf = LinearSVC()
@@ -568,6 +679,8 @@ def test_grid_search_sparse_scoring(csr_container):
 
     # test loss where greater is worse
     def f1_loss(y_true_, y_pred_):
+        # [FUNCTION DOC]
+        # HELPER: returns minus the f1 score of the given labels and predictions.
         return -f1_score(y_true_, y_pred_)
 
     F1Loss = make_scorer(f1_loss, greater_is_better=False)
@@ -581,6 +694,11 @@ def test_grid_search_sparse_scoring(csr_container):
 
 
 def test_grid_search_precomputed_kernel():
+    # [FUNCTION DOC]
+    # Verifies grid search on SVC with a precomputed linear kernel fits and predicts on
+    #   a test kernel; a list (non array) kernel raises ValueError.
+    # KNOWN ISSUE: the asserts best_score_ >= 0 and accuracy >= 0 are trivially true and
+    #   check little.
     # Test that grid search works when the input features are given in the
     # form of a precomputed kernel matrix
     X_, y_ = make_classification(n_samples=200, n_features=100, random_state=0)
@@ -610,6 +728,8 @@ def test_grid_search_precomputed_kernel():
 
 
 def test_grid_search_precomputed_kernel_error_nonsquare():
+    # [FUNCTION DOC]
+    # Verifies a non-square precomputed training kernel raises ValueError at fit.
     # Test that grid search returns an error with a non-square precomputed
     # training kernel matrix
     K_train = np.zeros((10, 20))
@@ -621,21 +741,34 @@ def test_grid_search_precomputed_kernel_error_nonsquare():
 
 
 class BrokenClassifier(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: estimator that fails (AssertionError) if fit is called twice on the same
+    #   instance; detects missing cloning before refit.
     """Broken classifier that cannot be fit twice"""
 
     def __init__(self, parameter=None):
+        # [FUNCTION DOC]
+        # HELPER: stores parameter unchanged.
         self.parameter = parameter
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: asserts has_been_fit_ is not set, then sets it to True. Returns None
+        #   (not self).
         assert not hasattr(self, "has_been_fit_")
         self.has_been_fit_ = True
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: returns a zero vector with one entry per row of X.
         return np.zeros(X.shape[0])
 
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_refit():
+    # [FUNCTION DOC]
+    # Regression test: refit=True with BrokenClassifier must not refit an already-fitted
+    #   instance (would raise AssertionError).
     # Regression test for bug in refitting
     # Simulates re-fitting a broken estimator; this used to break with
     # sparse SVMs.
@@ -649,12 +782,21 @@ def test_refit():
 
 
 def test_refit_callable():
+    # [FUNCTION DOC]
+    # Verifies refit=callable: the callable receives cv_results_ with all standard keys,
+    #   its returned index becomes best_index_, and best_score_ is not set.
     """
     Test refit=callable, which adds flexibility in identifying the
     "best" estimator.
     """
 
     def refit_callable(cv_results):
+        # [FUNCTION DOC]
+        # HELPER: fits an internal GridSearchCV to check that every key of its
+        #   cv_results_ is present in the given cv_results, then returns the argmin of
+        #   mean_test_score.
+        # Exceptions: AssertionError if the internal best_index_ is 0 or keys are
+        #   missing.
         """
         A dummy function tests `refit=callable` interface.
         Return the index of a model that has the least
@@ -694,12 +836,16 @@ def test_refit_callable():
 
 
 def test_refit_callable_invalid_type():
+    # [FUNCTION DOC]
+    # Verifies a refit callable returning a non-integer raises TypeError.
     """
     Test implementation catches the errors when 'best_index_' returns an
     invalid result.
     """
 
     def refit_callable_invalid_type(cv_results):
+        # [FUNCTION DOC]
+        # HELPER: ignores cv_results and returns None.
         """
         A dummy function tests when returned 'best_index_' is not integer.
         """
@@ -720,12 +866,17 @@ def test_refit_callable_invalid_type():
 @pytest.mark.parametrize("out_bound_value", [-1, 2])
 @pytest.mark.parametrize("search_cv", [RandomizedSearchCV, GridSearchCV])
 def test_refit_callable_out_bound(out_bound_value, search_cv):
+    # [FUNCTION DOC]
+    # Verifies a refit callable returning an out-of-range index (-1 or 2 for 2
+    #   candidates) raises IndexError.
     """
     Test implementation catches the errors when 'best_index_' returns an
     out of bound result.
     """
 
     def refit_callable_out_bound(cv_results):
+        # [FUNCTION DOC]
+        # HELPER: returns the closure value out_bound_value.
         """
         A dummy function tests when returned 'best_index_' is out of bounds.
         """
@@ -744,11 +895,16 @@ def test_refit_callable_out_bound(out_bound_value, search_cv):
 
 
 def test_refit_callable_multi_metric():
+    # [FUNCTION DOC]
+    # Verifies refit=callable with dict multi-metric scoring: callable output sets
+    #   best_index_ and best_score_ is absent.
     """
     Test refit=callable in multiple metric evaluation setting
     """
 
     def refit_callable(cv_results):
+        # [FUNCTION DOC]
+        # HELPER: asserts mean_test_prec exists and returns its argmin.
         """
         A dummy function tests `refit=callable` interface.
         Return the index of a model that has the least
@@ -773,14 +929,23 @@ def test_refit_callable_multi_metric():
 
 
 def test_gridsearch_nd():
+    # [FUNCTION DOC]
+    # Verifies n-dimensional X (4D) and y (3D) are passed through to the estimator's fit
+    #   unchanged in trailing shape.
+    # KNOWN ISSUE: the comment says "Pass X as list" but X is a 4D array; final score
+    #   uses the module-level X, y.
     # Pass X as list in GridSearchCV
     X_4d = np.arange(10 * 5 * 3 * 2).reshape(10, 5, 3, 2)
     y_3d = np.arange(10 * 7 * 11).reshape(10, 7, 11)
 
     def check_X(x):
+        # [FUNCTION DOC]
+        # HELPER: True if trailing shape is (5, 3, 2).
         return x.shape[1:] == (5, 3, 2)
 
     def check_y(x):
+        # [FUNCTION DOC]
+        # HELPER: True if trailing shape is (7, 11).
         return x.shape[1:] == (7, 11)
 
     clf = CheckingClassifier(
@@ -794,6 +959,9 @@ def test_gridsearch_nd():
 
 
 def test_X_as_list():
+    # [FUNCTION DOC]
+    # Verifies a Python list X is passed to the estimator's fit as a list (no
+    #   conversion).
     # Pass X as list in GridSearchCV
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
@@ -809,6 +977,8 @@ def test_X_as_list():
 
 
 def test_y_as_list():
+    # [FUNCTION DOC]
+    # Verifies a Python list y is passed to the estimator's fit as a list.
     # Pass y as list in GridSearchCV
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
@@ -824,6 +994,10 @@ def test_y_as_list():
 
 
 def test_pandas_input():
+    # [FUNCTION DOC]
+    # Verifies DataFrame/Series-like inputs (MockDataFrame and, if installed, pandas)
+    #   reach the estimator without conversion through fit, score and predict.
+    # KNOWN ISSUE: comment mentions cross_val_score but the test uses GridSearchCV.
     # check cross_val_score doesn't destroy pandas dataframe
     types = [(MockDataFrame, MockDataFrame)]
     try:
@@ -841,9 +1015,14 @@ def test_pandas_input():
         X_df, y_ser = InputFeatureType(X), TargetType(y)
 
         def check_df(x):
+            # [FUNCTION DOC]
+            # HELPER: True if x is an instance of the current InputFeatureType (loop
+            #   closure).
             return isinstance(x, InputFeatureType)
 
         def check_series(x):
+            # [FUNCTION DOC]
+            # HELPER: True if x is an instance of the current TargetType (loop closure).
             return isinstance(x, TargetType)
 
         clf = CheckingClassifier(check_X=check_df, check_y=check_series)
@@ -855,6 +1034,10 @@ def test_pandas_input():
 
 
 def test_unsupervised_grid_search():
+    # [FUNCTION DOC]
+    # Verifies KMeans grid search on blobs: supervised clustering metrics (multi and
+    #   single metric) select n_clusters=3; default scoring (KMeans score, no y) selects
+    #   4.
     # test grid-search with unsupervised estimator
     X, y = make_blobs(n_samples=50, random_state=0)
     km = KMeans(random_state=0, init="random", n_init=1)
@@ -883,9 +1066,14 @@ def test_unsupervised_grid_search():
 
 
 def test_gridsearch_no_predict():
+    # [FUNCTION DOC]
+    # Verifies search works with an estimator lacking predict (KernelDensity) when a
+    #   custom scoring callable is given.
     # test grid-search with an estimator without predict.
     # slight duplication of a test from KDE
     def custom_scoring(estimator, X):
+        # [FUNCTION DOC]
+        # HELPER: returns 42 if the estimator bandwidth is 0.1, else 0; X ignored.
         return 42 if estimator.bandwidth == 0.1 else 0
 
     X, _ = make_blobs(cluster_std=0.1, random_state=1, centers=[[0, 1], [1, 0], [0, 0]])
@@ -900,6 +1088,10 @@ def test_gridsearch_no_predict():
 
 
 def test_param_sampler():
+    # [FUNCTION DOC]
+    # Verifies ParameterSampler yields n_iter dicts within the given
+    #   choices/distribution ranges, and is reproducible across iterations with a fixed
+    #   random_state for both lists and distributions.
     # test basic properties of param sampler
     param_distributions = {"kernel": ["rbf", "linear"], "C": uniform(0, 1)}
     sampler = ParameterSampler(
@@ -928,6 +1120,12 @@ def test_param_sampler():
 def check_cv_results_array_types(
     search, param_keys, score_keys, expected_cv_results_kinds
 ):
+    # [FUNCTION DOC]
+    # HELPER: asserts that param_* entries of search.cv_results_ are MaskedArrays with
+    #   the expected dtype kinds, score/time entries are plain float64 arrays, and each
+    #   rank_test_* is int32.
+    # Inputs: search - fitted search; param_keys, score_keys - tuples of key names;
+    #   expected_cv_results_kinds - dict key to numpy dtype kind char.
     # Check if the search `cv_results`'s array are of correct types
     cv_results = search.cv_results_
     assert all(isinstance(cv_results[param], np.ma.MaskedArray) for param in param_keys)
@@ -948,6 +1146,9 @@ def check_cv_results_array_types(
 
 
 def check_cv_results_keys(cv_results, param_keys, score_keys, n_cand, extra_keys=()):
+    # [FUNCTION DOC]
+    # HELPER: asserts cv_results keys are exactly param_keys + score_keys + extra_keys +
+    #   "params", and each param/score array has shape (n_cand,).
     # Test the search.cv_results_ contains all the required results
     all_keys = param_keys + score_keys + extra_keys
     assert_array_equal(sorted(cv_results.keys()), sorted(all_keys + ("params",)))
@@ -955,6 +1156,12 @@ def check_cv_results_keys(cv_results, param_keys, score_keys, n_cand, extra_keys
 
 
 def test_grid_search_cv_results():
+    # [FUNCTION DOC]
+    # Verifies GridSearchCV.cv_results_ for a two-subgrid SVC search: keys, dtypes,
+    #   ranks >= 1, and masking of params not present in a candidate's subgrid (poly
+    #   masks C/gamma, rbf masks degree).
+    # KNOWN ISSUE: two asserts wrap a generator in parentheses (assert of a generator
+    #   object), which is always true; the score range checks never execute.
     X, y = make_classification(n_samples=50, n_features=4, random_state=42)
 
     n_grid_points = 6
@@ -1045,6 +1252,10 @@ def test_grid_search_cv_results():
 
 
 def test_random_search_cv_results():
+    # [FUNCTION DOC]
+    # Same structure, dtype and masking checks as the grid version for
+    #   RandomizedSearchCV with 30 iterations over continuous and discrete
+    #   distributions.
     X, y = make_classification(n_samples=50, n_features=4, random_state=42)
 
     n_search_iter = 30
@@ -1121,6 +1332,11 @@ def test_random_search_cv_results():
     ],
 )
 def test_search_default_iid(SearchCV, specialized_params):
+    # [FUNCTION DOC]
+    # Verifies mean/std test scores are unweighted across folds using a hand-crafted
+    #   non-iid 2-fold split (fold scores 1 and 1/3), and train scores are perfect.
+    # KNOWN ISSUE: the in-code TODO notes the test name (iid) does not reflect what is
+    #   tested.
     # Test the IID parameter  TODO: Clearly this test does something else???
     # noise-free simple 2d-data
     X, y = make_blobs(
@@ -1177,6 +1393,9 @@ def test_search_default_iid(SearchCV, specialized_params):
 
 
 def test_grid_search_cv_results_multimetric():
+    # [FUNCTION DOC]
+    # Verifies multi-metric GridSearchCV cv_results_ equals the merged results of
+    #   separate accuracy and recall single-metric searches.
     X, y = make_classification(n_samples=50, n_features=4, random_state=42)
 
     n_splits = 3
@@ -1212,6 +1431,13 @@ def test_grid_search_cv_results_multimetric():
 
 
 def test_random_search_cv_results_multimetric():
+    # [FUNCTION DOC]
+    # Verifies multi-metric RandomizedSearchCV matches single-metric searches, with
+    #   refit False and refit True ("accuracy" for multi-metric), and that refit methods
+    #   agree.
+    # KNOWN ISSUE: refit is reassigned to "accuracy" inside the inner loop, so the
+    #   subsequent single-metric searches in that outer iteration also get
+    #   refit="accuracy" rather than True.
     X, y = make_classification(n_samples=50, n_features=4, random_state=42)
 
     n_splits = 3
@@ -1244,6 +1470,11 @@ def test_random_search_cv_results_multimetric():
 
 
 def compare_cv_results_multimetric_with_single(search_multi, search_acc, search_rec):
+    # [FUNCTION DOC]
+    # HELPER: asserts search_multi is multimetric with scorers accuracy and recall,
+    #   timing entries are <= 1, and all non-time cv_results_ entries equal those of
+    #   search_acc and search_rec after renaming their _score suffix to _accuracy /
+    #   _recall.
     """Compare multi-metric cv_results with the ensemble of multiple
     single metric cv_results from single metric grid/random search"""
 
@@ -1282,6 +1513,11 @@ def compare_cv_results_multimetric_with_single(search_multi, search_acc, search_
 
 
 def compare_refit_methods_when_refit_with_acc(search_multi, search_acc, refit):
+    # [FUNCTION DOC]
+    # HELPER: asserts refit settings; when refit is truthy checks predict,
+    #   predict_proba, predict_log_proba, score and best_index_/best_score_/best_params_
+    #   agree between search_multi and search_acc on new blob data. Returns early when
+    #   refit is falsy.
     """Compare refit multi-metric search methods with single metric methods"""
     assert search_acc.refit == refit
     if refit:
@@ -1313,6 +1549,9 @@ def compare_refit_methods_when_refit_with_acc(search_multi, search_acc, refit):
     ],
 )
 def test_search_cv_score_samples_error(search_cv):
+    # [FUNCTION DOC]
+    # Verifies score_samples raises AttributeError (chained from the inner estimator's
+    #   AttributeError) when the estimator lacks score_samples.
     X, y = make_blobs(n_samples=100, n_features=4, random_state=42)
     search_cv = clone(search_cv)
     search_cv.fit(X, y)
@@ -1329,10 +1568,16 @@ def test_search_cv_score_samples_error(search_cv):
 
 
 def test_unsupported_sample_weight_scorer():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning is emitted when sample_weight is passed to fit but the
+    #   scorer (plain function, make_scorer, or one entry of a multi-metric dict) does
+    #   not accept sample_weight.
     """Checks that fitting with sample_weight raises a warning if the scorer does not
     support sample_weight"""
 
     def fake_score_func(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: constant score 0.5 with no sample_weight parameter.
         "Fake scoring function that does not support sample_weight"
         return 0.5
 
@@ -1370,6 +1615,10 @@ def test_unsupported_sample_weight_scorer():
     ],
 )
 def test_search_cv_sample_weight_equivalence(estimator):
+    # [FUNCTION DOC]
+    # Verifies that fitting with integer sample_weight equals fitting on data with rows
+    #   repeated by weight: cv_results_ scores, best_score_/best_index_ and predict-like
+    #   outputs match. Uses LeaveOneGroupOut so splits correspond.
     estimator_weighted = clone(estimator)
     estimator_repeated = clone(estimator)
     set_random_state(estimator_weighted, random_state=0)
@@ -1450,6 +1699,9 @@ def test_search_cv_sample_weight_equivalence(estimator):
     ],
 )
 def test_search_cv_score_samples_method(search_cv):
+    # [FUNCTION DOC]
+    # Verifies search.score_samples equals best_estimator_.score_samples for
+    #   LocalOutlierFactor(novelty=True) on inliers plus uniform outliers.
     search_cv = clone(search_cv)  # Avoid side effects from previous tests.
     # Set parameters
     rng = np.random.RandomState(42)
@@ -1484,6 +1736,9 @@ def test_search_cv_score_samples_method(search_cv):
 
 
 def test_search_cv_results_rank_tie_breaking():
+    # [FUNCTION DOC]
+    # Verifies tied mean test scores get the same (min) rank: ranks [1, 1, 3] for C
+    #   values 1, 1.001, 0.001.
     X, y = make_blobs(n_samples=50, random_state=42)
 
     # The two C values are close enough to give similar models
@@ -1518,6 +1773,8 @@ def test_search_cv_results_rank_tie_breaking():
 
 
 def test_search_cv_results_none_param():
+    # [FUNCTION DOC]
+    # Verifies None is kept as a parameter value in param_random_state.
     X, y = [[1], [2], [3], [4], [5]], [0, 0, 0, 0, 1]
     estimators = (DecisionTreeRegressor(), DecisionTreeClassifier())
     est_parameters = {"random_state": [0, None]}
@@ -1534,6 +1791,9 @@ def test_search_cv_results_none_param():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.FitFailedWarning")
 def test_search_cv_timing():
+    # [FUNCTION DOC]
+    # Verifies fit/score timing entries are non-negative and < 1 s, failed fits (C=0)
+    #   record score time 0, and refit_time_ is a non-negative float.
     svc = LinearSVC(random_state=0)
 
     X = [
@@ -1574,6 +1834,9 @@ def test_search_cv_timing():
 
 
 def test_grid_search_correct_score_results():
+    # [FUNCTION DOC]
+    # Verifies per-split test scores for f1 and roc_auc equal scores recomputed manually
+    #   with StratifiedKFold, and expected keys exist.
     # test that correct scores are used
     n_splits = 3
     clf = LinearSVC(random_state=0)
@@ -1611,6 +1874,9 @@ def test_grid_search_correct_score_results():
 
 
 def test_pickle():
+    # [FUNCTION DOC]
+    # Verifies fitted Grid/RandomizedSearchCV round-trips through pickle with identical
+    #   predictions.
     # Test that a fit search can be pickled
     clf = MockClassifier()
     grid_search = GridSearchCV(clf, {"foo_param": [1, 2, 3]}, refit=True, cv=2)
@@ -1629,6 +1895,9 @@ def test_pickle():
 
 
 def test_grid_search_with_multioutput_data():
+    # [FUNCTION DOC]
+    # Verifies per-split scores for multi-output tree estimators match manual KFold
+    #   fit/score for both grid and randomized search.
     # Test search with multi-output estimator
 
     X, y = make_multilabel_classification(return_indicator=True, random_state=0)
@@ -1675,6 +1944,9 @@ def test_grid_search_with_multioutput_data():
 
 
 def test_predict_proba_disabled():
+    # [FUNCTION DOC]
+    # Verifies predict_proba is unavailable when the best estimator (SVC with
+    #   probability=False) lacks it.
     # Test predict_proba when disabled on estimator.
     X = np.arange(20).reshape(5, -1)
     y = [0, 0, 1, 1, 1]
@@ -1684,6 +1956,9 @@ def test_predict_proba_disabled():
 
 
 def test_grid_search_allows_nans():
+    # [FUNCTION DOC]
+    # Verifies NaNs in X are accepted when a pipeline imputes them (smoke test, no
+    #   assertions).
     # Test GridSearchCV with SimpleImputer
     X = np.arange(20, dtype=np.float64).reshape(5, -1)
     X[2, :] = np.nan
@@ -1698,25 +1973,41 @@ def test_grid_search_allows_nans():
 
 
 class FailingClassifier(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: estimator whose fit raises ValueError when parameter equals
+    #   FAILING_PARAMETER (2); score is always 0.0.
     """Classifier that raises a ValueError on fit()"""
 
     FAILING_PARAMETER = 2
 
     def __init__(self, parameter=None):
+        # [FUNCTION DOC]
+        # HELPER: stores parameter unchanged.
         self.parameter = parameter
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: raises ValueError("Failing classifier failed as required") if
+        #   parameter equals FAILING_PARAMETER; otherwise returns None (not self).
         if self.parameter == FailingClassifier.FAILING_PARAMETER:
             raise ValueError("Failing classifier failed as required")
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: returns zeros, one per row of X.
         return np.zeros(X.shape[0])
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: always returns 0.0.
         return 0.0
 
 
 def test_grid_search_failing_classifier():
+    # [FUNCTION DOC]
+    # Verifies numeric error_score (0.0 and nan): FitFailedWarning with summary of 5/15
+    #   failed fits, failed candidate split scores equal error_score, and nan-scored
+    #   candidate is ranked last and not chosen.
     # GridSearchCV with on_error != 'raise'
     # Ensures that a warning is raised and score reset where appropriate.
 
@@ -1751,6 +2042,9 @@ def test_grid_search_failing_classifier():
     # Ensure that grid scores were set to zero as required for those fits
     # that are expected to fail.
     def get_cand_scores(i):
+        # [FUNCTION DOC]
+        # HELPER: returns array of per-split test scores for candidate index i from the
+        #   current gs (closure, re-bound later).
         return np.array(
             [gs.cv_results_["split%d_test_score" % s][i] for s in range(gs.n_splits_)]
         )
@@ -1798,6 +2092,9 @@ def test_grid_search_failing_classifier():
 
 
 def test_grid_search_classifier_all_fits_fail():
+    # [FUNCTION DOC]
+    # Verifies that when all 15 fits fail, fit raises ValueError summarising the errors
+    #   even with numeric error_score.
     X, y = make_classification(n_samples=20, n_features=10, random_state=0)
 
     clf = FailingClassifier()
@@ -1820,6 +2117,8 @@ def test_grid_search_classifier_all_fits_fail():
 
 
 def test_grid_search_failing_classifier_raise():
+    # [FUNCTION DOC]
+    # Verifies error_score="raise" propagates the estimator's ValueError.
     # GridSearchCV with on_error == 'raise' raises the error
 
     X, y = make_classification(n_samples=20, n_features=10, random_state=0)
@@ -1841,6 +2140,11 @@ def test_grid_search_failing_classifier_raise():
 
 
 def test_parameters_sampler_replacement():
+    # [FUNCTION DOC]
+    # Verifies ParameterSampler with all-list params samples without replacement: warns
+    #   and truncates when n_iter exceeds grid size, equals the full grid when n_iter ==
+    #   size, gives 99 unique samples from a 1000-point grid, and terminates with a
+    #   distribution.
     # raise warning if n_iter is bigger than total parameter space
     params = [
         {"first": [0, 1], "second": ["a", "b", "c"]},
@@ -1881,6 +2185,9 @@ def test_parameters_sampler_replacement():
 
 
 def test_stochastic_gradient_loss_param():
+    # [FUNCTION DOC]
+    # Verifies predict_proba availability follows the loss chosen in the grid (log_loss
+    #   -> available after fit, hinge -> never), not the base estimator's loss.
     # Make sure the predict_proba works when loss is specified
     # as one of the parameters in the param_grid.
     param_grid = {
@@ -1913,6 +2220,10 @@ def test_stochastic_gradient_loss_param():
 
 
 def test_search_train_scores_set_to_false():
+    # [FUNCTION DOC]
+    # Smoke test that fit works with default return_train_score.
+    # KNOWN ISSUE: no assertions; the name suggests train scores are checked but nothing
+    #   is verified.
     X = np.arange(6).reshape(6, -1)
     y = [0, 0, 0, 1, 1, 1]
     clf = LinearSVC(random_state=0)
@@ -1922,6 +2233,10 @@ def test_search_train_scores_set_to_false():
 
 
 def test_grid_search_cv_splits_consistency():
+    # [FUNCTION DOC]
+    # Verifies cv accepts a one-time splitter and a generator, split is called once (not
+    #   per candidate) so results match KFold, and identical candidates get identical
+    #   per-split train/test scores.
     # Check if a one time iterable is accepted as a cv parameter.
     n_samples = 100
     n_splits = 5
@@ -1965,6 +2280,9 @@ def test_grid_search_cv_splits_consistency():
     gs4.fit(X, y)
 
     def _pop_time_keys(cv_results):
+        # [FUNCTION DOC]
+        # HELPER: removes the four timing keys from cv_results in place and returns it.
+        #   Side effect: mutates the fitted searches' cv_results_.
         for key in (
             "mean_fit_time",
             "std_fit_time",
@@ -2017,6 +2335,8 @@ def test_grid_search_cv_splits_consistency():
 
 
 def test_transform_inverse_transform_round_trip():
+    # [FUNCTION DOC]
+    # Verifies inverse_transform(transform(X)) returns X through the best estimator.
     clf = MockClassifier()
     grid_search = GridSearchCV(clf, {"foo_param": [1, 2, 3]}, cv=2, verbose=3)
 
@@ -2026,7 +2346,15 @@ def test_transform_inverse_transform_round_trip():
 
 
 def test_custom_run_search():
+    # [FUNCTION DOC]
+    # Verifies a BaseSearchCV subclass with a custom _run_search calling evaluate twice
+    #   yields cumulative results equal to GridSearchCV over the union grid, and all
+    #   public fitted attributes (except a few) match.
     def check_results(results, gscv):
+        # [FUNCTION DOC]
+        # HELPER: asserts results have the same keys as gscv.cv_results_ and all non-
+        #   time values are equal (exact for object arrays, allclose otherwise). Side
+        #   effect: converts results values to arrays in place.
         exp_results = gscv.cv_results_
         assert sorted(results.keys()) == sorted(exp_results)
         for k in results:
@@ -2041,13 +2369,25 @@ def test_custom_run_search():
                     assert_allclose(exp_results[k], results[k], err_msg="Checking " + k)
 
     def fit_grid(param_grid):
+        # [FUNCTION DOC]
+        # HELPER: fits and returns GridSearchCV(clf, param_grid,
+        #   return_train_score=True) on the enclosing X, y.
         return GridSearchCV(clf, param_grid, return_train_score=True).fit(X, y)
 
     class CustomSearchCV(BaseSearchCV):
+        # [CLASS DOC]
+        # HELPER: BaseSearchCV subclass that evaluates two hard-coded candidate batches
+        #   and checks intermediate results.
         def __init__(self, estimator, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: forwards to BaseSearchCV.__init__.
             super().__init__(estimator, **kwargs)
 
         def _run_search(self, evaluate):
+            # [FUNCTION DOC]
+            # HELPER: calls evaluate for max_depth candidates, checks against a grid
+            #   search, then for min_samples_split candidates, checking that results
+            #   accumulate.
             results = evaluate([{"max_depth": 1}, {"max_depth": 2}])
             check_results(results, fit_grid({"max_depth": [1, 2]}))
             results = evaluate([{"min_samples_split": 5}, {"min_samples_split": 10}])
@@ -2083,18 +2423,31 @@ def test_custom_run_search():
 
 
 def test__custom_fit_no_run_search():
+    # [FUNCTION DOC]
+    # Verifies a subclass overriding fit need not implement _run_search, while one that
+    #   does neither raises NotImplementedError at fit.
     class NoRunSearchSearchCV(BaseSearchCV):
+        # [CLASS DOC]
+        # HELPER: subclass with a no-op fit.
         def __init__(self, estimator, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: forwards to BaseSearchCV.__init__.
             super().__init__(estimator, **kwargs)
 
         def fit(self, X, y=None, groups=None, **fit_params):
+            # [FUNCTION DOC]
+            # HELPER: returns self without doing anything.
             return self
 
     # this should not raise any exceptions
     NoRunSearchSearchCV(SVC()).fit(X, y)
 
     class BadSearchCV(BaseSearchCV):
+        # [CLASS DOC]
+        # HELPER: subclass without _run_search.
         def __init__(self, estimator, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: forwards to BaseSearchCV.__init__.
             super().__init__(estimator, **kwargs)
 
     with pytest.raises(NotImplementedError, match="_run_search not implemented."):
@@ -2106,6 +2459,8 @@ def test__custom_fit_no_run_search():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_empty_cv_iterator_error():
+    # [FUNCTION DOC]
+    # Verifies an exhausted cv generator leads to ValueError "No fits were performed".
     # Use global X, y
 
     # create cv
@@ -2133,10 +2488,19 @@ def test_empty_cv_iterator_error():
 # TODO: remove mark once loky bug is fixed:
 # https://github.com/joblib/loky/issues/458
 def test_random_search_bad_cv():
+    # [FUNCTION DOC]
+    # Verifies ValueError when cv.get_n_splits disagrees with the number of splits
+    #   produced.
+    # KNOWN ISSUE: the TODO comment above refers to a thread_unsafe mark that this test
+    #   does not have.
     # Use global X, y
 
     class BrokenKFold(KFold):
+        # [CLASS DOC]
+        # HELPER: KFold whose get_n_splits always reports 1.
         def get_n_splits(self, *args, **kw):
+            # [FUNCTION DOC]
+            # HELPER: returns 1 regardless of arguments.
             return 1
 
     # create bad cv
@@ -2171,6 +2535,9 @@ def test_random_search_bad_cv():
 def test_searchcv_raise_warning_with_non_finite_score(
     SearchCV, specialized_params, return_train_score
 ):
+    # [FUNCTION DOC]
+    # Verifies a UserWarning per score set (test and optionally train) when some scores
+    #   are NaN, and that NaN-mean candidates share the worst rank.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/10529
     # Check that we raise a UserWarning when a non-finite score is
@@ -2178,12 +2545,19 @@ def test_searchcv_raise_warning_with_non_finite_score(
     X, y = make_classification(n_classes=2, random_state=0)
 
     class FailingScorer:
+        # [CLASS DOC]
+        # HELPER: stateful scorer returning NaN on every 5th call, 1 otherwise.
         """Scorer that will fail for some split but not all."""
 
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: initialises call counter n_counts to 0.
             self.n_counts = 0
 
         def __call__(self, estimator, X, y):
+            # [FUNCTION DOC]
+            # HELPER: increments n_counts; returns NaN when it is a multiple of 5, else
+            #   1.
             self.n_counts += 1
             if self.n_counts % 5 == 0:
                 return np.nan
@@ -2214,9 +2588,15 @@ def test_searchcv_raise_warning_with_non_finite_score(
 
 
 def test_callable_multimetric_confusion_matrix():
+    # [FUNCTION DOC]
+    # Verifies a callable returning a dict of metrics creates mean_test_<name> keys and
+    #   refit="fp" makes score return that metric.
     # Test callable with many metrics inserts the correct names and metrics
     # into the search cv object
     def custom_scorer(clf, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns dict of tn, fp, fn, tp from the binary confusion matrix of clf
+        #   predictions.
         y_pred = clf.predict(X)
         cm = confusion_matrix(y, y_pred)
         return {"tn": cm[0, 0], "fp": cm[0, 1], "fn": cm[1, 0], "tp": cm[1, 1]}
@@ -2237,8 +2617,13 @@ def test_callable_multimetric_confusion_matrix():
 
 
 def test_callable_multimetric_same_as_list_of_strings():
+    # [FUNCTION DOC]
+    # Verifies a callable dict scorer gives the same best_score_, best_index_ and score
+    #   as the equivalent list of metric names.
     # Test callable multimetric is the same as a list of strings
     def custom_scorer(est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns dict with recall and accuracy of est predictions.
         y_pred = est.predict(X)
         return {
             "recall": recall_score(y, y_pred),
@@ -2263,8 +2648,13 @@ def test_callable_multimetric_same_as_list_of_strings():
 
 
 def test_callable_single_metric_same_as_single_string():
+    # [FUNCTION DOC]
+    # Verifies a callable single-value scorer, scoring="recall" and scoring=["recall"]
+    #   give the same best_score_, best_index_ and score.
     # Tests callable scorer is the same as scoring with a single string
     def custom_scorer(est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns recall of est predictions.
         y_pred = est.predict(X)
         return recall_score(y, y_pred)
 
@@ -2291,8 +2681,13 @@ def test_callable_single_metric_same_as_single_string():
 
 
 def test_callable_multimetric_error_on_invalid_key():
+    # [FUNCTION DOC]
+    # Verifies ValueError when refit names a key absent from the callable scorer's
+    #   returned dict.
     # Raises when the callable scorer does not return a dict with `refit` key.
     def bad_scorer(est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns {"bad_name": 1}.
         return {"bad_name": 1}
 
     X, y = make_classification(n_samples=40, n_features=4, random_state=42)
@@ -2312,9 +2707,14 @@ def test_callable_multimetric_error_on_invalid_key():
 
 
 def test_callable_multimetric_error_failing_clf():
+    # [FUNCTION DOC]
+    # Verifies FitFailedWarning with a dict callable scorer and that failing candidates
+    #   get error_score (0.1) in mean_test_acc.
     # Warns when there is an estimator the fails to fit with a float
     # error_score
     def custom_scorer(est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns {"acc": 1}.
         return {"acc": 1}
 
     X, y = make_classification(n_samples=20, n_features=10, random_state=0)
@@ -2340,8 +2740,13 @@ def test_callable_multimetric_error_failing_clf():
 
 
 def test_callable_multimetric_clf_all_fits_fail():
+    # [FUNCTION DOC]
+    # Verifies ValueError "All the 15 fits failed" with a dict callable scorer when
+    #   every fit fails.
     # Warns and raises when all estimator fails to fit.
     def custom_scorer(est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: returns {"acc": 1}.
         return {"acc": 1}
 
     X, y = make_classification(n_samples=20, n_features=10, random_state=0)
@@ -2370,6 +2775,9 @@ def test_callable_multimetric_clf_all_fits_fail():
 
 
 def test_n_features_in():
+    # [FUNCTION DOC]
+    # Verifies n_features_in_ is absent before fit and delegated from the best estimator
+    #   after fit for grid and randomized search.
     # make sure grid search and random search delegate n_features_in to the
     # best estimator
     n_features = 4
@@ -2388,6 +2796,9 @@ def test_n_features_in():
 
 @pytest.mark.parametrize("pairwise", [True, False])
 def test_search_cv_pairwise_property_delegated_to_base_estimator(pairwise):
+    # [FUNCTION DOC]
+    # Verifies the search's input_tags.pairwise tag mirrors the estimator's tag
+    #   (parametrized True/False).
     """
     Test implementation of BaseSearchCV has the pairwise tag
     which matches the pairwise tag of its estimator.
@@ -2397,7 +2808,12 @@ def test_search_cv_pairwise_property_delegated_to_base_estimator(pairwise):
     """
 
     class TestEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: estimator whose pairwise tag is the closure value pairwise.
         def __sklearn_tags__(self):
+            # [FUNCTION DOC]
+            # HELPER: returns parent tags with input_tags.pairwise set to the closure
+            #   pairwise.
             tags = super().__sklearn_tags__()
             tags.input_tags.pairwise = pairwise
             return tags
@@ -2409,6 +2825,11 @@ def test_search_cv_pairwise_property_delegated_to_base_estimator(pairwise):
 
 
 def test_search_cv__pairwise_property_delegated_to_base_estimator():
+    # [FUNCTION DOC]
+    # Verifies the pairwise tag follows the estimator after toggling its pairwise param
+    #   via set_params.
+    # KNOWN ISSUE: docstring/message mention a _pairwise property, but only the tag is
+    #   checked.
     """
     Test implementation of BaseSearchCV has the pairwise property
     which matches the pairwise tag of its estimator.
@@ -2418,10 +2839,16 @@ def test_search_cv__pairwise_property_delegated_to_base_estimator():
     """
 
     class EstimatorPairwise(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: estimator with a pairwise hyperparameter controlling its pairwise tag.
         def __init__(self, pairwise=True):
+            # [FUNCTION DOC]
+            # HELPER: stores pairwise (default True).
             self.pairwise = pairwise
 
         def __sklearn_tags__(self):
+            # [FUNCTION DOC]
+            # HELPER: returns parent tags with input_tags.pairwise set to self.pairwise.
             tags = super().__sklearn_tags__()
             tags.input_tags.pairwise = self.pairwise
             return tags
@@ -2438,6 +2865,9 @@ def test_search_cv__pairwise_property_delegated_to_base_estimator():
 
 
 def test_search_cv_pairwise_property_equivalence_of_precomputed():
+    # [FUNCTION DOC]
+    # Verifies KNN search on raw features and on a precomputed euclidean distance matrix
+    #   yield identical predictions (pairwise splitting works).
     """
     Test implementation of BaseSearchCV has the pairwise tag
     which matches the pairwise tag of its estimator.
@@ -2472,17 +2902,28 @@ def test_search_cv_pairwise_property_equivalence_of_precomputed():
     [(GridSearchCV, {"a": [0.1, 0.01]}), (RandomizedSearchCV, {"a": uniform(1, 3)})],
 )
 def test_scalar_fit_param(SearchCV, param_search):
+    # [FUNCTION DOC]
+    # Verifies a scalar fit param is passed unsliced to the estimator
+    #   (best_estimator_.r_ == 42).
     # unofficially sanctioned tolerance for scalar values in fit_params
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/15805
     class TestEstimator(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: classifier storing the fit kwarg r as r_ and predicting zeros.
         def __init__(self, a=None):
+            # [FUNCTION DOC]
+            # HELPER: stores a (default None).
             self.a = a
 
         def fit(self, X, y, r=None):
+            # [FUNCTION DOC]
+            # HELPER: sets r_ to r; returns None.
             self.r_ = r
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: returns float zeros of length len(X).
             return np.zeros(shape=(len(X)))
 
     model = SearchCV(TestEstimator(), param_search)
@@ -2499,6 +2940,9 @@ def test_scalar_fit_param(SearchCV, param_search):
     ],
 )
 def test_scalar_fit_param_compat(SearchCV, param_search):
+    # [FUNCTION DOC]
+    # Verifies non-sample-aligned fit params (scalar, callable, tuple of arrays) are
+    #   passed through unmodified (tuple kept as tuple).
     # check support for scalar values in fit_params, for instance in LightGBM
     # that do not exactly respect the scikit-learn API contract but that we do
     # not want to break without an explicit deprecation cycle and API
@@ -2510,6 +2954,8 @@ def test_scalar_fit_param_compat(SearchCV, param_search):
     )
 
     class _FitParamClassifier(SGDClassifier):
+        # [CLASS DOC]
+        # HELPER: SGDClassifier whose fit asserts on the extra fit params it receives.
         def fit(
             self,
             X,
@@ -2519,6 +2965,12 @@ def test_scalar_fit_param_compat(SearchCV, param_search):
             scalar_param=None,
             callable_param=None,
         ):
+            # [FUNCTION DOC]
+            # HELPER: fits SGDClassifier with sample_weight, then asserts scalar_param >
+            #   0, callable_param is callable, tuple_of_arrays is a tuple of a 2D and a
+            #   1D array. Returns self.
+            # Exceptions: AssertionError on unexpected params (or TypeError if None
+            #   compared).
             super().fit(X, y, sample_weight=sample_weight)
             assert scalar_param > 0
             assert callable(callable_param)
@@ -2530,6 +2982,8 @@ def test_scalar_fit_param_compat(SearchCV, param_search):
             return self
 
     def _fit_param_callable():
+        # [FUNCTION DOC]
+        # HELPER: no-op callable used as a fit param.
         pass
 
     model = SearchCV(_FitParamClassifier(), param_search)
@@ -2553,6 +3007,10 @@ def test_scalar_fit_param_compat(SearchCV, param_search):
 @pytest.mark.parametrize("SearchCV", [GridSearchCV, RandomizedSearchCV])
 @pytest.mark.parametrize("Predictor", [MinimalRegressor, MinimalClassifier])
 def test_search_cv_using_minimal_compatible_estimator(SearchCV, Predictor):
+    # [FUNCTION DOC]
+    # Verifies search works with minimal non-BaseEstimator estimators in a Pipeline:
+    #   best_params_ keys match, predictions are constant (1 for classifier, mean for
+    #   regressor) and score equals accuracy / r2.
     # Check that third-party library can run tests without inheriting from
     # BaseEstimator.
     rng = np.random.RandomState(0)
@@ -2582,6 +3040,9 @@ def test_search_cv_using_minimal_compatible_estimator(SearchCV, Predictor):
 
 @pytest.mark.parametrize("return_train_score", [True, False])
 def test_search_cv_verbose_3(capsys, return_train_score):
+    # [FUNCTION DOC]
+    # Verifies verbose=3 prints one score line per split (3), formatted with train and
+    #   test when return_train_score is True. Uses capsys.
     """Check that search cv with verbose>2 shows the score for single
     metrics. non-regression test for #19658."""
     X, y = make_classification(n_samples=100, n_classes=2, flip_y=0.2, random_state=0)
@@ -2613,6 +3074,9 @@ def test_search_cv_verbose_3(capsys, return_train_score):
     ],
 )
 def test_search_estimator_param(SearchCV, param_search):
+    # [FUNCTION DOC]
+    # Verifies estimator objects in the param grid are not mutated by setting nested
+    #   params (clf__C), while best_estimator_ has the requested C.
     # test that SearchCV object doesn't change the object given in the parameter grid
     X, y = make_classification(random_state=42)
 
@@ -2636,6 +3100,9 @@ def test_search_estimator_param(SearchCV, param_search):
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_search_with_2d_array():
+    # [FUNCTION DOC]
+    # Verifies tuple-valued params (ngram_range) are stored as tuples in an object
+    #   MaskedArray in cv_results_.
     parameter_grid = {
         "vect__ngram_range": ((1, 1), (1, 2)),  # unigrams or bigrams
         "vect__norm": ("l1", "l2"),
@@ -2665,6 +3132,9 @@ def test_search_with_2d_array():
 
 
 def test_search_html_repr():
+    # [FUNCTION DOC]
+    # Verifies HTML repr shows the original pipeline when unfitted or refit=False, and
+    #   the best estimator after fitting with refit=True.
     """Test different HTML representations for GridSearchCV."""
     X, y = make_classification(random_state=42)
 
@@ -2705,6 +3175,9 @@ def test_search_html_repr():
 )
 @config_context(enable_metadata_routing=True)
 def test_multi_metric_search_forwards_metadata(SearchCV, param_search):
+    # [FUNCTION DOC]
+    # Verifies with metadata routing enabled that score metadata is routed to a
+    #   ConsumingScorer in multi-metric scoring and recorded with split-sliced values.
     """Test that *SearchCV forwards metadata correctly when passed multiple metrics."""
     X, y = make_classification(random_state=42)
     n_samples = _num_samples(X)
@@ -2744,6 +3217,9 @@ def test_multi_metric_search_forwards_metadata(SearchCV, param_search):
     ],
 )
 def test_score_rejects_params_with_no_routing_enabled(SearchCV, param_search):
+    # [FUNCTION DOC]
+    # Verifies SearchCV.score raises ValueError when extra params are passed without
+    #   metadata routing enabled.
     """*SearchCV should reject **params when metadata routing is not enabled
     since this is added only when routing is enabled."""
     X, y = make_classification(random_state=42)
@@ -2761,9 +3237,14 @@ def test_score_rejects_params_with_no_routing_enabled(SearchCV, param_search):
 
 
 def test_cv_results_dtype_issue_29074():
+    # [FUNCTION DOC]
+    # Non-regression: params whose values make dtype inference fail (None, dicts, lists,
+    #   strings) yield object dtype param_* arrays.
     """Non-regression test for https://github.com/scikit-learn/scikit-learn/issues/29074"""
 
     class MetaEstimator(BaseEstimator, ClassifierMixin):
+        # [CLASS DOC]
+        # HELPER: meta-classifier wrapping base_clf with four unused hyperparameters.
         def __init__(
             self,
             base_clf,
@@ -2772,6 +3253,8 @@ def test_cv_results_dtype_issue_29074():
             parameter3=None,
             parameter4=None,
         ):
+            # [FUNCTION DOC]
+            # HELPER: stores base_clf and parameter1..parameter4 unchanged.
             self.base_clf = base_clf
             self.parameter1 = parameter1
             self.parameter2 = parameter2
@@ -2779,10 +3262,14 @@ def test_cv_results_dtype_issue_29074():
             self.parameter4 = parameter4
 
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: fits base_clf in place (not cloned) and returns self.
             self.base_clf.fit(X, y)
             return self
 
         def score(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: delegates to base_clf.score.
             return self.base_clf.score(X, y)
 
     # Values of param_grid are such that np.result_type gives slightly
@@ -2806,6 +3293,9 @@ def test_cv_results_dtype_issue_29074():
 
 
 def test_search_with_estimators_issue_29157():
+    # [FUNCTION DOC]
+    # Non-regression: searching over encoder estimators (which have a dtype param) gives
+    #   an object dtype param array. Skipped without pandas.
     """Check cv_results_ for estimators with a `dtype` parameter, e.g. OneHotEncoder."""
     pd = pytest.importorskip("pandas")
     df = pd.DataFrame(
@@ -2839,6 +3329,9 @@ def test_search_with_estimators_issue_29157():
 
 
 def test_cv_results_multi_size_array():
+    # [FUNCTION DOC]
+    # Non-regression: array-valued params of different shapes (spline knots) are stored
+    #   in an object dtype param array.
     """Check that GridSearchCV works with params that are arrays of different sizes.
 
     Non-regression test for #29277.
@@ -2877,6 +3370,9 @@ def test_cv_results_multi_size_array():
 def test_array_api_search_cv_classifier(
     SearchCV, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Smoke test that Grid/RandomizedSearchCV fit and score LinearDiscriminantAnalysis
+    #   under array_api_dispatch for each namespace/device/dtype.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     X = np.arange(100).reshape((10, 10))
@@ -2964,6 +3460,10 @@ ma_with_tuples[1] = (3, 4)
     ],
 )
 def test_yield_masked_array_for_each_param(candidate_params, expected):
+    # [FUNCTION DOC]
+    # Verifies _yield_masked_array_for_each_param produces correct keys, dtypes, values
+    #   and masks for numeric, missing, ragged list, tuple and estimator parameter
+    #   values.
     result = list(_yield_masked_array_for_each_param(candidate_params))
     for (key, value), (expected_key, expected_value) in zip(result, expected):
         assert key == expected_key
@@ -2973,6 +3473,9 @@ def test_yield_masked_array_for_each_param(candidate_params, expected):
 
 
 def test_yield_masked_array_no_runtime_warning():
+    # [FUNCTION DOC]
+    # Non-regression: building the masked arrays for 1000 candidates emits no
+    #   RuntimeWarning (warnings turned into errors).
     # non-regression test for https://github.com/scikit-learn/scikit-learn/issues/29929
     candidate_params = [{"param": i} for i in range(1000)]
     with warnings.catch_warnings():
@@ -2981,6 +3484,11 @@ def test_yield_masked_array_no_runtime_warning():
 
 
 def _searchcv_callback_test_cases(estimator, scoring):
+    # [FUNCTION DOC]
+    # HELPER: returns four unfitted searches (Grid, Randomized, HalvingGrid,
+    #   HalvingRandom) over max_iter 1..3 with cv=2 for the given estimator class and
+    #   scoring; randomized ones use random_state=42, halving ones
+    #   aggressive_elimination.
     return [
         GridSearchCV(estimator(), {"max_iter": [1, 2, 3]}, cv=2, scoring=scoring),
         RandomizedSearchCV(
@@ -3016,6 +3524,10 @@ def _searchcv_callback_test_cases(estimator, scoring):
 )
 @skip_callback_test_if_wasm
 def test_search_callbacks_no_propagation(search, refit):
+    # [FUNCTION DOC]
+    # Verifies callback hook counts when the inner estimator does not support callbacks:
+    #   one setup/teardown and on_fit_task_begin/end called once per search task (root,
+    #   search, optional refit, halving rounds, candidate-split evaluations).
     """Check number of hook calls when the sub-estimator doesn't support callbacks."""
     callbacks = [RecordingCallback(), RecordingAutoPropagatedCallback()]
     search = clone(search).set_params(refit=refit).set_callbacks(*callbacks).fit(X, y)
@@ -3049,6 +3561,12 @@ def test_search_callbacks_no_propagation(search, refit):
 )
 @skip_callback_test_if_wasm
 def test_search_callbacks_propagation(search, refit):
+    # [FUNCTION DOC]
+    # Verifies hook counts with a callback-aware inner estimator: plain callback sees
+    #   only search tasks; auto-propagated callback additionally sees max_iter tasks per
+    #   candidate-split fit and best_estimator_.n_iter_ tasks for refit.
+    # KNOWN ISSUE: the else-branch comment names TestingAutoPropagatedCallback but the
+    #   class is RecordingAutoPropagatedCallback.
     """Check number of hook calls when the sub-estimator does support callbacks."""
     callbacks = [RecordingCallback(), RecordingAutoPropagatedCallback()]
     search = clone(search).set_params(refit=refit).set_callbacks(*callbacks).fit(X, y)
@@ -3092,6 +3610,9 @@ def test_search_callbacks_propagation(search, refit):
 
 @skip_callback_test_if_wasm
 def test_search_callbacks_receive_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies sample_weight appears in the metadata given to hooks for candidate-split
+    #   evaluation and refit tasks, and refit receives the full weights unchanged.
     """Test that `sample_weight` gets passed to `callback.on_fit_task_*`.
 
     Note this tests all *SearchCV classes that inherit from `BaseSearchCV`.
@@ -3131,6 +3652,8 @@ def test_search_callbacks_receive_sample_weight():
 )
 @skip_callback_test_if_wasm
 def test_search_callbacks_receive_search_instance(search):
+    # [FUNCTION DOC]
+    # Verifies every recorded hook call receives the search object itself as estimator.
     """Test that all hooks receive the search instance as `estimator` argument."""
     callback = RecordingCallback()
     search = clone(search).set_callbacks(callback).fit(X, y)
@@ -3141,6 +3664,10 @@ def test_search_callbacks_receive_search_instance(search):
 
 @skip_callback_test_if_wasm
 def test_search_callbacks_with_partial_fit_failures():
+    # [FUNCTION DOC]
+    # Verifies that with numeric error_score and some failing fits, a FitFailedWarning
+    #   is emitted and all 6 tasks (root, search, 4 evaluations) still trigger begin/end
+    #   hooks.
     """Check callbacks hooks are called when some candidate fits fail.
 
     When error_score != "raise" and not all fit fail, the whole search doesn't raise so
@@ -3148,16 +3675,26 @@ def test_search_callbacks_with_partial_fit_failures():
     """
 
     class MayFailClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: classifier that raises in fit when fail is True, predicts zeros
+        #   otherwise.
         def __init__(self, fail=False):
+            # [FUNCTION DOC]
+            # HELPER: stores fail (default False).
             self.fail = fail
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: sets classes_ to unique y, raises RuntimeError if fail, else
+            #   returns self.
             self.classes_ = np.unique(y)
             if self.fail:
                 raise RuntimeError("MayFailClassifier.fit failed")
             return self
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: returns integer zeros of length len(X).
             return np.zeros(len(X), dtype=int)
 
     callback = RecordingCallback()
