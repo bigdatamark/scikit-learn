@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.calibration: CalibratedClassifierCV (sigmoid, isotonic and
+# temperature methods, ensemble on/off, CV splitters, frozen estimators, sample
+# weights, fit params, NaN/dict/ndarray inputs, float32, array API), the private
+# calibrators _SigmoidCalibration / _sigmoid_calibration / _TemperatureScaling /
+# _CalibratedClassifier, calibration_curve and CalibrationDisplay. N_SAMPLES (200)
+# sets the size of the shared "data" fixture.
+
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -73,11 +81,16 @@ N_SAMPLES = 200
 
 @pytest.fixture(scope="module")
 def data():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning (X, y) from make_classification with
+    # N_SAMPLES samples, 6 features, binary target, random_state 42.
     X, y = make_classification(n_samples=N_SAMPLES, n_features=6, random_state=42)
     return X, y
 
 
 def test_calibration_method_raises(data):
+    # [FUNCTION DOC]
+    # Checks an unknown method string raises ValueError at fit.
     # Check that invalid values raise for the 'method' parameter.
     X, y = data
     invalid_method = "not sigmoid, isotonic, or temperature"
@@ -90,6 +103,12 @@ def test_calibration_method_raises(data):
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibration(data, method, csr_container, ensemble):
+    # [FUNCTION DOC]
+    # With MultinomialNB on shifted non-negative data and random sample weights:
+    # cv larger than n_samples raises ValueError; for dense and CSR inputs, calibrated
+    # probabilities improve the Brier score over the uncalibrated model, are invariant
+    # to relabeling {0,1} to {1,2} and {-1,1}, and for label swap the sigmoid output is
+    # the complement while isotonic still improves the Brier score.
     # Test calibration objects with isotonic, sigmoid
     n_samples = N_SAMPLES // 2
     X, y = data
@@ -149,6 +168,8 @@ def test_calibration(data, method, csr_container, ensemble):
 
 
 def test_calibration_default_estimator(data):
+    # [FUNCTION DOC]
+    # Checks the default base estimator is LinearSVC.
     # Check estimator default is LinearSVC
     X, y = data
     calib_clf = CalibratedClassifierCV(cv=2)
@@ -160,6 +181,9 @@ def test_calibration_default_estimator(data):
 
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibration_cv_splitter(data, ensemble):
+    # [FUNCTION DOC]
+    # Checks a KFold splitter is kept as cv and that the number of
+    # calibrated_classifiers_ equals n_splits with ensemble, else 1.
     # Check when `cv` is a CV splitter
     X, y = data
 
@@ -175,6 +199,9 @@ def test_calibration_cv_splitter(data, ensemble):
 
 
 def test_calibration_cv_nfold(data):
+    # [FUNCTION DOC]
+    # Checks ValueError when KFold has more splits than samples per class, and when
+    # LeaveOneOut is used with ensemble=True.
     # Check error raised when number of examples per class less than nfold
     X, y = data
 
@@ -191,6 +218,9 @@ def test_calibration_cv_nfold(data):
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_sample_weight(data, method, ensemble):
+    # [FUNCTION DOC]
+    # Checks that fitting with and without sample weights yields predicted
+    # probabilities that differ (norm of difference above 0.1) for every method.
     n_samples = N_SAMPLES // 2
     X, y = data
 
@@ -218,6 +248,8 @@ def test_sample_weight(data, method, ensemble):
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_parallel_execution(data, method, ensemble):
+    # [FUNCTION DOC]
+    # Checks n_jobs=2 and n_jobs=1 produce the same probabilities.
     """Test parallel calibration"""
     X, y = data
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
@@ -245,7 +277,18 @@ def test_parallel_execution(data, method, ensemble):
 # test:
 @pytest.mark.parametrize("seed", range(2))
 def test_calibration_multiclass(method, ensemble, seed):
+    # [FUNCTION DOC]
+    # On an unbalanced 3-class blob problem with LinearSVC (decision_function only)
+    # and RandomForest: probabilities sum to one, the base problem is non-trivial
+    # (accuracy in 0.65..0.95), calibrated accuracy is at least 95 percent of the
+    # base, and calibrated multiclass Brier loss is below 1.1 times the uncalibrated
+    # (softmax of decision function, or forest probabilities) loss.
+    # KNOWN ISSUE: a comment says the random forest part checks log-loss, but it
+    # compares Brier loss.
     def multiclass_brier(y_true, proba_pred, n_classes):
+        # [FUNCTION DOC]
+        # HELPER: Multiclass Brier score: one-hot encodes y_true with n_classes columns and
+        # returns the mean over samples of the summed squared difference with proba_pred.
         Y_onehot = np.eye(n_classes)[y_true]
         return np.sum((Y_onehot - proba_pred) ** 2) / Y_onehot.shape[0]
 
@@ -306,13 +349,20 @@ def test_calibration_multiclass(method, ensemble, seed):
 
 
 def test_calibration_zero_probability():
+    # [FUNCTION DOC]
+    # Builds a _CalibratedClassifier whose calibrator outputs all zeros and checks
+    # predict_proba falls back to uniform probabilities instead of dividing by zero.
     # Test an edge case where _CalibratedClassifier avoids numerical errors
     # in the multiclass normalization step if all the calibrators output
     # are zero all at once for a given sample and instead fallback to uniform
     # probabilities.
     class ZeroCalibrator:
+        # [CLASS DOC]
+        # HELPER: Fake calibrator that always predicts zero.
         # This function is called from _CalibratedClassifier.predict_proba.
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns a zero vector with one entry per row of X.
             return np.zeros(X.shape[0])
 
     X, y = make_blobs(
@@ -333,6 +383,10 @@ def test_calibration_zero_probability():
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 def test_calibration_frozen(csr_container, method):
+    # [FUNCTION DOC]
+    # With a MultinomialNB trained on a separate split and wrapped in FrozenEstimator,
+    # for dense/CSR calibration data and with/without weights: predict equals argmax of
+    # predict_proba and the calibrated Brier score improves over the base model.
     """Test calibration for frozen classifiers"""
     n_samples = 50
     X, y = make_classification(n_samples=3 * n_samples, n_features=6, random_state=42)
@@ -384,6 +438,10 @@ def test_calibration_frozen(csr_container, method):
     ],
 )
 def test_calibration_ensemble_false(data, method, calibrator):
+    # [FUNCTION DOC]
+    # Checks ensemble=False equals fitting the given calibrator on cross_val_predict
+    # decision values and applying it to the decision function of the estimator
+    # refit on all data (taking the positive column for temperature 2D output).
     # Test that `ensemble=False` is the same as using predictions from
     # `cross_val_predict` to train calibrator.
     X, y = data
@@ -410,6 +468,10 @@ def test_calibration_ensemble_false(data, method, calibrator):
 
 
 def test_sigmoid_calibration():
+    # [FUNCTION DOC]
+    # Checks _sigmoid_calibration parameters against values from a LibSVM port, that
+    # _SigmoidCalibration predictions match the Platt formula, and that 2D input with
+    # more than one column raises ValueError.
     """Test calibration values with Platt sigmoid model"""
     exF = np.array([5, -4, 1.0])
     exY = np.array([1, -1, -1])
@@ -435,6 +497,12 @@ def test_sigmoid_calibration():
     [True, False],
 )
 def test_temperature_scaling(n_classes, ensemble):
+    # [FUNCTION DOC]
+    # For 2, 3 and 5 classes with a frozen unregularized LogisticRegression: each
+    # calibrated classifier has exactly one fitted calibrator with positive beta_;
+    # without ensemble, accuracy is unchanged, log loss does not increase, ROC AUC is
+    # unchanged, and _TemperatureScaling fitted on training probabilities gives beta_
+    # close to 1.
     """Check temperature scaling calibration"""
     X, y = make_classification(
         n_samples=1000,
@@ -497,6 +565,10 @@ def test_temperature_scaling(n_classes, ensemble):
 
 
 def test_temperature_scaling_input_validation(global_dtype):
+    # [FUNCTION DOC]
+    # Checks _TemperatureScaling gives the same tags and predictions for 1D input and a
+    # single-column 2D input.
+    # KNOWN ISSUE: y is drawn with the unseeded global numpy RNG.
     # Check that _TemperatureScaling can handle 2d-array with only 1 feature
     X = np.arange(10).astype(global_dtype)
     X_2d = X.reshape(-1, 1)
@@ -514,6 +586,10 @@ def test_temperature_scaling_input_validation(global_dtype):
 
 
 def test_calibration_curve():
+    # [FUNCTION DOC]
+    # Checks calibration_curve uniform and quantile bin results on small examples,
+    # that probabilities outside [0, 1] raise ValueError, and that an invalid strategy
+    # raises ValueError.
     """Check calibration_curve function"""
     y_true = np.array([0, 0, 0, 1, 1, 1])
     y_pred = np.array([0.0, 0.1, 0.2, 0.8, 0.9, 1.0])
@@ -547,6 +623,9 @@ def test_calibration_curve():
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibration_nan_imputer(method, ensemble):
+    # [FUNCTION DOC]
+    # Smoke test: a pipeline with SimpleImputer and RandomForest can be calibrated and
+    # predict on data containing NaN.
     """Test that calibration can accept nan"""
     X, y = make_classification(
         n_samples=10, n_features=2, n_informative=2, n_redundant=0, random_state=42
@@ -563,6 +642,10 @@ def test_calibration_nan_imputer(method, ensemble):
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibration_prob_sum(method, ensemble):
+    # [FUNCTION DOC]
+    # Non-regression (#7796): probabilities sum to 1 even when some CV test folds
+    # contain a single class.
+    # KNOWN ISSUE: make_classification is called without random_state.
     # Test that sum of probabilities is (max) 1. A non-regression test for
     # issue #7796 - when test has fewer classes than train
     X, _ = make_classification(n_samples=10, n_features=5, n_classes=2)
@@ -578,6 +661,11 @@ def test_calibration_prob_sum(method, ensemble):
 
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibration_less_classes(ensemble):
+    # [FUNCTION DOC]
+    # With a CV where training folds miss a class: for ensemble, the corresponding
+    # calibrated classifiers give zero probability to the missing class and positive
+    # probability to others; without ensemble, probabilities sum to one.
+    # KNOWN ISSUE: X is drawn with the unseeded global numpy RNG.
     # Test to check calibration works fine when train set in a test-train
     # split does not contain all classes
     # In 1st split, train is missing class 0
@@ -614,17 +702,26 @@ def test_calibration_less_classes(ensemble):
     ],
 )
 def test_calibration_accepts_ndarray(X):
+    # [FUNCTION DOC]
+    # Checks CalibratedClassifierCV fits with 3D and 4D input arrays using a toy
+    # classifier that flattens inputs.
     """Test that calibration accepts n-dimensional arrays as input"""
     y = [1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0]
 
     class MockTensorClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Toy classifier accepting arbitrary n-dimensional X.
         """A toy estimator that accepts tensor inputs"""
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets classes_ to the unique labels of y and returns self.
             self.classes_ = np.unique(y)
             return self
 
         def decision_function(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Flattens each sample and returns its sum (shape (n_samples,)).
             # toy decision function that just needs to have the right shape:
             return X.reshape(X.shape[0], -1).sum(axis=1)
 
@@ -635,6 +732,8 @@ def test_calibration_accepts_ndarray(X):
 
 @pytest.fixture
 def dict_data():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning a list of 5 dicts (state, age) and binary labels.
     dict_data = [
         {"state": "NY", "age": "adult"},
         {"state": "TX", "age": "adult"},
@@ -648,6 +747,9 @@ def dict_data():
 
 @pytest.fixture
 def dict_data_pipeline(dict_data):
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning a DictVectorizer + RandomForest pipeline fitted on
+    # dict_data.
     X, y = dict_data
     pipeline_prefit = Pipeline(
         [("vectorizer", DictVectorizer()), ("clf", RandomForestClassifier())]
@@ -656,6 +758,10 @@ def dict_data_pipeline(dict_data):
 
 
 def test_calibration_dict_pipeline(dict_data, dict_data_pipeline):
+    # [FUNCTION DOC]
+    # Non-regression (#8710, #19637): calibrating a frozen pipeline on dict input
+    # works, copies classes_, does not expose n_features_in_, and predict and
+    # predict_proba run without validation errors.
     """Test that calibration works in prefit pipeline with transformer
 
     `X` is not array-like, sparse matrix or dataframe at the start.
@@ -682,6 +788,8 @@ def test_calibration_dict_pipeline(dict_data, dict_data_pipeline):
 
 
 def test_calibration_attributes():
+    # [FUNCTION DOC]
+    # Checks classes_ and n_features_in_ are set after fit.
     # Check that `n_features_in_` and `classes_` attributes created properly
     X, y = make_classification(n_samples=10, n_features=5, n_classes=2, random_state=7)
     calib_clf = CalibratedClassifierCV(LinearSVC(C=1), cv=2)
@@ -693,6 +801,9 @@ def test_calibration_attributes():
 
 
 def test_calibration_inconsistent_prefit_n_features_in():
+    # [FUNCTION DOC]
+    # Checks fitting a frozen LinearSVC with fewer features than it was trained on
+    # raises ValueError about the feature count.
     # Check that `n_features_in_` from prefit base estimator
     # is consistent with training set
     X, y = make_classification(n_samples=10, n_features=5, n_classes=2, random_state=7)
@@ -705,6 +816,9 @@ def test_calibration_inconsistent_prefit_n_features_in():
 
 
 def test_calibration_votingclassifier():
+    # [FUNCTION DOC]
+    # Smoke test: calibrating a frozen soft-voting VotingClassifier (whose
+    # predict_proba is a conditional property) works.
     # Check that `CalibratedClassifier` works with `VotingClassifier`.
     # The method `predict_proba` from `VotingClassifier` is dynamically
     # defined via a property that only works when voting="soft".
@@ -722,11 +836,15 @@ def test_calibration_votingclassifier():
 
 @pytest.fixture(scope="module")
 def iris_data():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning (X, y) of the iris dataset.
     return load_iris(return_X_y=True)
 
 
 @pytest.fixture(scope="module")
 def iris_data_binary(iris_data):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture keeping only iris classes 0 and 1.
     X, y = iris_data
     return X[y < 2], y[y < 2]
 
@@ -734,6 +852,12 @@ def iris_data_binary(iris_data):
 @pytest.mark.parametrize("n_bins", [5, 10])
 @pytest.mark.parametrize("strategy", ["uniform", "quantile"])
 def test_calibration_display_compute(pyplot, iris_data_binary, n_bins, strategy):
+    # [FUNCTION DOC]
+    # Checks CalibrationDisplay.from_estimator stores prob_true, prob_pred and y_prob
+    # matching calibration_curve, the estimator name, line/axes/figure types, alpha,
+    # axis labels and legend entries.
+    # KNOWN ISSUE: the comment mentions from_predictions but only from_estimator is
+    # exercised.
     # Ensure `CalibrationDisplay.from_predictions` and `calibration_curve`
     # compute the same results. Also checks attributes of the
     # CalibrationDisplay object.
@@ -775,6 +899,9 @@ def test_calibration_display_compute(pyplot, iris_data_binary, n_bins, strategy)
 
 
 def test_plot_calibration_curve_pipeline(pyplot, iris_data_binary):
+    # [FUNCTION DOC]
+    # Checks from_estimator works with a pipeline and the legend contains its name
+    # and the reference line.
     # Ensure pipelines are supported by CalibrationDisplay.from_estimator
     X, y = iris_data_binary
     clf = make_pipeline(StandardScaler(), LogisticRegression())
@@ -792,6 +919,9 @@ def test_plot_calibration_curve_pipeline(pyplot, iris_data_binary):
     "name, expected_label", [(None, "_line1"), ("my_est", "my_est")]
 )
 def test_calibration_display_default_labels(pyplot, name, expected_label):
+    # [FUNCTION DOC]
+    # Checks the legend: without a name only "Perfectly calibrated" appears, with a
+    # name both appear.
     prob_true = np.array([0, 1, 1, 0])
     prob_pred = np.array([0.2, 0.8, 0.8, 0.4])
     y_prob = np.array([])
@@ -808,6 +938,9 @@ def test_calibration_display_default_labels(pyplot, name, expected_label):
 
 
 def test_calibration_display_label_class_plot(pyplot):
+    # [FUNCTION DOC]
+    # Checks the name passed to plot overrides the constructor estimator_name in the
+    # legend.
     # Checks that when instantiating `CalibrationDisplay` class then calling
     # `plot`, `self.estimator_name` is the one given in `plot`
     prob_true = np.array([0, 1, 1, 0])
@@ -831,6 +964,11 @@ def test_calibration_display_label_class_plot(pyplot):
 def test_calibration_display_name_multiple_calls(
     constructor_name, pyplot, iris_data_binary
 ):
+    # [FUNCTION DOC]
+    # Checks a name given to from_estimator/from_predictions is reused by later plot
+    # calls.
+    # KNOWN ISSUE: after the final plot with a new name, the assertions reuse the old
+    # legend_labels and expected labels, so the new name is never verified.
     # Check that the `name` used when calling
     # `CalibrationDisplay.from_predictions` or
     # `CalibrationDisplay.from_estimator` is used when multiple
@@ -863,6 +1001,8 @@ def test_calibration_display_name_multiple_calls(
 
 
 def test_calibration_display_ref_line(pyplot, iris_data_binary):
+    # [FUNCTION DOC]
+    # Checks plotting two displays on the same axes adds the reference line only once.
     # Check that `ref_line` only appears once
     X, y = iris_data_binary
     lr = LogisticRegression().fit(X, y)
@@ -877,6 +1017,9 @@ def test_calibration_display_ref_line(pyplot, iris_data_binary):
 
 @pytest.mark.parametrize("dtype_y_str", [str, object])
 def test_calibration_curve_pos_label_error_str(dtype_y_str):
+    # [FUNCTION DOC]
+    # Checks calibration_curve raises ValueError asking for pos_label when y_true has
+    # string labels.
     """Check error message when a `pos_label` is not specified with `str` targets."""
     rng = np.random.RandomState(42)
     y1 = np.array(["spam"] * 3 + ["eggs"] * 2, dtype=dtype_y_str)
@@ -893,6 +1036,9 @@ def test_calibration_curve_pos_label_error_str(dtype_y_str):
 
 @pytest.mark.parametrize("dtype_y_str", [str, object])
 def test_calibration_curve_pos_label(dtype_y_str):
+    # [FUNCTION DOC]
+    # Checks calibration_curve fraction of positives for default, string and integer
+    # pos_label settings, including the inverted-probability case.
     """Check the behaviour when passing explicitly `pos_label`."""
     y_true = np.array([0, 0, 0, 1, 1, 1, 1, 1, 1])
     classes = np.array(["spam", "egg"], dtype=dtype_y_str)
@@ -920,6 +1066,9 @@ def test_calibration_curve_pos_label(dtype_y_str):
     ],
 )
 def test_calibration_display_kwargs(pyplot, iris_data_binary, kwargs):
+    # [FUNCTION DOC]
+    # Checks matplotlib short aliases and full names for color, linewidth and
+    # linestyle are applied to the line.
     """Check that matplotlib aliases are handled."""
     X, y = iris_data_binary
 
@@ -935,6 +1084,9 @@ def test_calibration_display_kwargs(pyplot, iris_data_binary, kwargs):
 def test_calibration_display_pos_label(
     pyplot, iris_data_binary, pos_label, expected_pos_label
 ):
+    # [FUNCTION DOC]
+    # Checks pos_label selects the probability column, matches calibration_curve, and
+    # appears in axis labels.
     """Check the behaviour of `pos_label` in the `CalibrationDisplay`."""
     X, y = iris_data_binary
 
@@ -967,6 +1119,9 @@ def test_calibration_display_pos_label(
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 @pytest.mark.parametrize("ensemble", [True, False])
 def test_calibrated_classifier_cv_double_sample_weights_equivalence(method, ensemble):
+    # [FUNCTION DOC]
+    # Checks that sample_weight 2 on X gives the same inner coefficients and
+    # probabilities as duplicating each row with interleaving, under 2-fold CV.
     """Check that passing repeating twice the dataset `X` is equivalent to
     passing a `sample_weight` with a factor 2."""
     X, y = load_iris(return_X_y=True)
@@ -1016,6 +1171,9 @@ def test_calibrated_classifier_cv_double_sample_weights_equivalence(method, ense
 
 @pytest.mark.parametrize("fit_params_type", ["list", "array"])
 def test_calibration_with_fit_params(fit_params_type, data):
+    # [FUNCTION DOC]
+    # Non-regression (#12384): extra fit params (list or array) are routed to the base
+    # estimator, verified by CheckingClassifier expectations.
     """Tests that fit_params are passed to the underlying base estimator.
 
     Non-regression test for:
@@ -1041,6 +1199,9 @@ def test_calibration_with_fit_params(fit_params_type, data):
     ],
 )
 def test_calibration_with_sample_weight_estimator(sample_weight, data):
+    # [FUNCTION DOC]
+    # Checks sample_weight (list or array) is forwarded to a base estimator that
+    # supports it (CheckingClassifier expected_sample_weight).
     """Tests that sample_weight is passed to the underlying base
     estimator.
     """
@@ -1052,6 +1213,9 @@ def test_calibration_with_sample_weight_estimator(sample_weight, data):
 
 
 def test_calibration_without_sample_weight_estimator(data):
+    # [FUNCTION DOC]
+    # Checks a UserWarning is raised and fit still works when sample_weight is given
+    # but the base estimator's fit does not receive it.
     """Check that even if the estimator doesn't support
     sample_weight, fitting with sample_weight still works.
 
@@ -1062,7 +1226,12 @@ def test_calibration_without_sample_weight_estimator(data):
     sample_weight = np.ones_like(y)
 
     class ClfWithoutSampleWeight(CheckingClassifier):
+        # [CLASS DOC]
+        # HELPER: CheckingClassifier whose fit asserts no sample_weight is passed.
         def fit(self, X, y, **fit_params):
+            # [FUNCTION DOC]
+            # HELPER: Asserts sample_weight is absent from fit_params, then delegates to the
+            # parent fit and returns its result.
             assert "sample_weight" not in fit_params
             return super().fit(X, y, **fit_params)
 
@@ -1074,11 +1243,19 @@ def test_calibration_without_sample_weight_estimator(data):
 
 
 def test_calibration_with_non_sample_aligned_fit_param(data):
+    # [FUNCTION DOC]
+    # Checks a fit param whose length differs from n_samples is passed through without
+    # being split per fold.
     """Check that CalibratedClassifierCV does not enforce sample alignment
     for fit parameters."""
 
     class TestClassifier(LogisticRegression):
+        # [CLASS DOC]
+        # HELPER: LogisticRegression requiring an extra fit_param argument.
         def fit(self, X, y, sample_weight=None, fit_param=None):
+            # [FUNCTION DOC]
+            # HELPER: Asserts fit_param is not None, then fits LogisticRegression with
+            # sample_weight and returns self.
             assert fit_param is not None
             return super().fit(X, y, sample_weight=sample_weight)
 
@@ -1091,6 +1268,10 @@ def test_calibration_with_non_sample_aligned_fit_param(data):
 def test_calibrated_classifier_cv_works_with_large_confidence_scores(
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Non-regression (#26766): verifies an SGDClassifier yields decision values above
+    # 1e4 on the data, then checks sigmoid and isotonic calibration give identical
+    # cross-validated ROC AUC (no numerical breakdown of the sigmoid fit).
     """Test that CalibratedClassifierCV works with large confidence scores when using
     the sigmoid method, particularly with the SGDClassifier.
 
@@ -1132,6 +1313,9 @@ def test_calibrated_classifier_cv_works_with_large_confidence_scores(
 
 
 def test_sigmoid_calibration_max_abs_prediction_threshold(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _sigmoid_calibration parameters are the same whether internal rescaling is
+    # triggered (threshold 0.1), disabled (10) or default (30), to atol 1e-6.
     random_state = np.random.RandomState(seed=global_random_seed)
     n = 100
     y = random_state.randint(0, 2, size=n)
@@ -1175,6 +1359,10 @@ def test_sigmoid_calibration_max_abs_prediction_threshold(global_random_seed):
 @pytest.mark.parametrize("use_sample_weight", [True, False])
 @pytest.mark.parametrize("method", ["sigmoid", "isotonic", "temperature"])
 def test_float32_predict_proba(data, use_sample_weight, method):
+    # [FUNCTION DOC]
+    # Non-regression (gh-28245, gh-28247): calibrating a classifier whose
+    # predict_proba returns float32, with or without float64 sample weights, both
+    # unfitted and frozen prefit, must not raise.
     """Check that CalibratedClassifierCV works with float32 predict proba.
 
     Non-regression test for gh-28245 and gh-28247.
@@ -1193,7 +1381,11 @@ def test_float32_predict_proba(data, use_sample_weight, method):
         sample_weight = None
 
     class DummyClassifier32(DummyClassifier):
+        # [CLASS DOC]
+        # HELPER: DummyClassifier whose predict_proba output is cast to float32.
         def predict_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns the parent's probabilities as float32.
             return super().predict_proba(X).astype(np.float32)
 
     model = DummyClassifier32()
@@ -1209,6 +1401,10 @@ def test_float32_predict_proba(data, use_sample_weight, method):
 
 
 def test_error_less_class_samples_than_folds():
+    # [FUNCTION DOC]
+    # Non-regression (#28841): fit with string targets and cv=3 must not raise.
+    # KNOWN ISSUE: the name suggests an error is expected, but the test only checks
+    # that fitting succeeds; X uses the unseeded global numpy RNG.
     """Check that CalibratedClassifierCV works with string targets.
 
     non-regression test for issue #28841.
@@ -1228,6 +1424,11 @@ def test_error_less_class_samples_than_folds():
 def test_temperature_scaling_array_api_compliance(
     ensemble, use_sample_weight, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # For each array namespace/device/dtype, fits frozen LDA + temperature calibration
+    # with NumPy and with array_api_dispatch; checks beta_ namespace, dtype and device
+    # follow the input, beta_ matches NumPy (rtol 1e-3 float32, 1e-7 otherwise), and
+    # predictions agree.
     """Check that `CalibratedClassifierCV` with temperature scaling is compatible
     with the array API"""
 
@@ -1298,6 +1499,9 @@ def test_temperature_scaling_array_api_compliance(
 def test_temperature_scaling_array_api_with_str_y_estimator_not_prefit(
     ensemble, use_sample_weight, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Same comparison as the compliance test but with string labels and an unfitted
+    # LDA trained inside CalibratedClassifierCV.
     """Check that `CalibratedClassifierCV` with temperature scaling is compatible
     with the array API when `y` is an ndarray of strings and the estimator is not
     fit beforehand (i.e. it is fit within `CalibratedClassifierCV`).

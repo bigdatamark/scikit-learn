@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for the decision tree exporters in sklearn.tree._export: export_graphviz
+# (exact DOT output on a 6-sample toy dataset, options, errors, precision),
+# export_text (exact text reports and errors) and plot_tree (matplotlib annotations,
+# via the pyplot fixture). Module-level toy data: X (6x2), binary y, multi-output y2,
+# sample weights w and a single-class y_degraded.
+# KNOWN ISSUE: the module docstring refers to sklearn.tree.export; the code now
+# lives in the private module sklearn.tree._export.
 """
 Testing for export functions of decision trees (sklearn.tree.export).
 """
@@ -33,6 +41,8 @@ y_degraded = [1, 1, 1, 1, 1, 1]
 
 
 def test_rgb_to_hexstring():
+    # [FUNCTION DOC]
+    # Checks that _rgb_to_hexstring zero-pads each channel, e.g. green becomes #00ff00.
     """
     Test that _rgb_to_hexstring correctly converts an RGB tuple to a hex color string.
 
@@ -44,6 +54,15 @@ def test_rgb_to_hexstring():
 
 
 def test_graphviz_toy():
+    # [FUNCTION DOC]
+    # Compares export_graphviz output string-for-string against expected DOT text for a
+    # depth-3 gini classifier: defaults, feature_names (plain and with quotes escaped),
+    # class_names (plain and escaped), filled/proportion/special_characters/rounded/
+    # fontname options, max_depth=0 truncation with class_names=True and with
+    # filled/node_ids, a weighted multi-output classifier, and a regressor with
+    # leaves_parallel and rotate.
+    # KNOWN ISSUE: for the degraded single-class classifier the expected string is built
+    # but never compared to the output, so that last case is not actually checked.
     # Check correctness of export_graphviz
     clf = DecisionTreeClassifier(
         max_depth=3, min_samples_split=2, criterion="gini", random_state=2
@@ -314,6 +333,9 @@ def test_graphviz_toy():
 
 @pytest.mark.parametrize("constructor", [list, np.array])
 def test_graphviz_feature_class_names_array_support(constructor):
+    # [FUNCTION DOC]
+    # Checks export_graphviz accepts feature_names and class_names given as lists or
+    # numpy arrays, producing the same DOT text as in test_graphviz_toy.
     # Check that export_graphviz treats feature names
     # and class names correctly and supports arrays
     clf = DecisionTreeClassifier(
@@ -367,6 +389,10 @@ def test_graphviz_feature_class_names_array_support(constructor):
 
 
 def test_graphviz_errors():
+    # [FUNCTION DOC]
+    # Checks export_graphviz errors: NotFittedError for an unfitted tree, ValueError for
+    # feature_names of wrong length or with non-string entries, TypeError when given a
+    # Tree object instead of an estimator, and IndexError for empty class_names.
     # Check for errors of export_graphviz
     clf = DecisionTreeClassifier(max_depth=3, min_samples_split=2)
 
@@ -405,6 +431,10 @@ def test_graphviz_errors():
 
 @pytest.mark.parametrize("criterion", CLF_CRITERIONS + REG_CRITERIONS)
 def test_criterion_in_gradient_boosting_graphviz(criterion):
+    # [FUNCTION DOC]
+    # For every classification and regression criterion, fits a tree (targets shifted
+    # by +2 for regressors so poisson is valid) and checks that every bracketed node
+    # label containing "samples" also mentions the criterion name.
     dot_data = StringIO()
 
     is_reg = criterion in REG_CRITERIONS
@@ -420,6 +450,10 @@ def test_criterion_in_gradient_boosting_graphviz(criterion):
 
 
 def test_precision():
+    # [FUNCTION DOC]
+    # Fits a depth-1 regressor and classifier on random data and, for precision 4 and 3
+    # with proportion=True, checks via regexes on the DOT text that values have at most
+    # precision decimals while impurities and thresholds have exactly precision decimals.
     rng_reg = RandomState(2)
     rng_clf = RandomState(8)
     for X, y, clf in zip(
@@ -460,6 +494,9 @@ def test_precision():
 
 
 def test_export_text_errors():
+    # [FUNCTION DOC]
+    # Checks export_text ValueErrors for feature_names of the wrong length and for a
+    # class_names array whose length differs from the number of classes.
     clf = DecisionTreeClassifier(max_depth=2, random_state=0)
     clf.fit(X, y)
     err_msg = "feature_names must contain 2 elements, got 1"
@@ -475,6 +512,12 @@ def test_export_text_errors():
 
 
 def test_export_text():
+    # [FUNCTION DOC]
+    # Compares export_text output with exact expected reports: default classifier report,
+    # max_depth 0 and 10 (level-1 leaves not truncated), show_weights, spacing=1,
+    # truncated branch message on a deeper 3-class tree, multi-output regressor with
+    # decimals=1 (show_weights has no effect for regressors), and a single-feature
+    # regressor with custom feature_names.
     clf = DecisionTreeClassifier(max_depth=2, random_state=0)
     clf.fit(X, y)
 
@@ -565,6 +608,9 @@ def test_export_text():
 
 @pytest.mark.parametrize("constructor", [list, np.array])
 def test_export_text_feature_class_names_array_support(constructor):
+    # [FUNCTION DOC]
+    # Checks export_text accepts feature_names and class_names as lists or numpy arrays.
+    # KNOWN ISSUE: the inline comment says export_graphviz, but export_text is tested.
     # Check that export_graphviz treats feature names
     # and class names correctly and supports arrays
     clf = DecisionTreeClassifier(max_depth=2, random_state=0)
@@ -592,6 +638,10 @@ def test_export_text_feature_class_names_array_support(constructor):
 
 
 def test_plot_tree_entropy(pyplot):
+    # [FUNCTION DOC]
+    # Smoke/correctness test of plot_tree for an entropy classifier: checks that 5
+    # annotations are returned (3 nodes and the True/False edge labels) with the exact
+    # expected texts. Inputs: pyplot fixture (matplotlib, closes figures).
     # mostly smoke tests
     # Check correctness of export_graphviz for criterion = entropy
     clf = DecisionTreeClassifier(
@@ -615,6 +665,10 @@ def test_plot_tree_entropy(pyplot):
 
 @pytest.mark.parametrize("fontsize", [None, 10, 20])
 def test_plot_tree_gini(pyplot, fontsize):
+    # [FUNCTION DOC]
+    # Same as the entropy test for a gini classifier, additionally checking that all
+    # annotations use the requested fontsize when one is given.
+    # Inputs: pyplot fixture; fontsize - None, 10 or 20.
     # mostly smoke tests
     # Check correctness of export_graphviz for criterion = gini
     clf = DecisionTreeClassifier(
@@ -642,6 +696,8 @@ def test_plot_tree_gini(pyplot, fontsize):
 
 
 def test_not_fitted_tree(pyplot):
+    # [FUNCTION DOC]
+    # Checks that plot_tree raises NotFittedError on an unfitted regressor.
     # Testing if not fitted tree throws the correct error
     clf = DecisionTreeRegressor()
     with pytest.raises(NotFittedError):
