@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for fetch_20newsgroups and fetch_20newsgroups_vectorized. They rely on the
+# conftest fixtures fetch_20newsgroups_fxt / fetch_20newsgroups_vectorized_fxt, which
+# skip unless the data is cached locally or network tests are enabled. Shared checks
+# come from test_common.
 """Test the 20news downloader, if the data is available,
 or if specifically requested via environment variable
 (e.g. for CI jobs)."""
@@ -19,6 +24,12 @@ from sklearn.utils._testing import assert_allclose_dense_sparse
 
 
 def test_20news(fetch_20newsgroups_fxt):
+    # [FUNCTION DOC]
+    # Verifies the raw loader: DESCR content; that selecting the last two categories
+    # (given in reverse order) yields target_names sorted as in the full dataset and
+    # labels re-encoded to 0 and 1; that filenames, data and target lengths agree; that
+    # the first filtered document equals the first document of its category in the full
+    # unshuffled data; and that return_X_y returns lists/arrays of matching sizes.
     data = fetch_20newsgroups_fxt(subset="all", shuffle=False)
     assert data.DESCR.startswith(".. _20newsgroups_dataset:")
 
@@ -51,6 +62,9 @@ def test_20news(fetch_20newsgroups_fxt):
 
 
 def test_20news_length_consistency(fetch_20newsgroups_fxt):
+    # [FUNCTION DOC]
+    # Non-regression test: on the full shuffled dataset, attribute and key access to
+    # data, target and filenames give the same lengths.
     """Checks the length consistencies within the bunch
 
     This is a non-regression test for a bug present in 0.16.1.
@@ -63,6 +77,10 @@ def test_20news_length_consistency(fetch_20newsgroups_fxt):
 
 
 def test_20news_vectorized(fetch_20newsgroups_vectorized_fxt):
+    # [FUNCTION DOC]
+    # Verifies the vectorized loader for train, test and all subsets: CSR float64 data
+    # with expected shapes (11314 / 7532 / sum rows, 130107 features), matching target
+    # lengths and DESCR; also checks return_X_y via check_return_X_y.
     # test subset = train
     bunch = fetch_20newsgroups_vectorized_fxt(subset="train")
     assert sp.issparse(bunch.data) and bunch.data.format == "csr"
@@ -93,6 +111,9 @@ def test_20news_vectorized(fetch_20newsgroups_vectorized_fxt):
 
 
 def test_20news_normalization(fetch_20newsgroups_vectorized_fxt):
+    # [FUNCTION DOC]
+    # Verifies that normalize=True equals applying sklearn normalize to the unnormalized
+    # counts (first 100 rows) and that each row has unit L2 norm.
     X = fetch_20newsgroups_vectorized_fxt(normalize=False)
     X_ = fetch_20newsgroups_vectorized_fxt(normalize=True)
     X_norm = X_["data"][:100]
@@ -103,6 +124,10 @@ def test_20news_normalization(fetch_20newsgroups_vectorized_fxt):
 
 
 def test_20news_as_frame(fetch_20newsgroups_vectorized_fxt):
+    # [FUNCTION DOC]
+    # Verifies as_frame=True: generic frame checks, frame shape (11314, 130108), sparse
+    # pandas dtypes for all data columns, presence of a few known vocabulary columns and
+    # of the category_class target column/name. Skipped without pandas.
     pd = pytest.importorskip("pandas")
 
     bunch = fetch_20newsgroups_vectorized_fxt(as_frame=True)
@@ -128,10 +153,18 @@ def test_20news_as_frame(fetch_20newsgroups_vectorized_fxt):
 
 
 def test_as_frame_no_pandas(fetch_20newsgroups_vectorized_fxt, hide_available_pandas):
+    # [FUNCTION DOC]
+    # Verifies the informative ImportError message when pandas is hidden and
+    # as_frame=True is requested.
     check_pandas_dependency_message(fetch_20newsgroups_vectorized_fxt)
 
 
 def test_outdated_pickle(fetch_20newsgroups_vectorized_fxt):
+    # [FUNCTION DOC]
+    # Verifies that an incompatible cached pickle raises the informative ValueError:
+    # os.path.exists is patched to True and joblib.load to return a 2-tuple, so
+    # unpacking into three values fails and is re-raised with the "cached dataset
+    # located in" message.
     with patch("os.path.exists") as mock_is_exist:
         with patch("joblib.load") as mock_load:
             # mock that the dataset was cached

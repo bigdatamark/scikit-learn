@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Unit tests for sklearn.datasets._arff_parser: frame post-processing into X/y, parser-
+# name validation of load_arff_from_gzip_file, and quote handling of the liac-arff and
+# pandas ARFF parsers on tiny in-memory ARFF documents. Pandas-dependent tests are
+# skipped without pandas.
 import textwrap
 from io import BytesIO
 
@@ -44,6 +49,10 @@ from sklearn.datasets._arff_parser import (
     ],
 )
 def test_post_process_frame(feature_names, target_names):
+    # [FUNCTION DOC]
+    # Verifies _post_process_frame splits a toy DataFrame into X (always a DataFrame)
+    # and y whose type depends on the number of target columns: DataFrame for 2 or more,
+    # Series for 1, None for 0. Parametrized over three target selections.
     """Check the behaviour of the post-processing function for splitting a dataframe."""
     pd = pytest.importorskip("pandas")
 
@@ -69,6 +78,9 @@ def test_post_process_frame(feature_names, target_names):
 
 
 def test_load_arff_from_gzip_file_error_parser():
+    # [FUNCTION DOC]
+    # Verifies that an unknown parser name raises ValueError with the expected message
+    # before any other argument is used (all arguments are dummy strings).
     """An error will be raised if the parser is not known."""
     # None of the input parameters are required to be accurate since the check
     # of the parser will be carried out first.
@@ -80,6 +92,13 @@ def test_load_arff_from_gzip_file_error_parser():
 
 @pytest.mark.parametrize("parser_func", [_liac_arff_parser, _pandas_arff_parser])
 def test_pandas_arff_parser_strip_single_quotes(parser_func):
+    # [FUNCTION DOC]
+    # Verifies single-quoted values in a one-row ARFF: both parsers strip quotes from
+    # nominal values; liac-arff also strips them from string columns while the pandas
+    # parser keeps them. Checks column order (features then target) and the parsed row
+    # values. Parametrized over both parsers.
+    # KNOWN ISSUE: the test name says "pandas" but it is also run with the liac-arff
+    # parser.
     """Check that we properly strip single quotes from the data."""
     pd = pytest.importorskip("pandas")
 
@@ -151,6 +170,11 @@ def test_pandas_arff_parser_strip_single_quotes(parser_func):
 
 @pytest.mark.parametrize("parser_func", [_liac_arff_parser, _pandas_arff_parser])
 def test_pandas_arff_parser_strip_double_quotes(parser_func):
+    # [FUNCTION DOC]
+    # Verifies that double-quoted nominal and string values are stripped by both parsers
+    # while inner single quotes are kept; checks column order and row values.
+    # KNOWN ISSUE: the test name says "pandas" but both parsers are tested; the column
+    # "str_nested_quote" value text mentions double quotes but contains single quotes.
     """Check that we properly strip double quotes from the data."""
     pd = pytest.importorskip("pandas")
 
@@ -222,6 +246,10 @@ def test_pandas_arff_parser_strip_double_quotes(parser_func):
     ],
 )
 def test_pandas_arff_parser_strip_no_quotes(parser_func):
+    # [FUNCTION DOC]
+    # Verifies parsing of unquoted values and a string with internal single quotes (kept
+    # verbatim). Expected to fail (xfail) for liac-arff, which does not accept internal
+    # quotes; passes for the pandas parser.
     """Check that we properly parse with no quotes characters."""
     pd = pytest.importorskip("pandas")
 

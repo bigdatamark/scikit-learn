@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements the PCA estimator (exact SVD, covariance eigendecomposition, ARPACK or
+# randomized truncated SVD solvers, with Array API support for some solvers) and the
+# helpers for Minka's MLE choice of dimensionality (_assess_dimension,
+# _infer_dimension). transform, inverse_transform, get_covariance and get_precision come
+# from _BasePCA.
+# Side effects at import: none.
 """Principal Component Analysis."""
 
 # Authors: The scikit-learn developers
@@ -23,6 +30,20 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 def _assess_dimension(spectrum, rank, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Minka's Laplace-approximation log-likelihood of a PCA model with the given
+    #   rank. Returns -inf if the rank-th eigenvalue is below 1e-15. Otherwise sums: pu
+    #   (log prior volume of the Stiefel manifold, a sum of log-gamma terms minus
+    #   rank*log 2), pl (-n_samples/2 times sum of log of the top rank eigenvalues), pv
+    #   (-n_samples*(n_features-rank)/2 times log of v, the mean of the remaining
+    #   eigenvalues floored at eps), pp (log(2 pi) times (m + rank)/2 with m =
+    #   n_features*rank - rank*(rank+1)/2), minus half of pa (sum over i < rank, j > i
+    #   of log((lambda_i - lambda_j)(1/lambda~_j - 1/lambda~_i)) + log n_samples, where
+    #   lambda~ replaces the tail by v), minus rank*log(n_samples)/2.
+    # Inputs: spectrum 1D array (n_features,) of explained variances in decreasing
+    #   order; rank int in [1, n_features-1]; n_samples int.
+    # Outputs: float log-likelihood (or -inf).
+    # Exceptions: ValueError if rank is outside [1, n_features - 1].
     """Compute the log-likelihood of a rank ``rank`` dataset.
 
     The dataset is assumed to be embedded in gaussian noise of shape(n,
@@ -97,6 +118,11 @@ def _assess_dimension(spectrum, rank, n_samples):
 
 
 def _infer_dimension(spectrum, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Evaluates _assess_dimension for every rank from 1 to n_features-1 (rank 0
+    #   fixed at -inf) and returns the argmax rank.
+    # Inputs: spectrum (n_features,); n_samples int. Outputs: integer (array scalar)
+    #   best rank.
     """Infers the dimension of a dataset with a given spectrum.
 
     The returned value will be in [1, n_features - 1].
@@ -111,6 +137,12 @@ def _infer_dimension(spectrum, n_samples):
 
 
 class PCA(_BasePCA):
+    # [CLASS DOC]
+    # Principal component analysis estimator. Fitting picks a concrete solver
+    # (_fit_svd_solver) and sets mean_, components_, n_components_, n_samples_,
+    # explained_variance_, explained_variance_ratio_, singular_values_, noise_variance_,
+    # n_features_in_. Adds score_samples/score (probabilistic PCA likelihood) to the
+    # _BasePCA API.
     """Principal component analysis (PCA).
 
     Linear dimensionality reduction using Singular Value Decomposition of the
@@ -409,6 +441,11 @@ class PCA(_BasePCA):
         power_iteration_normalizer="auto",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters without validation: n_components (int, float in (0,1),
+        # 'mle' or None), copy, whiten, svd_solver ('auto', 'full', 'covariance_eigh',
+        # 'arpack', 'randomized'), tol (arpack), iterated_power, n_oversamples,
+        # power_iteration_normalizer (randomized), random_state.
         self.n_components = n_components
         self.copy = copy
         self.whiten = whiten
@@ -421,6 +458,8 @@ class PCA(_BasePCA):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits the model by calling _fit(X) and returns self. y is ignored.
         """Fit the model with X.
 
         Parameters
@@ -442,6 +481,14 @@ class PCA(_BasePCA):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits and returns the projected training data. When the solver produced U,
+        # returns the first n_components_ columns of U multiplied by sqrt(n_samples - 1)
+        # if whitening, else by the singular values; for 'covariance_eigh' (no U)
+        # projects X with _transform, reusing the centering status.
+        # Inputs: X (n_samples, n_features); y ignored. Outputs: array (n_samples,
+        #   n_components_).
+        # Side effects: as in _fit.
         """Fit the model with X and apply the dimensionality reduction on X.
 
         Parameters
@@ -479,6 +526,21 @@ class PCA(_BasePCA):
             return self._transform(X, xp, x_is_centered=x_is_centered)
 
     def _fit(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates input and dispatches to a solver. Rejects sparse input
+        #   unless the solver is 'auto', 'arpack' or 'covariance_eigh' and rejects
+        #   'arpack' with Array API input; validates X (float32/64, CSR/CSC, no copy);
+        #   'auto' becomes 'arpack' for sparse input. Default n_components is
+        #   min(X.shape) (minus 1 for arpack). Remaining 'auto' choice:
+        #   'covariance_eigh' when n_features <= 1000 and n_samples >= 10*n_features;
+        #   else 'full' when the larger dimension is <= 500 or n_components is 'mle';
+        #   else 'randomized' when 1 <= n_components < 0.8*min dimension; else 'full'.
+        # Inputs: X array-like or sparse.
+        # Outputs: tuple (U or None, S, Vt, X, x_is_centered bool, array namespace).
+        # Exceptions: TypeError for unsupported sparse solver; ValueError for arpack
+        #   with Array API; errors from the solver methods.
+        # Side effects: sets _fit_svd_solver and the fitted attributes via the solver
+        #   methods.
         """Dispatch to the right submethod depending on the chosen solver."""
         xp, is_array_api_compliant = get_namespace(X)
 
@@ -542,6 +604,26 @@ class PCA(_BasePCA):
             return self._fit_truncated(X, n_components, xp)
 
     def _fit_full(self, X, n_components, xp, is_array_api_compliant):
+        # [FUNCTION DOC]
+        # HELPER: Full solvers. Validates n_components ('mle' needs n_samples >=
+        #   n_features; numbers must lie in [0, min dimension]); computes mean_. 'full':
+        #   centers a copy (or X in place when copy is False) and takes a thin SVD;
+        #   explained variance = S^2/(n_samples-1). 'covariance_eigh': forms the
+        #   covariance X^T X minus n_samples times mean outer product, divided by
+        #   n_samples-1, eigendecomposes it, flips to descending order, clips negative
+        #   eigenvalues to 0, sets S = sqrt(eigenvalue*(n_samples-1)) and no U. Applies
+        #   svd_flip based on Vt, computes ratios, then resolves n_components: 'mle' via
+        #   _infer_dimension, a fraction in (0,1) as the smallest count whose cumulative
+        #   ratio exceeds it. noise_variance_ is the mean of the discarded variances (0
+        #   if none).
+        # Inputs: X validated (n_samples, n_features); n_components int, float or 'mle';
+        #   xp namespace; is_array_api_compliant bool.
+        # Outputs: tuple (U or None, S, Vt, X, x_is_centered, xp) with untruncated S,
+        #   Vt.
+        # Exceptions: ValueError for invalid n_components.
+        # Side effects: sets mean_, noise_variance_, n_samples_, n_components_,
+        #   components_, explained_variance_, explained_variance_ratio_,
+        #   singular_values_; centers X in place when copy is False ('full' only).
         """Fit the model by computing full SVD on X."""
         n_samples, n_features = X.shape
 
@@ -694,6 +776,27 @@ class PCA(_BasePCA):
         return U, S, Vt, X, x_is_centered, xp
 
     def _fit_truncated(self, X, n_components, xp):
+        # [FUNCTION DOC]
+        # HELPER: Truncated solvers ('arpack', 'randomized'). Requires integer
+        #   n_components in [1, min dimension] (strictly less for arpack). Centers:
+        #   sparse input implicitly via a column-offset linear operator (mean and total
+        #   variance from mean_variance_axis), dense input explicitly (in place when
+        #   copy is False). ARPACK: svds with a seeded v0, results reversed to
+        #   descending order; randomized: _randomized_svd with n_oversamples,
+        #   iterated_power and the normalizer; both sign-flipped based on Vt. Explained
+        #   variance = S^2/(n_samples-1); total variance for dense input is the sum of
+        #   squares of the centered data divided by n_samples-1; noise_variance_ is the
+        #   unexplained variance averaged over the remaining min(n_features, n_samples)
+        #   - n_components directions.
+        # Inputs: X; n_components int; xp namespace.
+        # Outputs: tuple (U, S, Vt, X, x_is_centered, xp).
+        # Exceptions: ValueError when n_components is a string or out of range.
+        # Side effects: sets mean_, n_samples_, components_, n_components_,
+        #   explained_variance_, explained_variance_ratio_, singular_values_,
+        #   noise_variance_; consumes random_state.
+        # KNOWN ISSUE: for dense input the centered data is squared in place to compute
+        #   the total variance; with copy=False this overwrites the caller's X with
+        #   squared centered values while x_is_centered is reported True.
         """Fit the model by computing truncated SVD (by ARPACK or randomized)
         on X.
         """
@@ -788,6 +891,12 @@ class PCA(_BasePCA):
         return U, S, Vt, X, x_is_centered, xp
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Log-likelihood of each sample under the probabilistic PCA Gaussian N(mean_,
+        # get_covariance()), computed with the precision matrix: minus half the
+        # quadratic form, minus half of (n_features*log(2 pi) - log det precision).
+        # Inputs: X (n_samples, n_features). Outputs: array (n_samples,).
+        # Exceptions: NotFittedError; validation errors.
         """Return the log-likelihood of each sample.
 
         See. "Pattern Recognition and Machine Learning"
@@ -815,6 +924,8 @@ class PCA(_BasePCA):
         return log_like
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # Returns the average of score_samples(X) as a Python float. y is ignored.
         """Return the average log-likelihood of all samples.
 
         See. "Pattern Recognition and Machine Learning"
@@ -838,6 +949,11 @@ class PCA(_BasePCA):
         return float(xp.mean(self.score_samples(X)))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends tags: preserves float64/float32; Array API supported unless the
+        # (fitted or configured) solver is arpack, or randomized without the QR
+        # normalizer; sparse input accepted for solvers 'auto', 'arpack' and
+        # 'covariance_eigh'.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = ["float64", "float32"]
         solver = getattr(self, "_fit_svd_solver", self.svd_solver)

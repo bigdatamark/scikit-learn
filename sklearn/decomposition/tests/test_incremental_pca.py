@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for IncrementalPCA: agreement with PCA (components, variances, singular
+# values, whitening), dense and sparse input, batch-size stability, partial_fit
+# semantics and validation errors, and feature names.
+# Side effects at import: loads the iris dataset into the module-level iris.
 """Tests for Incremental PCA."""
 
 import itertools
@@ -20,6 +25,10 @@ iris = datasets.load_iris()
 
 
 def test_incremental_pca():
+    # [FUNCTION DOC]
+    # On dense iris data with batch_size n/3: checks fit_transform output shape and
+    # that total explained variance ratio matches PCA, then for n_components 1, 2 and
+    # n_features checks get_covariance times get_precision is the identity.
     # Incremental PCA on dense arrays.
     X = iris.data
     batch_size = X.shape[0] // 3
@@ -50,6 +59,11 @@ def test_incremental_pca():
     "sparse_container", CSC_CONTAINERS + CSR_CONTAINERS + LIL_CONTAINERS
 )
 def test_incremental_pca_sparse(sparse_container):
+    # [FUNCTION DOC]
+    # Same checks as test_incremental_pca on iris converted to each sparse container
+    # (CSC, CSR, LIL) via fit; additionally checks partial_fit on sparse input raises
+    # TypeError with the expected message.
+    # Inputs: sparse_container - sparse matrix/array constructor.
     # Incremental PCA on sparse arrays.
     X = iris.data
     pca = PCA(n_components=2)
@@ -88,6 +102,11 @@ def test_incremental_pca_sparse(sparse_container):
 
 
 def test_incremental_pca_check_projection(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks projection correctness: fits a 2-component model on small-noise data
+    # where 10 rows are shifted by (3, 4, 5), transforms a point near that shift and
+    # asserts its normalized projection lies (in absolute value) almost entirely on
+    # the first component.
     # Test that the projection of data is correct.
     rng = np.random.RandomState(global_random_seed)
     n, p = 100, 3
@@ -109,6 +128,9 @@ def test_incremental_pca_check_projection(global_random_seed):
 
 
 def test_incremental_pca_inverse(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks inverse_transform(transform(X)) recovers X (3 decimals) for nearly
+    # rank-2 data with a large mean, fitted with 2 components and batch_size 10.
     # Test that the projection of data can be inverted.
     rng = np.random.RandomState(global_random_seed)
     n, p = 50, 3
@@ -125,6 +147,10 @@ def test_incremental_pca_inverse(global_random_seed):
 
 
 def test_incremental_pca_validation():
+    # [FUNCTION DOC]
+    # Checks validation errors: n_components greater than n_features raises
+    # ValueError on fit, and n_components greater than the number of samples in the
+    # first partial_fit batch raises ValueError with the expected message.
     # Test that n_components is <= n_features.
     X = np.array([[0, 1, 0], [1, 0, 0]])
     n_samples, n_features = X.shape
@@ -153,6 +179,10 @@ def test_incremental_pca_validation():
 
 
 def test_n_samples_equal_n_components():
+    # [FUNCTION DOC]
+    # Non-regression test for gh-19050: partial_fit and fit with
+    # n_samples == n_components emit no RuntimeWarning (turned into errors).
+    # Side effects: uses the unseeded global numpy random state.
     # Ensures no warning is raised when n_samples==n_components
     # Non-regression test for gh-19050
     ipca = IncrementalPCA(n_components=5)
@@ -165,6 +195,10 @@ def test_n_samples_equal_n_components():
 
 
 def test_n_components_none():
+    # [FUNCTION DOC]
+    # Checks n_components=None: after the first partial_fit, n_components_ equals
+    # min(X.shape); after a second partial_fit, it equals components_.shape[0]; for
+    # both tall and wide data.
     # Ensures that n_components == None is handled correctly
     rng = np.random.RandomState(1999)
     for n_samples, n_features in [(50, 10), (10, 50)]:
@@ -183,6 +217,12 @@ def test_n_components_none():
 
 
 def test_incremental_pca_set_params():
+    # [FUNCTION DOC]
+    # Checks that changing n_components via set_params after fitting with 20
+    # components makes partial_fit raise ValueError (both decreasing to 10 and
+    # increasing to 15), and that restoring 20 lets partial_fit succeed.
+    # KNOWN ISSUE: the leading comment ("components_ sign is stable over batch
+    # sizes") is copied from another test and does not describe this test.
     # Test that components_ sign is stable over batch sizes.
     rng = np.random.RandomState(1999)
     n_samples = 100
@@ -206,6 +246,11 @@ def test_incremental_pca_set_params():
 
 
 def test_incremental_pca_num_features_change():
+    # [FUNCTION DOC]
+    # Checks that partial_fit with data having a different number of features (50)
+    # than the data used in fit (20) raises ValueError.
+    # KNOWN ISSUE: the leading comment says "changing n_components" but the test
+    # changes the number of features.
     # Test that changing n_components will raise an error.
     rng = np.random.RandomState(1999)
     n_samples = 100
@@ -218,6 +263,9 @@ def test_incremental_pca_num_features_change():
 
 
 def test_incremental_pca_batch_signs(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that the signs of components_ are identical for fits with batch sizes
+    # 10 to 19 on the same random data (consecutive pairs compared).
     # Test that components_ sign is stable over batch sizes.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
@@ -234,6 +282,10 @@ def test_incremental_pca_batch_signs(global_random_seed):
 
 
 def test_incremental_pca_partial_fit_small_batch():
+    # [FUNCTION DOC]
+    # Non-regression test: after a first partial_fit with n_components samples,
+    # further partial_fit calls with single samples are allowed, and the final
+    # components_ match PCA on the full data (atol 1e-3).
     # Test that there is no minimum batch size after the first partial_fit
     # Non-regression test
     rng = np.random.RandomState(1999)
@@ -255,6 +307,9 @@ def test_incremental_pca_partial_fit_small_batch():
 
 
 def test_incremental_pca_batch_values(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks components_ values are approximately equal (1 decimal) across batch
+    # sizes 20, 23, ..., 38 (consecutive pairs compared).
     # Test that components_ values are stable over batch sizes.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
@@ -271,6 +326,10 @@ def test_incremental_pca_batch_values(global_random_seed):
 
 
 def test_incremental_pca_batch_rank():
+    # [FUNCTION DOC]
+    # Checks that with 20 components on 20-feature data, every batch size from 20 to
+    # 87 (step 3) yields the same components_ (consecutive pairs compared), i.e. a
+    # batch smaller than n_components is never produced.
     # Test sample size in each batch is always larger or equal to n_components
     rng = np.random.RandomState(1999)
     n_samples = 100
@@ -287,6 +346,9 @@ def test_incremental_pca_batch_rank():
 
 
 def test_incremental_pca_partial_fit(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that fit with batch_size 10 and manual partial_fit over consecutive
+    # 10-row slices give equal components_ (3 decimals).
     # Test that fit and partial_fit get equivalent results.
     rng = np.random.RandomState(global_random_seed)
     n, p = 50, 3
@@ -307,6 +369,9 @@ def test_incremental_pca_partial_fit(global_random_seed):
 
 
 def test_incremental_pca_against_pca_iris():
+    # [FUNCTION DOC]
+    # Checks IncrementalPCA (batch_size 25) and PCA transforms of iris agree up to
+    # sign (absolute values, 1 decimal).
     # Test that IncrementalPCA and PCA are approximate (to a sign flip).
     X = iris.data
 
@@ -317,6 +382,9 @@ def test_incremental_pca_against_pca_iris():
 
 
 def test_incremental_pca_against_pca_random_data(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks IncrementalPCA and PCA transforms agree up to sign on random 3-feature
+    # data with an offset mean (absolute values, 1 decimal).
     # Test that IncrementalPCA and PCA are approximate (to a sign flip).
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
@@ -330,6 +398,9 @@ def test_incremental_pca_against_pca_random_data(global_random_seed):
 
 
 def test_explained_variances():
+    # [FUNCTION DOC]
+    # Checks explained_variance_, explained_variance_ratio_ and noise_variance_ match
+    # PCA (3 decimals) on a low-rank 1000x100 matrix for n_components None and 99.
     # Test that PCA and IncrementalPCA calculations match
     X = datasets.make_low_rank_matrix(
         1000, 100, tail_strength=0.0, effective_rank=10, random_state=1999
@@ -349,6 +420,11 @@ def test_explained_variances():
 
 
 def test_singular_values(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks singular_values_ against PCA (full solver), against the Frobenius norm
+    # of the transformed data and against per-component 2-norms of the scores; then
+    # builds data with prescribed singular values (3.142, 2.718, 1.0) and checks both
+    # models recover them to 14 decimals.
     # Check that the IncrementalPCA output has the correct singular values
 
     rng = np.random.RandomState(global_random_seed)
@@ -406,6 +482,11 @@ def test_singular_values(global_random_seed):
 
 
 def test_whitening(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks whitened transforms of PCA and IncrementalPCA match up to sign on the
+    # components with non-negligible explained variance, and that both
+    # inverse_transforms reconstruct X and agree with each other, for n_components
+    # None and 9 on rank-2 data.
     # Test that PCA and IncrementalPCA transforms match to sign flip.
     X = datasets.make_low_rank_matrix(
         1000, 10, tail_strength=0.0, effective_rank=2, random_state=global_random_seed
@@ -440,6 +521,9 @@ def test_whitening(global_random_seed):
 
 
 def test_incremental_pca_partial_fit_float_division():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #9489: setting n_samples_seen_ to a float between
+    # partial_fit calls gives the same singular_values_ as keeping it an int.
     # Test to ensure float division is used in all versions of Python
     # (non-regression test for issue #9489)
 
@@ -465,6 +549,9 @@ def test_incremental_pca_partial_fit_float_division():
 
 
 def test_incremental_pca_fit_overflow_error():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #17693 (Windows overflow): fitting 500000x2 data
+    # in batches of 10000 gives singular_values_ equal to PCA's.
     # Test for overflow error on Windows OS
     # (non-regression test for issue #17693)
     rng = np.random.RandomState(0)
@@ -480,6 +567,9 @@ def test_incremental_pca_fit_overflow_error():
 
 
 def test_incremental_pca_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns "incrementalpca0" and "incrementalpca1"
+    # for a 2-component model fitted on iris.
     """Check feature names out for IncrementalPCA."""
     ipca = IncrementalPCA(n_components=2).fit(iris.data)
 
