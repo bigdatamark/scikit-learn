@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Shared infrastructure for feature selectors: SelectorMixin, which turns a boolean
+#   support mask (provided by subclasses through _get_support_mask) into transform,
+#   inverse_transform, get_support and get_feature_names_out, and the helper
+#   _get_feature_importances used by model-based selectors (SelectFromModel, RFE) to
+#   extract and aggregate importances from a fitted estimator.
 """Generic feature selection mixin"""
 
 # Authors: The scikit-learn developers
@@ -25,6 +31,10 @@ from sklearn.utils.validation import (
 
 
 class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract transformer mixin (ABCMeta) for selectors whose output is a column subset
+    #   of the input. Subclasses implement _get_support_mask returning a boolean array
+    #   of length n_features_in_; everything else is derived from it.
     """
     Transformer mixin that performs feature selection given a support mask.
 
@@ -52,6 +62,12 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
     """
 
     def get_support(self, indices=False):
+        # [FUNCTION DOC]
+        # Returns the support mask, or the integer positions of the True entries when
+        #   indices is True.
+        # Inputs: indices - bool, default False.
+        # Outputs: bool array (n_input_features,) or int array (n_selected,).
+        # Exceptions: whatever _get_support_mask raises (typically NotFittedError).
         """
         Get a mask, or integer index, of the features selected.
 
@@ -76,6 +92,9 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
 
     @abstractmethod
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Abstract hook: must return the boolean mask of retained input features. The
+        #   base body does nothing.
         """
         Get the boolean mask indicating which features are selected
 
@@ -87,6 +106,15 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
         """
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X without resetting fitted state (dtype preserved, CSR accepted, NaN
+        #   allowed only if the estimator's allow_nan tag is set). When the dense output
+        #   is configured to something other than "default" and X is a pandas DataFrame,
+        #   array conversion is skipped so dataframe column dtypes survive. Delegates to
+        #   _transform.
+        # Inputs: X - array-like, sparse matrix or DataFrame (n_samples, n_features).
+        # Outputs: X restricted to the selected columns (same container type).
+        # Exceptions: ValueError on feature count / name mismatch or non-finite values.
         """Reduce X to the selected features.
 
         Parameters
@@ -118,6 +146,14 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
         return self._transform(X)
 
     def _transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Column-indexes X with the support mask. If no feature is selected,
+        #   warns (UserWarning) and returns an empty-column result: an empty DataFrame
+        #   slice for objects with iloc, otherwise an empty array of shape (n_samples,
+        #   0) with X's dtype.
+        # Outputs: selected columns of X.
+        # KNOWN ISSUE: the empty-result branch returns a dense ndarray even for sparse
+        #   X.
         """Reduce X to the selected features."""
         mask = self.get_support()
         if not mask.any():
@@ -134,6 +170,21 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
         return _safe_indexing(X, mask, axis=1)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Re-inserts zero columns where features were removed. Sparse input: converted
+        #   to CSC; the per-column nonzero counts are recursively inverse-transformed
+        #   (as a dense 1-row array) to build a new indptr, and a CSC matrix of width
+        #   n_input_features is assembled reusing data and indices. Dense input:
+        #   validated (dtype kept), 1D input is treated as one row, and selected columns
+        #   are copied into a zero matrix.
+        # Inputs: X - (n_samples, n_selected_features).
+        # Outputs: array or sparse (CSC) matrix (n_samples, n_input_features), same
+        #   dtype.
+        # Exceptions: ValueError if the dense column count differs from the number of
+        #   selected features.
+        # KNOWN ISSUE: the 1D branch is unreachable because check_array (2D by default)
+        #   rejects 1D input before it; the sparse path does not verify the column
+        #   count.
         """Reverse the transformation operation.
 
         Parameters
@@ -174,6 +225,11 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
         return Xt
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Validates/creates input feature names and returns those that are selected.
+        # Inputs: input_features - array-like of str or None.
+        # Outputs: object ndarray of selected names.
+        # Exceptions: NotFittedError; ValueError on inconsistent input_features.
         """Mask feature names according to selected features.
 
         Parameters
@@ -199,6 +255,20 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
 
 
 def _get_feature_importances(estimator, getter, transform_func=None, norm_order=1):
+    # [FUNCTION DOC]
+    # HELPER: Extracts importances from a fitted estimator and optionally reduces them
+    #   to one value per feature. getter "auto" uses coef_ if present, else
+    #   feature_importances_; any other str is an attribute path; callables are called
+    #   on the estimator. Sparse importances become CSR. transform_func "norm": absolute
+    #   values for 1D, else the norm_order norm of each column (over rows/classes);
+    #   "square": element-wise square for 1D, else squares summed over rows.
+    # Inputs: estimator - fitted estimator; getter - str or callable; transform_func -
+    #   None, "norm" or "square"; norm_order - norm order, default 1.
+    # Outputs: importances array (n_features,) or the raw getter output when
+    #   transform_func is None.
+    # Exceptions: ValueError for "auto" without coef_ / feature_importances_, for a non-
+    #   str non-callable getter, or an unknown transform_func; AttributeError from
+    #   attribute lookups.
     """
     Retrieve and aggregate (ndim > 1)  the feature importances
     from an estimator. Also optionally applies transformation.

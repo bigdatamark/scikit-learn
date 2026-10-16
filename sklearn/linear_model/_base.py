@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Shared infrastructure for linear models: data preprocessing (centering, sample-weight
+#   rescaling), SGD dataset construction, the LinearModel / MultiOutputLinearModel base
+#   classes (decision function, prediction, intercept recovery), LinearClassifierMixin
+#   (scores, label prediction, OvR logistic probabilities), SparseCoefMixin
+#   (densify/sparsify), ordinary least squares LinearRegression, and coordinate-descent
+#   helpers for Gram matrix handling (_pre_fit, _check_precomputed_gram_matrix).
+# Defines the module constant SPARSE_INTERCEPT_DECAY used for sparse SGD.
 """
 Generalized Linear Models.
 """
@@ -58,6 +66,18 @@ SPARSE_INTERCEPT_DECAY = 0.01
 
 
 def make_dataset(X, y, sample_weight, random_state=None):
+    # [FUNCTION DOC]
+    # HELPER: Wraps X, y, sample_weight into a Cython SequentialDataset for SGD-type
+    #   solvers. Picks 32 or 64 bit dataset classes by X dtype (float32 vs other) and CSR
+    #   vs array classes by sparsity; dense X is made C-contiguous. A seed in [1, int32
+    #   max) is drawn from random_state.
+    # Inputs: X dense or CSR (n_samples, n_features); y (n_samples,); sample_weight
+    #   (n_samples,); random_state seed/RandomState/None.
+    # Outputs: (dataset, intercept_decay) where intercept_decay is
+    #   SPARSE_INTERCEPT_DECAY for sparse X and 1.0 otherwise.
+    # Side effects: consumes randomness from random_state.
+    # KNOWN ISSUE: sparse X is assumed to be CSR (uses data, indptr, indices) without
+    #   checking the format.
     """Create ``Dataset`` abstraction for sparse and dense inputs.
 
     This also returns the ``intercept_decay`` which is different
@@ -120,6 +140,21 @@ def _preprocess_data(
     check_input=True,
     rescale_with_sw=True,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Centers data for fitting a linear model with intercept. If check_input,
+    #   validates X (dense/CSR/CSC, float dtypes of the namespace, copy when requested)
+    #   and copies y cast to X dtype; otherwise casts y and copies X if copy. With
+    #   fit_intercept: compute weighted column means X_offset (sparse X is NOT centered,
+    #   only the means are returned) and subtract them from dense X, and subtract the
+    #   weighted mean of y. Without intercept, offsets are zeros. X_scale is always ones
+    #   (legacy). If sample_weight is given and rescale_with_sw, multiply rows of X and y
+    #   by sqrt(sample_weight) in place.
+    # Inputs: X (n_samples, n_features); y (n_samples,) or (n_samples, n_targets);
+    #   fit_intercept bool; copy bool; sample_weight optional (n_samples,); check_input
+    #   bool; rescale_with_sw bool.
+    # Outputs: (X, y, X_offset (n_features,), y_offset scalar or (n_targets,), X_scale
+    #   ones (n_features,), sample_weight_sqrt or None).
+    # Side effects: modifies X in place when copy is False and X is dense.
     """Common data preprocessing for fitting linear models.
 
     This helper is in charge of the following steps:
@@ -221,6 +256,15 @@ def _preprocess_data(
 
 
 def _rescale_data(X, y, sample_weight, inplace=False):
+    # [FUNCTION DOC]
+    # HELPER: Multiplies each row of X and y by the square root of its sample weight,
+    #   turning weighted least squares into ordinary least squares. Sparse inputs are
+    #   left-multiplied by a diagonal sparse matrix; dense inputs are scaled in place if
+    #   inplace else copied.
+    # Inputs: X (n_samples, n_features), y 1d/2d dense or sparse, sample_weight
+    #   (n_samples,), inplace bool.
+    # Outputs: (X_rescaled, y_rescaled, sample_weight_sqrt).
+    # Side effects: mutates dense X and y when inplace is True.
     """Rescale data sample-wise by square root of sample_weight.
 
     For many linear models, this enables easy support for sample_weight because
@@ -282,13 +326,25 @@ def _rescale_data(X, y, sample_weight, inplace=False):
 
 
 class LinearModel(BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for linear regressors: subclasses implement fit and set coef_ and
+    #   intercept_ (and fit_intercept). Provides _decision_function, predict and
+    #   _set_intercept.
     """Base class for Linear Models"""
 
     @abstractmethod
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Abstract fit; subclasses must set coef_ and intercept_ and return self.
         """Fit model."""
 
     def _decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks the estimator is fitted, validates X (dense or CSR/CSC/COO,
+        #   feature count consistent) and returns X times coef_ (transposed when 2d) plus
+        #   intercept_.
+        # Outputs: (n_samples,) or (n_samples, n_targets).
+        # Exceptions: NotFittedError, validation errors.
         check_is_fitted(self)
 
         X = validate_data(self, X, accept_sparse=["csr", "csc", "coo"], reset=False)
@@ -299,6 +355,12 @@ class LinearModel(BaseEstimator, metaclass=ABCMeta):
             return X @ coef_.T + self.intercept_
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts with the linear model after checking X and coef_ share the same Array
+        #   API namespace.
+        # Outputs: (n_samples,) or (n_samples, n_targets).
+        # Exceptions: error from check_same_namespace on namespace mismatch; see
+        #   _decision_function.
         """
         Predict using the linear model.
 
@@ -316,6 +378,12 @@ class LinearModel(BaseEstimator, metaclass=ABCMeta):
         return self._decision_function(X)
 
     def _set_intercept(self, X_offset, y_offset, X_scale=None):
+        # [FUNCTION DOC]
+        # HELPER: Recovers the intercept after fitting on centered data. With
+        #   fit_intercept: cast coef_ to X_offset dtype, divide by X_scale if given, and
+        #   set intercept_ to y_offset minus X_offset dotted with coef_ (per target for 2d
+        #   coef_). Without: intercept_ is 0.0.
+        # Side effects: sets coef_ and intercept_.
         """Set the intercept_"""
         xp, _ = get_namespace(X_offset, y_offset, X_scale)
 
@@ -336,9 +404,14 @@ class LinearModel(BaseEstimator, metaclass=ABCMeta):
 
 
 class MultiOutputLinearModel(MultiOutputMixin, LinearModel):
+    # [CLASS DOC]
+    # LinearModel variant that also inherits MultiOutputMixin (multi-target y supported)
+    #   and only overrides predict for documentation purposes.
     # Provides consistent docstring to `predict` for linear models that support
     # multi-output.
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Delegates to LinearModel.predict; exists to provide a multi-output docstring.
         """
         Predict using the linear model.
 
@@ -358,12 +431,21 @@ class MultiOutputLinearModel(MultiOutputMixin, LinearModel):
 # XXX Should this derive from LinearModel? It should be a mixin, not an ABC.
 # Maybe the n_features checking can be moved to LinearModel.
 class LinearClassifierMixin(ClassifierMixin):
+    # [CLASS DOC]
+    # Mixin for linear classifiers with fitted coef_, intercept_ and classes_. Provides
+    #   decision_function, predict and _predict_proba_lr.
     """Mixin for linear classifiers.
 
     Handles prediction for sparse and dense X.
     """
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Computes confidence scores: checks fitted and namespace, validates X (dense or
+        #   CSR), returns X times coef_ transposed plus intercept_ as a dense array; a
+        #   single-column result is flattened to 1d (binary case).
+        # Outputs: (n_samples,) or (n_samples, n_classes).
+        # Exceptions: NotFittedError, namespace or validation errors.
         """
         Predict confidence scores for samples.
 
@@ -396,6 +478,12 @@ class LinearClassifierMixin(ClassifierMixin):
         )
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts class labels: for 1d scores picks index 1 where the score is positive
+        #   else 0; for 2d scores takes argmax per row. Indices are moved to the
+        #   namespace/device of classes_, used to take labels from classes_, and moved
+        #   back to the namespace of X unless the labels are strings.
+        # Outputs: (n_samples,) labels.
         """
         Predict class labels for samples in X.
 
@@ -427,6 +515,14 @@ class LinearClassifierMixin(ClassifierMixin):
             return move_to(y_pred, xp=xp, device=device_)
 
     def _predict_proba_lr(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Probability estimates by applying the logistic sigmoid to decision
+        #   scores. Binary case: returns columns 1 - p and p. Multiclass: one-vs-rest
+        #   normalization by dividing each row by its sum; rows summing to zero become
+        #   uniform.
+        # Outputs: (n_samples, n_classes) array.
+        # Side effects: none on self (decision scores are modified in place but are a
+        #   fresh array).
         """Probability estimation for OvR logistic regression.
 
         Positive class probabilities are computed as
@@ -452,12 +548,18 @@ class LinearClassifierMixin(ClassifierMixin):
 
 
 class SparseCoefMixin:
+    # [CLASS DOC]
+    # Mixin adding densify and sparsify to convert coef_ between dense ndarray and scipy
+    #   CSR sparse format.
     """Mixin for converting coef_ to and from CSR format.
 
     L1-regularizing estimators should inherit this.
     """
 
     def densify(self):
+        # [FUNCTION DOC]
+        # Converts a sparse coef_ to a dense array; no-op if already dense.
+        # Outputs: self. Exceptions: NotFittedError. Side effects: replaces coef_.
         """
         Convert coefficient matrix to dense array format.
 
@@ -478,6 +580,10 @@ class SparseCoefMixin:
         return self
 
     def sparsify(self):
+        # [FUNCTION DOC]
+        # Converts coef_ to a scipy CSR sparse array (API aligned via
+        #   _align_api_if_sparse).
+        # Outputs: self. Exceptions: NotFittedError. Side effects: replaces coef_.
         """
         Convert coefficient matrix to sparse format.
 
@@ -517,6 +623,11 @@ class SparseCoefMixin:
 
 
 class LinearRegression(RegressorMixin, MultiOutputLinearModel):
+    # [CLASS DOC]
+    # Ordinary least squares regression. fit dispatches to non-negative least squares
+    #   (positive=True, dense only), sparse LSQR on an implicitly centered linear
+    #   operator, or dense scipy lstsq. Sets coef_, intercept_, and for the dense path
+    #   rank_ and singular_.
     """
     Ordinary least squares Linear Regression.
 
@@ -644,6 +755,9 @@ class LinearRegression(RegressorMixin, MultiOutputLinearModel):
         n_jobs=None,
         positive=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged: fit_intercept, copy_X, tol (LSQR atol/btol
+        #   and lstsq cond), n_jobs (parallel over targets), positive.
         self.fit_intercept = fit_intercept
         self.copy_X = copy_X
         self.tol = tol
@@ -652,6 +766,22 @@ class LinearRegression(RegressorMixin, MultiOutputLinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits OLS. Steps: validate X (sparse allowed unless positive) and multi-output
+        #   numeric y; validate non-negative sample_weight; center and sqrt-weight-rescale
+        #   via _preprocess_data (copy only for dense X when copy_X). Then: positive ->
+        #   scipy nnls per target (parallel for multi-target); sparse X -> lsqr per target
+        #   on a LinearOperator whose matvec/rmatvec subtract the column means (scaled by
+        #   sqrt weights when weighted) to emulate centering; dense -> scipy lstsq with
+        #   cond=tol, storing rank_ and singular_. Flatten coef_ for 1d y and set
+        #   intercept.
+        # Inputs: X (n_samples, n_features); y (n_samples,) or (n_samples, n_targets);
+        #   sample_weight optional.
+        # Outputs: self.
+        # Exceptions: validation errors (e.g. sparse X with positive=True, negative
+        #   weights).
+        # Side effects: sets coef_, intercept_, rank_, singular_ (dense only),
+        #   n_features_in_; may modify X in place when copy_X is False.
         """
         Fit linear model.
 
@@ -720,17 +850,28 @@ class LinearRegression(RegressorMixin, MultiOutputLinearModel):
             if has_sw:
 
                 def matvec(b):
+                    # [FUNCTION DOC]
+                    # HELPER: Matrix-vector product of the implicitly centered, sqrt-
+                    #   weight-scaled X with b.
                     return X.dot(b) - sample_weight_sqrt * b.dot(X_offset)
 
                 def rmatvec(b):
+                    # [FUNCTION DOC]
+                    # HELPER: Transposed product of the implicitly centered, sqrt-
+                    #   weight-scaled X with b.
                     return X.T.dot(b) - X_offset * b.dot(sample_weight_sqrt)
 
             else:
 
                 def matvec(b):
+                    # [FUNCTION DOC]
+                    # HELPER: Matrix-vector product of the implicitly centered X with b
+                    #   (column means subtracted).
                     return X.dot(b) - b.dot(X_offset)
 
                 def rmatvec(b):
+                    # [FUNCTION DOC]
+                    # HELPER: Transposed product of the implicitly centered X with b.
                     return X.T.dot(b) - X_offset * b.sum()
 
             X_centered = sparse.linalg.LinearOperator(
@@ -760,6 +901,8 @@ class LinearRegression(RegressorMixin, MultiOutputLinearModel):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Parent tags with sparse input support enabled only when positive is False.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = not self.positive
         return tags
@@ -768,6 +911,17 @@ class LinearRegression(RegressorMixin, MultiOutputLinearModel):
 def _check_precomputed_gram_matrix(
     X, precompute, X_offset, X_scale, rtol=None, atol=1e-5
 ):
+    # [FUNCTION DOC]
+    # HELPER: Sanity-checks a user-supplied Gram matrix by recomputing one off-diagonal
+    #   entry (features n_features//2 and the next one, clipped to the last) from the
+    #   centered, scaled X columns and comparing with np.isclose (default rtol 1e-4 if any
+    #   dtype is float32 else 1e-7, atol 1e-5).
+    # Inputs: X dense (n_samples, n_features); precompute (n_features, n_features);
+    #   X_offset, X_scale (n_features,); rtol, atol.
+    # Exceptions: ValueError if the entry does not match.
+    # Side effects: none.
+    # KNOWN ISSUE: columns are multiplied by X_scale whereas centering/scaling elsewhere
+    #   divides; harmless only because X_scale is always ones now.
     """Computes a single element of the gram matrix and compares it to
     the corresponding element of the user supplied gram matrix.
 
@@ -839,6 +993,21 @@ def _pre_fit(
     check_gram=True,
     sample_weight=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Prepares data for coordinate descent solvers. Sparse X: no copy, no
+    #   precompute, no weight rescaling (the sparse solver handles weights). Calls
+    #   _preprocess_data without input checks. If a Gram array was supplied but X had to
+    #   be centered (nonzero offsets), warns and switches to recomputation ("auto")
+    #   dropping Xy; otherwise optionally validates it. "auto" becomes True when n_samples
+    #   > n_features; True computes a C-contiguous Gram X^T X. If a Gram array exists and
+    #   Xy is None, computes Xy = X^T y (C-contiguous 1d or F-contiguous 2d); without a
+    #   Gram, Xy is set to None.
+    # Inputs: X, y, Xy (optional precomputed), precompute (bool, "auto" or array),
+    #   fit_intercept, copy, check_gram, sample_weight.
+    # Outputs: (X, y, X_offset, y_offset, X_scale, precompute, Xy).
+    # Exceptions: ValueError from the Gram check.
+    # Side effects: UserWarning on Gram recomputation; may modify X in place when copy
+    #   is False.
     """Function used at beginning of fit in linear models with L1 or L0 penalty.
 
     This function applies _preprocess_data and additionally computes the gram matrix

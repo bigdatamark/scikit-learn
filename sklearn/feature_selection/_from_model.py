@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# SelectFromModel meta-transformer: selects features whose importance (from a wrapped
+#   estimator's coef_ / feature_importances_ or a custom getter) reaches a threshold,
+#   optionally capped at max_features. Also contains _calculate_threshold, which turns
+#   the threshold specification into a number.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -27,6 +32,19 @@ from sklearn.utils.validation import (
 
 
 def _calculate_threshold(estimator, importances, threshold):
+    # [FUNCTION DOC]
+    # HELPER: Resolves the threshold specification. None: 1e-5 if the estimator looks L1
+    #   penalized (penalty attribute "l1", class name containing "Lasso", ElasticNet or
+    #   LogisticRegression with l1_ratio close to 1, their CV variants with fitted
+    #   l1_ratio_ close to 1), otherwise "mean". Strings: "mean", "median", or
+    #   "<scale>*<mean|median>" (the reference statistic times the float scale).
+    #   Anything else is converted with float.
+    # Inputs: estimator - estimator used for the default heuristic; importances - 1D
+    #   array; threshold - str, number or None.
+    # Outputs: float threshold.
+    # Exceptions: ValueError for unknown reference or string; ValueError from float.
+    # KNOWN ISSUE: the inline comment says the natural default is 0 but the code uses
+    #   1e-5 (intentional tolerance, misleading comment).
     """Interpret the threshold value"""
 
     if threshold is None:
@@ -93,6 +111,10 @@ def _calculate_threshold(estimator, importances, threshold):
 
 
 class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-estimator wrapping estimator. Fitted attributes: estimator_ (fitted clone, or
+    #   deep copy when prefit), max_features_ (when max_features given), and
+    #   feature_names_in_ / n_features_in_. threshold_ is computed on demand.
     """Meta-transformer for selecting features based on importance weights.
 
     .. versionadded:: 0.17
@@ -265,6 +287,9 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         max_features=None,
         importance_getter="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, threshold, prefit, importance_getter, norm_order and
+        #   max_features as attributes.
         self.estimator = estimator
         self.threshold = threshold
         self.prefit = prefit
@@ -273,6 +298,20 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         self.max_features = max_features
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Uses estimator_ if fitted, else the raw estimator (prefit case without fit),
+        #   and max_features_ if set, else max_features. Computes norm-aggregated
+        #   importances and the threshold. If max_features is set, starts from a mask of
+        #   the top max_features features by score (stable sort, earlier index wins
+        #   ties), else from all True; then clears features with score below threshold.
+        # Outputs: bool array (n_features,).
+        # Exceptions: NotFittedError when prefit and the estimator is unfitted, or when
+        #   max_features is still a callable (fit was never called); ValueError for a
+        #   non-integer max_features.
+        # KNOWN ISSUE: the top-k branch tests self.max_features rather than the resolved
+        #   local max_features (equivalent in practice since both are None together).
+        #   The callable error message mentions prefit=True though it triggers whenever
+        #   fit was skipped.
         estimator = getattr(self, "estimator_", self.estimator)
         max_features = getattr(self, "max_features_", self.max_features)
 
@@ -315,6 +354,11 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         return mask
 
     def _check_max_features(self, X):
+        # [FUNCTION DOC]
+        # HELPER: If max_features is set, resolves it (calling it with X when callable),
+        #   validates it is an integer >= 0 with check_scalar, and stores max_features_.
+        # Exceptions: TypeError / ValueError from check_scalar.
+        # Side effects: sets max_features_.
         if self.max_features is not None:
             if callable(self.max_features):
                 max_features = self.max_features(X)
@@ -335,6 +379,18 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # Resolves max_features. prefit: checks the estimator is fitted and stores a
+        #   deep copy as estimator_. Otherwise clones and fits the estimator on (X, y),
+        #   forwarding routed fit params (routing enabled) or all fit_params. Copies
+        #   feature_names_in_ from the inner estimator if it has one; otherwise records
+        #   feature names from X.
+        # Inputs: X - (n_samples, n_features); y - targets or None; fit_params -
+        #   forwarded.
+        # Outputs: self.
+        # Exceptions: NotFittedError when prefit and unfitted; errors from the
+        #   estimator.
+        # Side effects: sets estimator_, max_features_, feature_names_in_.
         """Fit the SelectFromModel meta-transformer.
 
         Parameters
@@ -393,6 +449,14 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
 
     @property
     def threshold_(self):
+        # [FUNCTION DOC]
+        # Property: recomputes importances from estimator_ and returns the resolved
+        #   threshold.
+        # KNOWN ISSUE: passes self.estimator (the unfitted template) instead of
+        #   estimator_ to _calculate_threshold, so the default-threshold heuristic that
+        #   checks fitted l1_ratio_ (ElasticNetCV / LogisticRegressionCV) can differ
+        #   from the one used in _get_support_mask once fitted.
+        # Exceptions: AttributeError if not fitted.
         """Threshold value used for feature selection."""
         scores = _get_feature_importances(
             estimator=self.estimator_,
@@ -408,6 +472,17 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         prefer_skip_nested_validation=False
     )
     def partial_fit(self, X, y=None, **partial_fit_params):
+        # [FUNCTION DOC]
+        # Available only if the wrapped estimator has partial_fit. On the first call
+        #   resolves max_features. prefit: on first call validates and deep-copies the
+        #   estimator, then returns without training. Otherwise clones the estimator on
+        #   the first call and calls its partial_fit with the forwarded params. Feature
+        #   names are copied from the inner estimator or checked against X (reset only
+        #   on first call).
+        # Outputs: self.
+        # Side effects: sets / updates estimator_, max_features_, feature_names_in_.
+        # KNOWN ISSUE: with metadata routing enabled, estimator_ is re-cloned on every
+        #   call, discarding previous incremental training.
         """Fit the SelectFromModel meta-transformer only once.
 
         Parameters
@@ -476,6 +551,10 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
 
     @property
     def n_features_in_(self):
+        # [FUNCTION DOC]
+        # Property: number of features of the fitted inner estimator.
+        # Exceptions: AttributeError (instead of NotFittedError) when unfitted, so
+        #   hasattr returns False.
         """Number of features seen during `fit`."""
         # For consistency with other estimators we raise an AttributeError so
         # that hasattr() fails if the estimator isn't fitted.
@@ -491,6 +570,10 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         return self.estimator_.n_features_in_
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter routing fit to the estimator's fit and partial_fit to
+        #   its partial_fit.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -513,6 +596,8 @@ class SelectFromModel(MetaEstimatorMixin, SelectorMixin, BaseEstimator):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies sparse and allow_nan input tags from the wrapped estimator.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         tags.input_tags.allow_nan = get_tags(self.estimator).input_tags.allow_nan

@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for KNNImputer: output shapes, input validation, dropping all-missing features,
+# uniform/distance/callable weights against hand-computed or KNeighborsRegressor values,
+# callable metrics, chunked processing via working_memory, fallbacks when distances are
+# NaN or neighbors are too few, and the allow_nan tag.
 import numpy as np
 import pytest
 
@@ -11,6 +16,10 @@ from sklearn.utils._testing import assert_allclose
 @pytest.mark.parametrize("weights", ["uniform", "distance"])
 @pytest.mark.parametrize("n_neighbors", range(1, 6))
 def test_knn_imputer_shape(weights, n_neighbors):
+    # [FUNCTION DOC]
+    # Verifies output shape equals input shape for each weights option and n_neighbors
+    # 1..5.
+    # Note: uses the unseeded global RNG.
     # Verify the shapes of the imputed matrix for different weights and
     # number of neighbors.
     n_rows = 10
@@ -25,6 +34,11 @@ def test_knn_imputer_shape(weights, n_neighbors):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_default_with_invalid_input(na):
+    # [FUNCTION DOC]
+    # Verifies ValueError for infinite values in fit and transform data (with NaN or -1
+    # as marker) and for NaN in data when missing_values=0.
+    # KNOWN ISSUE: the final X assignment at the end of the test is never used (dead
+    # code).
     # Test imputation with default values and invalid input
 
     # Test with inf present
@@ -91,6 +105,9 @@ def test_knn_imputer_default_with_invalid_input(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_removes_all_na_features(na):
+    # [FUNCTION DOC]
+    # Verifies an all-missing column is dropped: transform of the training data has no
+    # NaN and 4x5 shape, and new data loses that column unchanged otherwise.
     X = np.array(
         [
             [1, 1, na, 1, 1, 1.0],
@@ -112,6 +129,9 @@ def test_knn_imputer_removes_all_na_features(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_zero_nan_imputes_the_same(na):
+    # [FUNCTION DOC]
+    # Verifies imputation with marker 0 matches a hand-computed expected matrix and
+    # equals the result using NaN/-1 as marker on the equivalent data.
     # Test with an imputable matrix and compare with different missing_values
     X_zero = np.array(
         [
@@ -152,6 +172,10 @@ def test_knn_imputer_zero_nan_imputes_the_same(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_verify(na):
+    # [FUNCTION DOC]
+    # Verifies default (5-neighbor uniform) imputation against expected values, fallback
+    # to the training column mean when too few donors exist, and transforming new data
+    # with donors from the fitted data.
     # Test with an imputable matrix
     X = np.array(
         [
@@ -226,6 +250,8 @@ def test_knn_imputer_verify(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_one_n_neighbors(na):
+    # [FUNCTION DOC]
+    # Verifies n_neighbors=1 copies the nearest donor's value.
     X = np.array([[0, 0], [na, 2], [4, 3], [5, na], [7, 7], [na, 8], [14, 13]])
 
     X_imputed = np.array([[0, 0], [4, 2], [4, 3], [5, 3], [7, 7], [7, 8], [14, 13]])
@@ -237,6 +263,9 @@ def test_knn_imputer_one_n_neighbors(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_all_samples_are_neighbors(na):
+    # [FUNCTION DOC]
+    # Verifies that n_neighbors equal to n_samples-1 and to n_samples give the same
+    # result (the latter capped to the number of available donors).
     X = np.array([[0, 0], [na, 2], [4, 3], [5, na], [7, 7], [na, 8], [14, 13]])
 
     X_imputed = np.array(
@@ -255,6 +284,9 @@ def test_knn_imputer_all_samples_are_neighbors(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_weight_uniform(na):
+    # [FUNCTION DOC]
+    # Verifies uniform weights, a callable returning None and a callable returning ones
+    # all give the same expected uniform-mean imputation.
     X = np.array([[0, 0], [na, 2], [4, 3], [5, 6], [7, 7], [9, 8], [11, 10]])
 
     # Test with "uniform" weight (or unweighted)
@@ -267,6 +299,8 @@ def test_knn_imputer_weight_uniform(na):
 
     # Test with "callable" weight
     def no_weight(dist):
+        # [FUNCTION DOC]
+        # HELPER: Weight callable returning None (meaning uniform weights).
         return None
 
     imputer = KNNImputer(weights=no_weight, missing_values=na)
@@ -274,6 +308,8 @@ def test_knn_imputer_weight_uniform(na):
 
     # Test with "callable" uniform weight
     def uniform_weight(dist):
+        # [FUNCTION DOC]
+        # HELPER: Weight callable returning an all-ones array shaped like the distances.
         return np.ones_like(dist)
 
     imputer = KNNImputer(weights=uniform_weight, missing_values=na)
@@ -282,6 +318,11 @@ def test_knn_imputer_weight_uniform(na):
 
 @pytest.mark.parametrize("na", [np.nan, -1])
 def test_knn_imputer_weight_distance(na):
+    # [FUNCTION DOC]
+    # Verifies distance weighting: matches KNeighborsRegressor with distance weights and
+    # a manual inverse-nan_euclidean average; with n_neighbors=2 matches a hand-derived
+    # value; and on data with varying missingness patterns matches masked weighted
+    # averages of the donors per (row, column).
     X = np.array([[0, 0], [na, 2], [4, 3], [5, 6], [7, 7], [9, 8], [11, 10]])
 
     # Test with "distance" weight
@@ -430,8 +471,16 @@ def test_knn_imputer_weight_distance(na):
 
 
 def test_knn_imputer_callable_metric():
+    # [FUNCTION DOC]
+    # Verifies a user callable metric (NaN-ignoring L1 distance) is used to select the 2
+    # nearest donors.
     # Define callable metric that returns the l1 norm:
     def custom_callable(x, y, missing_values=np.nan, squared=False):
+        # [FUNCTION DOC]
+        # HELPER: L1 distance ignoring coordinates where either vector is NaN.
+        # Inputs: x, y - 1-D float arrays; missing_values, squared - accepted and
+        # ignored.
+        # Outputs: float.
         x = np.ma.array(x, mask=np.isnan(x))
         y = np.ma.array(y, mask=np.isnan(y))
         dist = np.nansum(np.abs(x - y))
@@ -455,6 +504,9 @@ def test_knn_imputer_callable_metric():
 # for a small dataset. However, it should raise a UserWarning that we ignore.
 @pytest.mark.filterwarnings("ignore:adhere to working_memory")
 def test_knn_imputer_with_simple_example(na, working_memory):
+    # [FUNCTION DOC]
+    # Verifies default uniform imputation on an 8-row example against hand-computed
+    # means, with working_memory None and 0 (forcing one-row chunks; warning ignored).
     X = np.array(
         [
             [0, na, 0, na],
@@ -495,6 +547,9 @@ def test_knn_imputer_with_simple_example(na, working_memory):
 @pytest.mark.parametrize("na", [-1, np.nan])
 @pytest.mark.parametrize("weights", ["uniform", "distance"])
 def test_knn_imputer_not_enough_valid_distances(na, weights):
+    # [FUNCTION DOC]
+    # Verifies that receivers whose distances to all donors are NaN fall back to the
+    # training column mean, both in fit_transform and transform, for both weightings.
     # Samples with needed feature has nan distance
     X1 = np.array([[na, 11], [na, 1], [3, na]])
     X1_imputed = np.array([[3, 11], [3, 1], [3, 6]])
@@ -510,6 +565,9 @@ def test_knn_imputer_not_enough_valid_distances(na, weights):
 @pytest.mark.parametrize("na", [-1, np.nan])
 @pytest.mark.parametrize("weights", ["uniform", "distance"])
 def test_knn_imputer_nan_distance(na, weights):
+    # [FUNCTION DOC]
+    # Verifies donors with NaN distance are excluded from the mean, so imputation uses
+    # only donors at a defined distance.
     # Samples with nan distance should be excluded from the mean computation
     X1_train = np.array([[1, 1], [na, 2]])
     X1_test = np.array([[0, na]])
@@ -530,6 +588,9 @@ def test_knn_imputer_nan_distance(na, weights):
 
 @pytest.mark.parametrize("na", [-1, np.nan])
 def test_knn_imputer_drops_all_nan_features(na):
+    # [FUNCTION DOC]
+    # Verifies an all-missing training column is dropped in fit_transform and transform,
+    # and the remaining column of new data is imputed with its nearest donor.
     X1 = np.array([[na, 1], [na, 2]])
     knn = KNNImputer(missing_values=na, n_neighbors=1)
     X1_expected = np.array([[1], [2]])
@@ -543,6 +604,10 @@ def test_knn_imputer_drops_all_nan_features(na):
 @pytest.mark.parametrize("working_memory", [None, 0])
 @pytest.mark.parametrize("na", [-1, np.nan])
 def test_knn_imputer_distance_weighted_not_enough_neighbors(na, working_memory):
+    # [FUNCTION DOC]
+    # Verifies distance-weighted imputation when n_neighbors (3 or 4) exceeds the number
+    # of donors with defined distances: NaN distances get zero weight and the result
+    # equals the weighted average over the two valid donors; with and without chunking.
     X = np.array([[3, na], [2, na], [na, 4], [5, 6], [6, 8], [na, 5]])
 
     dist = pairwise_distances(
@@ -566,5 +631,7 @@ def test_knn_imputer_distance_weighted_not_enough_neighbors(na, working_memory):
 
 @pytest.mark.parametrize("na, allow_nan", [(-1, False), (np.nan, True)])
 def test_knn_tags(na, allow_nan):
+    # [FUNCTION DOC]
+    # Verifies the allow_nan input tag is True only when missing_values is NaN.
     knn = KNNImputer(missing_values=na)
     assert knn.__sklearn_tags__().input_tags.allow_nan == allow_nan

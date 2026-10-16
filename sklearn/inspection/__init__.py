@@ -1,3 +1,8 @@
+# [PACKAGE DOC]
+# Public package sklearn.inspection for model inspection. Re-exports partial_dependence,
+# permutation_importance, DecisionBoundaryDisplay and PartialDependenceDisplay (listed
+# in __all__). Importing it imports the private computation and plotting submodules; no
+# other import-time side effects (matplotlib is only imported lazily by the displays).
 """Tools for model inspection."""
 
 # Authors: The scikit-learn developers

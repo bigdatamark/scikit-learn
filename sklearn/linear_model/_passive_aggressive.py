@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Defines the deprecated PassiveAggressiveClassifier and PassiveAggressiveRegressor,
+# which are configurations of the SGD linear-model base classes using the "pa1" / "pa2"
+# adaptive step-size rules with no penalty. Both classes emit a deprecation warning on
+# instantiation (via the deprecated decorator) and are scheduled for removal in 1.10.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -20,6 +25,11 @@ from sklearn.utils._param_validation import Interval, StrOptions
     "instead."
 )
 class PassiveAggressiveClassifier(BaseSGDClassifier):
+    # [CLASS DOC]
+    # Passive-aggressive online linear classifier. The aggressiveness parameter C is
+    # forwarded to the base class as eta0 (maximum step size); loss "hinge" selects the
+    # PA-I update and "squared_hinge" selects PA-II. eta0 is removed from the public
+    # parameter constraints because it is replaced by C.
     """Passive Aggressive Classifier.
 
     .. deprecated:: 1.8
@@ -224,6 +234,12 @@ class PassiveAggressiveClassifier(BaseSGDClassifier):
         class_weight=None,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters. Forwards everything to BaseSGDClassifier with penalty=None
+        # and eta0=C, then additionally stores C and loss on self.
+        # Inputs: see class parameters. Outputs: none.
+        # Side effects: sets attributes on self; the class-level deprecated decorator emits a
+        # FutureWarning when the object is constructed.
         super().__init__(
             penalty=None,
             fit_intercept=fit_intercept,
@@ -247,6 +263,19 @@ class PassiveAggressiveClassifier(BaseSGDClassifier):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y, classes=None):
+        # [FUNCTION DOC]
+        # Performs one epoch of passive-aggressive updates over the given mini-batch.
+        # On the first call (no classes_ yet) runs the extra parameter validation for partial
+        # fitting and rejects class_weight="balanced". Chooses learning rate "pa1" when
+        # loss is "hinge" otherwise "pa2", then delegates to _partial_fit with alpha=1.0,
+        # loss forced to "hinge" (the squared variant is realised through "pa2"), max_iter=1,
+        # no sample weights and no initial coefficients.
+        # Inputs: X (n_samples, n_features) dense or sparse; y (n_samples,); classes - array of
+        # all class labels, required on the first call.
+        # Outputs: self.
+        # Exceptions: ValueError if class_weight == "balanced" on the first call; errors from
+        # _partial_fit (e.g. missing classes on the first call).
+        # Side effects: creates/updates coef_, intercept_, classes_, t_ and related attributes.
         """Fit linear model with Passive Aggressive algorithm.
 
         Parameters
@@ -304,6 +333,14 @@ class PassiveAggressiveClassifier(BaseSGDClassifier):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, coef_init=None, intercept_init=None):
+        # [FUNCTION DOC]
+        # Fits the model from scratch (or warm-started) over up to max_iter epochs.
+        # Validates extra parameters, selects "pa1" for hinge loss else "pa2", and delegates to
+        # _fit with alpha=1.0, loss forced to "hinge", and the optional initial coefficients.
+        # Inputs: X (n_samples, n_features); y (n_samples,); coef_init (n_classes, n_features)
+        # or None; intercept_init (n_classes,) or None.
+        # Outputs: self.
+        # Side effects: sets fitted attributes (coef_, intercept_, n_iter_, t_, classes_, ...).
         """Fit linear model with Passive Aggressive algorithm.
 
         Parameters
@@ -346,6 +383,10 @@ class PassiveAggressiveClassifier(BaseSGDClassifier):
     "eta0 = 1.0)` instead."
 )
 class PassiveAggressiveRegressor(BaseSGDRegressor):
+    # [CLASS DOC]
+    # Passive-aggressive online linear regressor. C is forwarded as eta0;
+    # loss "epsilon_insensitive" selects PA-I and "squared_epsilon_insensitive" selects
+    # PA-II. epsilon sets the insensitive-zone width.
     """Passive Aggressive Regressor.
 
     .. deprecated:: 1.8
@@ -532,6 +573,11 @@ class PassiveAggressiveRegressor(BaseSGDRegressor):
         warm_start=False,
         average=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters, forwarding them to BaseSGDRegressor with penalty=None,
+        # l1_ratio=0 and eta0=C, then stores C on self.
+        # Inputs: see class parameters. Outputs: none.
+        # Side effects: sets attributes on self; deprecation FutureWarning on construction.
         super().__init__(
             loss=loss,
             penalty=None,
@@ -554,6 +600,14 @@ class PassiveAggressiveRegressor(BaseSGDRegressor):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y):
+        # [FUNCTION DOC]
+        # Performs one epoch of passive-aggressive regression updates on a mini-batch.
+        # Runs partial-fit parameter validation on the first call (no coef_ yet), selects
+        # "pa1" for "epsilon_insensitive" else "pa2", and delegates to _partial_fit with
+        # alpha=1.0, loss forced to "epsilon_insensitive", max_iter=1, no sample weights.
+        # Inputs: X (n_samples, n_features); y (n_samples,).
+        # Outputs: self.
+        # Side effects: creates/updates coef_, intercept_, t_ and averaging attributes.
         """Fit linear model with Passive Aggressive algorithm.
 
         Parameters
@@ -587,6 +641,14 @@ class PassiveAggressiveRegressor(BaseSGDRegressor):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, coef_init=None, intercept_init=None):
+        # [FUNCTION DOC]
+        # Fits the regressor over up to max_iter epochs. Validates extra parameters, selects
+        # "pa1"/"pa2" from loss, and delegates to _fit with alpha=1.0, loss forced to
+        # "epsilon_insensitive", and optional warm-start coefficients.
+        # Inputs: X (n_samples, n_features); y (n_samples,); coef_init (n_features,) or None;
+        # intercept_init (1,) or None.
+        # Outputs: self.
+        # Side effects: sets fitted attributes (coef_, intercept_, n_iter_, t_).
         """Fit linear model with Passive Aggressive algorithm.
 
         Parameters

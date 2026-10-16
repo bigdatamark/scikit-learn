@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines the Perceptron classifier as a thin configuration of the SGD-based linear
+# classifier machinery (BaseSGDClassifier). No algorithm code lives here; all fitting,
+# prediction and partial fitting is inherited.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -8,6 +12,11 @@ from sklearn.utils._param_validation import Interval, StrOptions
 
 
 class Perceptron(BaseSGDClassifier):
+    # [CLASS DOC]
+    # Perceptron estimator: an SGD classifier fixed to the "perceptron" loss, a constant
+    # learning rate equal to eta0, and no penalty by default. Restricts the parameter
+    # constraints to the subset that is meaningful for the perceptron (penalty, alpha,
+    # l1_ratio, eta0 are re-declared; loss, learning_rate and power_t are not exposed).
     """Linear perceptron classifier.
 
     The implementation is a wrapper around :class:`~sklearn.linear_model.SGDClassifier`
@@ -203,6 +212,13 @@ class Perceptron(BaseSGDClassifier):
         class_weight=None,
         warm_start=False,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters by forwarding them to BaseSGDClassifier.__init__ with the
+        # fixed values loss="perceptron", learning_rate="constant", power_t=0.5 (unused with a
+        # constant schedule). Note random_state defaults to 0 here (deterministic shuffling),
+        # unlike most SGD estimators.
+        # Inputs: see class parameters; no validation happens here (deferred to fit).
+        # Outputs: none. Side effects: sets public attributes on self.
         super().__init__(
             loss="perceptron",
             penalty=penalty,

@@ -1,8 +1,21 @@
+# [MODULE DOC]
+# HELPER: Small utilities shared by partial dependence computation and plotting for
+# resolving feature names and feature indices.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
 
 def _check_feature_names(X, feature_names=None):
+    # [FUNCTION DOC]
+    # HELPER: Resolves the list of feature names. When feature_names is None, uses the
+    # DataFrame column names if X has a columns attribute with tolist, otherwise
+    # generates "x0", "x1", ... for each column; array-like names with tolist are
+    # converted to a list.
+    # Inputs: X - array-like or DataFrame (n_samples, n_features); feature_names - None
+    # or array-like of str.
+    # Outputs: list of str (or the given sequence unchanged if it has no tolist).
+    # Exceptions: ValueError if names contain duplicates.
+    # Note: the length of user-provided names is not checked against n_features.
     """Check feature names.
 
     Parameters
@@ -38,6 +51,13 @@ def _check_feature_names(X, feature_names=None):
 
 
 def _get_feature_index(fx, feature_names=None):
+    # [FUNCTION DOC]
+    # HELPER: Converts a feature given by name to its integer position in feature_names;
+    # non-string inputs are returned unchanged (assumed to be an index).
+    # Inputs: fx - int or str; feature_names - list of str or None.
+    # Outputs: int (or fx as given).
+    # Exceptions: ValueError when fx is a string and feature_names is None, or fx is not
+    # in feature_names.
     """Get feature index.
 
     Parameters

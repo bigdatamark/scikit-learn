@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# VarianceThreshold: unsupervised selector that drops features whose variance does not
+#   exceed a threshold. Works with dense and sparse input and tolerates NaN.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -13,6 +16,10 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 class VarianceThreshold(SelectorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Selector keeping features with variance strictly greater than threshold. Fitted
+    #   attribute variances_ (per-feature variance, possibly replaced by the peak-to-
+    #   peak range when threshold is 0).
     """Feature selector that removes all low-variance features.
 
     This feature selection algorithm looks only at the features (X), not the
@@ -76,10 +83,24 @@ class VarianceThreshold(SelectorMixin, BaseEstimator):
     }
 
     def __init__(self, threshold=0.0):
+        # [FUNCTION DOC]
+        # Stores threshold (non-negative real, default 0.0).
         self.threshold = threshold
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X as float64 (CSR/CSC allowed, NaN allowed). Sparse: variances via
+        #   mean_variance_axis and, if threshold is 0, peak-to-peak from min_max_axis.
+        #   Dense: NaN-ignoring variance and, if threshold is 0, peak-to-peak range.
+        #   With threshold 0, variances_ becomes the NaN-ignoring element-wise minimum
+        #   of variance and range, so numerically tiny variances of constant columns
+        #   become exactly 0.
+        # Inputs: X - (n_samples, n_features); y - ignored.
+        # Outputs: self.
+        # Exceptions: ValueError if every feature is non-finite or at or below the
+        #   threshold (message notes a single-sample X).
+        # Side effects: sets variances_ and n_features_in_ / feature_names_in_.
         """Learn empirical variances from X.
 
         Parameters
@@ -130,11 +151,17 @@ class VarianceThreshold(SelectorMixin, BaseEstimator):
         return self
 
     def _get_support_mask(self):
+        # [FUNCTION DOC]
+        # Mask of features whose variance is strictly greater than threshold (NaN
+        #   variances are excluded).
+        # Exceptions: NotFittedError.
         check_is_fitted(self)
 
         return self.variances_ > self.threshold
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares NaN and sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         tags.input_tags.sparse = True

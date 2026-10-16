@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for DecisionBoundaryDisplay and the private _check_boundary_response_method:
+# input validation, response method resolution, grid construction, plotting surfaces for
+# classifiers, regressors, outlier detectors and clusterers, multiclass colouring and
+# contour levels, class_of_interest, dataframe support, n_classes inference and
+# subclassing. A module-level 2-feature binary classification dataset X, y is shared.
+# Tests taking the pyplot fixture require matplotlib.
 import warnings
 
 import numpy as np
@@ -39,6 +46,9 @@ X, y = make_classification(
 
 
 def load_iris_2d_scaled():
+    # [FUNCTION DOC]
+    # HELPER: Loads iris, standardizes all features and keeps the first two columns.
+    # Outputs: tuple (X of shape (150, 2), y of shape (150,)).
     X, y = load_iris(return_X_y=True)
     X = scale(X)[:, :2]
     return X, y
@@ -46,10 +56,15 @@ def load_iris_2d_scaled():
 
 @pytest.fixture(scope="module")
 def fitted_clf():
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture returning a LogisticRegression fitted on the module
+    # X, y.
     return LogisticRegression().fit(X, y)
 
 
 def test_input_data_dimension(pyplot):
+    # [FUNCTION DOC]
+    # Verifies from_estimator raises ValueError when X has 4 features instead of 2.
     """Check that we raise an error when `X` does not have exactly 2 features."""
     X, y = make_classification(n_samples=10, n_features=4, random_state=0)
 
@@ -60,11 +75,17 @@ def test_input_data_dimension(pyplot):
 
 
 def test_check_boundary_response_method_error():
+    # [FUNCTION DOC]
+    # Verifies _check_boundary_response_method raises ValueError for an object whose
+    # classes_ is a list of arrays (multi-label / multi-output).
     """Check error raised for multi-output multi-class classifiers by
     `_check_boundary_response_method`.
     """
 
     class MultiLabelClassifier:
+        # [CLASS DOC]
+        # HELPER: Stub mimicking a multi-output classifier through a list-valued
+        # classes_.
         classes_ = [np.array([0, 1]), np.array([0, 1])]
 
     err_msg = "Multi-label and multi-output multi-class classifiers are not supported"
@@ -109,6 +130,11 @@ def test_check_boundary_response_method_error():
 def test_check_boundary_response_method(
     estimator, response_method, expected_prediction_method
 ):
+    # [FUNCTION DOC]
+    # Verifies the resolved prediction method for regressors (always predict),
+    # multiclass
+    # and binary classifiers ("auto" maps to the ordered list decision_function,
+    # predict_proba, predict) and explicit lists, which are passed through unchanged.
     """Check the behaviour of `_check_boundary_response_method` for the supported
     cases.
     """
@@ -117,6 +143,12 @@ def test_check_boundary_response_method(
 
 
 def test_multiclass_predict(pyplot):
+    # [FUNCTION DOC]
+    # Verifies with response_method="predict" on a 3-class problem that disp.response
+    # equals
+    # predictions on a manually built meshgrid spanning feature ranges extended by eps,
+    # and
+    # that xx0/xx1 match the meshgrid.
     """Check multiclass `response=predict` gives expected results."""
     grid_resolution = 10
     eps = 1.0
@@ -160,6 +192,9 @@ def test_multiclass_predict(pyplot):
     ],
 )
 def test_input_validation_errors(pyplot, kwargs, error_msg, fitted_clf):
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for invalid plot_method, grid_resolution <= 1 and
+    # negative eps in from_estimator.
     """Check input validation from_estimator."""
     with pytest.raises(ValueError, match=error_msg):
         DecisionBoundaryDisplay.from_estimator(fitted_clf, X, **kwargs)
@@ -198,6 +233,10 @@ def test_input_validation_errors(pyplot, kwargs, error_msg, fitted_clf):
 def test_input_validation_errors_multiclass_colors(
     pyplot, kwargs, error_type, error_msg
 ):
+    # [FUNCTION DOC]
+    # Verifies TypeError/ValueError messages for invalid multiclass_colors: non
+    # list/str,
+    # unknown colormap name, wrong list length and invalid color names.
     """Check input validation for `multiclass_colors` in `from_estimator`."""
     X, y = load_iris_2d_scaled()
     clf = LogisticRegression().fit(X, y)
@@ -206,6 +245,8 @@ def test_input_validation_errors_multiclass_colors(
 
 
 def test_display_plot_input_error(pyplot, fitted_clf):
+    # [FUNCTION DOC]
+    # Verifies plot raises ValueError for an unknown plot_method.
     """Check input validation for `plot`."""
     disp = DecisionBoundaryDisplay.from_estimator(fitted_clf, X, grid_resolution=5)
 
@@ -220,6 +261,13 @@ def test_display_plot_input_error(pyplot, fitted_clf):
 def test_decision_boundary_display_classifier(
     pyplot, fitted_clf, response_method, plot_method
 ):
+    # [FUNCTION DOC]
+    # For a binary classifier and each response method and contour plot method, verifies
+    # the surface type, axes/figure bookkeeping and grid extent (data range plus eps),
+    # then
+    # re-plots with pcolormesh on new axes and checks a QuadMesh is produced and the
+    # axes and
+    # figure are updated.
     """Check that decision boundary is correct."""
     fig, ax = pyplot.subplots()
     eps = 2.0
@@ -259,6 +307,10 @@ def test_decision_boundary_display_classifier(
 def test_decision_boundary_display_outlier_detector(
     pyplot, response_method, plot_method
 ):
+    # [FUNCTION DOC]
+    # Same checks as the classifier test for an IsolationForest outlier detector,
+    # including
+    # pcolormesh.
     """Check that decision boundary is correct for outlier detector."""
     fig, ax = pyplot.subplots()
     eps = 2.0
@@ -293,6 +345,13 @@ def test_decision_boundary_display_outlier_detector(
 @pytest.mark.parametrize("response_method", ["auto", "predict"])
 @pytest.mark.parametrize("plot_method", ["contourf", "contour"])
 def test_decision_boundary_display_regressor(pyplot, response_method, plot_method):
+    # [FUNCTION DOC]
+    # Verifies a DecisionTreeRegressor on two diabetes features can be displayed:
+    # surface
+    # type, axes, grid extent and re-plotting with pcolormesh.
+    # KNOWN ISSUE: for a regressor n_classes is 2, so the else branch expecting a list
+    # of
+    # surfaces is never exercised.
     """Check that we can display the decision boundary for a regressor."""
     X, y = load_diabetes(return_X_y=True)
     X = X[:, :2]
@@ -359,10 +418,18 @@ def test_decision_boundary_display_regressor(pyplot, response_method, plot_metho
     ],
 )
 def test_error_bad_response(pyplot, response_method, msg):
+    # [FUNCTION DOC]
+    # Verifies AttributeError naming the missing methods when the classifier lacks the
+    # requested (or all "auto") response methods.
     """Check errors for bad response."""
 
     class MyClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Classifier stub with only fit (no
+        # predict/predict_proba/decision_function).
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets fitted_ and classes_ = [0, 1]; returns self.
             self.fitted_ = True
             self.classes_ = [0, 1]
             return self
@@ -375,6 +442,8 @@ def test_error_bad_response(pyplot, response_method, msg):
 
 @pytest.mark.parametrize("response_method", ["auto", "predict", "predict_proba"])
 def test_multilabel_classifier_error(pyplot, response_method):
+    # [FUNCTION DOC]
+    # Verifies ValueError for a decision tree fitted on multilabel targets.
     """Check that multilabel classifier raises correct error."""
     X, y = make_multilabel_classification(random_state=0)
     X = X[:, :2]
@@ -391,6 +460,8 @@ def test_multilabel_classifier_error(pyplot, response_method):
 
 @pytest.mark.parametrize("response_method", ["auto", "predict", "predict_proba"])
 def test_multi_output_multi_class_classifier_error(pyplot, response_method):
+    # [FUNCTION DOC]
+    # Verifies ValueError for a decision tree fitted on multi-output string targets.
     """Check that multi-output multi-class classifier raises correct error."""
     X = np.asarray([[0, 1], [1, 2]])
     y = np.asarray([["tree", "cat"], ["cat", "tree"]])
@@ -406,6 +477,8 @@ def test_multi_output_multi_class_classifier_error(pyplot, response_method):
 
 
 def test_multioutput_regressor_error(pyplot):
+    # [FUNCTION DOC]
+    # Verifies ValueError "Multi-output regressors are not supported".
     """Check that multioutput regressor raises correct error."""
     X = np.asarray([[0, 1], [1, 2]])
     y = np.asarray([[0, 1], [4, 1]])
@@ -420,6 +493,11 @@ def test_multioutput_regressor_error(pyplot):
     "ignore:X has feature names, but LogisticRegression was fitted without"
 )
 def test_dataframe_labels_used(pyplot, fitted_clf):
+    # [FUNCTION DOC]
+    # Verifies axis labels: DataFrame column names are used by default and on re-plot,
+    # pre-existing axis labels are preserved, and explicit xlabel/ylabel passed to plot
+    # or
+    # from_estimator take precedence. The feature-name mismatch warning is filtered.
     """Check that column names are used for pandas."""
     pd = pytest.importorskip("pandas")
     df = pd.DataFrame(X, columns=["col_x", "col_y"])
@@ -458,6 +536,9 @@ def test_dataframe_labels_used(pyplot, fitted_clf):
 
 
 def test_string_target(pyplot):
+    # [FUNCTION DOC]
+    # Smoke test that a classifier trained on string labels can be displayed with
+    # predict.
     """Check that decision boundary works with classifiers trained on string labels."""
     iris = load_iris()
     X = iris.data[:, [0, 1]]
@@ -477,6 +558,9 @@ def test_string_target(pyplot):
 
 @pytest.mark.parametrize("constructor_name", ["pandas", "polars"])
 def test_dataframe_support(pyplot, constructor_name):
+    # [FUNCTION DOC]
+    # Non-regression for issues 23311 and 28717: fitting and displaying with pandas or
+    # polars dataframes emits no UserWarning (warnings turned into errors).
     """Check that passing a dataframe at fit and to the Display does not
     raise warnings.
 
@@ -497,6 +581,12 @@ def test_dataframe_support(pyplot, constructor_name):
 
 @pytest.mark.parametrize("response_method", ["predict_proba", "decision_function"])
 def test_class_of_interest_binary(pyplot, response_method):
+    # [FUNCTION DOC]
+    # Verifies in the binary case that class_of_interest None equals the positive class
+    # and
+    # that targeting the negative class gives 1 - p for predict_proba and the negated
+    # value
+    # for decision_function.
     """Check the behaviour of passing `class_of_interest` for plotting the output of
     `predict_proba` and `decision_function` in the binary case.
     """
@@ -542,6 +632,11 @@ def test_class_of_interest_binary(pyplot, response_method):
 
 @pytest.mark.parametrize("response_method", ["predict_proba", "decision_function"])
 def test_class_of_interest_multiclass(pyplot, response_method):
+    # [FUNCTION DOC]
+    # Verifies in the multiclass case that the response is the selected class column of
+    # predict_proba/decision_function on the grid, for integer and string labels, and
+    # that an
+    # invalid label raises ValueError.
     """Check the behaviour of passing `class_of_interest` for plotting the output of
     `predict_proba` and `decision_function` in the multiclass case.
     """
@@ -591,6 +686,12 @@ def test_class_of_interest_multiclass(pyplot, response_method):
 
 @pytest.mark.parametrize("response_method", ["predict_proba", "decision_function"])
 def test_multiclass_plot_max_class(pyplot, response_method):
+    # [FUNCTION DOC]
+    # Verifies pcolormesh multiclass plotting: response equals the estimator output on
+    # the
+    # grid, one surface per class, and each surface is masked exactly where its class is
+    # not
+    # the argmax.
     """Check plot correct when plotting max multiclass class."""
 
     X, y = load_iris_2d_scaled()
@@ -640,6 +741,16 @@ def test_multiclass_colors_cmap(
     plot_method,
     multiclass_colors,
 ):
+    # [FUNCTION DOC]
+    # Verifies colour handling for each multiclass_colors input (None -> Petroff colours
+    # for
+    # 3 classes or gist_rainbow otherwise, colormap names, explicit lists):
+    # multiclass_colors_
+    # is an ndarray, colours are distinct per class, predict uses a ListedColormap (or
+    # black
+    # lines for contour), and other methods use one white-to-class-colour colormap per
+    # class
+    # surface (contour adds a final black boundary surface).
     """Check correct cmap used for all `multiclass_colors` inputs."""
     import matplotlib as mpl
 
@@ -700,6 +811,10 @@ def test_multiclass_colors_cmap(
 
 
 def test_multiclass_not_enough_colors_error(pyplot):
+    # [FUNCTION DOC]
+    # Verifies ValueError when a qualitative colormap (tab10) has fewer colours than the
+    # 11
+    # classes.
     """
     Check that an error is raised if a qualitative colormap doesn't have enough colors.
 
@@ -741,6 +856,12 @@ def test_multiclass_not_enough_colors_error(pyplot):
     ],
 )
 def test_multiclass_levels(pyplot, y, response_method, plot_method):
+    # [FUNCTION DOC]
+    # Non-regression for issue 32866: verifies contour levels are the class indices for
+    # contour plots and half-integer edges for predict + contourf, and that contourf
+    # shows all
+    # expected gist_rainbow colours (handling the matplotlib 3.10 collections API
+    # change).
     """
     Test that `levels` are set such that all classes and class boundaries are displayed.
 
@@ -800,6 +921,10 @@ def test_multiclass_levels(pyplot, y, response_method, plot_method):
 )
 @pytest.mark.parametrize("plot_method", ["contourf", "contour", "pcolormesh"])
 def test_zorder(pyplot, response_method, plot_method):
+    # [FUNCTION DOC]
+    # Verifies all plotted surfaces (or their per-level collections on matplotlib <
+    # 3.10)
+    # have zorder -1 so they are drawn behind other artists.
     """Check that decision boundaries are plotted in the background."""
     X = np.array([[-1, -1], [-2, -1], [1, 1], [2, 1], [2, 2], [3, 2]])
     y = np.arange(6)
@@ -837,29 +962,49 @@ def test_zorder(pyplot, response_method, plot_method):
 
 # estimator classes for non-regression test cases for issue #33194
 class CustomBinaryEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator without classes_ whose predict alternates 0/1 (binary output),
+    # used to test n_classes inference (issue 33194).
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Marks the estimator fitted and returns self.
         self.fitted_ = True
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns row index modulo 2 for each sample.
         return np.arange(X.shape[0]) % 2
 
 
 class CustomMulticlassEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator without classes_ predicting 7 distinct integer labels.
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Marks the estimator fitted and returns self.
         self.fitted_ = True
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns row index modulo 7 for each sample.
         return np.arange(X.shape[0]) % 7
 
 
 class CustomContinuousEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator without classes_ predicting continuous values (treated as 2
+    # classes).
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Marks the estimator fitted and returns self.
         self.fitted_ = True
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns half the row index for each sample (floats).
         return np.arange(X.shape[0]) * 0.5
 
 
@@ -919,6 +1064,14 @@ class CustomContinuousEstimator(BaseEstimator):
     ],
 )
 def test_n_classes_attribute(pyplot, estimator, n_blobs, expected_n_classes):
+    # [FUNCTION DOC]
+    # Verifies disp.n_classes for classifiers, clusterers, regressors, outlier
+    # detectors,
+    # custom estimators and pipelines, and that passing class_of_interest always yields
+    # 2.
+    # KNOWN ISSUE: one pipeline step holding an IsolationForest is named "kmeans", which
+    # is
+    # misleading.
     """Check that `n_classes` is set correctly.
 
     Introduced in https://github.com/scikit-learn/scikit-learn/pull/33015.
@@ -937,17 +1090,27 @@ def test_n_classes_attribute(pyplot, estimator, n_blobs, expected_n_classes):
 
 
 def test_n_classes_raises_if_not_inferable(pyplot):
+    # [FUNCTION DOC]
+    # Verifies ValueError when n_classes cannot be inferred from a predict returning a
+    # 0-d
+    # array.
     """Check behaviour if `n_classes` can't be inferred.
 
     Non-regression test for issue #33194.
     """
 
     class CustomUnknownEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator whose predict returns a scalar array.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Marks the estimator fitted and returns self.
             self.fitted_ = True
             return self
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns a 0-d array containing 0 regardless of input.
             return np.array(0)
 
     X, y = load_iris_2d_scaled()
@@ -958,6 +1121,10 @@ def test_n_classes_raises_if_not_inferable(pyplot):
 
 
 def test_cmap_and_colors_logic(pyplot):
+    # [FUNCTION DOC]
+    # Verifies UserWarnings when cmap or colors are passed together with
+    # multiclass_colors
+    # (they are ignored).
     """Check the handling logic for `cmap` and `colors`."""
     X, y = load_iris_2d_scaled()
     clf = LogisticRegression().fit(X, y)
@@ -986,6 +1153,8 @@ def test_cmap_and_colors_logic(pyplot):
 
 
 def test_subclass_named_constructors_return_type_is_subclass(pyplot):
+    # [FUNCTION DOC]
+    # Verifies from_estimator called on a subclass returns an instance of that subclass.
     """Check that named constructors return the correct type when subclassed.
 
     Non-regression test for:
@@ -994,6 +1163,8 @@ def test_subclass_named_constructors_return_type_is_subclass(pyplot):
     clf = LogisticRegression().fit(X, y)
 
     class SubclassOfDisplay(DecisionBoundaryDisplay):
+        # [CLASS DOC]
+        # HELPER: Empty subclass of DecisionBoundaryDisplay.
         pass
 
     curve = SubclassOfDisplay.from_estimator(estimator=clf, X=X)

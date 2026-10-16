@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Implements Gaussian process classification with the Laplace approximation (Rasmussen
+#   and Williams 2006, Algorithms 3.1, 3.2 and 5.1): a private binary classifier doing
+#   Newton mode finding, predictions and likelihood gradients, and the public
+#   GaussianProcessClassifier which wraps it, delegating multi-class problems to one-vs-
+#   rest or one-vs-one meta-estimators. LAMBDAS and COEFS (module constants) define the
+#   5-term error-function approximation of the logistic sigmoid used to integrate the
+#   predictive class probability.
 """Gaussian processes classification."""
 
 # Authors: The scikit-learn developers
@@ -34,6 +42,13 @@ COEFS = np.array(
 
 
 class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Binary Laplace GPC used as the base estimator of
+    #   GaussianProcessClassifier. Fitted attributes: kernel_, rng, X_train_, y_train_
+    #   (labels encoded 0/1), classes_, log_marginal_likelihood_value_, pi_ (sigmoid of
+    #   the posterior mode), W_sr_ (square root of the negative Hessian diagonal), L_
+    #   (Cholesky of I + W_sr K W_sr), and f_cached (last posterior mode, for warm
+    #   starts).
     """Binary Gaussian process classification based on Laplace approximation.
 
     The implementation is based on Algorithm 3.1, 3.2, and 5.1 from [RW2006]_.
@@ -160,6 +175,10 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         copy_X_train=True,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores the hyperparameters unchanged: kernel (None means a fixed 1.0 *
+        #   RBF(1.0)), optimizer, n_restarts_optimizer, max_iter_predict (Newton
+        #   iterations), warm_start, copy_X_train, random_state.
         self.kernel = kernel
         self.optimizer = optimizer
         self.n_restarts_optimizer = n_restarts_optimizer
@@ -169,6 +188,26 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Builds kernel_ (clone, or the fixed default kernel whose bounds are
+        #   fixed so no optimisation happens), stores training X (optionally copied, not
+        #   validated here), label-encodes y and requires exactly two classes. If an
+        #   optimizer is set and the kernel has free hyperparameters, minimises the
+        #   negative Laplace log-marginal likelihood from the initial theta plus
+        #   n_restarts_optimizer random starts and keeps the best; otherwise evaluates the
+        #   likelihood at the current theta. Finally runs posterior mode finding on the
+        #   training kernel matrix and stores pi_, W_sr_ and L_.
+        # Inputs: X - (n_samples, n_features) array or list of objects; y - binary
+        #   labels.
+        # Outputs: self.
+        # Exceptions: ValueError for more than 2 or only 1 class, or restarts with non-
+        #   finite bounds.
+        # Side effects: sets fitted attributes and the public rng attribute; consumes
+        #   randomness.
+        # KNOWN ISSUE: restart initial points are exponentiated draws within the bounds,
+        #   but theta and bounds are already log-transformed (the regressor uses the raw
+        #   draws), so restart starting points are on the wrong scale and may fall outside
+        #   the bounds.
         """Fit Gaussian process classification model.
 
         Parameters
@@ -215,6 +254,11 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
             # Choose hyperparameters based on maximizing the log-marginal
             # likelihood (potentially starting from several initial values)
             def obj_func(theta, eval_gradient=True):
+                # [FUNCTION DOC]
+                # HELPER: Negative log-marginal likelihood (and negative gradient if
+                #   eval_gradient, the default) at theta, evaluated in place on kernel_
+                #   (no clone).
+                # Outputs: float or (float, array). Side effects: sets kernel_.theta.
                 if eval_gradient:
                     lml, grad = self.log_marginal_likelihood(
                         theta, eval_gradient=True, clone_kernel=False
@@ -267,6 +311,12 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Computes the MAP latent value for each query point as K(X_train, X)^T
+        #   times (y_train_ - pi_) and returns classes_[1] where it is positive, else
+        #   classes_[0].
+        # Inputs: X - query points. Outputs: array (n_samples,) of class labels.
+        # Exceptions: NotFittedError if not fitted.
         """Perform classification on an array of test vectors X.
 
         Parameters
@@ -290,6 +340,12 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         return np.where(f_star > 0, self.classes_[1], self.classes_[0])
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Gets latent mean and variance, then approximates the expected sigmoid
+        #   under the latent Gaussian by a linear combination of 5 error functions
+        #   (LAMBDAS, COEFS), whose Gaussian integrals have closed form. Outputs: array
+        #   (n_samples, 2) with columns [1 - p, p] for classes_[0], classes_[1].
+        # Exceptions: NotFittedError if not fitted.
         """Return probability estimates for the test vector X.
 
         Parameters
@@ -331,6 +387,20 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
     def log_marginal_likelihood(
         self, theta=None, eval_gradient=False, clone_kernel=True
     ):
+        # [FUNCTION DOC]
+        # HELPER: Returns the stored value when theta is None; otherwise builds the
+        #   kernel at theta (cloned or in place), runs Laplace mode finding for the
+        #   approximate log-marginal likelihood Z and, if requested, computes its gradient
+        #   per hyperparameter following Algorithm 5.1: an explicit term 0.5 a^T dK a -
+        #   0.5 trace(R dK) plus an implicit term from the change of the mode, using the
+        #   third derivative of the log-likelihood.
+        # Inputs: theta - log-scale hyperparameters or None; eval_gradient - bool;
+        #   clone_kernel.
+        # Outputs: Z, or (Z, gradient array of shape (n_kernel_params,)).
+        # Exceptions: ValueError if eval_gradient with theta None; Cholesky errors are
+        #   not caught here.
+        # Side effects: updates f_cached via mode finding; mutates kernel_ if
+        #   clone_kernel False.
         """Returns log-marginal likelihood of theta for training data.
 
         Parameters
@@ -408,6 +478,12 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         return Z, d_Z
 
     def latent_mean_and_variance(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Algorithm 3.2 lines 4-6: latent mean K_star^T (y_train_ - pi_);
+        #   variance is diag(K(X)) minus the column sums of squares of v, where v solves
+        #   L_ v = W_sr_ * K_star.
+        # Outputs: (latent_mean, latent_var), each of shape (n_samples,).
+        # Exceptions: NotFittedError if not fitted.
         """Compute the mean and variance of the latent function values.
 
         Based on algorithm 3.2 of [RW2006]_, this function returns the latent
@@ -441,6 +517,20 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
         return latent_mean, latent_var
 
     def _posterior_mode(self, K, return_temporaries=False):
+        # [FUNCTION DOC]
+        # HELPER: Newton iteration (Algorithm 3.1) for the Laplace posterior mode f of
+        #   the latent values given kernel matrix K: starting from f_cached when
+        #   warm_start and shapes match, else zeros; each step computes pi = sigmoid(f), W
+        #   = pi(1-pi), Cholesky L of I + sqrt(W) K sqrt(W), b = W f + (y - pi), a = b -
+        #   sqrt(W) L-solve(sqrt(W) K b), f = K a, and the approximate log-marginal
+        #   likelihood -0.5 a^T f - sum log(1 + exp(-(2y-1) f)) - sum log diag(L); stops
+        #   when it improves by less than 1e-10 or after max_iter_predict iterations.
+        # Inputs: K - (n, n) kernel matrix; return_temporaries - bool.
+        # Outputs: the log-marginal likelihood, plus (pi, W_sr, L, b, a) if requested.
+        # Side effects: stores the final f in f_cached.
+        # KNOWN ISSUE: on convergence the returned likelihood is from the previous
+        #   iteration while the temporaries come from the last one (they differ by under
+        #   1e-10, so harmless).
         """Mode-finding for binary Laplace GPC and fixed kernel.
 
         This approximates the posterior of the latent function values for given
@@ -499,6 +589,10 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
             return log_marginal_likelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
+        # [FUNCTION DOC]
+        # HELPER: One bounded minimisation from initial_theta using scipy L-BFGS-B (with
+        #   gradient) or the user callable optimizer. Outputs: (theta_opt, func_min).
+        # Exceptions: ValueError for an unknown optimizer string.
         if self.optimizer == "fmin_l_bfgs_b":
             opt_res = scipy.optimize.minimize(
                 obj_func, initial_theta, method="L-BFGS-B", jac=True, bounds=bounds
@@ -514,6 +608,12 @@ class _BinaryGaussianProcessClassifierLaplace(BaseEstimator):
 
 
 class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Public Laplace GPC. Binary problems use a single
+    #   _BinaryGaussianProcessClassifierLaplace; multi-class problems wrap it in
+    #   OneVsRestClassifier or OneVsOneClassifier (n_jobs parallelism). Fitted attributes:
+    #   base_estimator_, classes_, n_classes_, log_marginal_likelihood_value_, and the
+    #   kernel_ property.
     """Gaussian process classification (GPC) based on Laplace approximation.
 
     The implementation is based on Algorithm 3.1, 3.2, and 5.1 from [RW2006]_.
@@ -701,6 +801,10 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
         multi_class="one_vs_rest",
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged: kernel, optimizer, n_restarts_optimizer,
+        #   max_iter_predict, warm_start, copy_X_train, random_state, multi_class
+        #   ("one_vs_rest" default or "one_vs_one"), n_jobs.
         self.kernel = kernel
         self.optimizer = optimizer
         self.n_restarts_optimizer = n_restarts_optimizer
@@ -713,6 +817,20 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Rejects CompoundKernel, validates X and y (numeric 2-D X unless the kernel
+        #   accepts generic inputs), builds the binary base estimator, finds classes,
+        #   wraps the base estimator in the multi-class meta-estimator when there are more
+        #   than 2 classes, fits it, and stores the log-marginal likelihood (mean over
+        #   sub-estimators for multi-class).
+        # Inputs: X - training data; y - class labels (binary or multi-class).
+        # Outputs: self.
+        # Exceptions: ValueError for a CompoundKernel, a single class, or invalid input.
+        # Side effects: sets the fitted attributes.
+        # KNOWN ISSUE: the docstring says y must be binary, but multi-class y is
+        #   supported.
+        # KNOWN ISSUE: the "Unknown multi-class mode" branch is unreachable because
+        #   multi_class is already validated by the parameter constraints.
         """Fit Gaussian process classification model.
 
         Parameters
@@ -787,6 +905,10 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Validates X like fit (reset=False) and returns base_estimator_.predict.
+        # Outputs: array (n_samples,) of labels from classes_.
+        # Exceptions: NotFittedError if not fitted.
         """Perform classification on an array of test vectors X.
 
         Parameters
@@ -809,6 +931,11 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
         return self.base_estimator_.predict(X)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns base_estimator_.predict_proba, shape (n_samples,
+        #   n_classes).
+        # Exceptions: NotFittedError if not fitted; ValueError for one_vs_one with more
+        #   than two classes.
         """Return probability estimates for the test vector X.
 
         Parameters
@@ -840,6 +967,9 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
 
     @property
     def kernel_(self):
+        # [FUNCTION DOC]
+        # Property: the fitted binary kernel for 2 classes, else a CompoundKernel of
+        #   each sub-estimator's kernel. Exceptions: AttributeError if not fitted.
         """Return the kernel of the base estimator."""
         if self.n_classes_ == 2:
             return self.base_estimator_.kernel_
@@ -851,6 +981,19 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
     def log_marginal_likelihood(
         self, theta=None, eval_gradient=False, clone_kernel=True
     ):
+        # [FUNCTION DOC]
+        # Returns the stored value for theta None; for binary problems delegates to the
+        #   base estimator; for multi-class averages the sub-estimators' likelihoods,
+        #   using the same theta for all if its length equals one kernel's n_dims, or
+        #   consecutive slices if it equals n_dims times the number of classes.
+        # Inputs: theta, eval_gradient, clone_kernel (as in the binary version).
+        # Outputs: float, or (float, gradient) for binary with eval_gradient.
+        # Exceptions: NotFittedError; ValueError if eval_gradient with theta None or
+        #   theta has an invalid length; NotImplementedError for gradients in the multi-
+        #   class case.
+        # KNOWN ISSUE: the compound-theta slicing assumes one sub-estimator per class;
+        #   with one_vs_one there are n_classes*(n_classes-1)/2 estimators, so the length
+        #   check and slices do not match the actual compound kernel.
         """Return log-marginal likelihood of theta for training data.
 
         In the case of multi-class classification, the mean log-marginal
@@ -934,6 +1077,13 @@ class GaussianProcessClassifier(ClassifierMixin, BaseEstimator):
                 )
 
     def latent_mean_and_variance(self, X):
+        # [FUNCTION DOC]
+        # Binary only: validates X and returns the base estimator's latent mean and
+        #   variance, each of shape (n_samples,).
+        # Exceptions: ValueError for more than two classes; NotFittedError if not
+        #   fitted.
+        # KNOWN ISSUE: n_classes_ is read before check_is_fitted, so an unfitted model
+        #   raises AttributeError rather than NotFittedError.
         """Compute the mean and variance of the latent function.
 
         Based on algorithm 3.2 of [RW2006]_, this function returns the latent

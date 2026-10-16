@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for SimpleImputer, IterativeImputer, MissingIndicator and KNNImputer
+# keep_empty_features behaviour: statistics per strategy on dense and sparse inputs,
+# dtype handling and error messages, copy semantics, IterativeImputer convergence,
+# ordering, clipping, posterior sampling and min/max bounds, missing indicator output
+# formats, inverse_transform, the _most_frequent helper and pandas nullable types.
 import io
 import re
 import warnings
@@ -39,11 +45,17 @@ from sklearn.utils.fixes import (
 
 
 def _assert_array_equal_and_same_dtype(x, y):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two arrays are exactly equal and have the same dtype.
+    # Exceptions: AssertionError on mismatch.
     assert_array_equal(x, y)
     assert x.dtype == y.dtype
 
 
 def _assert_allclose_and_same_dtype(x, y):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two arrays are numerically close and have the same dtype.
+    # Exceptions: AssertionError on mismatch.
     assert_allclose(x, y)
     assert x.dtype == y.dtype
 
@@ -51,6 +63,14 @@ def _assert_allclose_and_same_dtype(x, y):
 def _check_statistics(
     X, X_true, strategy, statistics, missing_values, sparse_container
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits SimpleImputer with the given strategy and missing_values on dense X
+    # and on sparse_container(X), and asserts statistics_ equals statistics and the
+    # transformed data equals X_true (densifying sparse output). Uses almost-equality
+    # when X or X_true is float.
+    # Inputs: X, X_true - 2-D arrays; strategy - str; statistics - expected per-feature
+    # values; missing_values - marker; sparse_container - sparse matrix/array class.
+    # Exceptions: AssertionError with a message naming the parameters and sparsity.
     """Utility function for testing imputation for a given strategy.
 
     Test with dense and sparse arrays
@@ -90,6 +110,10 @@ def _check_statistics(
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent", "constant"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_imputation_shape(strategy, csr_container):
+    # [FUNCTION DOC]
+    # Verifies output shape (10, 2) for SimpleImputer on CSR and dense input and for
+    # IterativeImputer with each initial_strategy, on data with all-NaN even rows.
+    # Note: uses the unseeded global RNG.
     # Verify the shapes of the imputed matrix for different strategies.
     X = np.random.randn(10, 2)
     X[::2] = np.nan
@@ -107,6 +131,9 @@ def test_imputation_shape(strategy, csr_container):
 
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent"])
 def test_imputation_deletion_warning(strategy):
+    # [FUNCTION DOC]
+    # Verifies transform emits a UserWarning "Skipping..." when a column was entirely
+    # missing during fit, for mean/median/most_frequent.
     X = np.ones((3, 5))
     X[:, 0] = np.nan
     imputer = SimpleImputer(strategy=strategy).fit(X)
@@ -117,6 +144,9 @@ def test_imputation_deletion_warning(strategy):
 
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent"])
 def test_imputation_deletion_warning_feature_names(strategy):
+    # [FUNCTION DOC]
+    # Verifies feature_names_in_ is set from a DataFrame and the skipped-feature warning
+    # names the all-missing column 'b'.
     pd = pytest.importorskip("pandas")
 
     missing_values = np.nan
@@ -144,6 +174,9 @@ def test_imputation_deletion_warning_feature_names(strategy):
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent", "constant"])
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_imputation_error_sparse_0(strategy, csc_container):
+    # [FUNCTION DOC]
+    # Verifies SimpleImputer raises "Provide a dense array" for CSC input with
+    # missing_values=0 in fit, and in transform after fitting on dense data.
     # check that error are raised when missing_values = 0 and input is sparse
     X = np.ones((3, 5))
     X[0] = 0
@@ -159,12 +192,19 @@ def test_imputation_error_sparse_0(strategy, csc_container):
 
 
 def safe_median(arr, *args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Median that returns NaN for empty input instead of erroring; otherwise
+    # delegates to np.median with the extra arguments.
+    # Outputs: float or NaN.
     # np.median([]) raises a TypeError for numpy >= 1.10.1
     length = arr.size if hasattr(arr, "size") else len(arr)
     return np.nan if length == 0 else np.median(arr, *args, **kwargs)
 
 
 def safe_mean(arr, *args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Mean that returns NaN for empty input instead of warning; otherwise
+    # delegates to np.mean. Outputs: float or NaN.
     # np.mean([]) raises a RuntimeWarning for numpy >= 1.10.1
     length = arr.size if hasattr(arr, "size") else len(arr)
     return np.nan if length == 0 else np.mean(arr, *args, **kwargs)
@@ -172,6 +212,17 @@ def safe_mean(arr, *args, **kwargs):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_imputation_mean_median(csc_container):
+    # [FUNCTION DOC]
+    # Verifies mean and median strategies with NaN markers: builds a 100x20 matrix whose
+    # columns mix random signed values, explicit zeros and NaNs in varying proportions
+    # (including all-zero and all-NaN columns), computes the expected statistic per
+    # column with safe_mean/safe_median over values and zeros, builds the expected
+    # imputed matrix, shuffles both identically per column, drops columns that end up
+    # all NaN, and checks via _check_statistics on dense and CSC input.
+    # KNOWN ISSUE: the branch for test_missing_values equal to 0 is unreachable (only
+    # NaN is tested), as its own comment notes. The comment "Mean doesn't support
+    # columns containing NaNs, median does" does not match the code, which keeps columns
+    # with any NaN for mean.
     # Test imputation using the mean and median strategies, when
     # missing_values != 0.
     rng = np.random.RandomState(0)
@@ -242,6 +293,9 @@ def test_imputation_mean_median(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_imputation_median_special_cases(csc_container):
+    # [FUNCTION DOC]
+    # Verifies median imputation on sparse boundary cases (implicit zeros, odd/even
+    # counts, negative/positive mixes) against hand-computed statistics, dense and CSC.
     # Test median imputation with sparse boundary cases
     X = np.array(
         [
@@ -278,6 +332,9 @@ def test_imputation_median_special_cases(csc_container):
 @pytest.mark.parametrize("strategy", ["mean", "median"])
 @pytest.mark.parametrize("dtype", [None, object, str])
 def test_imputation_mean_median_error_invalid_type(strategy, dtype):
+    # [FUNCTION DOC]
+    # Verifies mean/median raise ValueError "non-numeric data" on string-containing
+    # numpy arrays (default, object and str dtypes).
     X = np.array([["a", "b", 3], [4, "e", 6], ["g", "h", 9]], dtype=dtype)
     msg = "non-numeric data:\ncould not convert string to float:"
     with pytest.raises(ValueError, match=msg):
@@ -290,6 +347,8 @@ def test_imputation_mean_median_error_invalid_type(strategy, dtype):
 def test_imputation_mean_median_error_invalid_type_list_pandas(
     strategy, constructor_name
 ):
+    # [FUNCTION DOC]
+    # Same as above for list and DataFrame inputs.
     X = [["a", "b", 3], [4, "e", 6], ["g", "h", 9]]
     X = _convert_container(X, constructor_name)
     msg = "non-numeric data:\ncould not convert string to float:"
@@ -301,6 +360,9 @@ def test_imputation_mean_median_error_invalid_type_list_pandas(
 @pytest.mark.parametrize("strategy", ["constant", "most_frequent"])
 @pytest.mark.parametrize("dtype", [str, np.dtype("U"), np.dtype("S")])
 def test_imputation_const_mostf_error_invalid_types(strategy, dtype):
+    # [FUNCTION DOC]
+    # Verifies most_frequent/constant raise "SimpleImputer does not support data" for
+    # numpy string dtypes (str, U, S) containing NaN.
     # Test imputation on non-numeric data using "most_frequent" and "constant"
     # strategy
     X = np.array(
@@ -321,6 +383,9 @@ def test_imputation_const_mostf_error_invalid_types(strategy, dtype):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_imputation_most_frequent(csc_container):
+    # [FUNCTION DOC]
+    # Verifies most_frequent on integers with marker -1 picks the smallest of tied modes
+    # and drops the all-missing first column (statistic NaN), dense and CSC.
     # Test imputation using the most-frequent strategy.
     X = np.array(
         [
@@ -349,6 +414,9 @@ def test_imputation_most_frequent(csc_container):
 
 @pytest.mark.parametrize("marker", [None, np.nan, "NAN", "", 0])
 def test_imputation_most_frequent_objects(marker):
+    # [FUNCTION DOC]
+    # Verifies most_frequent on object arrays for several markers (None, NaN, "NAN", "",
+    # 0), dropping the all-missing column and filling with the modal string.
     # Test imputation using the most-frequent strategy.
     X = np.array(
         [
@@ -378,6 +446,9 @@ def test_imputation_most_frequent_objects(marker):
 
 @pytest.mark.parametrize("dtype", [object, "category"])
 def test_imputation_most_frequent_pandas(dtype):
+    # [FUNCTION DOC]
+    # Verifies most_frequent on DataFrames read from CSV with object and category
+    # dtypes, dropping the empty Cat4 column.
     # Test imputation using the most frequent strategy on pandas df
     pd = pytest.importorskip("pandas")
 
@@ -398,6 +469,9 @@ def test_imputation_most_frequent_pandas(dtype):
 
 @pytest.mark.parametrize("X_data, missing_value", [(1, 0), (1.0, np.nan)])
 def test_imputation_constant_error_invalid_type(X_data, missing_value):
+    # [FUNCTION DOC]
+    # Verifies constant strategy raises ValueError when fill_value "x" cannot be cast to
+    # the float data dtype.
     # Verify that exceptions are raised on invalid fill_value type
     X = np.full((3, 5), X_data, dtype=float)
     X[0, 0] = missing_value
@@ -413,6 +487,9 @@ def test_imputation_constant_error_invalid_type(X_data, missing_value):
 
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_imputation_constant_integer(keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies constant strategy with integer data and fill_value 0; the all-missing
+    # last column is kept (filled) only when keep_empty_features.
     # Test imputation using the constant strategy on integers
     X = np.array([[-1, 2, 3, -1], [4, -1, 5, -1], [6, 7, -1, -1], [8, 9, 0, -1]])
 
@@ -434,6 +511,9 @@ def test_imputation_constant_integer(keep_empty_features):
 @pytest.mark.parametrize("array_constructor", CSR_CONTAINERS + [np.asarray])
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_imputation_constant_float(array_constructor, keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies constant strategy with float data (dense and CSR) and fill_value -1, with
+    # and without keeping the empty column.
     # Test imputation using the constant strategy on floats
     X = np.array(
         [
@@ -465,6 +545,9 @@ def test_imputation_constant_float(array_constructor, keep_empty_features):
 @pytest.mark.parametrize("marker", [None, np.nan, "NAN", "", 0])
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_imputation_constant_object(marker, keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies constant strategy on object data with various markers fills with
+    # "missing", dropping or keeping the empty column.
     # Test imputation using the constant strategy on objects
     X = np.array(
         [
@@ -502,6 +585,9 @@ def test_imputation_constant_object(marker, keep_empty_features):
 @pytest.mark.parametrize("dtype", [object, "category"])
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_imputation_constant_pandas(dtype, keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies constant strategy on DataFrames (object/category) uses the default fill
+    # "missing_value", dropping or keeping the empty column.
     # Test imputation using the constant strategy on pandas df
     pd = pytest.importorskip("pandas")
 
@@ -531,6 +617,11 @@ def test_imputation_constant_pandas(dtype, keep_empty_features):
 
 @pytest.mark.parametrize("X", [[[1], [2]], [[1], [np.nan]]])
 def test_iterative_imputer_one_feature(X):
+    # [FUNCTION DOC]
+    # Verifies IterativeImputer exits early (n_iter_ 0) when there is a single feature,
+    # with and without missing values.
+    # KNOWN ISSUE: the parametrized X is only used in the first fit; the remaining
+    # assertions repeat the same fixed inputs for every parametrization.
     # check we exit early when there is a single feature
     imputer = IterativeImputer().fit(X)
     assert imputer.n_iter_ == 0
@@ -542,6 +633,9 @@ def test_iterative_imputer_one_feature(X):
 
 
 def test_imputation_pipeline_grid_search():
+    # [FUNCTION DOC]
+    # Smoke test: SimpleImputer in a Pipeline with a decision tree is grid-searched over
+    # strategies on a sparse random matrix whose first stored value is the marker.
     # Test imputation within a pipeline + gridsearch.
     X = _sparse_random_matrix(100, 100, density=0.10)
     missing_values = X.data[0]
@@ -561,6 +655,10 @@ def test_imputation_pipeline_grid_search():
 
 
 def test_imputation_copy():
+    # [FUNCTION DOC]
+    # Verifies copy semantics of SimpleImputer: copy=True never aliases (dense, CSR);
+    # copy=False aliases dense and CSC inputs (mutating output changes input) but CSR
+    # input is still copied.
     # Test imputation with copy
     X_orig = _sparse_random_matrix(5, 5, density=0.75, random_state=0)
 
@@ -604,6 +702,9 @@ def test_imputation_copy():
 
 
 def test_iterative_imputer_zero_iters():
+    # [FUNCTION DOC]
+    # Verifies max_iter=0 returns the initial imputation, and that forcing n_iter_ to 0
+    # on a fitted imputer makes transform equal to the initial imputation.
     rng = np.random.RandomState(0)
 
     n = 100
@@ -628,6 +729,8 @@ def test_iterative_imputer_zero_iters():
 
 
 def test_iterative_imputer_verbose():
+    # [FUNCTION DOC]
+    # Smoke test that verbose levels 1 and 2 run through fit and transform.
     rng = np.random.RandomState(0)
 
     n = 100
@@ -642,6 +745,9 @@ def test_iterative_imputer_verbose():
 
 
 def test_iterative_imputer_all_missing():
+    # [FUNCTION DOC]
+    # Verifies that when every entry is missing, the output equals the initial
+    # imputation.
     n = 100
     d = 3
     X = np.zeros((n, d))
@@ -654,6 +760,11 @@ def test_iterative_imputer_all_missing():
     "imputation_order", ["random", "roman", "ascending", "descending", "arabic"]
 )
 def test_iterative_imputer_imputation_order(imputation_order):
+    # [FUNCTION DOC]
+    # Verifies the visiting order per imputation_order with skip_complete (column 0
+    # complete): number of steps per round equals n_features_with_missing_, roman visits
+    # 1..9, arabic 9..1, random differs between rounds, ascending/descending perform
+    # 2*(d-1) steps.
     rng = np.random.RandomState(0)
     n = 100
     d = 10
@@ -694,6 +805,9 @@ def test_iterative_imputer_imputation_order(imputation_order):
     "estimator", [None, DummyRegressor(), BayesianRidge(), ARDRegression(), RidgeCV()]
 )
 def test_iterative_imputer_estimators(estimator):
+    # [FUNCTION DOC]
+    # Verifies each step in imputation_sequence_ stores a distinct estimator instance of
+    # the requested type (BayesianRidge when None).
     rng = np.random.RandomState(0)
 
     n = 100
@@ -719,6 +833,9 @@ def test_iterative_imputer_estimators(estimator):
 
 
 def test_iterative_imputer_clip():
+    # [FUNCTION DOC]
+    # Verifies min_value/max_value clipping: imputed entries span exactly [0.1, 0.2] and
+    # observed entries are unchanged.
     rng = np.random.RandomState(0)
     n = 100
     d = 10
@@ -735,6 +852,9 @@ def test_iterative_imputer_clip():
 
 
 def test_iterative_imputer_clip_truncnorm():
+    # [FUNCTION DOC]
+    # Same as test_iterative_imputer_clip but with sample_posterior, random order and
+    # n_nearest_features (truncated normal sampling path).
     rng = np.random.RandomState(0)
     n = 100
     d = 10
@@ -759,6 +879,13 @@ def test_iterative_imputer_clip_truncnorm():
 
 
 def test_iterative_imputer_truncated_normal_posterior():
+    # [FUNCTION DOC]
+    # Verifies posterior samples for a single missing value with bounds [0, 0.5] stay
+    # within bounds and, after standardization, pass a Kolmogorov-Smirnov normality
+    # check over 100 transforms.
+    # KNOWN ISSUE: kstest is computed once before the zero-sigma guard and that result
+    # is discarded; the first call is dead code (and would divide by zero if sigma were
+    # 0).
     #  test that the values that are imputed using `sample_posterior=True`
     #  with boundaries (`min_value` and `max_value` are not None) are drawn
     #  from a distribution that looks gaussian via the Kolmogorov Smirnov test.
@@ -793,6 +920,9 @@ def test_iterative_imputer_truncated_normal_posterior():
 
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent"])
 def test_iterative_imputer_missing_at_transform(strategy):
+    # [FUNCTION DOC]
+    # Verifies that a feature with no missing values at fit time is imputed at transform
+    # only by the initial imputer (matches a SimpleImputer with the same strategy).
     rng = np.random.RandomState(0)
     n = 100
     d = 10
@@ -815,6 +945,10 @@ def test_iterative_imputer_missing_at_transform(strategy):
 
 
 def test_iterative_imputer_transform_stochasticity():
+    # [FUNCTION DOC]
+    # Verifies transform is stochastic with sample_posterior (means differ between
+    # calls) and deterministic, independent of random_state, when sampling, neighbor
+    # subsampling and random ordering are all disabled.
     rng1 = np.random.RandomState(0)
     rng2 = np.random.RandomState(1)
     n = 100
@@ -865,6 +999,9 @@ def test_iterative_imputer_transform_stochasticity():
 
 
 def test_iterative_imputer_no_missing():
+    # [FUNCTION DOC]
+    # Verifies an all-NaN first column is dropped and fit().transform() equals
+    # fit_transform.
     rng = np.random.RandomState(0)
     X = rng.rand(100, 100)
     X[:, 0] = np.nan
@@ -879,6 +1016,9 @@ def test_iterative_imputer_no_missing():
 
 
 def test_iterative_imputer_rank_one():
+    # [FUNCTION DOC]
+    # Verifies recovery of a rank-one matrix with half the entries missing within atol
+    # 0.02.
     rng = np.random.RandomState(0)
     d = 50
     A = rng.rand(d, 1)
@@ -895,6 +1035,9 @@ def test_iterative_imputer_rank_one():
 
 @pytest.mark.parametrize("rank", [3, 5])
 def test_iterative_imputer_transform_recovery(rank):
+    # [FUNCTION DOC]
+    # Verifies that an imputer fitted on half of a low-rank (3 or 5) matrix recovers
+    # missing entries of the other half within atol 0.1.
     rng = np.random.RandomState(0)
     n = 70
     d = 70
@@ -919,6 +1062,9 @@ def test_iterative_imputer_transform_recovery(rank):
 
 
 def test_iterative_imputer_additive_matrix():
+    # [FUNCTION DOC]
+    # Verifies recovery of a matrix built as sums of pairs of random columns with 25%
+    # missing, fit on half and transform on the other half.
     rng = np.random.RandomState(0)
     n = 100
     d = 10
@@ -945,6 +1091,10 @@ def test_iterative_imputer_additive_matrix():
 
 
 def test_iterative_imputer_early_stopping():
+    # [FUNCTION DOC]
+    # Verifies early stopping: with tol 1e-2 the sequence length equals d * n_iter_;
+    # rerunning with max_iter equal to that n_iter_ gives the same result; tol 0 runs
+    # all max_iter rounds.
     rng = np.random.RandomState(0)
     n = 50
     d = 5
@@ -975,6 +1125,12 @@ def test_iterative_imputer_early_stopping():
 
 
 def test_iterative_imputer_catch_warning():
+    # [FUNCTION DOC]
+    # Verifies that a constant feature does not cause a RuntimeWarning (warnings turned
+    # into errors) when computing correlations with n_nearest_features, and output has
+    # no NaN.
+    # KNOWN ISSUE: the comment says it checks that a warning is caught; it actually
+    # checks that no RuntimeWarning escapes.
     # check that we catch a RuntimeWarning due to a division by zero when a
     # feature is constant in the dataset
     X, y = load_diabetes(return_X_y=True)
@@ -1015,6 +1171,9 @@ def test_iterative_imputer_catch_warning():
     ids=["scalars", "None-default", "inf", "lists", "lists-with-inf"],
 )
 def test_iterative_imputer_min_max_array_like(min_value, max_value, correct_output):
+    # [FUNCTION DOC]
+    # Verifies scalar, None, infinite and list bounds are expanded to per-feature arrays
+    # in _min_value/_max_value with the expected values.
     # check that passing scalar or array-like
     # for min_value and max_value in IterativeImputer works
     X = np.random.RandomState(0).randn(10, 3)
@@ -1042,6 +1201,10 @@ def test_iterative_imputer_min_max_array_like(min_value, max_value, correct_outp
     ],
 )
 def test_iterative_imputer_catch_min_max_error(min_value, max_value, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError when min >= max and when array bounds have the wrong length.
+    # KNOWN ISSUE: the comment is copied from the previous test and describes success,
+    # not error cases.
     # check that passing scalar or array-like
     # for min_value and max_value in IterativeImputer works
     X = np.random.random((10, 3))
@@ -1056,6 +1219,10 @@ def test_iterative_imputer_catch_min_max_error(min_value, max_value, err_msg):
     ids=["None-vs-inf", "Scalar-vs-vector"],
 )
 def test_iterative_imputer_min_max_array_like_imputation(min_max_1, min_max_2):
+    # [FUNCTION DOC]
+    # Verifies None vs infinite bounds and scalar vs per-feature bounds produce the same
+    # imputation.
+    # KNOWN ISSUE: only column 0 of the outputs is compared.
     # Test that None/inf and scalar/vector give the same imputation
     X_train = np.array(
         [
@@ -1081,6 +1248,10 @@ def test_iterative_imputer_min_max_array_like_imputation(min_max_1, min_max_2):
 
 @pytest.mark.parametrize("skip_complete", [True, False])
 def test_iterative_imputer_skip_non_missing(skip_complete):
+    # [FUNCTION DOC]
+    # Non-regression for #14383: a feature missing only at transform is imputed with the
+    # training mean when skip_complete, and with model predictions ([11, 7, 12])
+    # otherwise.
     # check the imputing strategy when missing data are present in the
     # testing set only.
     # taken from: https://github.com/scikit-learn/scikit-learn/issues/14383
@@ -1101,14 +1272,28 @@ def test_iterative_imputer_skip_non_missing(skip_complete):
 @pytest.mark.parametrize("rs_imputer", [None, 1, np.random.RandomState(seed=1)])
 @pytest.mark.parametrize("rs_estimator", [None, 1, np.random.RandomState(seed=1)])
 def test_iterative_imputer_dont_set_random_state(rs_imputer, rs_estimator):
+    # [FUNCTION DOC]
+    # Intended to verify that IterativeImputer does not overwrite the random_state of
+    # the user-supplied estimator.
+    # KNOWN ISSUE: the ZeroEstimator is never passed to IterativeImputer, so the test
+    # cannot fail; it only checks an untouched object.
     class ZeroEstimator:
+        # [CLASS DOC]
+        # HELPER: Minimal regressor carrying a random_state attribute and predicting
+        # zeros.
         def __init__(self, random_state):
+            # [FUNCTION DOC]
+            # HELPER: Stores random_state.
             self.random_state = random_state
 
         def fit(self, *args, **kgards):
+            # [FUNCTION DOC]
+            # HELPER: No-op fit returning self.
             return self
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns a zero vector of length n_samples.
             return np.zeros(X.shape[0])
 
     estimator = ZeroEstimator(random_state=rs_estimator)
@@ -1136,6 +1321,10 @@ def test_iterative_imputer_dont_set_random_state(rs_imputer, rs_estimator):
     ],
 )
 def test_missing_indicator_error(X_fit, X_trans, params, msg_err):
+    # [FUNCTION DOC]
+    # Verifies MissingIndicator raises ValueError when transform data has missing values
+    # in features not missing at fit (features="missing-only"), and for unsupported str
+    # dtype.
     indicator = MissingIndicator(missing_values=-1)
     indicator.set_params(**params)
     with pytest.raises(ValueError, match=msg_err):
@@ -1143,6 +1332,11 @@ def test_missing_indicator_error(X_fit, X_trans, params, msg_err):
 
 
 def _generate_missing_indicator_cases():
+    # [FUNCTION DOC]
+    # HELPER: Builds parametrization tuples (array constructor, missing value, dtype)
+    # over dense and all sparse containers, excluding sparse containers with missing
+    # value 0.
+    # Outputs: list of 3-tuples.
     missing_values_dtypes = [(0, np.int32), (np.nan, np.float64), (-1, np.int32)]
     arr_types = (
         [np.array]
@@ -1171,6 +1365,10 @@ def _generate_missing_indicator_cases():
 def test_missing_indicator_new(
     missing_values, arr_type, dtype, param_features, n_features, features_indices
 ):
+    # [FUNCTION DOC]
+    # Verifies MissingIndicator masks for fit and transform data across containers and
+    # dtypes: shape, features_, values, bool dtype, ndarray output with sparse=False and
+    # CSC output equal to the dense one with sparse=True.
     X_fit = np.array([[missing_values, missing_values, 1], [4, 2, missing_values]])
     X_trans = np.array([[missing_values, missing_values, 1], [4, 12, 10]])
     X_fit_expected = np.array([[1, 1, 0], [0, 0, 1]])
@@ -1217,6 +1415,9 @@ def test_missing_indicator_new(
     CSC_CONTAINERS + CSR_CONTAINERS + COO_CONTAINERS + LIL_CONTAINERS + BSR_CONTAINERS,
 )
 def test_missing_indicator_raise_on_sparse_with_missing_0(arr_type):
+    # [FUNCTION DOC]
+    # Verifies MissingIndicator rejects sparse input with missing_values=0 in
+    # fit_transform, and in transform after fitting on dense data.
     # test for sparse input and missing_value == 0
 
     missing_values = 0
@@ -1253,6 +1454,9 @@ def test_missing_indicator_raise_on_sparse_with_missing_0(arr_type):
     ),
 )
 def test_missing_indicator_sparse_param(arr_type, missing_values, param_sparse):
+    # [FUNCTION DOC]
+    # Verifies output container per sparse parameter: True gives CSC, False gives
+    # ndarray, "auto" follows the input sparsity (dense for dense input with marker 0).
     # check the format of the output with different sparse parameter
     X_fit = np.array([[missing_values, missing_values, 1], [4, missing_values, 2]])
     X_trans = np.array([[missing_values, missing_values, 1], [4, 12, 10]])
@@ -1282,6 +1486,9 @@ def test_missing_indicator_sparse_param(arr_type, missing_values, param_sparse):
 
 
 def test_missing_indicator_string():
+    # [FUNCTION DOC]
+    # Verifies MissingIndicator on object data with string marker "a" and
+    # features="all".
     X = np.array([["a", "b", "c"], ["b", "c", "a"]], dtype=object)
     indicator = MissingIndicator(missing_values="a", features="all")
     X_trans = indicator.fit_transform(X)
@@ -1314,6 +1521,10 @@ def test_missing_indicator_string():
     ],
 )
 def test_missing_indicator_with_imputer(X, missing_values, X_trans_exp):
+    # [FUNCTION DOC]
+    # Verifies a FeatureUnion of most_frequent SimpleImputer and MissingIndicator on
+    # string, float, object-with-NaN and None-marker data gives the expected
+    # concatenation.
     trans = make_union(
         SimpleImputer(missing_values=missing_values, strategy="most_frequent"),
         MissingIndicator(missing_values=missing_values),
@@ -1333,6 +1544,9 @@ def test_missing_indicator_with_imputer(X, missing_values, X_trans_exp):
 def test_inconsistent_dtype_X_missing_values(
     imputer_constructor, imputer_missing_values, missing_value, err_msg
 ):
+    # [FUNCTION DOC]
+    # Non-regression for #11390: string markers ("NaN", "-1") with numeric X raise a
+    # clear ValueError for SimpleImputer and IterativeImputer.
     # regression test for issue #11390. Comparison between incoherent dtype
     # for X and missing_values was not raising a proper error.
     rng = np.random.RandomState(42)
@@ -1346,6 +1560,9 @@ def test_inconsistent_dtype_X_missing_values(
 
 
 def test_missing_indicator_no_missing():
+    # [FUNCTION DOC]
+    # Verifies features="missing-only" returns zero columns when nothing is missing
+    # (#13491).
     # check that all features are dropped if there are no missing values when
     # features='missing-only' (#13491)
     X = np.array([[1, 1], [1, 1]])
@@ -1358,6 +1575,9 @@ def test_missing_indicator_no_missing():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_missing_indicator_sparse_no_explicit_zeros(csr_container):
+    # [FUNCTION DOC]
+    # Verifies sparse mask output contains no explicit zeros (nnz equals number of
+    # True).
     # Check that non missing values don't become explicit zeros in the mask
     # generated by missing indicator when X is sparse. (#13491)
     X = csr_container([[0, 1, 2], [1, 2, 0], [2, 0, 1]])
@@ -1370,6 +1590,8 @@ def test_missing_indicator_sparse_no_explicit_zeros(csr_container):
 
 @pytest.mark.parametrize("imputer_constructor", [SimpleImputer, IterativeImputer])
 def test_imputer_without_indicator(imputer_constructor):
+    # [FUNCTION DOC]
+    # Verifies indicator_ is None when add_indicator is False.
     X = np.array([[1, 1], [1, 1]])
     imputer = imputer_constructor()
     imputer.fit(X)
@@ -1382,6 +1604,9 @@ def test_imputer_without_indicator(imputer_constructor):
     CSC_CONTAINERS + CSR_CONTAINERS + COO_CONTAINERS + LIL_CONTAINERS + BSR_CONTAINERS,
 )
 def test_simple_imputation_add_indicator_sparse_matrix(arr_type):
+    # [FUNCTION DOC]
+    # Verifies mean imputation with add_indicator on each sparse container returns a
+    # sparse result with imputed values followed by indicator columns.
     X_sparse = arr_type([[np.nan, 1, 5], [2, np.nan, 1], [6, 3, np.nan], [1, 2, 9]])
     X_true = np.array(
         [
@@ -1404,6 +1629,9 @@ def test_simple_imputation_add_indicator_sparse_matrix(arr_type):
     "strategy, expected", [("most_frequent", "b"), ("constant", "missing_value")]
 )
 def test_simple_imputation_string_list(strategy, expected):
+    # [FUNCTION DOC]
+    # Verifies most_frequent/constant on a list of strings with NaN gives an object
+    # array with the expected fill.
     X = [["a", "b"], ["c", np.nan]]
 
     X_true = np.array([["a", "b"], ["c", expected]], dtype=object)
@@ -1419,6 +1647,9 @@ def test_simple_imputation_string_list(strategy, expected):
     [("ascending", [3, 4, 2, 0, 1]), ("descending", [1, 0, 2, 4, 3])],
 )
 def test_imputation_order(order, idx_order):
+    # [FUNCTION DOC]
+    # Non-regression for #15393: ascending/descending orders by missing fraction give
+    # the expected feature index sequence for one round (ConvergenceWarning expected).
     # regression test for #15393
     rng = np.random.RandomState(42)
     X = rng.rand(100, 5)
@@ -1437,6 +1668,10 @@ def test_imputation_order(order, idx_order):
 
 @pytest.mark.parametrize("missing_value", [-1, np.nan])
 def test_simple_imputation_inverse_transform(missing_value):
+    # [FUNCTION DOC]
+    # Verifies inverse_transform with add_indicator restores the original missing
+    # markers on training data, new data and data with many missing entries, for -1 and
+    # NaN markers.
     # Test inverse_transform feature for np.nan
     X_1 = np.array(
         [
@@ -1495,6 +1730,9 @@ def test_simple_imputation_inverse_transform(missing_value):
 
 @pytest.mark.parametrize("missing_value", [-1, np.nan])
 def test_simple_imputation_inverse_transform_exceptions(missing_value):
+    # [FUNCTION DOC]
+    # Verifies inverse_transform raises ValueError mentioning add_indicator when it is
+    # False.
     X_1 = np.array(
         [
             [9, missing_value, 3, -1],
@@ -1534,6 +1772,9 @@ def test_simple_imputation_inverse_transform_exceptions(missing_value):
     ],
 )
 def test_most_frequent(expected, array, dtype, extra_value, n_repeat):
+    # [FUNCTION DOC]
+    # Verifies _most_frequent for object and numeric arrays combined with an extra value
+    # repeated n_repeat times, including ties (smallest value wins).
     assert expected == _most_frequent(
         np.array(array, dtype=dtype), extra_value, n_repeat
     )
@@ -1552,6 +1793,9 @@ def test_most_frequent(expected, array, dtype, extra_value, n_repeat):
     ],
 )
 def test_most_frequent_tie_object(expected, array):
+    # [FUNCTION DOC]
+    # Non-regression for #31717: tie breaking in _most_frequent on mixed-type object
+    # arrays returns the first value in the array.
     """Check the tie breaking behavior of the most frequent strategy.
 
     Non-regression test for issue #31717.
@@ -1563,6 +1807,9 @@ def test_most_frequent_tie_object(expected, array):
     "initial_strategy", ["mean", "median", "most_frequent", "constant"]
 )
 def test_iterative_imputer_keep_empty_features(initial_strategy):
+    # [FUNCTION DOC]
+    # Verifies an all-missing feature is imputed with 0 for every initial_strategy when
+    # keep_empty_features, in fit_transform and transform.
     """Check the behaviour of the iterative imputer with different initial strategy
     and keeping empty features (i.e. features containing only missing values).
     """
@@ -1579,6 +1826,9 @@ def test_iterative_imputer_keep_empty_features(initial_strategy):
 
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_iterative_imputer_constant_fill_value(keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies fill_value is propagated to the initial SimpleImputer: statistics_ equal
+    # 100 for all columns when keeping empty features, else NaN for the empty column.
     """Check that we propagate properly the parameter `fill_value`."""
     X = np.array([[-1, 2, 3, -1], [4, -1, 5, -1], [6, 7, -1, -1], [8, 9, 0, -1]])
 
@@ -1600,6 +1850,9 @@ def test_iterative_imputer_constant_fill_value(keep_empty_features):
 
 
 def test_iterative_imputer_min_max_value_remove_empty():
+    # [FUNCTION DOC]
+    # Non-regression for #29355: per-feature min/max arrays are correctly realigned
+    # after an empty column is dropped, checking imputed values hit the expected bounds.
     """Check that we properly apply the empty feature mask to `min_value` and
     `max_value`.
 
@@ -1656,6 +1909,9 @@ def test_iterative_imputer_min_max_value_remove_empty():
 
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_knn_imputer_keep_empty_features(keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies KNNImputer keeps the empty column filled with 0 when keep_empty_features,
+    # and drops it otherwise, for fit_transform and transform.
     """Check the behaviour of `keep_empty_features` for `KNNImputer`."""
     X = np.array([[1, np.nan, 2], [3, np.nan, np.nan]])
 
@@ -1671,6 +1927,10 @@ def test_knn_imputer_keep_empty_features(keep_empty_features):
 
 
 def test_simple_impute_pd_na():
+    # [FUNCTION DOC]
+    # Verifies SimpleImputer with pd.NA marker on pandas string, Int64 and float64
+    # columns (constant, mean, median), checking values and output dtype (object or
+    # float64).
     pd = pytest.importorskip("pandas")
 
     # Impute pandas array of string types.
@@ -1731,6 +1991,9 @@ def test_simple_impute_pd_na():
 
 
 def test_missing_indicator_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies MissingIndicator feature names are prefixed "missingindicator_" for
+    # columns with missing values.
     """Check that missing indicator return the feature names with a prefix."""
     pd = pytest.importorskip("pandas")
 
@@ -1750,6 +2013,9 @@ def test_missing_indicator_feature_names_out():
 
 
 def test_imputer_lists_fit_transform():
+    # [FUNCTION DOC]
+    # Non-regression for #19572: fitted on string lists, transform of an all-NaN row
+    # returns object dtype with the modal values.
     """Check transform uses object dtype when fitted on an object dtype.
 
     Non-regression test for #19572.
@@ -1764,6 +2030,9 @@ def test_imputer_lists_fit_transform():
 
 @pytest.mark.parametrize("dtype_test", [np.float32, np.float64])
 def test_imputer_transform_preserves_numeric_dtype(dtype_test):
+    # [FUNCTION DOC]
+    # Verifies transform output keeps the input float32/float64 dtype regardless of fit
+    # dtype.
     """Check transform preserves numeric dtype independent of fit dtype."""
     X = np.asarray(
         [[1.2, 3.4, np.nan], [np.nan, 1.2, 1.3], [4.2, 2, 1]], dtype=np.float64
@@ -1779,6 +2048,10 @@ def test_imputer_transform_preserves_numeric_dtype(dtype_test):
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent"])
 @pytest.mark.parametrize("keep_empty_features", [True, False])
 def test_simple_imputer_keep_empty_features(strategy, array_type, keep_empty_features):
+    # [FUNCTION DOC]
+    # Verifies keep_empty_features for mean/median/most_frequent on dense and sparse
+    # inputs: shape kept and empty column filled with 0, or dropped (handles older scipy
+    # indexing).
     """Check the behaviour of `keep_empty_features` with all strategies but
     'constant'.
     """
@@ -1802,6 +2075,8 @@ def test_simple_imputer_keep_empty_features(strategy, array_type, keep_empty_fea
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_imputation_custom(csc_container):
+    # [FUNCTION DOC]
+    # Verifies a callable strategy (np.min) imputes column minima, dense and CSC.
     X = np.array(
         [
             [1.1, 1.1, 1.1],
@@ -1835,6 +2110,10 @@ def test_imputation_custom(csc_container):
 
 
 def test_simple_imputer_constant_fill_value_casting():
+    # [FUNCTION DOC]
+    # Non-regression for #28309: fill_value incompatible with integer data raises at fit
+    # and at transform with clear messages; compatible float fill values keep float32
+    # output.
     """Check that we raise a proper error message when we cannot cast the fill value
     to the input data type. Otherwise, check that the casting is done properly.
 
@@ -1874,6 +2153,9 @@ def test_simple_imputer_constant_fill_value_casting():
 
 @pytest.mark.parametrize("strategy", ["mean", "median", "most_frequent", "constant"])
 def test_iterative_imputer_no_empty_features(strategy):
+    # [FUNCTION DOC]
+    # Non-regression for #29375: without empty features, keep_empty_features True/False
+    # give identical IterativeImputer output.
     """Check the behaviour of `keep_empty_features` with no empty features.
 
     With no-empty features, we should get the same imputation whatever the
@@ -1908,6 +2190,10 @@ def test_iterative_imputer_no_empty_features(strategy):
     ],
 )
 def test_iterative_imputer_with_empty_features(strategy, X_test):
+    # [FUNCTION DOC]
+    # Non-regression for #29375: with an empty training column, keep_empty_features
+    # keeps it filled with 0 and the rest matches the dropping imputer; transform output
+    # widths match training widths for test data with or without empty columns.
     """Check the behaviour of `keep_empty_features` in the presence of empty features.
 
     With `keep_empty_features=True`, the empty feature will be imputed with the value
