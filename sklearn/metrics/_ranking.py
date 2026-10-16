@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Ranking and threshold-based classification metrics computed from continuous scores:
+# trapezoidal AUC, ROC / precision-recall / DET curves and their summaries (ROC AUC
+# including partial and multiclass OvR/OvO, average precision), per-threshold confusion
+# counts and metric evaluation, multilabel ranking metrics (label ranking average
+# precision, coverage error, ranking loss), DCG / NDCG and top-k accuracy. Curve
+# functions support array API inputs; the ranking and multiclass metrics are NumPy only.
 """Metrics to assess performance on classification task given scores.
 
 Functions named as ``*_score`` return a scalar value to maximize: the higher
@@ -51,6 +58,13 @@ from sklearn.utils.validation import (
     prefer_skip_nested_validation=True,
 )
 def auc(x, y):
+    # [FUNCTION DOC]
+    # Validates x and y as equal-length 1d arrays with at least two points. x must be
+    # monotonic: if any step is negative and all steps are non-positive, the area sign
+    # is flipped (decreasing x); otherwise mixed directions are an error. Integrates y
+    # over x with the trapezoidal rule and returns a Python float (memmap results are
+    # unwrapped).
+    # Exceptions: ValueError for fewer than 2 points or non-monotonic x.
     """Compute Area Under the Curve (AUC) using the trapezoidal rule.
 
     This is a general function, given points on a curve.  For computing the
@@ -128,6 +142,13 @@ def auc(x, y):
 def average_precision_score(
     y_true, y_score, *, average="macro", pos_label=1, sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # Moves sample_weight to y_score's namespace. Determines the target type: for
+    # binary, checks pos_label is one of the two present labels; for multilabel and
+    # multiclass, pos_label must be 1; multiclass y_true is label-binarized (one column
+    # per present class) and y_score must have the same shape. Then averages the
+    # per-column binary AP via _average_binary_score according to average.
+    # Exceptions: ValueError for invalid pos_label or score shape mismatch.
     """Compute average precision (AP) from prediction scores.
 
     AP summarizes a precision-recall curve as the weighted mean of precisions
@@ -247,6 +268,13 @@ def average_precision_score(
         sample_weight=None,
         xp=xp,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Binary AP without interpolation: computes the precision-recall curve
+        # and returns minus the sum over steps of the recall decrease times the
+        # precision at the step start, i.e. the sum of (R_n - R_n-1) P_n, clipped at 0,
+        # as a float.
+        # Inputs: y_true, y_score - 1d arrays; pos_label; sample_weight; xp - namespace
+        # bound from the enclosing call.
         precision, recall, _ = precision_recall_curve(
             y_true,
             y_score,
@@ -312,6 +340,17 @@ def average_precision_score(
 def det_curve(
     y_true, y_score, pos_label=None, sample_weight=None, drop_intermediate=False
 ):
+    # [FUNCTION DOC]
+    # Obtains cumulative fps/tps per distinct threshold, prepends a (0, 0) point with
+    # infinite threshold. If drop_intermediate and more than two points, keeps only
+    # points where tps changes on either side (plus endpoints). Computes fns from total
+    # positives, trims the leading points with equal fps and the trailing points after
+    # tps reaches its total, then returns reversed arrays: false positive rate (fps /
+    # negatives), false negative rate (fns / positives) and thresholds (in increasing
+    # order).
+    # Exceptions: ValueError if y_true does not contain exactly two classes, plus those
+    # of confusion_matrix_at_thresholds.
+    # Note: the class-count check runs after the curve computation.
     """Compute Detection Error Tradeoff (DET) for different probability thresholds.
 
     Note: Support beyond :term:`binary` classification tasks, via one-vs-rest or
@@ -464,6 +503,13 @@ def det_curve(
 
 
 def _binary_roc_auc_score(y_true, y_score, sample_weight=None, max_fpr=None):
+    # [FUNCTION DOC]
+    # HELPER: Binary ROC AUC on one column. Returns nan with UndefinedMetricWarning if
+    # y_true is not exactly two classes. Full AUC when max_fpr is None or 1. Otherwise
+    # truncates the ROC curve at max_fpr (linear interpolation of tpr at max_fpr),
+    # computes the partial area, and applies McClish standardization 0.5 (1 + (A - min)
+    # / (max - min)) where min = max_fpr squared over 2 and max = max_fpr.
+    # Exceptions: ValueError if max_fpr is not in (0, 1].
     """Binary roc auc score."""
     if len(np.unique(y_true)) != 2:
         warnings.warn(
@@ -518,6 +564,14 @@ def roc_auc_score(
     multi_class="raise",
     labels=None,
 ):
+    # [FUNCTION DOC]
+    # Determines target type and validates arrays. Multiclass (or binary y_true with
+    # more than two score columns) dispatches to _multiclass_roc_auc_score after
+    # rejecting partial AUC and multi_class "raise". Binary y_true is binarized against
+    # its sorted unique labels (greater label positive) and scored with
+    # _binary_roc_auc_score via _average_binary_score; multilabel indicator input is
+    # averaged column-wise the same way.
+    # Exceptions: ValueError as described; nan with warning for single-class columns.
     """Compute Area Under the Receiver Operating Characteristic Curve (ROC AUC) \
     from prediction scores.
 
@@ -750,6 +804,15 @@ def roc_auc_score(
 def _multiclass_roc_auc_score(
     y_true, y_score, labels, multi_class, average, sample_weight
 ):
+    # [FUNCTION DOC]
+    # HELPER: Multiclass ROC AUC. Requires 2d y_score whose rows sum to 1; validates
+    # average (micro allowed only for ovr) and multi_class; average None is not
+    # implemented for ovo. Classes come from labels (must be unique, sorted, match the
+    # column count and cover y_true) or from y_true's unique values (count must match
+    # columns). OvO: encodes y_true and averages pairwise binary AUCs (sample_weight not
+    # supported). OvR: label-binarizes y_true and averages per-class binary AUCs with
+    # weights.
+    # Exceptions: ValueError / NotImplementedError for the cases above.
     """Multiclass roc auc score.
 
     Parameters
@@ -878,6 +941,13 @@ def _multiclass_roc_auc_score(
 def _sort_inputs_and_compute_classification_thresholds(
     y_true, y_score, sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Validates equal lengths, ravels y_true and y_score to 1d, rejects
+    # non-finite values, drops samples with zero weight, sorts everything by decreasing
+    # score (stable) and returns the indices of the last sample of each run of equal
+    # scores (distinct-value boundaries plus the final index).
+    # Outputs: (sorted y_true, sorted y_score, sorted weights or None, threshold_idxs).
+    # Exceptions: ValueError for inconsistent lengths or nan/inf values.
     """Validate and sort inputs, and compute classification thresholds.
 
     Performs the following functions:
@@ -934,6 +1004,16 @@ def _sort_inputs_and_compute_classification_thresholds(
 def confusion_matrix_at_thresholds(
     y_true, y_score, *, pos_label=None, sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # Requires binary y_true (or multiclass with explicit pos_label). Converts y_true to
+    # 0/1 indicators of pos_label, moves arrays to y_score's namespace, sorts by score
+    # and finds distinct thresholds. tps is the cumulative (weighted) count of positives
+    # at each threshold; fps is the cumulative weighted negatives, or (index + 1 - tps)
+    # when unweighted; tns and fns are totals minus cumulative counts.
+    # Outputs: tns, fps, fns, tps (float arrays, decreasing thresholds) and the
+    # thresholds.
+    # Exceptions: ValueError for unsupported target types or inconsistent pos_label.
+    # Side effects: positional arguments after y_score emit a deprecation warning.
     """Calculate :term:`binary` confusion matrix terms per classification threshold.
 
     Read more in the :ref:`User Guide <confusion_matrix>`.
@@ -1064,6 +1144,14 @@ def precision_recall_curve(
     sample_weight=None,
     drop_intermediate=False,
 ):
+    # [FUNCTION DOC]
+    # Gets fps/tps per threshold; optionally drops points where tps does not change on
+    # either side. Precision is tps / (tps + fps), 0 where undefined; recall is tps
+    # divided by total positives, or all ones with a warning when there are no
+    # positives. Returns precision and recall reversed with 1 and 0 appended
+    # respectively, and thresholds reversed (increasing); thresholds is one element
+    # shorter than the others.
+    # Side effects: UserWarning when y_true has no positive samples.
     """Compute precision-recall pairs for different probability thresholds.
 
     Note: Support beyond :term:`binary` classification tasks, via one-vs-rest or
@@ -1218,6 +1306,13 @@ def precision_recall_curve(
 def roc_curve(
     y_true, y_score, *, pos_label=None, sample_weight=None, drop_intermediate=True
 ):
+    # [FUNCTION DOC]
+    # Gets fps/tps per threshold. If drop_intermediate, keeps endpoints and points where
+    # the second difference of fps or tps is non-zero (removes collinear points).
+    # Prepends a (0, 0) point with threshold infinity, then normalizes fps and tps by
+    # their totals; if there are no negatives (or positives), fpr (or tpr) is all nan
+    # with an UndefinedMetricWarning.
+    # Outputs: fpr, tpr, thresholds (decreasing), all of equal length.
     """Compute Receiver operating characteristic (ROC).
 
     Note: Support beyond :term:`binary` classification tasks, via one-vs-rest or
@@ -1381,6 +1476,15 @@ def roc_curve(
     prefer_skip_nested_validation=True,
 )
 def label_ranking_average_precision_score(y_true, y_score, *, sample_weight=None):
+    # [FUNCTION DOC]
+    # Validates shapes (y_true may be sparse) and requires multilabel indicator (or 2d
+    # binary) y_true. Converts y_true to CSR and negates scores so ranks count from the
+    # highest score. For each sample: if it has no or all relevant labels the
+    # contribution is 1; otherwise for each relevant label the ratio of its rank among
+    # relevant labels to its rank among all labels (max-rank ties) is averaged.
+    # Contributions are weighted and divided by n_samples or the total weight.
+    # Outputs: Python float.
+    # Exceptions: ValueError for shape mismatch or unsupported target type.
     """Compute ranking-based average precision.
 
     Label ranking average precision (LRAP) is the average over each ground
@@ -1482,6 +1586,13 @@ def label_ranking_average_precision_score(y_true, y_score, *, sample_weight=None
     prefer_skip_nested_validation=True,
 )
 def coverage_error(y_true, y_score, *, sample_weight=None):
+    # [FUNCTION DOC]
+    # Requires 2d multilabel indicator y_true of the same shape as y_score. For each
+    # sample, finds the minimum score among relevant labels and counts how many labels
+    # have a score at least that high (ties count against the model); samples with no
+    # relevant label get 0.
+    # Returns the (weighted) average count as a float.
+    # Exceptions: ValueError for unsupported types or shape mismatch.
     """Coverage error measure.
 
     Compute how far we need to go through the ranked scores to cover all
@@ -1559,6 +1670,15 @@ def coverage_error(y_true, y_score, *, sample_weight=None):
     prefer_skip_nested_validation=True,
 )
 def label_ranking_loss(y_true, y_score, *, sample_weight=None):
+    # [FUNCTION DOC]
+    # Requires multilabel indicator y_true (sparse allowed) of the same shape as
+    # y_score. For each sample, groups labels by unique score, counts relevant and
+    # irrelevant labels per score level, and counts mis-ordered (relevant, irrelevant)
+    # pairs where the irrelevant label scores at least as high (ties counted) via the
+    # dot product of the cumulative relevant counts with irrelevant counts. Normalizes
+    # by positives times negatives; samples with all or no relevant labels get 0.
+    # Returns the (weighted) average as float.
+    # Exceptions: ValueError for unsupported types or shape mismatch.
     """Compute Ranking loss measure.
 
     Compute the average number of label pairs that are incorrectly ordered
@@ -1653,6 +1773,14 @@ def label_ranking_loss(y_true, y_score, *, sample_weight=None):
 
 
 def _dcg_sample_scores(y_true, y_score, k=None, log_base=2, ignore_ties=False):
+    # [FUNCTION DOC]
+    # HELPER: Per-sample DCG. Discount for position i (0-based) is 1 / log_base(i + 2),
+    # zeroed beyond k. With ignore_ties, sorts labels by decreasing score and takes the
+    # dot product of the discount with the reordered gains; otherwise uses
+    # _tie_averaged_dcg with the cumulative discount for each sample.
+    # Inputs: y_true, y_score - 2d arrays (n_samples, n_labels); k - int or None;
+    # log_base; ignore_ties - bool.
+    # Outputs: 1d float array of length n_samples.
     """Compute Discounted Cumulative Gain.
 
     Sum the true scores ranked in the order induced by the predicted scores,
@@ -1713,6 +1841,13 @@ def _dcg_sample_scores(y_true, y_score, k=None, log_base=2, ignore_ties=False):
 
 
 def _tie_averaged_dcg(y_true, y_score, discount_cumsum):
+    # [FUNCTION DOC]
+    # HELPER: Tie-aware DCG for one sample: groups labels with equal score (in
+    # decreasing score order), assigns each group the mean gain of its members, and
+    # multiplies it by the sum of discounts over the positions the group spans
+    # (difference of the cumulative discount at group boundaries); returns the sum.
+    # Inputs: y_true, y_score - 1d arrays; discount_cumsum - cumulative discounts.
+    # Outputs: float.
     """
     Compute DCG by averaging over possible permutations of ties.
 
@@ -1761,6 +1896,9 @@ def _tie_averaged_dcg(y_true, y_score, discount_cumsum):
 
 
 def _check_dcg_target_type(y_true):
+    # [FUNCTION DOC]
+    # HELPER: Raises ValueError unless y_true is multilabel-indicator,
+    # continuous-multioutput or multiclass-multioutput.
     y_type = type_of_target(y_true, input_name="y_true")
     supported_fmt = (
         "multilabel-indicator",
@@ -1789,6 +1927,9 @@ def _check_dcg_target_type(y_true):
 def dcg_score(
     y_true, y_score, *, k=None, log_base=2, sample_weight=None, ignore_ties=False
 ):
+    # [FUNCTION DOC]
+    # Validates arrays, checks the target type, and returns the (weighted) average of
+    # the per-sample DCG as a Python float.
     """Compute Discounted Cumulative Gain.
 
     Sum the true scores ranked in the order induced by the predicted scores,
@@ -1896,6 +2037,11 @@ def dcg_score(
 
 
 def _ndcg_sample_scores(y_true, y_score, k=None, ignore_ties=False):
+    # [FUNCTION DOC]
+    # HELPER: Per-sample NDCG: DCG of y_score divided by the ideal DCG (ranking by
+    # y_true itself, ties ignored); samples whose ideal DCG is 0 get 0.
+    # Outputs: 1d float array of length n_samples.
+    # Side effects: none on inputs (the gain array is freshly computed).
     """Compute Normalized Discounted Cumulative Gain.
 
     Sum the true scores ranked in the order induced by the predicted scores,
@@ -1957,6 +2103,10 @@ def _ndcg_sample_scores(y_true, y_score, k=None, ignore_ties=False):
     prefer_skip_nested_validation=True,
 )
 def ndcg_score(y_true, y_score, *, k=None, sample_weight=None, ignore_ties=False):
+    # [FUNCTION DOC]
+    # Validates arrays, rejects negative y_true and a single document per sample, checks
+    # the target type, and returns the (weighted) average per-sample NDCG as a float.
+    # Exceptions: ValueError for those cases.
     """Compute Normalized Discounted Cumulative Gain.
 
     Sum the true scores ranked in the order induced by the predicted scores,
@@ -2080,6 +2230,17 @@ def ndcg_score(y_true, y_score, *, k=None, sample_weight=None, ignore_ties=False
 def top_k_accuracy_score(
     y_true, y_score, *, k=2, normalize=True, sample_weight=None, labels=None
 ):
+    # [FUNCTION DOC]
+    # Validates y_true as 1d binary or multiclass (binary is treated as multiclass when
+    # more than two labels are given) and y_score as 1d for binary or 2d for multiclass.
+    # Classes come from y_true or from labels (unique, sorted, must cover y_true); their
+    # count must equal the score column count. Warns if k >= n_classes. Binary: with k
+    # 1, predicts the positive class when the score exceeds 0.5 (if scores lie in [0,
+    # 1]) or 0 otherwise; with k >= 2 every sample is a hit. Multiclass: a hit if the
+    # true class index is among the k highest-score columns (stable sort, reversed).
+    # Returns the (weighted) fraction or count of hits.
+    # Exceptions: ValueError for type, shape, label or class-count problems.
+    # Side effects: UndefinedMetricWarning when k >= n_classes.
     """Top-k Accuracy classification score.
 
     This metric computes the number of times where the correct label is among
@@ -2265,6 +2426,14 @@ def metric_at_thresholds(
     sample_weight=None,
     metric_params=None,
 ):
+    # [FUNCTION DOC]
+    # Sorts inputs and finds distinct thresholds (zero-weight samples dropped). For each
+    # distinct score (in decreasing order), predicts 1 for samples with score at least
+    # the threshold and calls metric_func(y_true, y_pred) with metric_params plus the
+    # filtered sample_weight.
+    # Outputs: (array of metric values, array of thresholds in decreasing order).
+    # KNOWN ISSUE: y_true is not mapped to 0/1 with a pos_label, so labels other than
+    # 0/1 are compared against 0/1 predictions as-is.
     r"""Compute `metric_func` per threshold for :term:`binary` data.
 
     Aids visualization of metric values across thresholds when tuning the
