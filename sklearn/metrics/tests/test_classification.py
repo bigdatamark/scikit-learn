@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for the classification metrics in sklearn.metrics._classification: accuracy,
+#   precision/recall/F-scores, confusion matrices, classification_report, Cohen's kappa,
+#   Matthews correlation, Jaccard, Hamming, zero-one, hinge, log and Brier losses,
+#   likelihood ratios, D2 scores and the _check_targets helper, including warnings,
+#   zero_division handling and array API support. Module-level helper make_prediction
+#   builds reproducible SVC predictions on iris.
 import re
 import warnings
 from functools import partial
@@ -70,6 +77,14 @@ from sklearn.utils.validation import check_random_state
 
 
 def make_prediction(dataset=None, binary=False):
+    # [FUNCTION DOC]
+    # HELPER: Builds deterministic predictions for tests. Loads iris unless a dataset is
+    #   given, optionally keeps classes 0 and 1 only, shuffles with seed 37, appends 200
+    #   * n_features Gaussian noise columns (seed 0), fits a CalibratedClassifierCV
+    #   around a linear SVC on the first half and predicts the second half.
+    # Inputs: dataset - Bunch with data/target or None; binary - bool.
+    # Outputs: (y_true, y_pred, y_pred_proba); y_pred_proba is the positive-class column
+    #   in the binary case, else (n_samples, n_classes).
     """Make some classification predictions on a toy dataset using an SVC
 
     If binary is True restrict to a binary classification problem instead of a
@@ -120,6 +135,12 @@ def make_prediction(dataset=None, binary=False):
 
 
 def test_classification_report_dictionary_output():
+    # [FUNCTION DOC]
+    # Verifies classification_report(output_dict=True) on iris predictions matches a
+    #   hard-coded nested dict of per-class and averaged precision/recall/f1/support and
+    #   a float accuracy.
+    # KNOWN ISSUE: the trailing isinstance checks inspect expected_report instead of
+    #   report, so they do not verify the types of the returned values.
     # Test performance report with dictionary output
     iris = datasets.load_iris()
     y_true, y_pred, _ = make_prediction(dataset=iris, binary=False)
@@ -186,6 +207,9 @@ def test_classification_report_dictionary_output():
 
 @pytest.mark.parametrize("zero_division", ["warn", 0, 1, np.nan])
 def test_classification_report_zero_division_warning(zero_division):
+    # [FUNCTION DOC]
+    # Verifies that with an unseen predicted label, zero_division="warn" emits several
+    #   "Use `zero_division`" warnings, while 0, 1 and NaN emit none.
     y_true, y_pred = ["a", "b", "c"], ["a", "b", "d"]
     with warnings.catch_warnings(record=True) as record:
         # We need "always" instead of "once" for free-threaded with
@@ -208,6 +232,9 @@ def test_classification_report_zero_division_warning(zero_division):
     "labels, show_micro_avg", [([0], True), ([0, 1], False), ([0, 1, 2], False)]
 )
 def test_classification_report_labels_subset_superset(labels, show_micro_avg):
+    # [FUNCTION DOC]
+    # Non-regression for #27927: a labels subset makes the report show "micro avg"
+    #   instead of "accuracy"; equal or superset labels show "accuracy".
     """Check the behaviour of passing `labels` as a superset or subset of the labels.
     WHen a superset, we expect to show the "accuracy" in the report while it should be
     the micro-averaging if this is a subset.
@@ -228,6 +255,9 @@ def test_classification_report_labels_subset_superset(labels, show_micro_avg):
 
 
 def test_multilabel_accuracy_score_subset_accuracy():
+    # [FUNCTION DOC]
+    # Verifies accuracy_score on multilabel indicator matrices is subset accuracy (row
+    #   must match exactly).
     # Dense label indicator matrix format
     y1 = np.array([[0, 1, 1], [1, 0, 1]])
     y2 = np.array([[0, 0, 1], [1, 0, 1]])
@@ -242,6 +272,10 @@ def test_multilabel_accuracy_score_subset_accuracy():
 
 
 def test_precision_recall_f1_score_binary():
+    # [FUNCTION DOC]
+    # Verifies per-class and binary-average precision, recall, F1 and F-beta on
+    #   make_prediction binary output against known values and the F-beta formula, with
+    #   all warnings turned into errors.
     # Test Precision Recall and F1 Score for binary classification task
     y_true, y_pred, _ = make_prediction(binary=True)
 
@@ -277,6 +311,9 @@ def test_precision_recall_f1_score_binary():
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_precision_recall_f_binary_single_class():
+    # [FUNCTION DOC]
+    # Verifies PRF metrics when only one class appears: all-positive input scores 1,
+    #   all-negative scores 0, and beta=inf matches a very large beta.
     # Test precision, recall and F-scores behave with a single positive or
     # negative class
     # Such a case may occur with non-stratified cross-validation
@@ -296,6 +333,11 @@ def test_precision_recall_f_binary_single_class():
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_precision_recall_f_extra_labels():
+    # [FUNCTION DOC]
+    # Verifies recall with extra labels absent from the data: zeros appear for them with
+    #   average=None, macro is diluted, micro/weighted/samples unchanged; invalid labels
+    #   raise ValueError for multilabel input; and non-regression #10307 for samples
+    #   average with a labels subset.
     # Test handling of explicit additional (not in input) labels to PRF
     y_true = [1, 3, 3, 2]
     y_pred = [1, 1, 3, 2]
@@ -342,6 +384,10 @@ def test_precision_recall_f_extra_labels():
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_precision_recall_f_ignored_labels():
+    # [FUNCTION DOC]
+    # Verifies requesting a labels subset ([1, 3]) for recall gives the expected per-
+    #   class, macro, weighted and micro values (multiclass and binarised), and that
+    #   they differ from using all labels.
     # Test a subset of labels may be requested for PRF
     y_true = [1, 1, 2, 3]
     y_pred = [1, 3, 3, 3]
@@ -364,6 +410,9 @@ def test_precision_recall_f_ignored_labels():
 
 
 def test_average_precision_score_non_binary_class():
+    # [FUNCTION DOC]
+    # Verifies average_precision_score raises ValueError for multiclass-multioutput
+    #   y_true.
     """Test multiclass-multiouptut for `average_precision_score`."""
     y_true = np.array(
         [
@@ -411,6 +460,9 @@ def test_average_precision_score_non_binary_class():
     ],
 )
 def test_average_precision_score_duplicate_values(y_true, y_score):
+    # [FUNCTION DOC]
+    # Verifies average_precision_score is exactly 1 for perfectly ranked scores
+    #   containing duplicate values (multiclass and binary).
     """
     Duplicate values with precision-recall require a different
     processing than when computing the AUC of a ROC, because the
@@ -443,6 +495,9 @@ def test_average_precision_score_duplicate_values(y_true, y_score):
     ],
 )
 def test_average_precision_score_tied_values(y_true, y_score):
+    # [FUNCTION DOC]
+    # Verifies average_precision_score is not 1 when ties mix positive and negative
+    #   samples.
     # Here if we go from left to right in y_true, the 0 values are
     # separated from the 1 values, so it appears that we've
     # correctly sorted our classifications. But in fact the first two
@@ -454,6 +509,9 @@ def test_average_precision_score_tied_values(y_true, y_score):
 
 
 def test_precision_recall_f_unused_pos_label():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning is raised when pos_label is non-default but average is not
+    #   "binary".
     # Check warning that pos_label unused when set to non-default value
     # but average != 'binary'; even if data is binary.
 
@@ -470,10 +528,16 @@ def test_precision_recall_f_unused_pos_label():
 
 
 def test_confusion_matrix_binary():
+    # [FUNCTION DOC]
+    # Verifies the binary confusion matrix and Matthews correlation (against the closed-
+    #   form formula and 0.57) for integer and string labels.
     # Test confusion matrix - binary classification case
     y_true, y_pred, _ = make_prediction(binary=True)
 
     def test(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Asserts the confusion matrix equals the known counts and that
+        #   matthews_corrcoef matches the value computed from them.
         cm = confusion_matrix(y_true, y_pred)
         assert_array_equal(cm, [[22, 3], [8, 17]])
 
@@ -491,10 +555,15 @@ def test_confusion_matrix_binary():
 
 
 def test_multilabel_confusion_matrix_binary():
+    # [FUNCTION DOC]
+    # Verifies multilabel_confusion_matrix on binary predictions gives one 2x2 matrix
+    #   per class, for int and string labels.
     # Test multilabel confusion matrix - binary classification case
     y_true, y_pred, _ = make_prediction(binary=True)
 
     def test(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Asserts the per-class 2x2 matrices equal the expected counts.
         cm = multilabel_confusion_matrix(y_true, y_pred)
         assert_array_equal(cm, [[[17, 8], [3, 22]], [[22, 3], [8, 17]]])
 
@@ -503,10 +572,17 @@ def test_multilabel_confusion_matrix_binary():
 
 
 def test_multilabel_confusion_matrix_multiclass():
+    # [FUNCTION DOC]
+    # Verifies multilabel_confusion_matrix on multiclass predictions with inferred
+    #   labels, a reordered labels list and a superset containing an absent label (all-
+    #   negative matrix).
     # Test multilabel confusion matrix - multi-class case
     y_true, y_pred, _ = make_prediction(binary=False)
 
     def test(y_true, y_pred, string_type=False):
+        # [FUNCTION DOC]
+        # HELPER: Runs the three label-order checks; string_type selects string label
+        #   lists.
         # compute confusion matrix with default labels introspection
         cm = multilabel_confusion_matrix(y_true, y_pred)
         assert_array_equal(
@@ -540,6 +616,9 @@ def test_multilabel_confusion_matrix_multiclass():
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_multilabel_confusion_matrix_multilabel(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies multilabel_confusion_matrix on indicator input across dense/CSR/CSC
+    #   combinations, samplewise mode, label selection and sample weights.
     # Test multilabel confusion matrix - multilabel-indicator case
 
     y_true = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0]])
@@ -580,6 +659,9 @@ def test_multilabel_confusion_matrix_multilabel(csc_container, csr_container):
 
 
 def test_multilabel_confusion_matrix_errors():
+    # [FUNCTION DOC]
+    # Verifies ValueError for mismatched or 2-D sample_weight, out-of-range labels,
+    #   samplewise on non-multilabel data and multiclass-multioutput input.
     y_true = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0]])
     y_pred = np.array([[1, 0, 0], [0, 1, 1], [0, 0, 1]])
 
@@ -619,6 +701,9 @@ def test_multilabel_confusion_matrix_errors():
     ],
 )
 def test_confusion_matrix_normalize(normalize, cm_dtype, expected_results):
+    # [FUNCTION DOC]
+    # Verifies each confusion_matrix normalize mode gives the expected constant value
+    #   and dtype kind (float when normalised, int otherwise).
     y_test = [0, 1, 2] * 6
     y_pred = list(chain(*permutations([0, 1, 2])))
     cm = confusion_matrix(y_test, y_pred, normalize=normalize)
@@ -627,6 +712,9 @@ def test_confusion_matrix_normalize(normalize, cm_dtype, expected_results):
 
 
 def test_confusion_matrix_normalize_single_class():
+    # [FUNCTION DOC]
+    # Verifies normalisation with a class never predicted (or never true) yields correct
+    #   sums and no RuntimeWarning from division by zero.
     y_test = [0, 0, 0, 0, 1, 1, 1, 1]
     y_pred = [0, 0, 0, 0, 0, 0, 0, 0]
 
@@ -646,6 +734,8 @@ def test_confusion_matrix_normalize_single_class():
 
 
 def test_confusion_matrix_single_label():
+    # [FUNCTION DOC]
+    # Verifies confusion_matrix warns when only one label is present.
     """Test `confusion_matrix` warns when only one label found."""
     y_test = [0, 0, 0, 0]
     y_pred = [0, 0, 0, 0]
@@ -695,6 +785,9 @@ def test_confusion_matrix_single_label():
     ],
 )
 def test_likelihood_ratios_warnings(params, warn_msg):
+    # [FUNCTION DOC]
+    # Verifies class_likelihood_ratios emits the expected UserWarning for each ill-
+    #   defined case (fp=0, no positive predictions, tn=0, no positives).
     # likelihood_ratios must raise warnings when at
     # least one of the ratios is ill-defined.
 
@@ -718,6 +811,8 @@ def test_likelihood_ratios_warnings(params, warn_msg):
     ],
 )
 def test_likelihood_ratios_errors(params, err_msg):
+    # [FUNCTION DOC]
+    # Verifies class_likelihood_ratios raises ValueError for non-binary targets.
     # likelihood_ratios must raise error when attempting
     # non-binary classes to avoid Simpson's paradox
     with pytest.raises(ValueError, match=err_msg):
@@ -725,6 +820,9 @@ def test_likelihood_ratios_errors(params, err_msg):
 
 
 def test_likelihood_ratios():
+    # [FUNCTION DOC]
+    # Verifies LR+ and LR- on a constructed confusion matrix, the perfect-prediction
+    #   limit (LR+ NaN, LR- 0) and the effect of zero sample weights.
     # Build confusion matrix with tn=9, fp=8, fn=1, tp=2,
     # sensitivity=2/3, specificity=9/17, prevalence=3/20,
     # LR+=34/24, LR-=17/27
@@ -750,6 +848,9 @@ def test_likelihood_ratios():
 
 
 def test_likelihood_ratios_replace_undefined_by_worst():
+    # [FUNCTION DOC]
+    # Verifies replace_undefined_by=1 yields 1.0 for an undefined LR+ (fp=0) and an
+    #   undefined LR- (tn=0).
     """Test that class_likelihood_ratios returns the worst scores `1.0` for both LR+ and
     LR- when `replace_undefined_by=1` is set."""
     # This data causes fp=0 (0 false positives) in the confusion_matrix and a division
@@ -785,6 +886,9 @@ def test_likelihood_ratios_replace_undefined_by_worst():
     ],
 )
 def test_likelihood_ratios_wrong_dict_replace_undefined_by(replace_undefined_by):
+    # [FUNCTION DOC]
+    # Verifies ValueError for malformed or out-of-range replace_undefined_by
+    #   dictionaries.
     """Test that class_likelihood_ratios raises a `ValueError` if the input dict for
     `replace_undefined_by` is in the wrong format or contains impossible values."""
     y_true = np.array([1, 0])
@@ -808,6 +912,9 @@ def test_likelihood_ratios_wrong_dict_replace_undefined_by(replace_undefined_by)
     ],
 )
 def test_likelihood_ratios_replace_undefined_by_0_fp(replace_undefined_by, expected):
+    # [FUNCTION DOC]
+    # Verifies the LR+ replacement value is returned when fp=0, for several dicts and a
+    #   scalar NaN.
     """Test that the `replace_undefined_by` param returns the right value for the
     positive_likelihood_ratio as defined by the user."""
     # This data causes fp=0 (0 false positives) in the confusion_matrix and a division
@@ -836,6 +943,9 @@ def test_likelihood_ratios_replace_undefined_by_0_fp(replace_undefined_by, expec
     ],
 )
 def test_likelihood_ratios_replace_undefined_by_0_tn(replace_undefined_by, expected):
+    # [FUNCTION DOC]
+    # Verifies the LR- replacement value is returned when tn=0, for several dicts and a
+    #   scalar NaN.
     """Test that the `replace_undefined_by` param returns the right value for the
     negative_likelihood_ratio as defined by the user."""
     # This data causes tn=0 (0 true negatives) in the confusion_matrix and a division
@@ -854,6 +964,10 @@ def test_likelihood_ratios_replace_undefined_by_0_tn(replace_undefined_by, expec
 
 
 def test_cohen_kappa():
+    # [FUNCTION DOC]
+    # Verifies cohen_kappa_score against Artstein and Poesio (2008) examples: binary
+    #   symmetry, ignoring extra labels via labels, perfect agreement, multiclass, and
+    #   linear/quadratic weights.
     # These label vectors reproduce the contingency matrix from Artstein and
     # Poesio (2008), Table 1: np.array([[20, 20], [10, 50]]).
     y1 = np.array([0] * 40 + [1] * 60)
@@ -904,6 +1018,9 @@ def test_cohen_kappa():
 )
 @pytest.mark.parametrize("replace_undefined_by", [0.0, np.nan])
 def test_cohen_kappa_undefined(test_case, replace_undefined_by):
+    # [FUNCTION DOC]
+    # Verifies cohen_kappa_score returns replace_undefined_by (0 or NaN) in each zero-
+    #   division scenario.
     """Test that cohen_kappa_score handles divisions by 0 correctly by returning the
     `replace_undefined_by` param. (The first test case covers the first possible
     location in the function for an occurrence of a division by zero, the last three
@@ -924,6 +1041,9 @@ def test_cohen_kappa_undefined(test_case, replace_undefined_by):
 
 
 def test_cohen_kappa_zero_division_warning():
+    # [FUNCTION DOC]
+    # Verifies the two UndefinedMetricWarning messages of cohen_kappa_score for its
+    #   zero-division cases.
     """Test that cohen_kappa_score raises UndefinedMetricWarning when a division by 0
     occurs."""
 
@@ -947,6 +1067,8 @@ def test_cohen_kappa_zero_division_warning():
 
 
 def test_cohen_kappa_score_error_wrong_label():
+    # [FUNCTION DOC]
+    # Verifies ValueError when none of labels appears in y1.
     """Test that correct error is raised when users pass labels that are not in y1."""
     labels = [1, 2]
     y1 = np.array(["a"] * 5 + ["b"] * 5)
@@ -969,6 +1091,9 @@ def test_cohen_kappa_score_error_wrong_label():
     ],
 )
 def test_zero_division_nan_no_warning(metric, y_true, y_pred, zero_division):
+    # [FUNCTION DOC]
+    # Verifies F1/F-beta/precision/recall return zero_division (0, 1 or NaN) without
+    #   warnings for a degenerate single negative sample.
     """Check the behaviour of `zero_division` when setting to 0, 1 or np.nan.
     No warnings should be raised.
     """
@@ -993,6 +1118,8 @@ def test_zero_division_nan_no_warning(metric, y_true, y_pred, zero_division):
     ],
 )
 def test_zero_division_nan_warning(metric, y_true, y_pred):
+    # [FUNCTION DOC]
+    # Verifies zero_division="warn" emits UndefinedMetricWarning and returns 0.0.
     """Check the behaviour of `zero_division` when setting to "warn".
     A `UndefinedMetricWarning` should be raised.
     """
@@ -1002,6 +1129,9 @@ def test_zero_division_nan_warning(metric, y_true, y_pred):
 
 
 def test_matthews_corrcoef_against_numpy_corrcoef(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies binary matthews_corrcoef equals the Pearson correlation from np.corrcoef
+    #   on random labels.
     rng = np.random.RandomState(global_random_seed)
     y_true = rng.randint(0, 2, size=20)
     y_pred = rng.randint(0, 2, size=20)
@@ -1012,6 +1142,9 @@ def test_matthews_corrcoef_against_numpy_corrcoef(global_random_seed):
 
 
 def test_matthews_corrcoef_against_jurman(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies weighted matthews_corrcoef equals the multiclass definition of Jurman et
+    #   al. (2012) computed from the confusion matrix.
     # Check that the multiclass matthews_corrcoef agrees with the definition
     # presented in Jurman, Riccadonna, Furlanello, (2012). A Comparison of MCC
     # and CEN Error Measures in MultiClass Prediction
@@ -1051,6 +1184,10 @@ def test_matthews_corrcoef_against_jurman(global_random_seed):
 
 
 def test_matthews_corrcoef(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies binary matthews_corrcoef on string labels: 1 for identical, -1 for
+    #   inverted vectors, 0 for constant predictions with a warning-free result, and
+    #   sample-weight behaviour.
     rng = np.random.RandomState(global_random_seed)
     y_true = ["a" if i == 0 else "b" for i in rng.randint(0, 2, size=20)]
 
@@ -1086,6 +1223,11 @@ def test_matthews_corrcoef(global_random_seed):
 
 
 def test_matthews_corrcoef_multiclass(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies multiclass matthews_corrcoef: 1 for identical string labels, known
+    #   negative values for adversarial predictions, 0 for zero-variance predictions or
+    #   truth and for uncorrelated vectors, -1 when sample weights mask a third class,
+    #   and 0 when weights leave a degenerate subset.
     rng = np.random.RandomState(global_random_seed)
     ord_a = ord("a")
     n_classes = 4
@@ -1143,10 +1285,21 @@ def test_matthews_corrcoef_multiclass(global_random_seed):
 
 @pytest.mark.parametrize("n_points", [100, 10000])
 def test_matthews_corrcoef_overflow(n_points, global_random_seed):
+    # [FUNCTION DOC]
+    # Non-regression for #9622: matthews_corrcoef must not overflow for large n_points;
+    #   checks perfect agreement gives 1 for binary and multiclass repeated arrays and
+    #   that random noisy binary predictions match an independent rate-based formula.
     # https://github.com/scikit-learn/scikit-learn/issues/9622
     rng = np.random.RandomState(global_random_seed)
 
     def mcc_safe(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Reference binary MCC computed from rates (normalised by n_points) to
+        #   avoid integer overflow.
+        # KNOWN ISSUE: false_pos reads entry [1, 0] (true 1, predicted 0), which is
+        #   actually a false negative, and false_neg reads [0, 1], a false positive; the
+        #   names are swapped but the product in the denominator is symmetric so the
+        #   result is still correct.
         conf_matrix = confusion_matrix(y_true, y_pred)
         true_pos = conf_matrix[1, 1]
         false_pos = conf_matrix[1, 0]
@@ -1159,6 +1312,11 @@ def test_matthews_corrcoef_overflow(n_points, global_random_seed):
         return mcc_numerator / np.sqrt(mcc_denominator)
 
     def random_ys(n_points):  # binary
+        # [FUNCTION DOC]
+        # HELPER: Draws n_points uniform values as true scores and adds uniform noise of
+        #   width 0.2 for predictions, thresholding both at 0.5. Uses the enclosing
+        #   test's rng.
+        # Outputs: (y_true, y_pred) boolean arrays.
         x_true = rng.random_sample(n_points)
         x_pred = x_true + 0.2 * (rng.random_sample(n_points) - 0.5)
         y_true = x_true > 0.5
@@ -1176,6 +1334,10 @@ def test_matthews_corrcoef_overflow(n_points, global_random_seed):
 
 
 def test_precision_recall_f1_score_multiclass():
+    # [FUNCTION DOC]
+    # Verifies multiclass per-class and micro/macro/weighted precision, recall and F1 on
+    #   make_prediction output, that average="samples" raises ValueError for non-
+    #   multilabel data, and that explicit label ordering permutes per-class results.
     # Test Precision Recall and F1 Score for multiclass classification task
     y_true, y_pred, _ = make_prediction(binary=False)
 
@@ -1235,6 +1397,9 @@ def test_precision_recall_f1_score_multiclass():
 
 @pytest.mark.parametrize("average", ["samples", "micro", "macro", "weighted", None])
 def test_precision_refcall_f1_score_multilabel_unordered_labels(average):
+    # [FUNCTION DOC]
+    # Verifies multilabel PRF accepts an unsorted labels list: all-wrong predictions
+    #   give zeros for every average and supports follow the given label order.
     # test that labels need not be sorted in the multilabel case
     y_true = np.array([[1, 1, 0, 0]])
     y_pred = np.array([[0, 0, 1, 1]])
@@ -1249,6 +1414,9 @@ def test_precision_refcall_f1_score_multilabel_unordered_labels(average):
 
 
 def test_precision_recall_f1_score_binary_averaged():
+    # [FUNCTION DOC]
+    # Verifies on binary data that macro averages equal the mean of per-class scores and
+    #   weighted averages equal support-weighted means.
     y_true = np.array([0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1])
     y_pred = np.array([1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1])
 
@@ -1266,6 +1434,11 @@ def test_precision_recall_f1_score_binary_averaged():
 
 
 def test_zero_precision_recall():
+    # [FUNCTION DOC]
+    # Verifies macro precision/recall/F1 are 0 (no NaN or floating point error) when all
+    #   predictions are wrong, with numpy errors set to raise.
+    # Side effects: temporarily changes global numpy error settings, restored in a
+    #   finally block.
     # Check that pathological cases do not bring NaNs
 
     old_error_settings = np.seterr(all="raise")
@@ -1283,6 +1456,9 @@ def test_zero_precision_recall():
 
 
 def test_confusion_matrix_multiclass_subset_labels():
+    # [FUNCTION DOC]
+    # Verifies confusion_matrix with label subsets, reordering, and a label absent from
+    #   the data (zero row and column).
     # Test confusion matrix - multi-class case with subset of labels
     y_true, y_pred, _ = make_prediction(binary=False)
 
@@ -1310,12 +1486,19 @@ def test_confusion_matrix_multiclass_subset_labels():
     ids=["empty list", "unknown labels"],
 )
 def test_confusion_matrix_error(labels, err_msg):
+    # [FUNCTION DOC]
+    # Verifies ValueError for an empty labels list and for labels none of which appear
+    #   in y_true.
     y_true, y_pred, _ = make_prediction(binary=False)
     with pytest.raises(ValueError, match=err_msg):
         confusion_matrix(y_true, y_pred, labels=labels)
 
 
 def test_confusion_matrix_dtype():
+    # [FUNCTION DOC]
+    # Verifies confusion_matrix dtype: int64 for no or integer/bool weights, float64 for
+    #   float/object weights; uint32 max weights accumulate without overflow while int64
+    #   max weights wrap around (documented overflow).
     y = [0, 1, 1]
     weight = np.ones(len(y))
     # confusion_matrix returns int64 by default
@@ -1344,6 +1527,9 @@ def test_confusion_matrix_dtype():
 
 @pytest.mark.parametrize("dtype", ["Int64", "Float64", "boolean"])
 def test_confusion_matrix_pandas_nullable(dtype):
+    # [FUNCTION DOC]
+    # Non-regression for gh-25635: confusion_matrix with pandas nullable dtype y_true
+    #   matches the ndarray result. Skipped without pandas.
     """Checks that confusion_matrix works with pandas nullable dtypes.
 
     Non-regression test for gh-25635.
@@ -1361,6 +1547,9 @@ def test_confusion_matrix_pandas_nullable(dtype):
 
 
 def test_classification_report_multiclass():
+    # [FUNCTION DOC]
+    # Verifies the text classification_report for iris predictions with target names
+    #   matches an exact expected string.
     # Test performance report
     iris = datasets.load_iris()
     y_true, y_pred, _ = make_prediction(dataset=iris, binary=False)
@@ -1387,6 +1576,9 @@ weighted avg       0.51      0.53      0.47        75
 
 
 def test_classification_report_multiclass_balanced():
+    # [FUNCTION DOC]
+    # Verifies the text report for a balanced 3-class confusion where every score is
+    #   0.33.
     y_true, y_pred = [0, 0, 0, 1, 1, 1, 2, 2, 2], [0, 1, 2, 0, 1, 2, 0, 1, 2]
 
     expected_report = """\
@@ -1405,6 +1597,8 @@ weighted avg       0.33      0.33      0.33         9
 
 
 def test_classification_report_multiclass_with_label_detection():
+    # [FUNCTION DOC]
+    # Verifies the text report with labels inferred from data (numeric row names).
     iris = datasets.load_iris()
     y_true, y_pred, _ = make_prediction(dataset=iris, binary=False)
 
@@ -1425,6 +1619,8 @@ weighted avg       0.51      0.53      0.47        75
 
 
 def test_classification_report_multiclass_with_digits():
+    # [FUNCTION DOC]
+    # Verifies the digits=5 option changes the number of decimals in the text report.
     # Test performance report with added digits in floating point values
     iris = datasets.load_iris()
     y_true, y_pred, _ = make_prediction(dataset=iris, binary=False)
@@ -1452,6 +1648,9 @@ weighted avg    0.51375   0.53333   0.47310        75
 
 
 def test_classification_report_multiclass_with_string_label():
+    # [FUNCTION DOC]
+    # Verifies the text report with string class labels, and with target_names
+    #   overriding them.
     y_true, y_pred, _ = make_prediction(binary=False)
 
     y_true = np.array(["blue", "green", "red"])[y_true]
@@ -1487,6 +1686,8 @@ weighted avg       0.51      0.53      0.47        75
 
 
 def test_classification_report_multiclass_with_unicode_label():
+    # [FUNCTION DOC]
+    # Verifies the text report renders non-ASCII label names correctly.
     y_true, y_pred, _ = make_prediction(binary=False)
 
     labels = np.array(["blue\xa2", "green\xa2", "red\xa2"])
@@ -1509,6 +1710,8 @@ weighted avg       0.51      0.53      0.47        75
 
 
 def test_classification_report_multiclass_with_long_string_label():
+    # [FUNCTION DOC]
+    # Verifies the first column of the text report widens to fit a long label.
     y_true, y_pred, _ = make_prediction(binary=False)
 
     labels = np.array(["blue", "green" * 5, "red"])
@@ -1532,6 +1735,8 @@ greengreengreengreengreen       0.33      0.10      0.15        31
 
 
 def test_classification_report_labels_target_names_unequal_length():
+    # [FUNCTION DOC]
+    # Verifies a UserWarning when labels and target_names lengths differ.
     y_true = [0, 0, 2, 0, 0]
     y_pred = [0, 2, 2, 0, 0]
     target_names = ["class 0", "class 1", "class 2"]
@@ -1542,6 +1747,9 @@ def test_classification_report_labels_target_names_unequal_length():
 
 
 def test_classification_report_no_labels_target_names_unequal_length():
+    # [FUNCTION DOC]
+    # Verifies ValueError when inferred class count differs from target_names length and
+    #   labels is not given.
     y_true = [0, 0, 2, 0, 0]
     y_pred = [0, 2, 2, 0, 0]
     target_names = ["class 0", "class 1", "class 2"]
@@ -1557,6 +1765,9 @@ def test_classification_report_no_labels_target_names_unequal_length():
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_multilabel_classification_report():
+    # [FUNCTION DOC]
+    # Verifies the text report for multilabel indicator data (two seeded
+    #   make_multilabel_classification draws), including micro and samples averages.
     n_classes = 4
     n_samples = 50
 
@@ -1587,6 +1798,9 @@ weighted avg       0.45      0.51      0.46       104
 
 
 def test_multilabel_zero_one_loss_subset():
+    # [FUNCTION DOC]
+    # Verifies zero_one_loss on multilabel indicators is the fraction of rows not
+    #   exactly matched.
     # Dense label indicator matrix format
     y1 = np.array([[0, 1, 1], [1, 0, 1]])
     y2 = np.array([[0, 0, 1], [1, 0, 1]])
@@ -1601,6 +1815,9 @@ def test_multilabel_zero_one_loss_subset():
 
 
 def test_multilabel_hamming_loss():
+    # [FUNCTION DOC]
+    # Verifies hamming_loss on multilabel indicators, with sample weights, and agreement
+    #   with scipy's hamming on 1-D rows.
     # Dense label indicator matrix format
     y1 = np.array([[0, 1, 1], [1, 0, 1]])
     y2 = np.array([[0, 0, 1], [1, 0, 1]])
@@ -1621,6 +1838,11 @@ def test_multilabel_hamming_loss():
 
 
 def test_jaccard_score_validation():
+    # [FUNCTION DOC]
+    # Verifies jaccard_score input validation errors: invalid pos_label,
+    #   average="binary" with multilabel or multiclass targets, samples average outside
+    #   multilabel, plus a UserWarning that pos_label is ignored with average="micro";
+    #   UndefinedMetricWarning is turned into an error throughout.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
 
@@ -1668,6 +1890,11 @@ def test_jaccard_score_validation():
 
 
 def test_multilabel_jaccard_score():
+    # [FUNCTION DOC]
+    # Verifies multilabel jaccard_score for samples, macro, micro, weighted and per-
+    #   label averages against hand-computed values, label range errors ("Got 4 > 2",
+    #   "Got -1 < 0"), and the UndefinedMetricWarning for labels or samples with no true
+    #   or predicted entries.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
         # Dense label indicator matrix format
@@ -1746,6 +1973,12 @@ def test_multilabel_jaccard_score():
 
 
 def test_multiclass_jaccard_score():
+    # [FUNCTION DOC]
+    # Verifies multiclass jaccard_score on string labels equals jaccard_score on the
+    #   LabelBinarizer-encoded indicators for every average and label subset, without
+    #   UndefinedMetricWarning.
+    # KNOWN ISSUE: the final weighted-average comparison with 0 on all-zero input is not
+    #   asserted, so it only checks that the call does not raise.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
 
@@ -1788,6 +2021,10 @@ def test_multiclass_jaccard_score():
 
 
 def test_average_binary_jaccard_score():
+    # [FUNCTION DOC]
+    # Verifies binary jaccard_score for no true positives, the all-negative case (0 with
+    #   UndefinedMetricWarning), pos_label=0, and a general example for both pos_label
+    #   values.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
 
@@ -1812,6 +2049,9 @@ def test_average_binary_jaccard_score():
 
 
 def test_jaccard_score_zero_division_warning():
+    # [FUNCTION DOC]
+    # Verifies samples-averaged jaccard_score with an all-zero sample emits the
+    #   zero_division UndefinedMetricWarning and returns 0.
     # check that we raised a warning with default behavior if a zero division
     # happens
     y_true = np.array([[1, 0, 1], [0, 0, 0]])
@@ -1828,6 +2068,9 @@ def test_jaccard_score_zero_division_warning():
 
 @pytest.mark.parametrize("zero_division, expected_score", [(0, 0), (1, 0.5)])
 def test_jaccard_score_zero_division_set_value(zero_division, expected_score):
+    # [FUNCTION DOC]
+    # Verifies an explicit zero_division (0 or 1) suppresses the warning and sets the
+    #   empty sample's score accordingly.
     # check that we don't issue warning by passing the zero_division parameter
     y_true = np.array([[1, 0, 1], [0, 0, 0]])
     y_pred = np.array([[0, 0, 0], [0, 0, 0]])
@@ -1841,6 +2084,9 @@ def test_jaccard_score_zero_division_set_value(zero_division, expected_score):
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_precision_recall_f1_score_multilabel_1():
+    # [FUNCTION DOC]
+    # Verifies PRF and F2 on a crafted multilabel example (per-class, macro, micro,
+    #   weighted and samples averages) against hand-derived counts.
     # Test precision_recall_f1_score on a crafted multilabel example
     # First crafted example
 
@@ -1908,6 +2154,9 @@ def test_precision_recall_f1_score_multilabel_1():
 
 @pytest.mark.filterwarnings(r"ignore::sklearn.exceptions.UndefinedMetricWarning")
 def test_precision_recall_f1_score_multilabel_2():
+    # [FUNCTION DOC]
+    # Verifies PRF and F2 on a second crafted multilabel example with a label having
+    #   zero support, for all averages.
     # Test precision_recall_f1_score on a crafted multilabel example 2
     # Second crafted example
     y_true = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 1, 0]])
@@ -1979,6 +2228,11 @@ def test_precision_recall_f1_score_multilabel_2():
 def test_precision_recall_f1_score_with_an_empty_prediction(
     zero_division, zero_division_expected
 ):
+    # [FUNCTION DOC]
+    # Verifies PRF and F2 when one sample has no predicted labels and one label has no
+    #   support, for each zero_division setting; macro averaging excludes NaN entries
+    #   (via _nanaverage) and the zero_division value is substituted for undefined
+    #   precision/recall.
     y_true = np.array([[0, 1, 0, 0], [1, 0, 0, 0], [0, 1, 1, 0]])
     y_pred = np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 1, 1, 0]])
 
@@ -2074,6 +2328,10 @@ def test_precision_recall_f1_score_with_an_empty_prediction(
 @pytest.mark.parametrize("average", ["macro", "micro", "weighted", "samples"])
 @pytest.mark.parametrize("zero_division", [0, 1, np.nan])
 def test_precision_recall_f1_no_labels(beta, average, zero_division):
+    # [FUNCTION DOC]
+    # Verifies that with all-zero multilabel truth and predictions, PRF and F-beta
+    #   return the zero_division value (or NaN) for every average, without
+    #   UndefinedMetricWarning, and support is None.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros_like(y_true)
 
@@ -2112,6 +2370,9 @@ def test_precision_recall_f1_no_labels(beta, average, zero_division):
 
 @pytest.mark.parametrize("average", ["macro", "micro", "weighted", "samples"])
 def test_precision_recall_f1_no_labels_check_warnings(average):
+    # [FUNCTION DOC]
+    # Verifies that with all-zero multilabel data and default zero_division, PRF and
+    #   F-beta warn with UndefinedMetricWarning and return 0 for each average.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros_like(y_true)
 
@@ -2132,6 +2393,9 @@ def test_precision_recall_f1_no_labels_check_warnings(average):
 
 @pytest.mark.parametrize("zero_division", [0, 1, np.nan])
 def test_precision_recall_f1_no_labels_average_none(zero_division):
+    # [FUNCTION DOC]
+    # Verifies average=None on all-zero multilabel data returns per-label zero_division
+    #   values (0, 1 or NaN), zero supports, and no warnings.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros_like(y_true)
 
@@ -2167,6 +2431,9 @@ def test_precision_recall_f1_no_labels_average_none(zero_division):
 
 
 def test_precision_recall_f1_no_labels_average_none_warn():
+    # [FUNCTION DOC]
+    # Verifies average=None on all-zero multilabel data with default zero_division warns
+    #   and returns per-label zeros.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros_like(y_true)
 
@@ -2195,6 +2462,11 @@ def test_precision_recall_f1_no_labels_average_none_warn():
 
 
 def test_prf_warnings():
+    # [FUNCTION DOC]
+    # Verifies the exact UndefinedMetricWarning messages of
+    #   precision_recall_fscore_support for ill-defined precision or recall in per-
+    #   label, per-sample, micro and binary settings, and the three warnings (precision,
+    #   recall, F-score, popped in reverse order) for an all-negative binary input.
     # average of per-label scores
     f, w = precision_recall_fscore_support, UndefinedMetricWarning
     for average in [None, "weighted", "macro"]:
@@ -2300,6 +2572,9 @@ def test_prf_warnings():
 
 @pytest.mark.parametrize("zero_division", [0, 1, np.nan])
 def test_prf_no_warnings_if_zero_division_set(zero_division):
+    # [FUNCTION DOC]
+    # Verifies that setting zero_division to 0, 1 or NaN suppresses all
+    #   UndefinedMetricWarnings in the same scenarios as test_prf_warnings.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
 
@@ -2362,6 +2637,10 @@ def test_prf_no_warnings_if_zero_division_set(zero_division):
 
 @pytest.mark.parametrize("zero_division", ["warn", 0, 1, np.nan])
 def test_recall_warnings(zero_division):
+    # [FUNCTION DOC]
+    # Verifies recall_score does not warn when predictions are empty but truth is not,
+    #   and warns only for zero_division="warn" when there are no true samples; also
+    #   checks the default call on all-negative binary input warns.
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=UndefinedMetricWarning)
 
@@ -2402,6 +2681,10 @@ def test_recall_warnings(zero_division):
 
 @pytest.mark.parametrize("zero_division", ["warn", 0, 1, np.nan])
 def test_precision_warnings(zero_division):
+    # [FUNCTION DOC]
+    # Verifies precision_score warns only for zero_division="warn" when there are no
+    #   predicted samples (including the default binary all-negative case), and never
+    #   warns when predictions exist.
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always", category=UndefinedMetricWarning)
         precision_score(
@@ -2442,6 +2725,10 @@ def test_precision_warnings(zero_division):
 
 @pytest.mark.parametrize("zero_division", ["warn", 0, 1, np.nan])
 def test_fscore_warnings(zero_division):
+    # [FUNCTION DOC]
+    # Verifies F1 and F2 do not warn when only one of precision or recall is undefined
+    #   and warn (only with zero_division="warn") when there are neither true nor
+    #   predicted samples.
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always", category=UndefinedMetricWarning)
 
@@ -2480,6 +2767,9 @@ def test_fscore_warnings(zero_division):
 
 
 def test_prf_average_binary_data_non_binary():
+    # [FUNCTION DOC]
+    # Verifies the default average="binary" raises ValueError with a hint for multiclass
+    #   and multilabel-indicator targets for precision, recall, F1 and F2.
     # Error if user does not explicitly set non-binary average mode
     y_true_mc = [1, 2, 3, 3]
     y_pred_mc = [1, 2, 3, 1]
@@ -2511,6 +2801,13 @@ def test_prf_average_binary_data_non_binary():
 
 
 def test__check_targets():
+    # [FUNCTION DOC]
+    # Verifies _check_targets over every ordered pair of example target types: allowed
+    #   combinations return the merged type (binary plus multiclass gives multiclass),
+    #   multilabel outputs are CSR and others are squeezed copies of the input,
+    #   mismatched lengths raise ValueError; disallowed combinations raise ValueError
+    #   with a "mix of" or "is not supported" message; and the legacy sequence-of-
+    #   sequences format is rejected.
     # Check that _check_targets correctly merges target types, squeezes
     # output and fails if input lengths differ.
     IND = "multilabel-indicator"
@@ -2608,12 +2905,17 @@ def test__check_targets():
 
 
 def test__check_targets_raises_on_empty_inputs():
+    # [FUNCTION DOC]
+    # Verifies _check_targets raises ValueError on empty arrays.
     msg = "Found empty input array (e.g., `y_true` or `y_pred`) while a minimum of 1"
     with pytest.raises(ValueError, match=re.escape(msg)):
         _check_targets(np.array([]), np.array([]))
 
 
 def test__check_targets_multiclass_with_both_y_true_and_y_pred_binary():
+    # [FUNCTION DOC]
+    # Non-regression for #8098: two binary label arrays with different label sets ({0,
+    #   1} and {0, -1}) merge to "multiclass".
     # https://github.com/scikit-learn/scikit-learn/issues/8098
     y_true = [0, 1]
     y_pred = [0, -1]
@@ -2629,6 +2931,10 @@ def test__check_targets_multiclass_with_both_y_true_and_y_pred_binary():
     ],
 )
 def test__check_targets_sparse_inputs(y, target_type):
+    # [FUNCTION DOC]
+    # Verifies sparse binary and multiclass targets raise TypeError while sparse
+    #   multilabel targets are accepted and returned as CSR with type "multilabel-
+    #   indicator".
     """Check correct behaviour when different target types are sparse."""
     if target_type in ("binary", "multiclass"):
         with pytest.raises(
@@ -2645,6 +2951,9 @@ def test__check_targets_sparse_inputs(y, target_type):
 
 
 def test_hinge_loss_binary():
+    # [FUNCTION DOC]
+    # Verifies binary hinge_loss for labels in {-1, 1} and for {0, 2} (mapped to -1/+1)
+    #   against a hand-computed value.
     y_true = np.array([-1, 1, 1, -1])
     pred_decision = np.array([-8.5, 0.5, 1.5, -0.3])
     assert hinge_loss(y_true, pred_decision) == 1.2 / 4
@@ -2655,6 +2964,9 @@ def test_hinge_loss_binary():
 
 
 def test_hinge_loss_multiclass():
+    # [FUNCTION DOC]
+    # Verifies multiclass hinge_loss (Crammer-Singer: 1 minus true-class score plus the
+    #   best other score, clipped at 0, averaged) against hand-computed losses.
     pred_decision = np.array(
         [
             [+0.36, -0.17, -0.58, -0.99],
@@ -2682,6 +2994,9 @@ def test_hinge_loss_multiclass():
 
 
 def test_hinge_loss_multiclass_missing_labels_with_labels_none():
+    # [FUNCTION DOC]
+    # Verifies multiclass hinge_loss raises ValueError when pred_decision has more
+    #   columns than labels present in y_true and labels is not given.
     y_true = np.array([0, 1, 2, 2])
     pred_decision = np.array(
         [
@@ -2699,6 +3014,9 @@ def test_hinge_loss_multiclass_missing_labels_with_labels_none():
 
 
 def test_hinge_loss_multiclass_no_consistent_pred_decision_shape():
+    # [FUNCTION DOC]
+    # Verifies ValueError messages for a 1-D pred_decision with multiclass target and
+    #   for a column count inconsistent with labels.
     # test for inconsistency between multiclass problem and pred_decision
     # argument
     y_true = np.array([2, 1, 0, 1, 0, 1, 1])
@@ -2727,6 +3045,9 @@ def test_hinge_loss_multiclass_no_consistent_pred_decision_shape():
 
 
 def test_hinge_loss_multiclass_with_missing_labels():
+    # [FUNCTION DOC]
+    # Verifies hinge_loss with explicit labels including a class absent from y_true
+    #   matches hand-computed losses.
     pred_decision = np.array(
         [
             [+0.36, -0.17, -0.58, -0.99],
@@ -2753,6 +3074,9 @@ def test_hinge_loss_multiclass_with_missing_labels():
 
 
 def test_hinge_loss_multiclass_missing_labels_only_two_unq_in_y_true():
+    # [FUNCTION DOC]
+    # Non-regression for #17630: hinge_loss with explicit labels works when y_true has
+    #   only two of three classes.
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/17630
     # check that we can compute the hinge loss when providing an array
@@ -2785,6 +3109,9 @@ def test_hinge_loss_multiclass_missing_labels_only_two_unq_in_y_true():
 
 
 def test_hinge_loss_multiclass_invariance_lists():
+    # [FUNCTION DOC]
+    # Verifies multiclass hinge_loss accepts string labels and list inputs and gives the
+    #   hand-computed value.
     # Currently, invariance of string and integer labels cannot be tested
     # in common invariance tests because invariance tests for multiclass
     # decision functions is not implemented yet.
@@ -2813,6 +3140,12 @@ def test_hinge_loss_multiclass_invariance_lists():
 
 
 def test_log_loss():
+    # [FUNCTION DOC]
+    # Verifies log_loss: binary string labels against scipy bernoulli logpmf, a known
+    #   multiclass value with normalize True/False, errors for class-count mismatch,
+    #   labels missing y_true values, single-label y_true without labels and
+    #   inconsistent lengths, and correct results with explicit labels including more
+    #   labels than present.
     # binary case with symbolic labels ("no" < "yes")
     y_true = ["no", "no", "no", "yes", "yes", "yes"]
     y_proba = np.array(
@@ -2890,6 +3223,10 @@ def test_log_loss():
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32, np.float16])
 def test_log_loss_eps(dtype):
+    # [FUNCTION DOC]
+    # Non-regression for #24315: log_loss stays finite for completely wrong 0/1
+    #   probabilities in float64, float32 and float16 thanks to dtype-dependent
+    #   clipping.
     """Check the behaviour internal eps that changes depending on the input dtype.
 
     Non-regression test for:
@@ -2904,6 +3241,9 @@ def test_log_loss_eps(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32, np.float16])
 def test_log_loss_not_probabilities_warning(dtype):
+    # [FUNCTION DOC]
+    # Verifies log_loss warns when probability rows do not sum to one, for several float
+    #   dtypes.
     """Check that log_loss raises a warning when y_proba values don't sum to 1."""
     y_true = np.array([0, 1, 1, 0])
     y_proba = np.array([[0.2, 0.7], [0.6, 0.3], [0.4, 0.7], [0.8, 0.3]], dtype=dtype)
@@ -2921,12 +3261,18 @@ def test_log_loss_not_probabilities_warning(dtype):
     ],
 )
 def test_log_loss_perfect_predictions(y_true, y_proba):
+    # [FUNCTION DOC]
+    # Verifies log_loss is approximately 0 for perfect predictions given as 1-D or 2-D
+    #   probabilities.
     """Check that log_loss returns 0 for perfect predictions."""
     # Because of the clipping, the result is not exactly 0
     assert log_loss(y_true, y_proba) == pytest.approx(0)
 
 
 def test_log_loss_pandas_input():
+    # [FUNCTION DOC]
+    # Non-regression for gh-5715: log_loss accepts MockDataFrame and, when pandas is
+    #   installed, Series/DataFrame inputs.
     # case when input is a pandas series and dataframe gh-5715
     y_tr = np.array(["ham", "spam", "spam", "ham"])
     y_pr = np.array([[0.3, 0.7], [0.6, 0.4], [0.4, 0.6], [0.7, 0.3]])
@@ -2945,6 +3291,8 @@ def test_log_loss_pandas_input():
 
 
 def test_log_loss_warnings():
+    # [FUNCTION DOC]
+    # Verifies log_loss warns when labels are passed in non-lexicographic order.
     expected_message = re.escape(
         "Labels passed were ['spam', 'eggs', 'ham']. But this function "
         "assumes labels are ordered lexicographically. "
@@ -2961,6 +3309,9 @@ def test_log_loss_warnings():
 
 # TODO(1.11): Remove
 def test_log_loss_y_pred_deprecation():
+    # [FUNCTION DOC]
+    # Verifies the deprecated y_pred keyword of log_loss emits FutureWarning, and
+    #   passing both y_pred and y_proba raises ValueError.
     """Test `y_pred` deprecation in favor of `y_proba` for `log_loss`."""
     y_true = np.array([0, 1, 1, 0])
     y_proba = np.array([[0.1, 0.9], [0.9, 0.1], [0.8, 0.2], [0.35, 0.65]])
@@ -2978,6 +3329,10 @@ def test_log_loss_y_pred_deprecation():
 
 
 def test_brier_score_loss_binary():
+    # [FUNCTION DOC]
+    # Verifies binary brier_score_loss equals the mean squared difference, is invariant
+    #   to label encoding and to two-column inputs, honours scale_by_half (False doubles
+    #   it), and handles a single sample with pos_label.
     # Check brier_score_loss function
     y_true = np.array([0, 1, 1, 0, 1, 1])
     y_prob = np.array([0.1, 0.8, 0.9, 0.3, 1.0, 0.95])
@@ -3017,6 +3372,10 @@ def test_brier_score_loss_binary():
 
 
 def test_brier_score_loss_multiclass():
+    # [FUNCTION DOC]
+    # Verifies multiclass brier_score_loss values: with explicit labels including an
+    #   unused class, a known example, 0 for perfect and 2 for perfectly wrong
+    #   predictions.
     # test cases for multi-class
     assert_almost_equal(
         brier_score_loss(
@@ -3052,6 +3411,11 @@ def test_brier_score_loss_multiclass():
 
 
 def test_brier_score_loss_invalid_inputs():
+    # [FUNCTION DOC]
+    # Verifies brier_score_loss raises ValueError for length mismatch, probabilities
+    #   outside [0, 1], multiclass y_true with 1-D y_prob, class-count mismatches with
+    #   y_true or labels, and single-label y_true without labels; and that passing
+    #   labels resolves the last case.
     # binary case
     y_true = np.array([0, 1, 1, 0, 1, 1])
     y_prob = np.array([0.1, 0.8, 0.9, 0.3, 1.0, 0.95])
@@ -3128,6 +3492,8 @@ def test_brier_score_loss_invalid_inputs():
 
 
 def test_brier_score_loss_warnings():
+    # [FUNCTION DOC]
+    # Verifies brier_score_loss warns when labels are not in lexicographic order.
     expected_message = re.escape(
         "Labels passed were ['spam', 'eggs', 'ham']. But this function "
         "assumes labels are ordered lexicographically. "
@@ -3147,6 +3513,9 @@ def test_brier_score_loss_warnings():
 
 
 def test_balanced_accuracy_score_unseen():
+    # [FUNCTION DOC]
+    # Verifies balanced_accuracy_score warns when y_pred contains a class absent from
+    #   y_true.
     msg = "y_pred contains classes not in y_true"
     with pytest.warns(UserWarning, match=msg):
         balanced_accuracy_score([0, 0, 0], [0, 0, 1])
@@ -3161,6 +3530,10 @@ def test_balanced_accuracy_score_unseen():
     ],
 )
 def test_balanced_accuracy_score(y_true, y_pred):
+    # [FUNCTION DOC]
+    # Verifies balanced_accuracy_score equals macro recall over y_true's classes and
+    #   that adjusted=True rescales it by chance level computed from a constant
+    #   prediction.
     macro_recall = recall_score(
         y_true, y_pred, average="macro", labels=np.unique(y_true)
     )
@@ -3189,6 +3562,9 @@ def test_balanced_accuracy_score(y_true, y_pred):
     "classes", [(False, True), (0, 1), (0.0, 1.0), ("zero", "one")]
 )
 def test_classification_metric_pos_label_types(metric, classes):
+    # [FUNCTION DOC]
+    # Verifies binary metrics accept bool, int, float and string pos_label without NaN
+    #   results (brier_score_loss gets random probabilities).
     """Check that the metric works with different types of `pos_label`.
 
     We can expect `pos_label` to be a bool, an integer, a float, a string.
@@ -3216,6 +3592,9 @@ def test_classification_metric_pos_label_types(metric, classes):
     ],
 )
 def test_f1_for_small_binary_inputs_with_zero_division(y_true, y_pred, expected_score):
+    # [FUNCTION DOC]
+    # Non-regression for #26965: f1_score with zero_division=1.0 on two-sample binary
+    #   inputs returns the expected scores.
     """Check the behaviour of `zero_division` for f1-score.
 
     Non-regression test for:
@@ -3237,6 +3616,10 @@ def test_f1_for_small_binary_inputs_with_zero_division(y_true, y_pred, expected_
     ],
 )
 def test_classification_metric_division_by_zero_nan_validation(scoring):
+    # [FUNCTION DOC]
+    # Non-regression for #27563: scorers built with zero_division=np.nan work in
+    #   cross_val_score with n_jobs=2, where NaN identity is not preserved across
+    #   processes. Passes if no error is raised.
     """Check that we validate `np.nan` properly for classification metrics.
 
     With `n_jobs=2` in cross-validation, the `np.nan` used for the singleton will be
@@ -3252,6 +3635,12 @@ def test_classification_metric_division_by_zero_nan_validation(scoring):
 
 
 def test_d2_log_loss_score():
+    # [FUNCTION DOC]
+    # Verifies d2_log_loss_score equals 1 minus the ratio of model log loss to the log
+    #   loss of a null model predicting (weighted) class proportions, with and without
+    #   sample weights; that good predictions score in (0.5, 1), poor ones below 0, and
+    #   class-proportion predictions exactly 0; and that string labels and multiclass
+    #   targets behave consistently.
     y_true = [0, 0, 0, 1, 1, 1]
     y_true_string = ["no", "no", "no", "yes", "yes", "yes"]
     y_proba = np.array(
@@ -3402,6 +3791,9 @@ def test_d2_log_loss_score():
 
 
 def test_d2_log_loss_score_missing_labels():
+    # [FUNCTION DOC]
+    # Non-regression for #30713: d2_log_loss_score with labels including a class absent
+    #   from y_true matches the manually computed weighted null-model ratio.
     """Check that d2_log_loss_score works when not all labels are present in y_true
 
     non-regression test for https://github.com/scikit-learn/scikit-learn/issues/30713
@@ -3431,6 +3823,8 @@ def test_d2_log_loss_score_missing_labels():
 
 
 def test_d2_log_loss_score_label_order():
+    # [FUNCTION DOC]
+    # Verifies d2_log_loss_score is unchanged when the labels list is permuted.
     """Check that d2_log_loss_score doesn't depend on the order of the labels."""
     y_true = [2, 0, 2, 0]
     y_proba = np.tile([1, 0, 0], (4, 1))
@@ -3442,6 +3836,10 @@ def test_d2_log_loss_score_label_order():
 
 
 def test_d2_log_loss_score_raises():
+    # [FUNCTION DOC]
+    # Verifies d2_log_loss_score raises ValueError for class-count mismatches (with
+    #   y_true or labels), inconsistent lengths, single-label y_true and a single-label
+    #   labels list, and warns with UndefinedMetricWarning for fewer than two samples.
     """Test that d2_log_loss_score raises the appropriate errors on
     invalid inputs."""
     y_true = [0, 1, 2]
@@ -3492,6 +3890,9 @@ def test_d2_log_loss_score_raises():
 
 # TODO(1.11): Remove
 def test_d2_log_loss_score_y_pred_deprecation():
+    # [FUNCTION DOC]
+    # Verifies the deprecated y_pred keyword of d2_log_loss_score emits FutureWarning
+    #   and that passing both y_pred and y_proba raises ValueError.
     """Test `y_pred` deprecation in favor of `y_proba` for `d2_log_loss_score`."""
     y_true = np.array([0, 1, 1, 0])
     y_proba = np.array([[0.1, 0.9], [0.9, 0.1], [0.8, 0.2], [0.35, 0.65]])
@@ -3509,6 +3910,11 @@ def test_d2_log_loss_score_y_pred_deprecation():
 
 
 def test_d2_brier_score():
+    # [FUNCTION DOC]
+    # Verifies d2_brier_score equals 1 minus the ratio of the model Brier loss to that
+    #   of a 0.5 reference in the binary case, is 0 for constant predictions equal to
+    #   the (weighted) class proportions for binary and multiclass, int and string
+    #   labels, and exceeds 0.5 for good multiclass predictions.
     """Test that d2_brier_score gives expected outcomes in both the binary and
     multiclass settings.
     """
@@ -3608,6 +4014,10 @@ def test_d2_brier_score():
 
 
 def test_d2_brier_score_with_labels():
+    # [FUNCTION DOC]
+    # Verifies d2_brier_score with explicit labels including an absent class: proportion
+    #   predictions score 0 regardless of labels order, and confidently wrong
+    #   predictions score -3.
     """Test that d2_brier_score gives expected outcomes when labels are passed"""
     # Check when labels are provided and some labels may not be present inside
     # y_true, the d2 score is 0, when we use the label proportions based on
@@ -3699,6 +4109,11 @@ def test_d2_brier_score_with_labels():
     ],
 )
 def test_d2_brier_score_raises(y_true, y_pred, labels, error_msg):
+    # [FUNCTION DOC]
+    # Verifies d2_brier_score raises ValueError with the expected message for each
+    #   invalid input case (type mismatch, missing pos_label for strings, length
+    #   mismatch, probabilities out of range, single label, multioutput, labels missing
+    #   y_true values, single-entry labels).
     """Test that d2_brier_score raises the appropriate errors
     on invalid inputs."""
     y_true = np.asarray(y_true)
@@ -3708,6 +4123,8 @@ def test_d2_brier_score_raises(y_true, y_pred, labels, error_msg):
 
 
 def test_d2_brier_score_warning_on_less_than_two_samples():
+    # [FUNCTION DOC]
+    # Verifies d2_brier_score warns with UndefinedMetricWarning for a single sample.
     """Test that d2_brier_score emits a warning when there are less than
     two samples"""
     y_true = np.array([1])
@@ -3722,6 +4139,10 @@ def test_d2_brier_score_warning_on_less_than_two_samples():
     yield_namespace_device_dtype_combinations(),
 )
 def test_confusion_matrix_array_api(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies confusion_matrix under array_api_dispatch returns an array in the same
+    #   namespace and on the same device as the input for every available
+    #   namespace/device/dtype, using labels that force index conversion.
     """Test that `confusion_matrix` works for all array types when `labels` are passed
     such that the inner boolean `need_index_conversion` evaluates to `True`."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
