@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# LocalOutlierFactor: unsupervised outlier / novelty detection comparing each
+# sample's local reachability density (LRD) to that of its k nearest neighbors.
+# Side effects at import: none.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -17,6 +21,13 @@ __all__ = ["LocalOutlierFactor"]
 
 
 class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
+    # [CLASS DOC]
+    # LOF estimator. In outlier-detection mode (novelty=False) only fit_predict and the
+    # training scores negative_outlier_factor_ are available; in novelty mode
+    # (novelty=True)
+    # predict, decision_function and score_samples work on new data. Methods are hidden
+    # via
+    # available_if according to novelty.
     """Unsupervised Outlier Detection using the Local Outlier Factor (LOF).
 
     The anomaly score of each sample is called the Local Outlier Factor.
@@ -210,6 +221,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         novelty=False,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards neighbor parameters to NeighborsBase and stores contamination and
+        # novelty.
         super().__init__(
             n_neighbors=n_neighbors,
             algorithm=algorithm,
@@ -223,6 +237,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         self.novelty = novelty
 
     def _check_novelty_fit_predict(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; returns True when novelty is False.
+        # Exceptions: AttributeError with guidance when novelty is True.
         if self.novelty:
             msg = (
                 "fit_predict is not available when novelty=True. Use "
@@ -233,6 +250,10 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
 
     @available_if(_check_novelty_fit_predict)
     def fit_predict(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits on X and returns training labels via _predict with no X (1 inlier, -1
+        # outlier).
+        # Outputs: int array (n_samples,).
         """Fit the model to the training set X and return the labels.
 
         **Not available for novelty detection (when novelty is set to True).**
@@ -264,6 +285,23 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Steps: _fit the data; warn if n_neighbors exceeds n_samples; set n_neighbors_
+        # to
+        # n_neighbors clipped into [1, n_samples-1]; get the training kNN
+        # distances/indices
+        # (excluding self), casting distances to float32 when data is float32; compute
+        # the
+        # training LRDs; negative_outlier_factor_ is minus the mean over neighbors of
+        # neighbor LRD divided by own LRD. offset_ is -1.5 for contamination "auto",
+        # else
+        # the contamination percentile of negative_outlier_factor_. Warn if some score
+        # is below
+        # -1e7 (duplicates) in outlier-detection mode.
+        # Inputs: X - training data; y - ignored. Outputs: self.
+        # Side effects: sets n_neighbors_, _distances_fit_X_, _lrd,
+        # negative_outlier_factor_,
+        # offset_ and NeighborsBase fitted attributes; UserWarnings.
         """Fit the local outlier factor detector from the training dataset.
 
         Parameters
@@ -332,6 +370,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         return self
 
     def _check_novelty_predict(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; True when novelty is True.
+        # Exceptions: AttributeError when novelty is False.
         if not self.novelty:
             msg = (
                 "predict is not available when novelty=False, use "
@@ -344,6 +385,8 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
 
     @available_if(_check_novelty_predict)
     def predict(self, X=None):
+        # [FUNCTION DOC]
+        # Novelty mode only: labels new samples via _predict(X). Outputs: int array.
         """Predict the labels (1 inlier, -1 outlier) of X according to LOF.
 
         **Only available for novelty detection (when novelty is set to True).**
@@ -366,6 +409,11 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         return self._predict(X)
 
     def _predict(self, X=None):
+        # [FUNCTION DOC]
+        # HELPER: With X, label -1 where decision_function(X) is negative, else 1.
+        # Without X,
+        # label training samples -1 where negative_outlier_factor_ is below offset_.
+        # Outputs: int array of 1/-1. Exceptions: NotFittedError.
         """Predict the labels (1 inlier, -1 outlier) of X according to LOF.
 
         If X is None, returns the same as fit_predict(X_train).
@@ -395,6 +443,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         return is_inlier
 
     def _check_novelty_decision_function(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; True when novelty is True.
+        # Exceptions: AttributeError when novelty is False.
         if not self.novelty:
             msg = (
                 "decision_function is not available when novelty=False. "
@@ -409,6 +460,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
 
     @available_if(_check_novelty_decision_function)
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # score_samples(X) minus offset_; negative values are outliers.
+        # Outputs: float array (n_queries,).
         """Shifted opposite of the Local Outlier Factor of X.
 
         Bigger is better, i.e. large values correspond to inliers.
@@ -436,6 +490,9 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         return self.score_samples(X) - self.offset_
 
     def _check_novelty_score_samples(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; True when novelty is True.
+        # Exceptions: AttributeError when novelty is False.
         if not self.novelty:
             msg = (
                 "score_samples is not available when novelty=False. The "
@@ -449,6 +506,12 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
 
     @available_if(_check_novelty_score_samples)
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Opposite LOF of new samples: validate X (CSR allowed), find n_neighbors_
+        # nearest
+        # training points, compute the query LRDs, and return minus the mean ratio of
+        # neighbor training LRD over query LRD.
+        # Inputs: X - (n_queries, n_features). Outputs: float array (n_queries,).
         """Opposite of the Local Outlier Factor of X.
 
         It is the opposite as bigger is better, i.e. large values correspond
@@ -496,6 +559,14 @@ class LocalOutlierFactor(KNeighborsMixin, OutlierMixin, NeighborsBase):
         return -np.mean(lrd_ratios_array, axis=1)
 
     def _local_reachability_density(self, distances_X, neighbors_indices):
+        # [FUNCTION DOC]
+        # HELPER: For each point, reachability distance to each neighbor is the max of
+        # the
+        # actual distance and that neighbor's k-distance (its distance to its
+        # n_neighbors_-th
+        # training neighbor); LRD is 1 over (mean reachability distance + 1e-10).
+        # Inputs: distances_X, neighbors_indices - (n_queries, n_neighbors_) arrays.
+        # Outputs: float array (n_queries,).
         """The local reachability density (LRD)
 
         The LRD of a sample is the inverse of the average reachability

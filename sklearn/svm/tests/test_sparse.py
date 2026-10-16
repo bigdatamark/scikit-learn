@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests that the libsvm/liblinear estimators give the same results on sparse
+# input as on dense input (SVC, LinearSVC, OneClassSVM), plus sparse-specific
+# behavior: unsorted CSR indices, custom kernels, class/sample weights,
+# intercept handling, timeouts and determinism. Module-level fixtures: two small
+# toy datasets (X/Y/T, X2/Y2/T2) with expected predictions, a shuffled iris and
+# 10-center blobs.
 import numpy as np
 import pytest
 from scipy import sparse
@@ -50,6 +57,17 @@ X_blobs, y_blobs = make_blobs(n_samples=100, centers=10, random_state=0)
 
 
 def check_svm_model_equal(dense_svm, X_train, y_train, X_test):
+    # [FUNCTION DOC]
+    # HELPER: Fits dense_svm on the densified training data and a clone on the
+    # sparse training data, then asserts: sparse support_vectors_ and dual_coef_
+    # (and coef_ for linear kernel) are sparse and numerically equal to the dense
+    # ones; support_, predictions and decision_function (on sparse and dense test
+    # data) agree; predict_proba agrees to 4 decimals when available (non
+    # OneClassSVM); and the dense-trained model raises ValueError ("cannot use
+    # sparse input ... trained on dense data") when predicting on sparse X_test.
+    # Inputs: dense_svm - unfitted libsvm estimator (mutated by fit); X_train -
+    # sparse matrix; y_train - labels or None; X_test - dense or sparse.
+    # Outputs: none.
     # Use the original svm model for dense fit and clone an exactly same
     # svm model for sparse fit
     sparse_svm = base.clone(dense_svm)
@@ -110,6 +128,10 @@ def check_svm_model_equal(dense_svm, X_train, y_train, X_test):
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + LIL_CONTAINERS)
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_svc(X_train, y_train, X_test, kernel, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies sparse/dense SVC equivalence via check_svm_model_equal for four
+    # datasets, four kernels and CSR/LIL containers (probability=True, ovo shape).
+    # Skipped on 32-bit; thread-unsafe because of probability=True.
     """Check that sparse SVC gives the same result as SVC."""
     X_train = sparse_container(X_train)
 
@@ -127,6 +149,10 @@ def test_svc(X_train, y_train, X_test, kernel, sparse_container):
 # TODO(1.11): remove probability=True and calls to predict_proba.
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_unsorted_indices(csr_container):
+    # [FUNCTION DOC]
+    # Verifies a linear SVC gives the same coef_ on dense, sorted CSR and
+    # unsorted-index CSR digits data, and the same predict_proba on sorted vs
+    # unsorted test data (tight tolerances).
     # test that the result with sorted and unsorted indices in csr is the same
     # we use a subset of digits as iris, blobs or make_classification didn't
     # show the problem
@@ -148,6 +174,9 @@ def test_unsorted_indices(csr_container):
 
     # reverse each row's indices
     def scramble_indices(X):
+        # [FUNCTION DOC]
+        # HELPER: Returns a copy of a CSR matrix with each row's data and column indices
+        # reversed, giving unsorted indices with identical values.
         new_data = []
         new_indices = []
         for i in range(1, len(X.indptr)):
@@ -177,7 +206,12 @@ def test_unsorted_indices(csr_container):
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_svc_with_custom_kernel(lil_container):
+    # [FUNCTION DOC]
+    # Verifies an SVC with a callable linear kernel on LIL input predicts the same
+    # as kernel="linear".
     def kfunc(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Linear kernel: (sparse-safe) product of x with the transpose of y.
         return safe_sparse_dot(x, y.T)
 
     X_sp = lil_container(X)
@@ -190,6 +224,9 @@ def test_svc_with_custom_kernel(lil_container):
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("kernel", ["linear", "poly", "rbf"])
 def test_svc_iris(csr_container, kernel):
+    # [FUNCTION DOC]
+    # Verifies sparse and dense SVC on iris agree on support vectors, dual
+    # coefficients, predictions and (linear kernel) coef_.
     # Test the sparse SVC with the iris dataset
     iris_data_sp = csr_container(iris.data)
 
@@ -205,6 +242,11 @@ def test_svc_iris(csr_container, kernel):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_decision_function(csr_container):
+    # [FUNCTION DOC]
+    # Verifies decision_function equals X times coef_ transposed plus intercept_ for
+    # a multiclass ovo linear SVC on sparse iris and for the binary toy problem;
+    # binary predictions match the sign of the decision; decision values match
+    # hard-coded expectations to 2 decimals.
     # Test decision_function
 
     # Sanity check, test that decision_function implemented in python
@@ -233,6 +275,9 @@ def test_sparse_decision_function(csr_container):
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_error(lil_container):
+    # [FUNCTION DOC]
+    # Verifies fit raises ValueError when y has one fewer label than X rows, and
+    # that a correct fit on LIL data predicts the expected toy labels.
     # Test that it gives proper exception on deficient input
     clf = svm.SVC()
     X_sp = lil_container(X)
@@ -249,6 +294,9 @@ def test_error(lil_container):
     "lil_container, dok_container", zip(LIL_CONTAINERS, DOK_CONTAINERS)
 )
 def test_linearsvc(lil_container, dok_container):
+    # [FUNCTION DOC]
+    # Verifies LinearSVC fitted on LIL/DOK sparse data matches the dense fit in
+    # coef_, intercept_ (4 decimals) and predictions on both toy datasets.
     # Similar to test_SVC
     X_sp = lil_container(X)
     X2_sp = dok_container(X2)
@@ -272,6 +320,10 @@ def test_linearsvc(lil_container, dok_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_linearsvc_iris(csr_container):
+    # [FUNCTION DOC]
+    # Verifies sparse vs dense LinearSVC on iris agree (coef/intercept to 1 decimal,
+    # identical predictions), argmax of decision_function equals predict, and
+    # predictions are unchanged after sparsify() on both models.
     # Test the sparse LinearSVC with the iris dataset
     iris_data_sp = csr_container(iris.data)
 
@@ -298,6 +350,9 @@ def test_linearsvc_iris(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_weight(csr_container):
+    # [FUNCTION DOC]
+    # Verifies class_weight={0: 5} on imbalanced sparse data lets LogisticRegression,
+    # LinearSVC and SVC each predict at least 11 of 20 held-out samples correctly.
     # Test class weights
     X_, y_ = make_classification(
         n_samples=200, n_features=100, weights=[0.833, 0.167], random_state=0
@@ -317,6 +372,9 @@ def test_weight(csr_container):
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_sample_weights(lil_container):
+    # [FUNCTION DOC]
+    # Verifies sample weights change the SVC prediction for X[2] from class 1 to 2
+    # when class-2 samples are weighted 100 times more.
     # Test weights on individual samples
     X_sp = lil_container(X)
 
@@ -330,6 +388,10 @@ def test_sample_weights(lil_container):
 
 
 def test_sparse_liblinear_intercept_handling():
+    # [FUNCTION DOC]
+    # Reuses the dense intercept_scaling test from test_svm for LinearSVC.
+    # KNOWN ISSUE: it passes no sparse data, so it only re-runs the dense test and
+    # does not exercise sparse intercept handling as its name suggests.
     # Test that sparse liblinear honours intercept_scaling param
     test_svm.test_dense_liblinear_intercept_handling(svm.LinearSVC)
 
@@ -347,6 +409,9 @@ def test_sparse_liblinear_intercept_handling():
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + LIL_CONTAINERS)
 @skip_if_32bit
 def test_sparse_oneclasssvm(X_train, y_train, X_test, kernel, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies sparse/dense OneClassSVM equivalence via check_svm_model_equal for
+    # four datasets, four kernels and CSR/LIL containers.
     # Check that sparse OneClassSVM gives the same result as dense OneClassSVM
     X_train = sparse_container(X_train)
 
@@ -356,6 +421,10 @@ def test_sparse_oneclasssvm(X_train, y_train, X_test, kernel, sparse_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sparse_realdata(csr_container):
+    # [FUNCTION DOC]
+    # Regression on a tiny 20newsgroups-like CSR matrix (int32 indices): a linear
+    # SVC fitted on the dense array and on the COO version yields identical
+    # support vectors and dual coefficients.
     # Test on a subset from the 20newsgroups dataset.
     # This catches some bugs if input is not correctly converted into
     # sparse format or weights are not correctly initialized.
@@ -465,6 +534,10 @@ def test_sparse_realdata(csr_container):
 # TODO(1.11): remove probability=True and calls to predict_proba.
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_sparse_svc_clone_with_callable_kernel(lil_container):
+    # [FUNCTION DOC]
+    # Verifies a cloned SVC with a callable kernel can fit, predict and
+    # predict_proba on LIL input, and predicts the same as a dense fit with an
+    # equivalent kernel.
     # Test that the "dense_fit" is called even though we use sparse input
     # meaning that everything works fine.
     a = svm.SVC(C=1, kernel=lambda x, y: x @ y.T, probability=True, random_state=0)
@@ -485,6 +558,9 @@ def test_sparse_svc_clone_with_callable_kernel(lil_container):
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_timeout(lil_container):
+    # [FUNCTION DOC]
+    # Verifies a sparse fit with max_iter=1 emits ConvergenceWarning with the
+    # "Solver terminated early" message.
     sp = svm.SVC(C=1, kernel=lambda x, y: x @ y.T, random_state=0, max_iter=1)
     warning_msg = (
         r"Solver terminated early \(max_iter=1\).  Consider pre-processing "
@@ -495,6 +571,9 @@ def test_timeout(lil_container):
 
 
 def test_consistent_decision_function():
+    # [FUNCTION DOC]
+    # Verifies two SVCs with max_iter=1 and the same random_state yield identical
+    # decision functions (deterministic early-stopped solver).
     a = svm.SVC(max_iter=1, random_state=0)
     with ignore_warnings(category=ConvergenceWarning):
         proba_1 = a.fit(X, Y).decision_function(X)

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Build-sanity tests for the installed scikit-learn package: verify that compiled
+# Cython extension types report a fully qualified __module__ and that the build
+# has OpenMP-based parallelism enabled.
 import importlib
 import inspect
 import os
@@ -13,6 +17,14 @@ from sklearn.utils._openmp_helpers import _openmp_parallelism_enabled
 
 @pytest.mark.thread_unsafe  # import side-effects
 def test_extension_type_module():
+    # [FUNCTION DOC]
+    # Verifies every class defined inside a compiled sklearn extension module (.so/.pyd)
+    # has __module__ equal to that module's dotted name. Walks all sklearn submodules,
+    # skipping packages, tests, externals, _build_utils and _cyutility modules, imports
+    # each one, and for each class whose source file is the extension file itself
+    # compares __module__ to the module name; mismatches are collected and asserted
+    # empty at the end.
+    # Side effects: imports every non-excluded sklearn module (marked thread_unsafe).
     """Check that Cython extension types have a correct ``__module__``.
 
     When a subpackage containing Cython extension types has a misconfigured
@@ -72,6 +84,10 @@ def test_extension_type_module():
 
 
 def test_openmp_parallelism_enabled():
+    # [FUNCTION DOC]
+    # Asserts that _openmp_parallelism_enabled() is true, with an error message pointing
+    # to the dev or stable build docs depending on whether __version__ ends in ".dev0".
+    # Skipped when the SKLEARN_SKIP_OPENMP_TEST environment variable is set.
     # Check that sklearn is built with OpenMP-based parallelism enabled.
     # This test can be skipped by setting the environment variable
     # ``SKLEARN_SKIP_OPENMP_TEST``.
