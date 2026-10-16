@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests that the Halving*SearchCV estimators are only importable after explicit
+# enabling.
 """Tests for making sure experimental imports work as expected."""
 
 import textwrap
@@ -10,6 +13,13 @@ from sklearn.utils.fixes import _IS_WASM
 
 @pytest.mark.xfail(_IS_WASM, reason="cannot start subprocess")
 def test_imports_strategies():
+    # [FUNCTION DOC]
+    # Runs three child-Python scripts in separate subprocesses: (1) enable then import
+    # both HalvingGridSearchCV and HalvingRandomSearchCV succeeds; (2) importing
+    # sklearn.model_selection first, then enabling, still succeeds; (3) without
+    # enabling, both imports raise ImportError matching "Halving(Grid|Random)SearchCV is
+    # experimental", also after importing sklearn.experimental alone. Each script must
+    # be silent apart from the pattern. Marked xfail on WASM.
     # Make sure different import strategies work or fail as expected.
 
     # Since Python caches the imported modules, we need to run a child process

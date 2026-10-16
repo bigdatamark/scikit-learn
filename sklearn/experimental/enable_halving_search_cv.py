@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Import-for-side-effect module enabling HalvingGridSearchCV and HalvingRandomSearchCV.
+# Behavior on import: imports both classes from
+# model_selection._search_successive_halving, sets them as attributes of the
+# sklearn.model_selection module via setattr and appends their names to
+# model_selection.__all__.
+# Side effects: mutates the global sklearn.model_selection module namespace; the append
+# to __all__ happens only once because Python caches the module after first import.
+# Exposes no public names of its own.
 """Enables Successive Halving search-estimators
 
 The API and results of these estimators might change without any deprecation

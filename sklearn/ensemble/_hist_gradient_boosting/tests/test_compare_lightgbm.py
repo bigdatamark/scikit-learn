@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Cross-checks HistGradientBoosting estimators against LightGBM configured
+# equivalently via get_equivalent_estimator, after a single boosting iteration
+# with learning_rate 1. Skipped when lightgbm is not installed. Data is pre-binned
+# to float32 when n_samples > 255 to remove binning differences.
 import numpy as np
 import pytest
 
@@ -35,6 +40,12 @@ from sklearn.model_selection import train_test_split
 def test_same_predictions_regression(
     seed, loss, min_samples_leaf, n_samples, max_leaf_nodes
 ):
+    # [FUNCTION DOC]
+    # For squared_error and poisson (gamma skipped), fits both libraries on
+    # make_regression data (target made positive for poisson/gamma) and checks
+    # training predictions agree: >65% close at 1e-2 for poisson, >99% at rtol 1e-3
+    # otherwise; for squared_error with small trees and >= 1000 samples, also checks
+    # >99% test predictions agree at rtol 1e-4.
     # Make sure sklearn has the same predictions as lightgbm for easy targets.
     #
     # In particular when the size of the trees are bound and the number of
@@ -130,6 +141,10 @@ def test_same_predictions_regression(
 def test_same_predictions_classification(
     seed, min_samples_leaf, n_samples, max_leaf_nodes
 ):
+    # [FUNCTION DOC]
+    # Binary log_loss: checks >89% of predicted labels agree on train and training
+    # accuracies match to 7 decimals; for small trees with >= 1000 samples, same on
+    # the test set with accuracy to 2 decimals.
     # Same as test_same_predictions_regression but for classification
     pytest.importorskip("lightgbm")
 
@@ -203,6 +218,13 @@ def test_same_predictions_classification(
 def test_same_predictions_multiclass_classification(
     seed, min_samples_leaf, n_samples, max_leaf_nodes
 ):
+    # [FUNCTION DOC]
+    # 3-class log_loss: checks >89% label agreement, >75% of predicted probabilities
+    # within 1e-2, and train accuracy within 0.05; for small trees and large n,
+    # repeats on the test set.
+    # KNOWN ISSUE: in the test-set block predict_proba is computed on X_train
+    # instead of X_test, so the test-set probability comparison only repeats the
+    # training check.
     # Same as test_same_predictions_regression but for classification
     pytest.importorskip("lightgbm")
 

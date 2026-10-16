@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Gaussian generative classifiers: LinearDiscriminantAnalysis (shared covariance,
+# linear boundary, also a supervised dimensionality reducer) and
+# QuadraticDiscriminantAnalysis (per-class covariance, quadratic boundary), plus
+# helpers to estimate (optionally shrunk) covariances and class means, and a
+# prediction mixin shared by QDA and NearestCentroid.
 """Linear and quadratic discriminant analysis."""
 
 # Authors: The scikit-learn developers
@@ -36,6 +42,21 @@ __all__ = ["LinearDiscriminantAnalysis", "QuadraticDiscriminantAnalysis"]
 
 
 def _cov(X, shrinkage=None, covariance_estimator=None):
+    # [FUNCTION DOC]
+    # HELPER: Estimates one covariance matrix of X.
+    # Behavior: without covariance_estimator: None/"empirical" gives the biased empirical
+    # covariance; "auto" standardizes features, applies Ledoit-Wolf, then rescales back by
+    # the feature standard deviations; a real number gives shrunk_covariance of the
+    # empirical covariance with that coefficient. With covariance_estimator: fits it on X
+    # and returns its covariance_.
+    # Inputs: X - (n_samples, n_features); shrinkage - None, "empirical", "auto" or float in
+    # [0, 1]; covariance_estimator - object with fit and covariance_, or None.
+    # Outputs: ndarray (n_features, n_features).
+    # Exceptions: ValueError if both a non-zero shrinkage and an estimator are given, or if
+    # the fitted estimator lacks covariance_.
+    # Side effects: fits (mutates) covariance_estimator.
+    # KNOWN ISSUE: any other string shrinkage leaves the result unassigned and raises
+    # UnboundLocalError instead of a clear error (normally prevented by param validation).
     """Estimate covariance matrix (using optional covariance_estimator).
     Parameters
     ----------
@@ -96,6 +117,14 @@ def _cov(X, shrinkage=None, covariance_estimator=None):
 
 
 def _class_means(X, y):
+    # [FUNCTION DOC]
+    # HELPER: Computes the mean feature vector of each class, classes ordered by sorted
+    # unique label.
+    # Behavior: for array API inputs loops over classes; for numpy accumulates rows per
+    # class index with unbuffered addition and divides by class counts.
+    # Inputs: X - (n_samples, n_features); y - 1D labels.
+    # Outputs: array (n_classes, n_features) with dtype and device of X.
+    # KNOWN ISSUE: docstring allows 2D y, but the inverse-index logic assumes 1D labels.
     """Compute class means.
 
     Parameters
@@ -128,6 +157,13 @@ def _class_means(X, y):
 
 
 def _class_cov(X, y, priors, shrinkage=None, covariance_estimator=None):
+    # [FUNCTION DOC]
+    # HELPER: Prior-weighted sum of per-class covariance matrices (each estimated by _cov
+    # on the rows of that class, with the given shrinkage/estimator).
+    # Inputs: X - (n_samples, n_features) numpy; y - 1D labels; priors - (n_classes,)
+    # aligned with sorted unique labels; shrinkage, covariance_estimator - as in _cov.
+    # Outputs: float64 ndarray (n_features, n_features).
+    # Side effects: refits covariance_estimator once per class.
     """Compute weighted within-class covariance matrix.
 
     The per-class covariance are weighted by the class priors.
@@ -175,9 +211,16 @@ def _class_cov(X, y, priors, shrinkage=None, covariance_estimator=None):
 
 
 class DiscriminantAnalysisPredictionMixin:
+    # [CLASS DOC]
+    # Mixin providing decision_function, predict, predict_proba and predict_log_proba on
+    # top of a subclass-provided _decision_function returning per-class log-posterior-like
+    # scores of shape (n_samples, n_classes), and a classes_ attribute.
     """Mixin class for QuadraticDiscriminantAnalysis and NearestCentroid."""
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns _decision_function scores; for two classes returns the difference of the
+        # second and first class scores, shape (n_samples,).
         """Apply decision function to an array of samples.
 
         Parameters
@@ -198,6 +241,8 @@ class DiscriminantAnalysisPredictionMixin:
         return y_scores
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns, for each sample, the class label of classes_ with the highest score.
         """Perform classification on an array of vectors `X`.
 
         Returns the class label for each sample.
@@ -217,6 +262,8 @@ class DiscriminantAnalysisPredictionMixin:
         return self.classes_.take(scores.argmax(axis=1))
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the exponential of predict_log_proba, shape (n_samples, n_classes).
         """Estimate class probabilities.
 
         Parameters
@@ -233,6 +280,10 @@ class DiscriminantAnalysisPredictionMixin:
         return np.exp(self.predict_log_proba(X))
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Normalizes scores into log probabilities with a numerically stable log-sum-exp:
+        # subtract the per-row maximum, then subtract the log of the row sum of exponentials.
+        # Outputs: ndarray (n_samples, n_classes).
         """Estimate log class probabilities.
 
         Parameters
@@ -258,6 +309,11 @@ class LinearDiscriminantAnalysis(
     TransformerMixin,
     BaseEstimator,
 ):
+    # [CLASS DOC]
+    # LDA classifier/transformer with svd, lsqr or eigen solvers. Fitted state includes
+    # classes_, priors_, means_, coef_, intercept_ and, depending on the solver,
+    # covariance_, scalings_, xbar_, explained_variance_ratio_. Supports the array API for
+    # the svd solver. In the binary case coef_ has one row and intercept_ one element.
     """Linear Discriminant Analysis.
 
     A classifier with a linear decision boundary, generated by fitting class
@@ -434,6 +490,8 @@ class LinearDiscriminantAnalysis(
         tol=1e-4,
         covariance_estimator=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged; validation is deferred to fit.
         self.solver = solver
         self.shrinkage = shrinkage
         self.priors = priors
@@ -443,6 +501,15 @@ class LinearDiscriminantAnalysis(
         self.covariance_estimator = covariance_estimator
 
     def _solve_lstsq(self, X, y, shrinkage, covariance_estimator):
+        # [FUNCTION DOC]
+        # HELPER: Least-squares solver.
+        # Computes means_ and the prior-weighted within-class covariance_ (with shrinkage or
+        # covariance_estimator), solves covariance_ times W equal to the transposed means for W
+        # in the least-squares sense and sets coef_ to its transpose; intercept_ for class k is
+        # minus one half of mean_k dotted with coef_k plus the log prior.
+        # Inputs: X, y - training data; shrinkage, covariance_estimator - as in _cov.
+        # Outputs: None. Side effects: sets means_, covariance_, coef_, intercept_; requires
+        # priors_ to be set beforehand.
         """Least squares solver.
 
         The least squares solver computes a straightforward solution of the
@@ -499,6 +566,17 @@ class LinearDiscriminantAnalysis(
         )
 
     def _solve_eigen(self, X, y, shrinkage, covariance_estimator):
+        # [FUNCTION DOC]
+        # HELPER: Generalized eigenvalue solver.
+        # Computes means_ and within-class covariance Sw (covariance_), the total covariance St
+        # of all of X, and the between-class scatter Sb as St minus Sw; solves the generalized
+        # symmetric eigenproblem of Sb with respect to Sw; explained_variance_ratio_ is the
+        # eigenvalues normalized to sum 1, sorted descending and truncated to _max_components;
+        # scalings_ are the eigenvectors sorted by descending eigenvalue. coef_ projects the
+        # means onto the eigenvectors and back; intercept_ as in the lstsq solver.
+        # Outputs: None. Side effects: sets means_, covariance_, explained_variance_ratio_,
+        # scalings_, coef_, intercept_; requires priors_ and _max_components.
+        # Exceptions: scipy LinAlgError if Sw is not positive definite.
         """Eigenvalue solver.
 
         The eigenvalue solver computes the optimal solution of the Rayleigh
@@ -565,6 +643,24 @@ class LinearDiscriminantAnalysis(
         )
 
     def _solve_svd(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: SVD solver (array API compatible); never forms the covariance unless
+        # store_covariance is set.
+        # Steps: compute means_ (and covariance_ if store_covariance); center each class's rows
+        # by its mean; xbar_ is the prior-weighted mean of class means; scale centered data by
+        # per-feature within-class std (zeros replaced by 1) and by the square root of
+        # 1/n_samples; SVD it and keep singular values above tol to get the within-class
+        # whitening scalings (V divided by std and singular values). Then weight the centered
+        # class means by the square root of n_samples times prior divided by (n_classes - 1),
+        # project into the whitened space and SVD again; explained_variance_ratio_ is the
+        # normalized squared singular values truncated to _max_components (empty when it is 0);
+        # keep directions with singular value above tol times the largest to form scalings_.
+        # coef_ and intercept_ are derived from the projected centered means and log priors,
+        # then the intercept is shifted by xbar_ dotted with coef_.
+        # Outputs: None. Side effects: sets means_, xbar_, scalings_, explained_variance_ratio_,
+        # coef_, intercept_ and optionally covariance_.
+        # KNOWN ISSUE: the class docstring calls xbar_ the "overall mean", but it is the
+        # prior-weighted mean of class means, which differs when priors are user-supplied.
         """SVD solver.
 
         Parameters
@@ -643,6 +739,20 @@ class LinearDiscriminantAnalysis(
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Validates data (at least 2 samples, float32/64), sets classes_, computes priors_
+        # (class frequencies or user priors), checks non-negativity and renormalizes with a
+        # warning if they do not sum to 1, resolves _max_components, dispatches to the solver,
+        # and for binary problems collapses coef_ and intercept_ into the difference of the two
+        # class rows. Sets _n_features_out to _max_components.
+        # Inputs: X - (n_samples, n_features); y - (n_samples,) labels.
+        # Outputs: self.
+        # Exceptions: ValueError if n_samples equals n_classes, priors negative, n_components
+        # too large, or covariance_estimator used with svd; NotImplementedError for shrinkage
+        # with svd.
+        # Side effects: sets all fitted attributes; emits UserWarning on renormalization.
+        # KNOWN ISSUE: the n_samples == n_classes check does not catch fewer samples than
+        # classes, which is impossible anyway, so only equality matters.
         """Fit the Linear Discriminant Analysis model.
 
         .. versionchanged:: 0.19
@@ -736,6 +846,13 @@ class LinearDiscriminantAnalysis(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Projects X onto the discriminant directions: svd centers by xbar_ then multiplies by
+        # scalings_; eigen multiplies by scalings_ without centering. Keeps the first
+        # _max_components columns.
+        # Outputs: array (n_samples, n_components or fewer for rank-deficient svd).
+        # Exceptions: NotImplementedError for lsqr (raised before the fitted check);
+        # NotFittedError; namespace mismatch errors.
         """Project data to maximize class separation.
 
         Parameters
@@ -766,6 +883,10 @@ class LinearDiscriminantAnalysis(
         return X_new[:, : self._max_components]
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Converts decision_function to probabilities: logistic sigmoid stacked as
+        # (1 - p, p) for binary problems, softmax over classes otherwise.
+        # Outputs: array (n_samples, n_classes). Exceptions: NotFittedError.
         """Estimate probability.
 
         Parameters
@@ -789,6 +910,10 @@ class LinearDiscriminantAnalysis(
             return softmax(decision)
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns log of predict_proba after replacing exact zeros by the smallest normal float
+        # of the dtype to avoid -inf.
+        # Side effects: modifies the intermediate probability array in place only.
         """Estimate log probability.
 
         Parameters
@@ -810,6 +935,9 @@ class LinearDiscriminantAnalysis(
         return xp.log(prediction)
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Delegates to LinearClassifierMixin.decision_function (X times coef_ transposed plus
+        # intercept_, raveled for binary); overridden only for the docstring.
         """Apply decision function to an array of samples.
 
         The decision function is equal (up to a constant factor) to the
@@ -833,6 +961,8 @@ class LinearDiscriminantAnalysis(
         return super().decision_function(X)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds array_api_support=True to the parent tags.
         tags = super().__sklearn_tags__()
         tags.array_api_support = True
         return tags
@@ -841,6 +971,11 @@ class LinearDiscriminantAnalysis(
 class QuadraticDiscriminantAnalysis(
     DiscriminantAnalysisPredictionMixin, ClassifierMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # QDA classifier fitting one Gaussian per class. Fitted state: classes_, priors_,
+    # means_, per-class rotations_ and scalings_ (eigen-decomposition of the class
+    # covariance) and optionally covariance_. Prediction via
+    # DiscriminantAnalysisPredictionMixin.
     """Quadratic Discriminant Analysis.
 
     A classifier with a quadratic decision boundary, generated
@@ -1000,6 +1135,8 @@ class QuadraticDiscriminantAnalysis(
         tol=1.0e-4,
         covariance_estimator=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged; validation is deferred to fit.
         self.solver = solver
         self.shrinkage = shrinkage
         self.priors = priors
@@ -1009,6 +1146,14 @@ class QuadraticDiscriminantAnalysis(
         self.covariance_estimator = covariance_estimator
 
     def _solve_eigen(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Estimates the class covariance with _cov (shrinkage/estimator) and
+        # eigendecomposes it.
+        # Inputs: X - samples of one class.
+        # Outputs: tuple (eigenvalues sorted descending, matching eigenvectors as columns,
+        # covariance matrix).
+        # KNOWN ISSUE: reg_param is ignored by this solver, although the class docstring
+        # presents it as a general regularizer. n_samples/n_features are computed but unused.
         """Eigenvalue solver.
 
         The eigenvalue solver uses the eigen decomposition of the data
@@ -1029,6 +1174,13 @@ class QuadraticDiscriminantAnalysis(
         return scaling, rotation, cov
 
     def _solve_svd(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Centers the class samples, takes their thin SVD, and uses squared singular
+        # values divided by n_samples as variances, regularized as (1 - reg_param) times the
+        # variance plus reg_param; rotation is V.
+        # Inputs: X - samples of one class.
+        # Outputs: tuple (scaling of length min(n_samples, n_features), rotation (n_features,
+        # that length), covariance V diag(scaling) V transposed when store_covariance else None).
         """SVD solver for Quadratic Discriminant Analysis.
 
         Parameters
@@ -1055,6 +1207,20 @@ class QuadraticDiscriminantAnalysis(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Validates data and classification targets; sets classes_ (at least 2) and priors_
+        # (class frequencies or user priors as given); rejects shrinkage/estimator with svd;
+        # for each class computes the mean and the solver's scaling/rotation/covariance, and
+        # checks that the number of scalings above tol is n_features.
+        # Outputs: self.
+        # Exceptions: ValueError for fewer than 2 classes, a class with a single sample, or an
+        # estimator with svd; NotImplementedError for shrinkage with svd; LinAlgError when a
+        # class covariance is rank deficient (message depends on solver and class size).
+        # Side effects: sets classes_, priors_, means_, scalings_, rotations_ and
+        # covariance_ when store_covariance.
+        # KNOWN ISSUE: user priors are neither validated nor renormalized (unlike LDA).
+        # KNOWN ISSUE: the tol docstring says it only controls a warning and does not affect
+        # predictions, but a rank below n_features raises LinAlgError.
         """Fit the model according to the given training data and parameters.
 
         .. versionchanged:: 0.19
@@ -1157,6 +1323,12 @@ class QuadraticDiscriminantAnalysis(
         return self
 
     def _decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Per-class log posterior up to a constant: for each class, center X by the
+        # class mean, rotate by rotations_ and divide by the square root of scalings_, take the
+        # squared norm (Mahalanobis distance); score is minus one half of (distance plus sum
+        # of log scalings) plus log prior.
+        # Outputs: array (n_samples, n_classes). Exceptions: NotFittedError; validation errors.
         # return log posterior, see eq (4.12) p. 110 of the ESL.
         check_is_fitted(self)
 
@@ -1173,6 +1345,8 @@ class QuadraticDiscriminantAnalysis(
         return -0.5 * (norm2 + u) + np.log(self.priors_)
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Delegates to the mixin's decision_function; overridden only for the docstring.
         """Apply decision function to an array of samples.
 
         The decision function is equal (up to a constant factor) to the

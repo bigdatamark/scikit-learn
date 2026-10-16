@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Bagging meta-estimators (BaggingClassifier, BaggingRegressor) that fit clones of a
+# base estimator on random subsets of rows (with or without replacement, optionally
+# weighted by sample_weight) and of features, then aggregate predictions by averaging
+# probabilities/decisions/values or by voting. Includes the job-level helpers used with
+# joblib and metadata routing support.
 """Bagging meta-estimator."""
 
 # Authors: The scikit-learn developers
@@ -49,6 +55,14 @@ MAX_INT = np.iinfo(np.int32).max
 
 
 def _generate_indices(random_state, bootstrap, n_population, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Draws n_samples indices from range(n_population): with replacement via
+    # uniform random integers when bootstrap is True, otherwise without replacement.
+    # Inputs: random_state - RandomState instance; bootstrap - bool; n_population,
+    # n_samples - ints.
+    # Outputs: 1D int array of length n_samples.
+    # Exceptions: ValueError from sample_without_replacement if n_samples > n_population.
+    # Side effects: advances random_state.
     """Draw randomly sampled indices."""
     # Draw sample indices
     if bootstrap:
@@ -71,6 +85,18 @@ def _generate_bagging_indices(
     max_samples,
     sample_weight,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Draws feature indices then sample indices from one seed, in a fixed order so
+    # the draw can be replayed later (see _get_estimators_indices).
+    # Behavior: features via _generate_indices; samples via _generate_indices when
+    # sample_weight is None, else a weighted choice of max_samples rows with probabilities
+    # proportional to sample_weight, with replacement iff bootstrap_samples.
+    # Inputs: random_state - int seed or RandomState; bootstrap_features,
+    # bootstrap_samples - bool; n_features, n_samples, max_features, max_samples - ints;
+    # sample_weight - 1D array or None.
+    # Outputs: tuple (feature_indices, sample_indices).
+    # Exceptions: ValueError from numpy when weighted sampling without replacement asks
+    # for more rows than have non-zero weight.
     """Randomly draw feature and sample indices."""
     # Get valid random state
     random_state = check_random_state(random_state)
@@ -96,6 +122,10 @@ def _generate_bagging_indices(
 
 
 def _consumes_sample_weight(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Tells whether an estimator's fit accepts sample_weight: via its routing
+    # request when metadata routing is enabled, else by inspecting the fit signature.
+    # Outputs: bool.
     if _routing_enabled():
         request_or_router = get_routing_for_object(estimator)
         consumes_sample_weight = request_or_router.consumes("fit", ("sample_weight",))
@@ -116,6 +146,21 @@ def _parallel_build_estimators(
     check_input,
     fit_params,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits a batch of n_estimators base estimators inside one joblib job.
+    # For each seed: makes an estimator from ensemble (seeded random_state params), wraps fit
+    # to pass check_input if supported, draws feature/sample indices, then either encodes
+    # the drawn rows as integer sample_weight counts (when the estimator consumes
+    # sample_weight, avoiding a copy of X) or indexes rows of X, y and per-sample fit params;
+    # restricts columns to the drawn features when needed; fits.
+    # Inputs: n_estimators - int; ensemble - fitted-in-progress BaseBagging; X, y - data;
+    # sample_weight - array or None (used only as sampling probabilities); seeds - int
+    # array; total_n_estimators, verbose - for progress printing; check_input - bool;
+    # fit_params - routed dict.
+    # Outputs: tuple (list of fitted estimators, list of feature index arrays).
+    # Side effects: prints progress when verbose > 1.
+    # KNOWN ISSUE: in the sample_weight path any routed sample_weight in fit_params is
+    # overwritten by the bootstrap counts, so user weights act only through sampling.
     """Private function used to build a batch of estimators within a job."""
     # Retrieve settings
     n_samples, n_features = X.shape
@@ -193,6 +238,12 @@ def _parallel_predict_proba(
     predict_params=None,
     predict_proba_params=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Sums class probabilities of a batch of estimators. Estimators with
+    # predict_proba add their probabilities (mapped into the full class columns when the
+    # estimator saw only a subset of classes, since classes_ are encoded integers);
+    # others add one vote to the predicted class per sample.
+    # Outputs: array (n_samples, n_classes) of unnormalized sums.
     """Private function used to compute (proba-)predictions within a job."""
     n_samples = X.shape[0]
     proba = np.zeros((n_samples, n_classes))
@@ -222,6 +273,12 @@ def _parallel_predict_proba(
 
 
 def _parallel_predict_log_proba(estimators, estimators_features, X, n_classes, params):
+    # [FUNCTION DOC]
+    # HELPER: Log of the summed probabilities of a batch, accumulated with logaddexp,
+    # starting from -inf; estimators missing some classes contribute only to their classes.
+    # Outputs: array (n_samples, n_classes).
+    # KNOWN ISSUE: the update for missing classes adds -inf via logaddexp, which is a
+    # no-op and therefore dead code.
     """Private function used to compute log probabilities within a job."""
     n_samples = X.shape[0]
     log_proba = np.empty((n_samples, n_classes))
@@ -247,6 +304,9 @@ def _parallel_predict_log_proba(estimators, estimators_features, X, n_classes, p
 
 
 def _parallel_decision_function(estimators, estimators_features, X, params):
+    # [FUNCTION DOC]
+    # HELPER: Sums decision_function outputs of a batch of estimators on their feature
+    # subsets. Outputs: summed array (or 0 for an empty batch).
     """Private function used to compute decisions within a job."""
     return sum(
         estimator.decision_function(X[:, features], **params)
@@ -255,6 +315,9 @@ def _parallel_decision_function(estimators, estimators_features, X, params):
 
 
 def _parallel_predict_regression(estimators, estimators_features, X, params):
+    # [FUNCTION DOC]
+    # HELPER: Sums predict outputs of a batch of estimators on their feature subsets.
+    # Outputs: summed array (or 0 for an empty batch).
     """Private function used to compute predictions within a job."""
     return sum(
         estimator.predict(X[:, features], **params)
@@ -263,6 +326,11 @@ def _parallel_predict_regression(estimators, estimators_features, X, params):
 
 
 class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract bagging base. Subclasses provide _get_estimator (default base estimator),
+    # _set_oob_score and optionally _validate_y. Fitted state: estimator_, estimators_,
+    # estimators_features_, _seeds (to regenerate in-bag samples), _max_samples,
+    # _max_features, _sample_weight, _n_samples and optionally oob attributes.
     """Base class for Bagging meta-estimator.
 
     Warning: This class should not be used directly. Use derived classes
@@ -306,6 +374,8 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
         random_state=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged (estimator and n_estimators via BaseEnsemble).
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -325,6 +395,12 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Public fit: rejects metadata in fit_params unless routing is enabled, validates X
+        # (csr/csc accepted, any dtype, NaN/inf allowed) and y (multi-output allowed),
+        # validates sample_weight (warning when bootstrap is False), then delegates to _fit with
+        # self.max_samples.
+        # Outputs: self. Side effects: as in _fit; may emit UserWarning.
         """Build a Bagging ensemble of estimators from the training set (X, y).
 
         Parameters
@@ -392,6 +468,9 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
         )
 
     def _parallel_args(self):
+        # [FUNCTION DOC]
+        # HELPER: Extra keyword arguments for joblib Parallel; empty by default, a hook for
+        # subclasses.
         return {}
 
     def _fit(
@@ -404,6 +483,28 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
         sample_weight=None,
         **fit_params,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Core fitting routine (also used by IsolationForest with max_depth and
+        # check_input overrides).
+        # Steps: create RNG; store _n_samples; encode y via _validate_y; set estimator_; route
+        # fit params; optionally set max_depth on estimator_; resolve max_samples to an int
+        # via _get_n_samples_bootstrap (must be <= n_samples without bootstrap); resolve
+        # max_features (int, or fraction of n_features_in_ truncated, at least 1); store
+        # _sample_weight; check oob compatibility; reset or keep estimators_ (warm start);
+        # compute how many new estimators to build; advance the RNG past seeds of existing
+        # estimators on warm start; draw one seed per new estimator (stored in _seeds); fit in
+        # parallel batches and append results; compute OOB score if requested.
+        # Outputs: self.
+        # Exceptions: ValueError for too large max_samples/max_features, oob without
+        # bootstrap, oob with warm_start, or n_estimators below the current ensemble size.
+        # Side effects: sets the attributes listed for the class; deletes oob_score_ on warm
+        # start; warns when warm start adds no estimators.
+        # KNOWN ISSUE: max_depth is set directly on estimator_, which is the user's estimator
+        # object (not a clone), so the user's estimator is mutated.
+        # KNOWN ISSUE: a float max_features that is not a Python float subclass (e.g.
+        # numpy.float32) leaves max_features unassigned and raises UnboundLocalError.
+        # KNOWN ISSUE: on warm start _seeds is overwritten with only the new seeds, so
+        # estimators_samples_ no longer lines up with all of estimators_.
         """Build a Bagging ensemble of estimators from the training
            set (X, y).
 
@@ -571,14 +672,22 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
 
     @abstractmethod
     def _set_oob_score(self, X, y):
+        # [FUNCTION DOC]
+        # Abstract hook computing out-of-bag predictions and score from X and encoded y.
         """Calculate out of bag predictions and score."""
 
     def _validate_y(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Flattens column-vector y to 1D (warning via column_or_1d); keeps multi-column
+        # y unchanged. Outputs: y.
         if len(y.shape) == 1 or y.shape[1] == 1:
             return column_or_1d(y, warn=True)
         return y
 
     def _get_estimators_indices(self):
+        # [FUNCTION DOC]
+        # HELPER: Generator replaying, for each stored seed, the same feature/sample index draw
+        # done at fit time. Yields tuples (feature_indices, sample_indices).
         # Get drawn indices along both sample and feature axes
         for seed in self._seeds:
             # Operations accessing random_state must be performed identically
@@ -598,6 +707,9 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
 
     @property
     def estimators_samples_(self):
+        # [FUNCTION DOC]
+        # Property returning the in-bag sample indices of each estimator, regenerated on every
+        # access from the stored seeds (not cached).
         """
         The subset of drawn samples for each base estimator.
 
@@ -612,6 +724,12 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
         return [sample_indices for _, sample_indices in self._get_estimators_indices()]
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter for the base estimator: fit to fit, decision_function to
+        # decision_function; predict and predict_proba to predict_proba if the base estimator
+        # has it, else to predict; predict_log_proba to predict_log_proba, else predict_proba,
+        # else predict.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -671,9 +789,13 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
 
     @abstractmethod
     def _get_estimator(self):
+        # [FUNCTION DOC]
+        # Abstract: returns the user estimator or the subclass default.
         """Resolve which estimator to return."""
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Propagates sparse and allow_nan input tags from the resolved base estimator.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self._get_estimator()).input_tags.sparse
         tags.input_tags.allow_nan = get_tags(self._get_estimator()).input_tags.allow_nan
@@ -681,6 +803,9 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
 
 
 class BaggingClassifier(ClassifierMixin, BaseBagging):
+    # [CLASS DOC]
+    # Bagging for classification. y is label-encoded into classes_ indices; probabilities
+    # are averaged across estimators (or votes counted) and predictions take the argmax.
     """A Bagging classifier.
 
     A Bagging classifier is an ensemble meta-estimator that fits base
@@ -867,6 +992,8 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         random_state=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseBagging.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -882,12 +1009,22 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         )
 
     def _get_estimator(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the user estimator, or a new DecisionTreeClassifier when None.
         """Resolve which estimator to return (default is DecisionTreeClassifier)"""
         if self.estimator is None:
             return DecisionTreeClassifier()
         return self.estimator
 
     def _set_oob_score(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: For each estimator, adds probabilities (or one vote) for samples outside its
+        # in-bag set; normalizes rows to get oob_decision_function_ and computes oob_score_ as
+        # accuracy of the row-wise argmax against encoded y.
+        # Side effects: sets oob_decision_function_, oob_score_; warns if some samples were
+        # never out of bag.
+        # KNOWN ISSUE: samples never out of bag give 0/0 and produce NaN rows in
+        # oob_decision_function_ (no guard as in the regressor).
         n_samples = y.shape[0]
         n_classes_ = self.n_classes_
 
@@ -927,6 +1064,9 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         self.oob_score_ = oob_score
 
     def _validate_y(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Requires 1D classification targets; sets classes_ and n_classes_ and returns
+        # y encoded as integer indices into classes_.
         y = column_or_1d(y, warn=True)
         check_classification_targets(y)
         self.classes_, y = np.unique(y, return_inverse=True)
@@ -935,6 +1075,8 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         return y
 
     def predict(self, X, **params):
+        # [FUNCTION DOC]
+        # Returns classes_ at the argmax of predict_proba for each sample.
         """Predict class for X.
 
         The predicted class of an input sample is computed as the class with
@@ -969,6 +1111,12 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         return self.classes_.take((np.argmax(predicted_probabilitiy, axis=1)), axis=0)
 
     def predict_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # Validates X, routes params, and averages per-batch probability sums from
+        # _parallel_predict_proba over n_estimators.
+        # Outputs: array (n_samples, n_classes). Exceptions: NotFittedError; routing errors.
+        # KNOWN ISSUE: partitioning and averaging use n_estimators rather than
+        # len(estimators_), so changing n_estimators after fit gives wrong results.
         """Predict class probabilities for X.
 
         The predicted class probabilities of an input sample is computed as
@@ -1042,6 +1190,12 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         return proba
 
     def predict_log_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # If the base estimator has predict_log_proba: combines per-batch log-sums with
+        # logaddexp and subtracts log(n_estimators); otherwise returns the log of predict_proba.
+        # Outputs: array (n_samples, n_classes).
+        # KNOWN ISSUE: docstring mentions a `proba` method meaning predict; the Parallel call
+        # here omits _parallel_args unlike predict_proba.
         """Predict class log-probabilities for X.
 
         The predicted class log-probabilities of an input sample is computed as
@@ -1124,6 +1278,10 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
         _estimator_has("decision_function", delegates=("estimators_", "estimator"))
     )
     def decision_function(self, X, **params):
+        # [FUNCTION DOC]
+        # Available only when the base estimator has decision_function. Validates X, routes
+        # params, and returns the mean of the estimators' decision_function values.
+        # Outputs: array (n_samples,) or (n_samples, n_classes).
         """Average of the decision functions of the base classifiers.
 
         Parameters
@@ -1190,6 +1348,8 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
 
 
 class BaggingRegressor(RegressorMixin, BaseBagging):
+    # [CLASS DOC]
+    # Bagging for regression; predictions are the mean of base estimator predictions.
     """A Bagging regressor.
 
     A Bagging regressor is an ensemble meta-estimator that fits base
@@ -1367,6 +1527,8 @@ class BaggingRegressor(RegressorMixin, BaseBagging):
         random_state=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards all hyperparameters to BaseBagging.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -1382,6 +1544,10 @@ class BaggingRegressor(RegressorMixin, BaseBagging):
         )
 
     def predict(self, X, **params):
+        # [FUNCTION DOC]
+        # Validates X, routes params, and returns the summed predictions of all batches divided
+        # by n_estimators.
+        # Outputs: array (n_samples,) or (n_samples, n_outputs).
         """Predict regression target for X.
 
         The predicted regression target of an input sample is computed as the
@@ -1446,6 +1612,12 @@ class BaggingRegressor(RegressorMixin, BaseBagging):
         return y_hat
 
     def _set_oob_score(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Averages predictions of estimators for samples out of their bag, sets
+        # oob_prediction_ and oob_score_ (R^2). Samples never out of bag get prediction 0
+        # after a warning.
+        # KNOWN ISSUE: predictions are accumulated in a 1D buffer, so multi-output targets fail
+        # when oob_score is True.
         n_samples = y.shape[0]
 
         predictions = np.zeros((n_samples,))
@@ -1474,6 +1646,9 @@ class BaggingRegressor(RegressorMixin, BaseBagging):
         self.oob_score_ = r2_score(y, predictions)
 
     def _get_estimator(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the user estimator, or a new DecisionTreeRegressor when None.
+        # KNOWN ISSUE: docstring says the default is DecisionTreeClassifier.
         """Resolve which estimator to return (default is DecisionTreeClassifier)"""
         if self.estimator is None:
             return DecisionTreeRegressor()

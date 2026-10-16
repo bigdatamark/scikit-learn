@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for the Cython Splitter of histogram gradient boosting: best-split search on
+# numerical features, consistency of gradient/hessian sums, sample partitioning,
+# min_gain_to_split, missing-value handling, categorical splits (including the
+# MIN_CAT_SUPPORT smoothing rule), interaction constraints (allowed_features) and
+# feature subsampling per split. Each test builds a HistogramBuilder and a Splitter by
+# hand. n_threads is the effective OpenMP thread count.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -21,6 +28,11 @@ n_threads = _openmp_effective_n_threads()
 
 @pytest.mark.parametrize("n_bins", [3, 32, 256])
 def test_histogram_split(n_bins):
+    # [FUNCTION DOC]
+    # Verifies, for every true_bin and both gradient signs, that with gradients flipped in
+    # sign for samples with bin <= true_bin, find_node_split returns bin_idx == true_bin on
+    # feature 0 with non-negative gain, left+right sample counts summing to n_samples, and
+    # left hessian sum equal to the left sample count (unit hessians).
     rng = np.random.RandomState(42)
     feature_idx = 0
     l2_regularization = 0
@@ -97,6 +109,12 @@ def test_histogram_split(n_bins):
 @skip_if_32bit
 @pytest.mark.parametrize("constant_hessian", [True, False])
 def test_gradient_and_hessian_sanity(constant_hessian):
+    # [FUNCTION DOC]
+    # Verifies, for a parent node and its two children (after split_indices), that split
+    # info left+right gradient/hessian sums equal the true sums over the node's samples,
+    # and that per-feature histogram sums equal those totals for every feature (hessian sums
+    # expected 0 when hessians are constant, since they are not accumulated). Skipped on
+    # 32-bit platforms.
     # This test checks that the values of gradients and hessians are
     # consistent in different places:
     # - in split_info: si.sum_gradient_left + si.sum_gradient_right must be
@@ -240,6 +258,12 @@ def test_gradient_and_hessian_sanity(constant_hessian):
 
 
 def test_split_indices():
+    # [FUNCTION DOC]
+    # Verifies on a 10x2 toy dataset that the best split is feature 1 / bin 3, that
+    # split_indices returns the expected left/right sample sets, that they match the
+    # splitter.partition slices before/after position_right, and that their sizes equal
+    # the counts anticipated in the split info. Also checks the initial partition is the
+    # identity.
     # Check that split_indices returns the correct splits and that
     # splitter.partition is consistent with what is returned.
     rng = np.random.RandomState(421)
@@ -326,6 +350,9 @@ def test_split_indices():
 
 
 def test_min_gain_to_split():
+    # [FUNCTION DOC]
+    # Verifies that a pure node (all gradients and hessians equal) is not split with
+    # min_gain_to_split=0: the gain comparison is strict so the best gain is -1.
     # Try to split a pure node (all gradients are equal, same for hessians)
     # with min_gain_to_split = 0 and make sure that the node is not split (best
     # possible gain = -1). Note: before the strict inequality comparison, this
@@ -493,6 +520,13 @@ def test_splitting_missing_values(
     expected_bin_idx,
     expected_go_to_left,
 ):
+    # [FUNCTION DOC]
+    # Verifies numerical split search with missing values: for parametrized binned data
+    # where missing samples are encoded as the last bin, checks expected bin_idx,
+    # missing_go_to_left (when missing values exist), whether the split is a
+    # "split on nan" (bin_idx == n_bins_non_missing - 1), and that split_indices sends
+    # samples 0-3 left otherwise, or exactly the missing samples right when splitting on
+    # nan.
     # Make sure missing values are properly supported.
     # we build an artificial example with gradients such that the best split
     # is on bin_idx=3, when there are no missing values.
@@ -602,6 +636,12 @@ def test_splitting_missing_values(
 def test_splitting_categorical_cat_smooth(
     X_binned, has_missing_values, n_bins_non_missing
 ):
+    # [FUNCTION DOC]
+    # Verifies that no categorical split is found (gain -1) when no category reaches the
+    # MIN_CAT_SUPPORT threshold (or only one does), including cases with missing values
+    # and with no non-missing category.
+    # KNOWN ISSUE: the parametrize name string has a trailing ", " which yields an empty
+    # trailing name that pytest tolerates but is misleading.
     # Checks categorical splits are correct when the MIN_CAT_SUPPORT constraint
     # isn't respected: there are no splits
 
@@ -661,6 +701,11 @@ def test_splitting_categorical_cat_smooth(
 
 
 def _assert_categories_equals_bitset(categories, bitset):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that an 8 x uint32 bitset has exactly the bits for the given category
+    # values set (bit cat % 32 of word cat // 32).
+    # Inputs: categories - iterable of ints in [0, 255]; bitset - array of 8 uint32.
+    # Exceptions: AssertionError on mismatch.
     # assert that the bitset exactly corresponds to the categories
     # bitset is assumed to be an array of 8 uint32 elements
 
@@ -790,6 +835,13 @@ def test_splitting_categorical_sanity(
     has_missing_values,
     expected_missing_go_to_left,
 ):
+    # [FUNCTION DOC]
+    # Verifies categorical split search for parametrized cases (left category sets found
+    # scanning in either direction, low-support categories forced right, missing values
+    # going left or right, split isolating the missing bin, many-category splits): checks
+    # is_categorical, positive gain, the left_cat_bitset content, missing_go_to_left when
+    # missing values exist, and that split_indices sends exactly samples whose category is
+    # in the expected left set to the left (order preserved).
     # Tests various combinations of categorical splits
 
     n_samples = len(X_binned)
@@ -865,6 +917,10 @@ def test_splitting_categorical_sanity(
 
 
 def test_split_interaction_constraints():
+    # [FUNCTION DOC]
+    # Verifies allowed_features in find_node_split over 10 seeds: with gradients driven by
+    # feature 1, the unconstrained split uses feature 1 while restricting to features
+    # {0, 3} yields a split on one of them; across seeds both 0 and 3 are used.
     """Check that allowed_features are respected."""
     n_features = 4
     # features 1 and 2 are not allowed to be split on
@@ -963,6 +1019,12 @@ def test_split_interaction_constraints():
 
 @pytest.mark.parametrize("forbidden_features", [set(), {1, 3}])
 def test_split_feature_fraction_per_split(forbidden_features):
+    # [FUNCTION DOC]
+    # Verifies feature subsampling: with 4 features and feature_fraction_per_split=0.25,
+    # 20 calls to find_node_split pick a random single feature each time and eventually
+    # cover all allowed features (with or without forbidden features {1, 3}), while a
+    # splitter with fraction 1.0 always picks the same feature. Both splitters share the
+    # same numpy Generator.
     """Check that feature_fraction_per_split is respected.
 
     Because we set `n_features = 4` and `feature_fraction_per_split = 0.25`, it means

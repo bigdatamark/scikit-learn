@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the low-level Cython histogram builders (naive, unrolled, root, and
+# no-hessian variants) and the histogram subtraction trick used by the grower.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -19,6 +22,11 @@ from sklearn.ensemble._hist_gradient_boosting.histogram import (
 
 @pytest.mark.parametrize("build_func", [_build_histogram_naive, _build_histogram])
 def test_build_histogram(build_func):
+    # [FUNCTION DOC]
+    # Verifies that build_func (naive or unrolled builder) produces the correct per-bin
+    # count, sum_gradients and sum_hessians for a tiny binned feature, both with 3 sample
+    # indices (below the unrolling threshold) and 5 indices (above it), by comparison
+    # with hand-computed values.
     binned_feature = np.array([0, 2, 0, 1, 2, 0, 2, 1], dtype=X_BINNED_DTYPE)
 
     # Small sample_indices (below unrolling threshold)
@@ -51,6 +59,10 @@ def test_build_histogram(build_func):
 
 
 def test_histogram_sample_order_independence():
+    # [FUNCTION DOC]
+    # Verifies that permuting the sample indices together with their ordered gradients
+    # (and hessians) does not change the histograms built by _build_histogram_no_hessian
+    # and _build_histogram (sums compared with allclose, counts exactly).
     # Make sure the order of the samples has no impact on the histogram
     # computations
     rng = np.random.RandomState(42)
@@ -109,6 +121,11 @@ def test_histogram_sample_order_independence():
 
 @pytest.mark.parametrize("constant_hessian", [True, False])
 def test_unrolled_equivalent_to_naive(constant_hessian):
+    # [FUNCTION DOC]
+    # Verifies that the root, root-no-hessian, no-hessian and unrolled builders all match
+    # _build_histogram_naive on counts and gradient sums, that hessian-aware variants
+    # match its hessian sums, and that no-hessian variants leave sum_hessians at zero.
+    # Parametrized over constant vs lognormal hessians.
     # Make sure the different unrolled histogram computations give the same
     # results as the naive one.
     rng = np.random.RandomState(42)
@@ -163,6 +180,11 @@ def test_unrolled_equivalent_to_naive(constant_hessian):
 
 @pytest.mark.parametrize("constant_hessian", [True, False])
 def test_hist_subtraction(constant_hessian):
+    # [FUNCTION DOC]
+    # Verifies the subtraction trick: builds parent, left and right histograms for a
+    # random boolean partition of samples, then checks that parent minus right equals
+    # left and parent minus left equals right (count, sums; rtol 1e-6). Uses the
+    # no-hessian builder when hessians are constant.
     # Make sure the histogram subtraction trick gives the same result as the
     # classical method.
     rng = np.random.RandomState(42)

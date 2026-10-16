@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Tests that IterativeImputer is only importable after enabling it explicitly.
 """Tests for making sure experimental imports work as expected."""
 
 import textwrap
@@ -10,6 +12,13 @@ from sklearn.utils.fixes import _IS_WASM
 
 @pytest.mark.xfail(_IS_WASM, reason="cannot start subprocess")
 def test_imports_strategies():
+    # [FUNCTION DOC]
+    # Runs three child-Python scripts (one subprocess each so module caches do not
+    # leak): (1) enable then import IterativeImputer succeeds; (2) importing
+    # sklearn.ensemble first and then enabling still succeeds; (3) without the enable
+    # import, importing IterativeImputer raises ImportError matching "IterativeImputer
+    # is experimental", also after importing sklearn.experimental alone. Each script
+    # must produce no output beyond the pattern. Marked xfail on WASM.
     # Make sure different import strategies work or fail as expected.
 
     # Since Python caches the imported modules, we need to run a child process

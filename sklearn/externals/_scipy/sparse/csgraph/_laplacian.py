@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Vendored copy of scipy.sparse.csgraph._laplacian (SciPy 1.12) so scikit-learn can
+#   build graph Laplacians of sparse arrays with older SciPy versions. Provides the
+#   public laplacian function plus private builders for dense/sparse inputs, either as
+#   explicit matrices or as matrix-free callables / LinearOperators.
 """
 This file is a copy of the scipy.sparse.csgraph._laplacian module from SciPy 1.12
 
@@ -28,6 +33,26 @@ def laplacian(
     dtype=None,
     symmetrized=False,
 ):
+    # [FUNCTION DOC]
+    # Dispatcher computing L = D - A (or the symmetrically normalized I - D^-1/2 A
+    #   D^-1/2) of a square adjacency matrix.
+    # Steps: validate that csgraph is 2-D and square; if normed and the dtype is a
+    #   signed integer or numpy uint, cast to float64; choose a builder: for form
+    #   "array" the sparse or dense explicit builder (by issparse), otherwise the
+    #   matrix-free "flo" builder; degree axis is 1 for use_out_degree else 0 (column
+    #   sums = in-degree); call the builder with all options.
+    # Inputs: csgraph - (N, N) ndarray or scipy sparse matrix/array; normed,
+    #   return_diag, use_out_degree - bools (default False); copy (default True), form
+    #   ("array" | "function" | "lo"), dtype (None keeps input dtype), symmetrized
+    #   (default False) are keyword-only.
+    # Outputs: lap (same kind as input for "array", a callable for "function", a
+    #   LinearOperator for "lo"); additionally the length-N array d when return_diag
+    #   (degrees, or sqrt-degrees with 0 replaced by 1 when normed).
+    # Exceptions: ValueError if not square/2-D, or (from builders) for an unknown form.
+    # Side effects: with copy=False the input may be overwritten in place.
+    # KNOWN ISSUE: np.issubdtype(dtype, np.uint) only matches the platform's unsigned
+    #   long, so other unsigned integer dtypes (e.g. uint8) are not cast to float before
+    #   normalization.
     """
     Return the Laplacian of a directed graph.
 
@@ -370,20 +395,36 @@ def laplacian(
 
 
 def _setdiag_dense(m, d):
+    # [FUNCTION DOC]
+    # HELPER: Writes values d onto the main diagonal of the square dense array m in
+    #   place by assigning every (len(d)+1)-th element of its flattened view. Returns
+    #   None.
     step = len(d) + 1
     m.flat[::step] = d
 
 
 def _laplace(m, d):
+    # [FUNCTION DOC]
+    # HELPER: Builds the matrix-free Laplacian action. Inputs: m - adjacency (dense or
+    #   sparse, N x N); d - length-N vector of row/column sums. Output: a function
+    #   mapping v (N or N x k) to d times v row-wise minus m times v.
     return lambda v: v * d[:, np.newaxis] - m @ v
 
 
 def _laplace_normed(m, d, nd):
+    # [FUNCTION DOC]
+    # HELPER: Normalized matrix-free Laplacian: returns a function that scales v row-
+    #   wise by nd, applies the _laplace(m, d) action, and scales the result row-wise by
+    #   nd again. nd is the inverse sqrt-degree vector.
     laplace = _laplace(m, d)
     return lambda v: nd[:, np.newaxis] * laplace(v * nd[:, np.newaxis])
 
 
 def _laplace_sym(m, d):
+    # [FUNCTION DOC]
+    # HELPER: Matrix-free Laplacian of the symmetrized graph m + m^H without forming it:
+    #   returns a function computing d times v row-wise minus m times v minus (v^H times
+    #   m)^H, where d must already contain the symmetrized sums.
     return (
         lambda v: v * d[:, np.newaxis]
         - m @ v
@@ -392,15 +433,34 @@ def _laplace_sym(m, d):
 
 
 def _laplace_normed_sym(m, d, nd):
+    # [FUNCTION DOC]
+    # HELPER: Same as _laplace_normed but wrapping the symmetrized action of
+    #   _laplace_sym.
     laplace_sym = _laplace_sym(m, d)
     return lambda v: nd[:, np.newaxis] * laplace_sym(v * nd[:, np.newaxis])
 
 
 def _linearoperator(mv, shape, dtype):
+    # [FUNCTION DOC]
+    # HELPER: Wraps a matvec/matmat callable mv into a scipy LinearOperator of the given
+    #   shape and dtype (the same function serves both products).
     return LinearOperator(matvec=mv, matmat=mv, shape=shape, dtype=dtype)
 
 
 def _laplacian_sparse_flo(graph, normed, axis, copy, form, dtype, symmetrized):
+    # [FUNCTION DOC]
+    # HELPER: Matrix-free Laplacian builder for sparse inputs (form "function" or "lo").
+    # Behavior: dtype defaults to the graph's dtype; graph_sum = sums along axis; diag =
+    #   graph_sum minus the graph diagonal (self loops excluded); if symmetrized add the
+    #   sums along the other axis to graph_sum and subtract the diagonal twice for diag.
+    #   If normed: w = sqrt(diag), with isolated (zero-degree) nodes set to 1; the
+    #   action is the normed (or normed symmetric) closure with 1/w. Otherwise the plain
+    #   (or symmetric) closure with graph_sum. Wrap in a LinearOperator for "lo".
+    # Inputs: graph - sparse (N, N); normed, axis (0/1), copy (ignored), form, dtype,
+    #   symmetrized.
+    # Outputs: (callable or LinearOperator, w or diag cast to dtype).
+    # Exceptions: ValueError for any form other than "function"/"lo".
+    # Side effects: none; the closures keep a reference to graph (read-only).
     # The keyword argument `copy` is unused and has no effect here.
     del copy
 
@@ -443,6 +503,23 @@ def _laplacian_sparse_flo(graph, normed, axis, copy, form, dtype, symmetrized):
 
 
 def _laplacian_sparse(graph, normed, axis, copy, form, dtype, symmetrized):
+    # [FUNCTION DOC]
+    # HELPER: Explicit sparse Laplacian builder (form "array").
+    # Behavior: dtype defaults to graph dtype; lil/dok inputs are converted to COO (a
+    #   copy), other formats are used directly and marked for copying when copy is True;
+    #   if symmetrized add the conjugate transpose; w = sums along axis minus diagonal.
+    #   If normed: convert to COO (copying if needed), replace zero w by 1 else take
+    #   sqrt, divide each stored value by w of its row and of its column, negate, set
+    #   the diagonal to 1 for non-isolated nodes and 0 for isolated ones. Else: DIA
+    #   matrices are copied, others converted to COO (copy if needed); negate data and
+    #   set the diagonal to w.
+    # Inputs: as _laplacian_sparse_flo; form is ignored.
+    # Outputs: (sparse Laplacian cast to dtype, w cast to dtype).
+    # Side effects: with copy=False and COO input, the input's data is modified in
+    #   place.
+    # KNOWN ISSUE: for normed inputs the returned w are sqrt-degrees, while for non-
+    #   normed they are degrees; consistent with upstream docs but easy to misread.
+    #   Also, w.astype(dtype) always copies whereas the dense builder uses copy=False.
     # The keyword argument `form` is unused and has no effect here.
     del form
 
@@ -481,6 +558,12 @@ def _laplacian_sparse(graph, normed, axis, copy, form, dtype, symmetrized):
 
 
 def _laplacian_dense_flo(graph, normed, axis, copy, form, dtype, symmetrized):
+    # [FUNCTION DOC]
+    # HELPER: Matrix-free Laplacian builder for dense inputs; identical algorithm to
+    #   _laplacian_sparse_flo but first takes np.array (copy) or np.asarray of the graph
+    #   depending on copy, and dtype defaults to that array's dtype.
+    # Outputs: (callable or LinearOperator, w or diag cast to dtype). Exceptions:
+    #   ValueError for invalid form.
     if copy:
         m = np.array(graph)
     else:
@@ -525,6 +608,19 @@ def _laplacian_dense_flo(graph, normed, axis, copy, form, dtype, symmetrized):
 
 
 def _laplacian_dense(graph, normed, axis, copy, form, dtype, symmetrized):
+    # [FUNCTION DOC]
+    # HELPER: Explicit dense Laplacian builder.
+    # Behavior: require form "array"; dtype defaults to graph dtype; copy or view the
+    #   graph; if symmetrized add its conjugate transpose in place; zero the diagonal; w
+    #   = sums along axis. If normed: zero w replaced by 1 and others by sqrt, divide
+    #   columns then rows by w, negate, and set the diagonal to 1 for non-isolated and 0
+    #   for isolated nodes. Else negate and set the diagonal to w.
+    # Outputs: (dense Laplacian cast to dtype, w cast to dtype).
+    # Exceptions: ValueError if form is not "array".
+    # Side effects: with copy=False the input array is overwritten (diagonal zeroed,
+    #   values negated/scaled).
+    # KNOWN ISSUE: the second "if dtype is None" check is dead code because dtype was
+    #   already set from graph.dtype.
     if form != "array":
         raise ValueError(f'{form!r} must be "array"')
 

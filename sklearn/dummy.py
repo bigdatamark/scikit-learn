@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Baseline estimators that ignore input features: DummyClassifier (predicts from the
+# empirical class distribution, a uniform draw, or a user constant) and DummyRegressor
+# (predicts a mean, median, quantile or user constant). Both support multi-output
+# targets and accept X=None in score.
 """Dummy estimators that implement simple rules of thumb."""
 
 # Authors: The scikit-learn developers
@@ -32,6 +37,10 @@ from sklearn.utils.validation import (
 
 
 class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Feature-agnostic classifier. Fitted state is the per-output class labels, counts and
+    # (weighted) priors; predictions depend only on these, the strategy and randomness.
+    # Single-output fits store unwrapped arrays; multi-output fits store lists per output.
     """DummyClassifier makes predictions that ignore the input features.
 
     This classifier serves as a simple baseline to compare against other more
@@ -154,12 +163,30 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
     }
 
     def __init__(self, *, strategy="prior", random_state=None, constant=None):
+        # [FUNCTION DOC]
+        # Stores strategy, random_state and constant without validation (done by
+        # _parameter_constraints at fit).
         self.strategy = strategy
         self.random_state = random_state
         self.constant = constant
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Records the strategy and the per-output class distribution of y.
+        # Steps: validates X only for n_features_in_/feature names (no array check); copies
+        # strategy to _strategy; for "uniform" with sparse y, densifies y with a UserWarning;
+        # sets sparse_output_; reshapes 1D y to a column; sets n_outputs_; checks consistent
+        # lengths and validates sample_weight; for "constant", requires constant to be given,
+        # of length n_outputs_, and present among each output's classes; computes classes_,
+        # n_classes_, class_prior_ via class_distribution (weighted); unwraps them for a single
+        # output.
+        # Inputs: X - any object with a length; y - array-like or sparse, (n,) or (n, k);
+        # sample_weight - (n,) or None.
+        # Outputs: self.
+        # Exceptions: ValueError for missing/mis-shaped/unknown constant or length mismatch.
+        # Side effects: sets _strategy, sparse_output_, n_outputs_, classes_, n_classes_,
+        # class_prior_, n_features_in_ (and feature_names_in_).
         """Fit the baseline classifier.
 
         Parameters
@@ -250,6 +277,18 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Produces labels for n_samples = number of rows of X according to _strategy.
+        # most_frequent/prior: argmax-prior class repeated; stratified: argmax of each sampled
+        # one-hot row from predict_proba; uniform: a class drawn uniformly per sample; constant:
+        # the user constant repeated. With sparse_output_, builds a CSC matrix via
+        # _random_choice_csc (uniform is rejected); single-output dense results are flattened.
+        # Outputs: array (n_samples,) or (n_samples, n_outputs), or sparse CSC matrix.
+        # Exceptions: NotFittedError; ValueError for uniform with sparse output.
+        # Side effects: randomness from a generator rebuilt from random_state on each call, so
+        # an int seed gives identical predictions on every call.
+        # KNOWN ISSUE: in the sparse stratified path predict_proba is computed but unused;
+        # sampling instead uses class_prior_ with the raw random_state, not rs.
         """Perform classification on test vectors X.
 
         Parameters
@@ -337,6 +376,14 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return y
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns per-output class probabilities for each sample: one-hot of argmax prior
+        # (most_frequent), the prior itself (prior), a random one-hot multinomial draw from
+        # the prior (stratified), 1/n_classes everywhere (uniform), or one-hot of the constant
+        # (constant).
+        # Outputs: float array (n_samples, n_classes), or a list of these for multi-output.
+        # Exceptions: NotFittedError.
+        # Side effects: uses a generator rebuilt from random_state each call (stratified).
         """
         Return probability estimates for the test vectors X.
 
@@ -400,6 +447,10 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return P
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the natural log of predict_proba (per output for multi-output); zero
+        # probabilities give -inf (numpy may warn about divide by zero).
+        # KNOWN ISSUE: docstring describes X as "Training data" although it is test data.
         """
         Return log probability estimates for the test vectors X.
 
@@ -422,6 +473,9 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
             return [np.log(p) for p in proba]
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks the estimator as accepting sparse input, having a poor score and skipping input
+        # validation.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.classifier_tags.poor_score = True
@@ -429,6 +483,9 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return tags
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Mean accuracy via ClassifierMixin.score; when X is None substitutes a zero column of
+        # length len(y) since predictions ignore X.
         """Return the mean accuracy on the given test data and labels.
 
         In multi-label classification, this is the subset accuracy
@@ -459,6 +516,9 @@ class DummyClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
 
 
 class DummyRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Feature-agnostic regressor predicting a constant row constant_ of shape
+    # (1, n_outputs) learned from y or given by the user.
     """Regressor that makes predictions using simple rules.
 
     This regressor is useful as a simple baseline to compare with other
@@ -535,12 +595,30 @@ class DummyRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     }
 
     def __init__(self, *, strategy="mean", constant=None, quantile=None):
+        # [FUNCTION DOC]
+        # Stores strategy, constant and quantile without validation.
         self.strategy = strategy
         self.constant = constant
         self.quantile = quantile
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Computes constant_ from y.
+        # Steps: records n_features_in_ from X; validates y as array (non-empty); reshapes 1D y
+        # to a column and sets n_outputs_; checks consistent lengths and validates
+        # sample_weight. mean: weighted average per column; median: column median, or weighted
+        # 50th percentile; quantile: column percentile at quantile*100, or weighted
+        # percentile; constant: validates user constant as an array (length must equal
+        # n_outputs_ when multi-output). Finally reshapes constant_ to (1, -1).
+        # Outputs: self.
+        # Exceptions: ValueError for empty y, missing quantile, or wrong constant length;
+        # TypeError when strategy="constant" and constant is None.
+        # Side effects: sets constant_, n_outputs_, n_features_in_.
+        # KNOWN ISSUE: the constant length check is skipped for single-output y, so a
+        # multi-element constant passes fit and later fails to broadcast in predict.
+        # KNOWN ISSUE: missing constant raises TypeError while DummyClassifier raises
+        # ValueError for the same situation.
         """Fit the baseline regressor.
 
         Parameters
@@ -622,6 +700,14 @@ class DummyRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X, return_std=False):
+        # [FUNCTION DOC]
+        # Returns constant_ repeated for each of the n_samples rows of X, with dtype of
+        # constant_; optionally also a zero standard deviation array of the same shape.
+        # Single-output results are flattened.
+        # Inputs: X - any object with a length; return_std - bool.
+        # Outputs: y, or tuple (y, y_std).
+        # Exceptions: NotFittedError.
+        # KNOWN ISSUE: docstring says "Perform classification" for a regressor.
         """Perform classification on test vectors X.
 
         Parameters
@@ -660,6 +746,9 @@ class DummyRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return (y, y_std) if return_std else y
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks the estimator as accepting sparse input, having a poor score and skipping input
+        # validation.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.regressor_tags.poor_score = True
@@ -667,6 +756,9 @@ class DummyRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return tags
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # R^2 via RegressorMixin.score; when X is None substitutes a zero column of length
+        # len(y).
         """Return the coefficient of determination R^2 of the prediction.
 
         The coefficient R^2 is defined as `(1 - u/v)`, where `u` is the

@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.ensemble._base helpers: BaseEnsemble estimator construction
+# (via BaggingClassifier) and _set_random_states seeding of nested estimators.
 """
 Testing for the base module (sklearn.ensemble.base).
 """
@@ -19,6 +22,12 @@ from sklearn.pipeline import Pipeline
 
 
 def test_base():
+    # [FUNCTION DOC]
+    # Verifies BaseEnsemble._make_estimator: after emptying estimators_ on a fitted
+    # BaggingClassifier of Perceptrons, creates three appended estimators (no seed,
+    # then two seeded from one RandomState) plus one non-appended; checks length 3,
+    # type Perceptron, first random_state stays None, seeded ones get distinct ints.
+    # Also smoke-tests fitting with n_estimators given as a numpy int32.
     # Check BaseEnsemble methods.
     ensemble = BaggingClassifier(
         estimator=Perceptron(random_state=None), n_estimators=3
@@ -50,6 +59,12 @@ def test_base():
 
 
 def test_set_random_states():
+    # [FUNCTION DOC]
+    # Verifies _set_random_states: smoke test on an estimator without random_state
+    # (LDA); None seed still sets an int; the same seed yields identical seeds on two
+    # estimators; nested Pipeline/SelectFromModel parameters all get int seeds that
+    # differ between parameters; and the assigned seeds do not depend on get_params
+    # ordering (compared using pipelines whose get_params sorts ascending/descending).
     # Linear Discriminant Analysis doesn't have random state: smoke test
     _set_random_states(LinearDiscriminantAnalysis(), random_state=17)
 
@@ -69,6 +84,9 @@ def test_set_random_states():
     # nested random_state
 
     def make_steps():
+        # [FUNCTION DOC]
+        # HELPER: Builds fresh steps: a SelectFromModel(Perceptron) selector and a
+        # Perceptron classifier, both with random_state None. Outputs: list of (name, est).
         return [
             ("sel", SelectFromModel(Perceptron(random_state=None))),
             ("clf", Perceptron(random_state=None)),
@@ -87,12 +105,22 @@ def test_set_random_states():
     # iteration order
 
     class AlphaParamPipeline(Pipeline):
+        # [CLASS DOC]
+        # HELPER: Pipeline subclass whose get_params returns parameters sorted by key
+        # ascending, used to test ordering invariance.
         def get_params(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Returns Pipeline.get_params output as an OrderedDict sorted ascending.
             params = Pipeline.get_params(self, *args, **kwargs).items()
             return OrderedDict(sorted(params))
 
     class RevParamPipeline(Pipeline):
+        # [CLASS DOC]
+        # HELPER: Pipeline subclass whose get_params returns parameters sorted by key
+        # descending.
         def get_params(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Returns Pipeline.get_params output as an OrderedDict sorted descending.
             params = Pipeline.get_params(self, *args, **kwargs).items()
             return OrderedDict(sorted(params, reverse=True))
 

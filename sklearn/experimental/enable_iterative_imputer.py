@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Import-for-side-effect module enabling the experimental IterativeImputer.
+# Behavior on import: imports IterativeImputer from sklearn.impute._iterative, sets it
+# as an attribute of the sklearn.impute module and appends its name to impute.__all__.
+# Side effects: mutates the global sklearn.impute module namespace (once per process).
 """Enables IterativeImputer
 
 The API and results of this estimator might change without any deprecation

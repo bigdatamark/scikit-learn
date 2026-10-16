@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for IsolationForest (sklearn.ensemble._iforest): parameter grids on dense and
+# sparse input, max_samples handling and warnings, parallel consistency, outlier
+# detection quality, the _average_path_length helper, warm start, chunked prediction and
+# several non-regression cases. Side effects at import: loads the iris and diabetes
+# datasets into module globals shared by the tests.
 """
 Testing for Isolation Forest algorithm (sklearn.ensemble.iforest).
 """
@@ -32,6 +38,10 @@ diabetes = load_diabetes()
 
 
 def test_iforest(global_random_seed):
+    # [FUNCTION DOC]
+    # Smoke test: fits IsolationForest with 3 trees for every combination of max_samples
+    # in (0.5, 1.0, 3) and bootstrap in (True, False) on a 2-sample toy set and predicts
+    # on 2 test points, with all warnings ignored; passes if nothing raises.
     """Check Isolation Forest for various parameter settings."""
     X_train = np.array([[0, 1], [1, 2]])
     X_test = np.array([[2, 1], [1, 1]])
@@ -49,6 +59,10 @@ def test_iforest(global_random_seed):
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_iforest_sparse(global_random_seed, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies that for each max_samples / bootstrap combination, a forest trained on a
+    # sparse (CSC or CSR) version of a diabetes subset predicts exactly the same labels
+    # on sparse test data as a same-seed forest trained and evaluated on the dense data.
     """Check IForest for various parameter settings on sparse input."""
     rng = check_random_state(global_random_seed)
     X_train, X_test = train_test_split(diabetes.data[:50], random_state=rng)
@@ -74,6 +88,11 @@ def test_iforest_sparse(global_random_seed, sparse_container):
 
 
 def test_iforest_error():
+    # [FUNCTION DOC]
+    # Verifies input handling on iris (150 samples): an explicit max_samples of 1000
+    # emits the "max_samples will be set to n_samples" UserWarning, while "auto" and an
+    # np.int64 value emit no UserWarning (warnings turned into errors); predicting with
+    # fewer features than seen in fit raises ValueError.
     """Test that it gives proper exception on deficient input."""
     X = iris.data
 
@@ -96,6 +115,9 @@ def test_iforest_error():
 
 
 def test_recalculate_max_depth():
+    # [FUNCTION DOC]
+    # Verifies that with default max_samples ("auto" -> min(256, n_samples) = 150 on
+    # iris) each tree's max_depth equals the ceiling of log2 of the number of samples.
     """Check max_depth recalculation when max_samples is reset to n_samples"""
     X = iris.data
     clf = IsolationForest().fit(X)
@@ -104,6 +126,10 @@ def test_recalculate_max_depth():
 
 
 def test_max_samples_attribute():
+    # [FUNCTION DOC]
+    # Verifies the fitted max_samples_ attribute: equals n_samples with the default, is
+    # clipped to n_samples (with the UserWarning) when 500 is requested, and equals 0.4
+    # * n_samples for a float of 0.4.
     X = iris.data
     clf = IsolationForest().fit(X)
     assert clf.max_samples_ == X.shape[0]
@@ -119,6 +145,10 @@ def test_max_samples_attribute():
 
 
 def test_iforest_parallel_regression(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies predictions do not depend on n_jobs: a forest fit with n_jobs=3 predicts
+    # the same with n_jobs set to 1 and 2 afterwards, and a same-seed forest fit with
+    # n_jobs=1 gives the same predictions.
     """Check parallel regression."""
     rng = check_random_state(global_random_seed)
 
@@ -139,6 +169,12 @@ def test_iforest_parallel_regression(global_random_seed):
 
 
 def test_iforest_performance(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies detection quality: trains on 1000 points from two Gaussian blobs, tests
+    # on 200 held-out inliers plus 200 uniform outliers in [-1, 1]^2, and asserts that
+    # the ROC AUC of the negated decision_function exceeds 0.98.
+    # KNOWN ISSUE: the inline comment speaks of "at most 6 errors" but the assertion is
+    # an AUC threshold.
     """Test Isolation Forest performs well"""
 
     # Generate train/test data
@@ -164,6 +200,11 @@ def test_iforest_performance(global_random_seed):
 
 @pytest.mark.parametrize("contamination", [0.25, "auto"])
 def test_iforest_works(contamination, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that on an 8-point toy set whose last two points are outliers, for
+    # contamination 0.25 and "auto", the outliers get strictly higher anomaly scores
+    # than all inliers and predict returns six 1s followed by two -1s. Also reused by
+    # the chunking tests below.
     # toy sample (the last two samples are outliers)
     X = [[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1], [7, 4], [-5, 9]]
 
@@ -178,6 +219,9 @@ def test_iforest_works(contamination, global_random_seed):
 
 
 def test_max_samples_consistency():
+    # [FUNCTION DOC]
+    # Verifies the public max_samples_ equals the private _max_samples computed by the
+    # BaseBagging machinery after fitting on iris.
     # Make sure validated max_samples in iforest and BaseBagging are identical
     X = iris.data
     clf = IsolationForest().fit(X)
@@ -185,6 +229,9 @@ def test_max_samples_consistency():
 
 
 def test_iforest_subsampled_features():
+    # [FUNCTION DOC]
+    # Non-regression for #5732: fitting with max_features=0.8 (feature subsampling) and
+    # then predicting must not raise.
     # It tests non-regression for #5732 which failed at predict.
     rng = check_random_state(0)
     X_train, X_test, y_train, y_test = train_test_split(
@@ -196,6 +243,10 @@ def test_iforest_subsampled_features():
 
 
 def test_iforest_average_path_length():
+    # [FUNCTION DOC]
+    # Verifies _average_path_length against the closed form 2*(ln(n-1)+gamma) -
+    # 2*(n-1)/n for n=5 and n=999, the special cases 0 and 1 giving 0 and 2 giving 1,
+    # vectorized input, and that the function is non-decreasing on 0..4.
     # It tests non-regression for #8549 which used the wrong formula
     # for average path length, strictly for the integer case
     # Updated to check average path length when input is <= 2 (issue #11839)
@@ -216,6 +267,10 @@ def test_iforest_average_path_length():
 
 
 def test_score_samples():
+    # [FUNCTION DOC]
+    # Verifies that score_samples equals decision_function plus offset_ for both an
+    # explicit contamination of 0.1 and the default, and that score_samples is
+    # independent of contamination.
     X_train = [[1, 1], [1, 2], [2, 1]]
     clf1 = IsolationForest(contamination=0.1).fit(X_train)
     clf2 = IsolationForest().fit(X_train)
@@ -233,6 +288,9 @@ def test_score_samples():
 
 
 def test_iforest_warm_start():
+    # [FUNCTION DOC]
+    # Verifies warm_start: refitting after raising n_estimators from 10 to 20 yields 20
+    # trees and keeps the first tree object identical (not refit).
     """Test iterative addition of iTrees to an iForest"""
 
     rng = check_random_state(0)
@@ -264,6 +322,13 @@ def test_iforest_warm_start():
 def test_iforest_chunks_works1(
     mocked_get_chunk, contamination, n_predict_calls, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies chunked scoring: with get_chunk_n_rows patched to return 3 rows, reruns
+    # test_iforest_works and checks the patched function was called n_predict_calls
+    # times (3 for float contamination, 2 for "auto", reflecting how many chunked
+    # scoring passes fit plus decision_function plus predict perform).
+    # Inputs: mocked_get_chunk - the Mock injected by the patch decorator. Thread-unsafe
+    # because it monkeypatches module code.
     test_iforest_works(contamination, global_random_seed)
     assert mocked_get_chunk.call_count == n_predict_calls
 
@@ -278,11 +343,18 @@ def test_iforest_chunks_works1(
 def test_iforest_chunks_works2(
     mocked_get_chunk, contamination, n_predict_calls, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Same as test_iforest_chunks_works1 but the patched chunk size is 10 rows (larger
+    # than the data), expecting the same call counts.
     test_iforest_works(contamination, global_random_seed)
     assert mocked_get_chunk.call_count == n_predict_calls
 
 
 def test_iforest_with_uniform_data():
+    # [FUNCTION DOC]
+    # Verifies that when training data has no variation (all ones, each column constant,
+    # or a single row), every prediction on training data, random data and shifted
+    # constant data is inlier (1).
     """Test whether iforest predicts inliers when using uniform data"""
 
     # 2-d array of all 1s
@@ -318,6 +390,9 @@ def test_iforest_with_uniform_data():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_iforest_with_n_jobs_does_not_segfault(csc_container):
+    # [FUNCTION DOC]
+    # Non-regression for #23252: fitting on a large (85000 x 100) CSC matrix with
+    # n_jobs=2 and max_samples=256 completes without crashing.
     """Check that Isolation Forest does not segfault with n_jobs=2
 
     Non-regression test for #23252
@@ -328,6 +403,10 @@ def test_iforest_with_n_jobs_does_not_segfault(csc_container):
 
 
 def test_iforest_preserve_feature_names():
+    # [FUNCTION DOC]
+    # Non-regression for #25844: fitting on a pandas DataFrame with a float
+    # contamination (which triggers internal scoring of the training data) must not emit
+    # the UserWarning about missing feature names. Skipped without pandas.
     """Check that feature names are preserved when contamination is not "auto".
 
     Feature names are required for consistency checks during scoring.
@@ -347,6 +426,10 @@ def test_iforest_preserve_feature_names():
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_iforest_sparse_input_float_contamination(sparse_container):
+    # [FUNCTION DOC]
+    # Non-regression for #27626: on sorted-index sparse input with contamination 0.1,
+    # fitting works and exactly 10% of training samples get a negative
+    # decision_function.
     """Check that `IsolationForest` accepts sparse matrix input and float value for
     contamination.
 
@@ -368,6 +451,10 @@ def test_iforest_sparse_input_float_contamination(sparse_container):
 @pytest.mark.parametrize("n_jobs", [1, 2])
 @pytest.mark.parametrize("contamination", [0.25, "auto"])
 def test_iforest_predict_parallel(global_random_seed, contamination, n_jobs):
+    # [FUNCTION DOC]
+    # Verifies predict parallelization: a serial forest detects the two outliers of the
+    # toy set, and a forest built with n_jobs=-1 and predicted under a threading joblib
+    # backend with n_jobs workers gives identical predictions.
     """Check that `IsolationForest.predict` is parallelized."""
     # toy sample (the last two samples are outliers)
     X = [[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1], [7, 4], [-5, 9]]

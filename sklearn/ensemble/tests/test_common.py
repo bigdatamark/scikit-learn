@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Common tests for heterogeneous ensembles (StackingClassifier/Regressor and
+# VotingClassifier/Regressor): named estimator access, set_params, dropping, type
+# and name validation, and delegation of missing-value handling. Loads iris and
+# diabetes datasets at import time as module-level fixtures.
 import numpy as np
 import pytest
 
@@ -80,6 +85,15 @@ X_r, y_r = load_diabetes(return_X_y=True)
     ],
 )
 def test_ensemble_heterogeneous_estimators_behavior(X, y, estimator):
+    # [FUNCTION DOC]
+    # Parametrized over the four heterogeneous ensembles. Verifies named_estimators
+    # access before fit (attribute and item access return the same objects), that
+    # fitted named_estimators_ has the three names, that replacing a sub-estimator with
+    # set_params does not create an attribute and leaves the others unchanged, that a
+    # "drop" entry is kept in named_estimators and named_estimators_, and that nested
+    # parameters (svm__C, rf__max_depth) are settable and visible via get_params.
+    # KNOWN ISSUE: the loop over estimator_dropped.named_estimators_ iterates keys
+    # (strings), so the isinstance assertion is always true and checks nothing.
     # check that the behavior of `estimators`, `estimators_`,
     # `named_estimators`, `named_estimators_` is consistent across all
     # ensemble classes and when using `set_params()`.
@@ -144,6 +158,10 @@ def test_ensemble_heterogeneous_estimators_behavior(X, y, estimator):
     [VotingClassifier, StackingRegressor, VotingRegressor],
 )
 def test_ensemble_heterogeneous_estimators_type(Ensemble):
+    # [FUNCTION DOC]
+    # Parametrized over VotingClassifier, StackingRegressor, VotingRegressor. Verifies
+    # fit raises ValueError ("should be a classifier/regressor") when given a
+    # sub-estimator of the wrong kind (regressor in a classifier ensemble or vice versa).
     # check that ensemble will fail during validation if the underlying
     # estimators are not of the same type (i.e. classifier or regressor)
     # StackingClassifier can have an underlying regresor so it's not checked
@@ -172,6 +190,10 @@ def test_ensemble_heterogeneous_estimators_type(Ensemble):
     ],
 )
 def test_ensemble_heterogeneous_estimators_name_validation(X, y, Ensemble):
+    # [FUNCTION DOC]
+    # Parametrized over the four ensembles. Verifies fit raises ValueError for names
+    # containing a double underscore, duplicate names, and names clashing with
+    # constructor parameters (e.g. "estimators").
     # raise an error when the name contains dunder
     if issubclass(Ensemble, ClassifierMixin):
         estimators = [("lr__", LogisticRegression())]
@@ -234,6 +256,10 @@ def test_ensemble_heterogeneous_estimators_name_validation(X, y, Ensemble):
     ],
 )
 def test_ensemble_heterogeneous_estimators_all_dropped(X, y, estimator):
+    # [FUNCTION DOC]
+    # Parametrized over the four ensembles with a single "lr" estimator. Verifies that
+    # setting it to "drop" makes fit raise ValueError "All estimators are dropped.".
+    # Side effect: mutates the parametrized estimator instance shared across runs.
     # check that we raise a consistent error when all estimators are
     # dropped
     estimator.set_params(lr="drop")
@@ -253,6 +279,11 @@ def test_ensemble_heterogeneous_estimators_all_dropped(X, y, estimator):
 # FIXME: we should move this test in `estimator_checks` once we are able
 # to construct meta-estimator instances
 def test_heterogeneous_ensemble_support_missing_values(Ensemble, Estimator, X, y):
+    # [FUNCTION DOC]
+    # Parametrized over the four ensembles. Injects ~10% NaN into a copy of the data
+    # (unseeded global numpy RNG) and verifies that ensembles of SimpleImputer +
+    # estimator pipelines fit and score without error, i.e. NaN validation is delegated
+    # to the sub-estimators.
     # check that Voting and Stacking predictor delegate the missing values
     # validation to the underlying estimator.
     X = X.copy()

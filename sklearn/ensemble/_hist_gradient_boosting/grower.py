@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Best-first tree growing for histogram gradient boosting. TreeNode holds per-node
+# training state; TreeGrower repeatedly pops the node with highest split gain from
+# a heap, splits it with the Cython Splitter, builds child histograms (brute force
+# for the smaller child, subtraction for the larger), enforces max_leaf_nodes,
+# max_depth, min_samples_leaf, monotonic and interaction constraints, and finally
+# converts the tree into a TreePredictor via _fill_predictor_arrays.
 """
 This module contains the TreeGrower class.
 
@@ -27,6 +34,11 @@ from sklearn.utils._openmp_helpers import _openmp_effective_n_threads
 
 
 class TreeNode:
+    # [CLASS DOC]
+    # Mutable training-time node. Holds sample indices (a view into
+    # splitter.partition), gradient/hessian sums, leaf value, split info, children,
+    # histograms, monotonic bounds for children and interaction-constraint state.
+    # Ordered by gain so it can live in a heapq.
     """Tree Node class used in TreeGrower.
 
     This isn't used for prediction purposes, only for training (see
@@ -93,6 +105,11 @@ class TreeNode:
         sum_hessians,
         value=None,
     ):
+        # [FUNCTION DOC]
+        # Stores the keyword arguments, derives n_samples from sample_indices, and
+        # initialises is_leaf False, children/split_info/histograms/allowed_features/
+        # interaction_cst_indices to None and children bounds to (-inf, +inf).
+        # Inputs: all keyword-only; value defaults to None (root uses 0).
         self.depth = depth
         self.sample_indices = sample_indices
         self.n_samples = sample_indices.shape[0]
@@ -119,6 +136,10 @@ class TreeNode:
         self.partition_stop = partition_stop
 
     def set_children_bounds(self, lower, upper):
+        # [FUNCTION DOC]
+        # Sets children_lower_bound and children_upper_bound (bounds on the values of
+        # this node's children, used by the splitter for monotonic constraints).
+        # Side effects: mutates self.
         """Set children values bounds to respect monotonic constraints."""
 
         # These are bounds for the node's *children* values, not the node's
@@ -128,6 +149,10 @@ class TreeNode:
         self.children_upper_bound = upper
 
     def __lt__(self, other_node):
+        # [FUNCTION DOC]
+        # Heap ordering: returns True when this node's split gain is strictly greater
+        # than the other's, so heappop returns the highest-gain node. Requires both
+        # nodes to have split_info set (AttributeError otherwise).
         """Comparison for priority queue.
 
         Nodes with high gain are higher priority than nodes with low gain.
@@ -145,6 +170,10 @@ class TreeNode:
 
 
 class TreeGrower:
+    # [CLASS DOC]
+    # Builds one regression tree on binned data fitted to a Newton step from given
+    # gradients/hessians. Owns a HistogramBuilder and a Splitter, a heap of
+    # splittable nodes, the list of finalized leaves, and timing counters.
     """Tree grower class used to build a tree.
 
     The tree is fitted to predict the values of a Newton-Raphson step. The
@@ -263,6 +292,21 @@ class TreeGrower:
         shrinkage=1.0,
         n_threads=None,
     ):
+        # [FUNCTION DOC]
+        # Validates inputs, resolves n_threads, normalizes n_bins_non_missing (None ->
+        # n_bins - 1, int -> per-feature uint32 array), has_missing_values (bool ->
+        # per-feature uint8), monotonic_cst (None -> NO_CST int8 array) and
+        # is_categorical (None -> zeros uint8). Hessians of length 1 are treated as
+        # constant. Creates the HistogramBuilder and Splitter, stores parameters,
+        # initialises counters and the root node (which may already be finalized or
+        # pushed onto the heap). Inputs: see class docstring.
+        # Exceptions: those of _validate_parameters; ValueError if a categorical
+        # feature has a monotonic constraint.
+        # Side effects: sets many attributes, computes root histograms, may consume rng
+        # later through the splitter (feature subsampling).
+        # KNOWN ISSUE: the rng default np.random.default_rng() is evaluated once at
+        # function definition time, so all growers created without rng share a single
+        # Generator instance and its state.
         self._validate_parameters(
             X_binned,
             min_gain_to_split,
@@ -360,6 +404,11 @@ class TreeGrower:
         min_gain_to_split,
         min_hessian_to_split,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Checks X_binned dtype is uint8 and Fortran contiguous and that
+        # min_gain_to_split and min_hessian_to_split are non-negative.
+        # Exceptions: NotImplementedError for non-uint8 X_binned; ValueError otherwise.
+        # KNOWN ISSUE: messages say "must be positive" while zero is accepted.
         """Validate parameters passed to __init__.
 
         Also validate parameters passed to splitter.
@@ -381,6 +430,9 @@ class TreeGrower:
             )
 
     def grow(self):
+        # [FUNCTION DOC]
+        # Calls split_next until no splittable node remains, then multiplies every leaf
+        # value by shrinkage. Side effects: builds the whole tree in place.
         """Grow the tree, from root to leaves."""
         while self.splittable_nodes:
             self.split_next()
@@ -388,6 +440,10 @@ class TreeGrower:
         self._apply_shrinkage()
 
     def _apply_shrinkage(self):
+        # [FUNCTION DOC]
+        # HELPER: Multiplies the value of every finalized leaf by self.shrinkage; must
+        # run only after growing completes (monotonic bounds use unshrunk values).
+        # Side effects: mutates leaf values.
         """Multiply leaves values by shrinkage parameter.
 
         This must be done at the very end of the growing process. If this were
@@ -400,6 +456,15 @@ class TreeGrower:
             leaf.value *= self.shrinkage
 
     def _initialize_root(self):
+        # [FUNCTION DOC]
+        # HELPER: Computes histograms on all samples (only for features allowed by the
+        # union of interaction constraint sets, if any), derives total gradient and
+        # hessian sums from one feature's histogram (or constant hessian times
+        # n_samples), creates the root TreeNode with value 0, and either finalizes it as
+        # a leaf (fewer than 2 * min_samples_leaf samples or total hessian below
+        # min_hessian_to_split) or sets interaction state, stores histograms and
+        # computes its best split. Side effects: sets self.root, updates timers, may push
+        # to splittable_nodes or finalized_leaves.
         """Initialize root node and finalize it if needed."""
         tic = time()
         if self.interaction_cst is not None:
@@ -459,6 +524,11 @@ class TreeGrower:
         self.total_find_split_time += time() - tic
 
     def _compute_best_split_and_push(self, node):
+        # [FUNCTION DOC]
+        # HELPER: Asks the splitter for the best split of node given its histograms,
+        # sums, value, children bounds and allowed features; stores it in
+        # node.split_info. If gain <= 0 the node is finalized as a leaf, otherwise it is
+        # pushed onto the splittable heap. Side effects: mutates node and grower lists.
         """Compute the best possible split (SplitInfo) of a given node.
 
         Also push it in the heap of splittable nodes if gain isn't zero.
@@ -484,6 +554,21 @@ class TreeGrower:
             heappush(self.splittable_nodes, node)
 
     def split_next(self):
+        # [FUNCTION DOC]
+        # Pops the highest-gain node, partitions its samples via splitter.split_indices,
+        # creates left/right TreeNodes (partition ranges, sums and values from
+        # split_info), links them to the parent, propagates interaction constraints, and
+        # if the feature had no missing values in training sends missing values to the
+        # larger child. Increments n_nodes and n_categorical_splits. Then: if the leaf
+        # count reaches max_leaf_nodes, finalizes both children and all remaining
+        # splittable nodes; if depth reaches max_depth, finalizes both children;
+        # otherwise finalizes children with fewer than 2 * min_samples_leaf samples. With
+        # monotonic constraints, sets children bounds (midpoint of the two child values
+        # for constrained features, parent bounds otherwise). For non-leaf children,
+        # computes histograms (brute on the smaller child, subtraction on the larger),
+        # finds and pushes their best splits, and frees histograms no longer needed.
+        # Outputs: tuple (left_child, right_child).
+        # Side effects: mutates the tree, heap, leaf list, timers; deletes histograms.
         """Split the node with highest potential gain.
 
         Returns
@@ -650,6 +735,11 @@ class TreeGrower:
         return left_child_node, right_child_node
 
     def _compute_interactions(self, node):
+        # [FUNCTION DOC]
+        # HELPER: For a split node, keeps the interaction-constraint sets (among the
+        # node's interaction_cst_indices) that contain the split feature, and returns the
+        # union of their features as a uint32 array plus the list of kept set indices.
+        # Outputs: (allowed_features ndarray uint32, interaction_cst_indices list).
         r"""Compute features allowed by interactions to be inherited by child nodes.
 
         Example: Assume constraints [{0, 1}, {1, 2}].
@@ -692,12 +782,17 @@ class TreeGrower:
         )
 
     def _finalize_leaf(self, node):
+        # [FUNCTION DOC]
+        # HELPER: Marks node as a leaf and appends it to finalized_leaves.
         """Make node a leaf of the tree being grown."""
 
         node.is_leaf = True
         self.finalized_leaves.append(node)
 
     def _finalize_splittable_nodes(self):
+        # [FUNCTION DOC]
+        # HELPER: Pops every node remaining in the splittable heap and finalizes it as a
+        # leaf. Side effects: empties splittable_nodes.
         """Transform all splittable nodes into leaves.
 
         Used when some constraint is met e.g. maximum number of leaves or
@@ -707,6 +802,12 @@ class TreeGrower:
             self._finalize_leaf(node)
 
     def make_predictor(self, binning_thresholds):
+        # [FUNCTION DOC]
+        # Allocates a PREDICTOR_RECORD_DTYPE array of n_nodes records and two zeroed
+        # (n_categorical_splits, 8) bitset arrays, fills them by depth-first traversal
+        # from the root with _fill_predictor_arrays, and wraps them in a TreePredictor.
+        # Inputs: binning_thresholds - list per feature of thresholds or categories.
+        # Outputs: TreePredictor.
         """Make a TreePredictor object out of the current tree.
 
         Parameters
@@ -752,6 +853,21 @@ def _fill_predictor_arrays(
     next_free_node_idx=0,
     next_free_bitset_idx=0,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Recursive pre-order serialization of the grower tree. Writes count,
+    # depth, gain (-1 if no split_info) and value of grower_node at
+    # next_free_node_idx. Leaves set is_leaf and return. For split nodes, writes
+    # feature_idx, bin_threshold, missing_go_to_left and is_categorical; if the split
+    # bin is the last non-missing bin it is a split on NaN and num_threshold is +inf;
+    # else for categorical splits it stores the binned bitset and the derived raw
+    # category bitset at next_free_bitset_idx; else num_threshold is the real
+    # threshold of that bin. Then recurses into the left child (recording its index)
+    # and the right child.
+    # Outputs: tuple (next_free_node_idx, next_free_bitset_idx) after the subtree.
+    # Side effects: mutates predictor_nodes and both bitset arrays in place.
+    # KNOWN ISSUE: the split-on-NaN check is evaluated before is_categorical; per the
+    # inline comment categorical splits have bin_idx 0, so a categorical feature with
+    # a single non-missing bin would be serialized as a NaN split without a bitset.
     """Helper used in make_predictor to set the TreePredictor fields."""
     node = predictor_nodes[next_free_node_idx]
     node["count"] = grower_node.n_samples

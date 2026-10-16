@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Vendored array_api_compat package (version 1.15.0) that adapts NumPy, CuPy, JAX,
+#   sparse, etc. to the Array API standard.
+# Public contents: __version__ and everything re-exported by the common subpackage (the
+#   helpers such as array_namespace, device, to_device, size, is_*_array/is_*_namespace
+#   predicates).
+# Side effects: importing it imports array_api_compat.common and its _helpers module;
+#   backend-specific subpackages (numpy, cupy, torch, dask) are only imported on demand.
 """
 NumPy Array API compatibility library
 

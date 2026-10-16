@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for TreePredictor of the histogram gradient boosting trees: end-to-end
+# prediction quality of a grown tree, handling of infinite values/thresholds in
+# numerical splits, and categorical splits via bitsets (binned and raw input).
+# Module-level n_threads holds the effective OpenMP thread count used by all tests.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -27,6 +32,11 @@ n_threads = _openmp_effective_n_threads()
 
 @pytest.mark.parametrize("n_bins", [200, 256])
 def test_regression_dataset(n_bins):
+    # [FUNCTION DOC]
+    # Verifies that a single tree grown by TreeGrower on binned make_regression data
+    # (least-squares gradients = -y, constant hessian) yields a predictor reaching
+    # R2 > 0.82 on train and > 0.67 on test, for n_bins 200 and 256. Uses empty
+    # categorical bitsets since all features are numerical.
     X, y = make_regression(
         n_samples=1000, n_features=10, n_informative=5, random_state=42
     )
@@ -75,6 +85,11 @@ def test_regression_dataset(n_bins):
     ],
 )
 def test_infinite_values_and_thresholds(num_threshold, expected_predictions):
+    # [FUNCTION DOC]
+    # Verifies routing of -inf, 10, 20, +inf through a hand-built stump (root plus left
+    # leaf 0 and right leaf 1) for several numerical thresholds: values <= threshold go
+    # left; with threshold ALMOST_INF, +inf goes right; with threshold +inf, everything
+    # (including +inf) goes left. Compares predictions to the parametrized expectations.
     # Make sure infinite values and infinite thresholds are handled properly.
     # In particular, if a value is +inf and the threshold is ALMOST_INF the
     # sample should go to the right child. If the threshold is inf (split on
@@ -118,6 +133,12 @@ def test_infinite_values_and_thresholds(num_threshold, expected_predictions):
     ],
 )
 def test_categorical_predictor(bins_go_left, expected_predictions):
+    # [FUNCTION DOC]
+    # Verifies categorical splits in a hand-built stump: bins listed in bins_go_left are
+    # set in the binned bitset, converted to a raw-category bitset, and predictions are
+    # checked for binned input (predict_binned), raw category values (predict with a
+    # manually built known-categories bitset), a missing-value bin (index 6, goes left
+    # because missing_go_to_left), and NaN / unknown category 17 in raw input (both left).
     # Test predictor outputs are correct with categorical features
 
     X_binned = np.array([[0, 1, 2, 3, 4, 5]], dtype=X_BINNED_DTYPE).T

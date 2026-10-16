@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for binning.py: _find_binning_thresholds, the Cython _map_to_bins and the
+# _BinMapper transformer (thresholds, bin balance, missing values, infinities,
+# categorical features, sample weights and subsampling). Uses a module-level
+# DATA array of 1e6 x 2 normal samples (means 0 and 10) built at import time.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -26,6 +31,9 @@ DATA = (
 
 
 def test_find_binning_thresholds_regular_data():
+    # [FUNCTION DOC]
+    # Checks quantile thresholds on 1001 evenly spaced points in [0, 10] are the
+    # integers 1..9 for max_bins=10 and the even numbers 2..8 for max_bins=5.
     data = np.linspace(0, 10, 1001)
     bin_thresholds = _find_binning_thresholds(data, max_bins=10)
     assert_allclose(bin_thresholds, [1, 2, 3, 4, 5, 6, 7, 8, 9])
@@ -35,6 +43,9 @@ def test_find_binning_thresholds_regular_data():
 
 
 def test_find_binning_thresholds_small_regular_data():
+    # [FUNCTION DOC]
+    # On 11 evenly spaced integers, checks quantile thresholds for max_bins 5 and 10,
+    # and that for max_bins >= number of distinct values the midpoints k+0.5 are used.
     data = np.linspace(0, 10, 11)
 
     bin_thresholds = _find_binning_thresholds(data, max_bins=5)
@@ -51,6 +62,9 @@ def test_find_binning_thresholds_small_regular_data():
 
 
 def test_find_binning_thresholds_random_data():
+    # [FUNCTION DOC]
+    # On both DATA columns with max_bins=255, checks 254 thresholds of DATA dtype and
+    # that thresholds at indices 64/128/192 approximate the expected quantiles.
     bin_thresholds = [
         _find_binning_thresholds(DATA[:, i], max_bins=255) for i in range(2)
     ]
@@ -68,6 +82,8 @@ def test_find_binning_thresholds_random_data():
 
 
 def test_find_binning_thresholds_low_n_bins():
+    # [FUNCTION DOC]
+    # Checks that max_bins=128 yields 127 thresholds of DATA dtype for each column.
     bin_thresholds = [
         _find_binning_thresholds(DATA[:, i], max_bins=128) for i in range(2)
     ]
@@ -78,6 +94,9 @@ def test_find_binning_thresholds_low_n_bins():
 
 @pytest.mark.parametrize("n_bins", (2, 257))
 def test_invalid_n_bins(n_bins):
+    # [FUNCTION DOC]
+    # Checks _BinMapper.fit raises ValueError with the documented message for n_bins
+    # 2 and 257 (outside [3, 256]).
     err_msg = "n_bins={} should be no smaller than 3 and no larger than 256".format(
         n_bins
     )
@@ -86,6 +105,8 @@ def test_invalid_n_bins(n_bins):
 
 
 def test_bin_mapper_n_features_transform():
+    # [FUNCTION DOC]
+    # Checks transform raises ValueError when given 4 columns after fitting on 2.
     mapper = _BinMapper(n_bins=42, random_state=42).fit(DATA)
     err_msg = "This estimator was fitted with 2 features but 4 got passed"
     with pytest.raises(ValueError, match=err_msg):
@@ -94,6 +115,10 @@ def test_bin_mapper_n_features_transform():
 
 @pytest.mark.parametrize("max_bins", [16, 128, 255])
 def test_map_to_bins(max_bins):
+    # [FUNCTION DOC]
+    # Computes thresholds with _find_binning_thresholds, calls _map_to_bins directly
+    # and checks output shape, uint8 dtype, F-contiguity, and that each column's
+    # minimum maps to bin 0 and maximum to bin max_bins - 1.
     bin_thresholds = [
         _find_binning_thresholds(DATA[:, i], max_bins=max_bins) for i in range(2)
     ]
@@ -115,6 +140,10 @@ def test_map_to_bins(max_bins):
 
 
 def test_unique_bins_repeated_weighted():
+    # [FUNCTION DOC]
+    # Checks that weighting the value 1 by 1000 gives the same thresholds as
+    # repeating it 1000 times (degenerate case where duplicate thresholds are
+    # trimmed).
     # Test sample weight equivalence for the degenerate case
     # when only one unique bin value exists and should be trimmed
     # due to repeated values. Since the first discrete value of 1
@@ -132,6 +161,10 @@ def test_unique_bins_repeated_weighted():
 
 @pytest.mark.parametrize("max_bins", [5, 10, 42])
 def test_bin_mapper_random_data(max_bins):
+    # [FUNCTION DOC]
+    # Fits/transforms DATA with n_bins = max_bins + 1 and checks shapes, dtypes, bin
+    # range, threshold count per feature, n_bins_non_missing_, and that every bin
+    # holds about n_samples / max_bins samples (5% tolerance).
     n_samples, n_features = DATA.shape
 
     expected_count_per_bin = n_samples // max_bins
@@ -161,6 +194,9 @@ def test_bin_mapper_random_data(max_bins):
 
 @pytest.mark.parametrize("n_samples, max_bins", [(5, 5), (5, 10), (5, 11), (42, 255)])
 def test_bin_mapper_small_random_data(n_samples, max_bins):
+    # [FUNCTION DOC]
+    # With at most max_bins distinct values, checks each sample gets its own bin in
+    # sorted order (bins equal the rank of the value).
     data = np.random.RandomState(42).normal(size=n_samples).reshape(-1, 1)
     assert len(np.unique(data)) == n_samples
 
@@ -183,6 +219,9 @@ def test_bin_mapper_small_random_data(n_samples, max_bins):
     ],
 )
 def test_bin_mapper_identity_repeated_values(max_bins, n_distinct, multiplier):
+    # [FUNCTION DOC]
+    # Checks that integer data 0..n_distinct-1 (possibly repeated) is binned to
+    # itself.
     data = np.array(list(range(n_distinct)) * multiplier).reshape(-1, 1)
     # max_bins is the number of bins for non-missing values
     n_bins = max_bins + 1
@@ -192,6 +231,10 @@ def test_bin_mapper_identity_repeated_values(max_bins, n_distinct, multiplier):
 
 @pytest.mark.parametrize("n_distinct", [2, 7, 42])
 def test_bin_mapper_repeated_values_invariance(n_distinct):
+    # [FUNCTION DOC]
+    # For data made of n_distinct repeated random values, checks the bins are
+    # 0..n_distinct-1 and that using more bins yields identical thresholds and
+    # binned output.
     rng = np.random.RandomState(42)
     distinct_values = rng.normal(size=n_distinct)
     assert len(np.unique(distinct_values)) == n_distinct
@@ -217,6 +260,9 @@ def test_bin_mapper_repeated_values_invariance(n_distinct):
 
 @pytest.mark.parametrize("n_bins", [50, 250])
 def test_binmapper_weighted_vs_repeated_equivalence(global_random_seed, n_bins):
+    # [FUNCTION DOC]
+    # Checks integer sample weights give the same thresholds and transform output as
+    # physically repeating the rows (no subsampling), for 50 and 250 bins.
     rng = np.random.RandomState(global_random_seed)
 
     n_samples = 200
@@ -241,6 +287,11 @@ def test_binmapper_weighted_vs_repeated_equivalence(global_random_seed, n_bins):
 @pytest.mark.parametrize("seed", [0, 1, 42])
 @pytest.mark.parametrize("n_bins", [3, 5])
 def test_subsampled_weighted_vs_repeated_equivalence(seed, n_bins):
+    # [FUNCTION DOC]
+    # With subsample=300, repeatedly fits weighted vs repeated data 500 times, and
+    # per threshold runs a two-sample KS test; checks no p-value falls below the
+    # Bonferroni-corrected 5% level (statistical equivalence of weighted
+    # subsampling).
     rng = np.random.RandomState(seed)
 
     n_samples = 500
@@ -287,6 +338,9 @@ def test_subsampled_weighted_vs_repeated_equivalence(seed, n_bins):
     ],
 )
 def test_bin_mapper_identity_small(max_bins, scale, offset):
+    # [FUNCTION DOC]
+    # Checks that max_bins evenly spaced values (any scale/offset) are binned to
+    # 0..max_bins-1.
     data = np.arange(max_bins).reshape(-1, 1) * scale + offset
     # max_bins is the number of bins for non-missing values
     n_bins = max_bins + 1
@@ -307,6 +361,12 @@ def test_bin_mapper_identity_small(max_bins, scale, offset):
     ],
 )
 def test_bin_mapper_idempotence(max_bins_small, max_bins_large):
+    # [FUNCTION DOC]
+    # Intends to check that re-binning already binned data with a larger mapper
+    # leaves it unchanged.
+    # KNOWN ISSUE: mapper_large is built with max_bins_small + 1 instead of
+    # max_bins_large + 1, so max_bins_large is never used and the "larger mapper"
+    # case is not actually tested.
     assert max_bins_large >= max_bins_small
     data = np.random.RandomState(42).normal(size=30000).reshape(-1, 1)
     mapper_small = _BinMapper(n_bins=max_bins_small + 1)
@@ -319,6 +379,9 @@ def test_bin_mapper_idempotence(max_bins_small, max_bins_large):
 @pytest.mark.parametrize("n_bins", [10, 100, 256])
 @pytest.mark.parametrize("diff", [-5, 0, 5])
 def test_n_bins_non_missing(n_bins, diff):
+    # [FUNCTION DOC]
+    # Checks n_bins_non_missing_ equals min(n_bins - 1, number of unique values) for
+    # data with slightly fewer or more unique values than bins.
     # Check that n_bins_non_missing is n_unique_values when
     # there are not a lot of unique values, else n_bins - 1.
 
@@ -330,6 +393,8 @@ def test_n_bins_non_missing(n_bins, diff):
 
 
 def test_subsample():
+    # [FUNCTION DOC]
+    # Checks thresholds differ (rtol 1e-4) between subsample=None and subsample=256.
     # Make sure bin thresholds are different when applying subsampling
     mapper_no_subsample = _BinMapper(subsample=None, random_state=0).fit(DATA)
     mapper_subsample = _BinMapper(subsample=256, random_state=0).fit(DATA)
@@ -372,6 +437,10 @@ def test_subsample():
     ],
 )
 def test_missing_values_support(n_bins, n_bins_non_missing, X_trans_expected):
+    # [FUNCTION DOC]
+    # On a small matrix with NaNs, checks n_bins_non_missing_, threshold counts,
+    # missing_values_bin_idx_ == n_bins - 1, and the exact transformed matrix (NaN in
+    # the last bin) for n_bins 256 and 3.
     # check for missing values: make sure nans are mapped to the last bin
     # and that the _BinMapper attributes are correct
 
@@ -404,6 +473,9 @@ def test_missing_values_support(n_bins, n_bins_non_missing, X_trans_expected):
 
 
 def test_infinite_values():
+    # [FUNCTION DOC]
+    # Checks -inf/+inf handling: thresholds are [-inf, 0.5, ALMOST_INF] (+inf
+    # clipped), four non-missing bins, and values map to bins 0..3.
     # Make sure infinite values are properly handled.
     bin_mapper = _BinMapper()
 
@@ -419,6 +491,10 @@ def test_infinite_values():
 
 @pytest.mark.parametrize("n_bins", [15, 256])
 def test_categorical_feature(n_bins):
+    # [FUNCTION DOC]
+    # Checks a categorical feature maps known categories to 0..n_cats-1 and NaN to
+    # the last bin; negative values go to the missing bin and an unknown positive
+    # category maps past the known bins (illustration only).
     # Basic test for categorical features
     # we make sure that categories are mapped into [0, n_categories - 1] and
     # that nans are mapped to the last bin
@@ -450,6 +526,9 @@ def test_categorical_feature(n_bins):
 
 
 def test_categorical_feature_negative_missing():
+    # [FUNCTION DOC]
+    # Checks negative categorical values (in fit and transform) are treated as
+    # missing and mapped to missing_values_bin_idx_.
     """Make sure bin mapper treats negative categories as missing values."""
     X = np.array(
         [[4] * 500 + [1] * 3 + [5] * 10 + [-1] * 3 + [np.nan] * 4], dtype=X_DTYPE
@@ -474,6 +553,9 @@ def test_categorical_feature_negative_missing():
 
 @pytest.mark.parametrize("n_bins", (128, 256))
 def test_categorical_with_numerical_features(n_bins):
+    # [FUNCTION DOC]
+    # Checks a mix of one numerical and one categorical feature: n_bins_non_missing_,
+    # the categorical thresholds being the categories, and expected binned output.
     # basic check for binmapper with mixed data
     X1 = np.arange(10, 20).reshape(-1, 1)  # numerical
     X2 = np.arange(10, 15).reshape(-1, 1)  # categorical
@@ -509,6 +591,10 @@ def test_categorical_with_numerical_features(n_bins):
 
 
 def test_make_known_categories_bitsets():
+    # [FUNCTION DOC]
+    # Checks the f_idx_map and the 8-word bitsets produced for two categorical
+    # features against hand-computed bit positions (value v sets bit v mod 32 of
+    # word v div 32).
     # Check the output of make_known_categories_bitsets
     X = np.array(
         [[14, 2, 30], [30, 4, 70], [40, 10, 180], [40, 240, 180]], dtype=X_DTYPE
@@ -558,6 +644,9 @@ def test_make_known_categories_bitsets():
     ],
 )
 def test_categorical_parameters(is_categorical, known_categories, match):
+    # [FUNCTION DOC]
+    # Checks fit raises ValueError for a categorical feature without known
+    # categories and for categories passed to a non-categorical feature.
     # test the validation of the is_categorical and known_categories parameters
 
     X = np.array([[1, 2, 3]], dtype=X_DTYPE)

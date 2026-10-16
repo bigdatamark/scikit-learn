@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# AdaBoost ensembles. BaseWeightBoosting implements the shared boosting loop
+# (sample-weight normalisation, clipping, early stopping) and delegates a single
+# iteration to the subclasses' _boost: AdaBoostClassifier uses discrete SAMME,
+# AdaBoostRegressor uses AdaBoost.R2 with weighted bootstrap resampling and a
+# weighted-median prediction. Neither estimator supports metadata routing.
+# Side effects at import: none.
 """Weight Boosting.
 
 This module contains weight boosting estimators for both classification and
@@ -57,6 +64,11 @@ __all__ = [
 
 
 class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract base for AdaBoost estimators. Adds learning_rate and random_state to
+    # BaseEnsemble, validates input for non-fit methods, runs the boosting loop in fit,
+    # provides staged_score and weight-averaged feature_importances_, and tags sparse
+    # input as supported.
     """Base class for AdaBoost estimators.
 
     Warning: This class should not be used directly. Use derived classes
@@ -80,6 +92,9 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
         learning_rate=1.0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Abstract constructor: forwards estimator, n_estimators and estimator_params to
+        # BaseEnsemble and stores learning_rate and random_state unchanged.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -90,6 +105,10 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
         self.random_state = random_state
 
     def _check_X(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates X for prediction methods without resetting n_features_in_ /
+        # feature names: accepts CSR/CSC sparse matrices and nd arrays, keeps the dtype.
+        # Outputs: validated X. Exceptions: ValueError on feature count / name mismatch.
         # Only called to validate X in non-fit methods, therefore reset=False
         return validate_data(
             self,
@@ -106,6 +125,25 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Runs the boosting loop.
+        # Steps: reject routed metadata; validate X, y (y numeric for regressors); validate
+        # sample_weight (float64 copy, non-negative, default uniform) and normalise to sum 1;
+        # validate the base estimator; reset estimators_, estimator_weights_ (zeros) and
+        # estimator_errors_ (ones), both of length n_estimators. For each iteration: clip
+        # weights below machine epsilon up to epsilon but keep originally-zero weights at 0;
+        # call _boost; stop if it returns None weights; record weight and error; stop if the
+        # error is 0, if the weight sum is non-finite (warning) or non-positive; otherwise
+        # renormalise the weights (skipped on the last iteration).
+        # Inputs: X (n_samples, n_features), y (n_samples,), sample_weight or None.
+        # Outputs: self.
+        # Exceptions: ValueError for invalid data, negative weights, unsupported estimator,
+        # or (classifier) a first estimator worse than random.
+        # Side effects: sets estimators_, estimator_weights_, estimator_errors_, estimator_,
+        # n_features_in_ / feature_names_in_ and (classifier) classes_, n_classes_; emits a
+        # UserWarning on weight overflow; consumes random_state.
+        # KNOWN ISSUE: after an early stop, trailing entries of estimator_weights_ stay 0 and
+        # of estimator_errors_ stay 1 although no estimator exists for them.
         """Build a boosted classifier/regressor from the training set (X, y).
 
         Parameters
@@ -203,6 +241,9 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
 
     @abstractmethod
     def _boost(self, iboost, X, y, sample_weight, random_state):
+        # [FUNCTION DOC]
+        # Abstract single boosting iteration; must return (new sample weights, estimator
+        # weight, estimator error), or (None, None, None) to stop early.
         """Implement a single boost.
 
         Warning: This method needs to be overridden by subclasses.
@@ -242,6 +283,11 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
         pass
 
     def staged_score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Generator yielding the ensemble score after each boosting stage: accuracy for
+        # classifiers, R^2 for regressors, computed on staged_predict outputs.
+        # Inputs: X - samples; y - true targets; sample_weight - optional weights.
+        # Yields: float per stage. Exceptions: ValueError on invalid X.
         """Return staged scores for X, y.
 
         This generator method yields the ensemble score after each iteration of
@@ -274,6 +320,14 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
 
     @property
     def feature_importances_(self):
+        # [FUNCTION DOC]
+        # Property: weighted average of the sub-estimators' feature_importances_, weights
+        # being estimator_weights_ normalised by their sum.
+        # Outputs: ndarray (n_features,).
+        # Exceptions: ValueError when estimators_ is None or empty; AttributeError (chained)
+        # when the base estimator lacks feature_importances_.
+        # KNOWN ISSUE: accessing it before fit raises AttributeError on estimators_ rather
+        # than the intended ValueError, because estimators_ does not exist yet.
         """The impurity-based feature importances.
 
         The higher, the more important the feature.
@@ -313,6 +367,8 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
             ) from e
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare sparse input support. Outputs: Tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
@@ -321,6 +377,11 @@ class BaseWeightBoosting(BaseEnsemble, metaclass=ABCMeta):
 class AdaBoostClassifier(
     _RoutingNotSupportedMixin, ClassifierMixin, BaseWeightBoosting
 ):
+    # [CLASS DOC]
+    # AdaBoost classifier using the discrete SAMME algorithm. Default base estimator is
+    # a depth-1 DecisionTreeClassifier. Decision function is a weighted vote where a
+    # correct class gets +w and other classes get -w/(K-1); probabilities are a softmax of
+    # the scaled decision function.
     """An AdaBoost classifier.
 
     An AdaBoost [1]_ classifier is a meta-estimator that begins by fitting a
@@ -467,6 +528,9 @@ class AdaBoostClassifier(
         learning_rate=1.0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores parameters by forwarding estimator, n_estimators, learning_rate and
+        # random_state to the base constructor.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -475,6 +539,10 @@ class AdaBoostClassifier(
         )
 
     def _validate_estimator(self):
+        # [FUNCTION DOC]
+        # Validates the base estimator, defaulting to DecisionTreeClassifier(max_depth=1),
+        # and sets estimator_.
+        # Exceptions: ValueError if the estimator's fit lacks a sample_weight parameter.
         """Check the estimator and set the estimator_ attribute."""
         super()._validate_estimator(default=DecisionTreeClassifier(max_depth=1))
 
@@ -484,6 +552,21 @@ class AdaBoostClassifier(
             )
 
     def _boost(self, iboost, X, y, sample_weight, random_state):
+        # [FUNCTION DOC]
+        # One SAMME iteration.
+        # Steps: build a new estimator (appended to estimators_, seeded from random_state) and
+        # fit it with the current weights; on the first iteration set classes_ and n_classes_
+        # from it; compute the weighted misclassification rate. If error <= 0 return the
+        # unchanged weights with weight 1 and error 0. If error >= 1 - 1/K, remove the
+        # estimator and stop (raise if no estimator remains). Otherwise estimator weight =
+        # learning_rate * (log((1-err)/err) + log(K-1)); unless this is the last iteration,
+        # multiply weights of misclassified, positive-weight samples by exp(estimator weight)
+        # (computed in log space).
+        # Outputs: (sample_weight or None, estimator_weight, estimator_error).
+        # Exceptions: ValueError when the first estimator is worse than random.
+        # Side effects: mutates estimators_, sets classes_ / n_classes_ on iteration 0.
+        # KNOWN ISSUE: classes_ is taken from the first fitted estimator via getattr with a
+        # None default; an estimator without classes_ would make len() fail with TypeError.
         """Implement a single boost.
 
         Perform a single boost according to the discrete SAMME algorithm and return the
@@ -570,6 +653,11 @@ class AdaBoostClassifier(
         return sample_weight, estimator_weight, estimator_error
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts labels: for binary problems class index 1 if the decision function is
+        # positive else 0; otherwise argmax of the decision function; mapped via classes_.
+        # Outputs: ndarray (n_samples,). Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: docstring calls it a weighted mean prediction; it is a weighted vote.
         """Predict classes for X.
 
         The predicted class of an input sample is computed as the weighted mean
@@ -594,6 +682,9 @@ class AdaBoostClassifier(
         return self.classes_.take(np.argmax(pred, axis=1), axis=0)
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator version of predict over staged_decision_function: yields the predicted
+        # labels after each boosting stage. Outputs: ndarray (n_samples,) per stage.
         """Return staged predictions for X.
 
         The predicted class of an input sample is computed as the weighted mean
@@ -628,6 +719,15 @@ class AdaBoostClassifier(
                 yield np.array(classes.take(np.argmax(pred, axis=1), axis=0))
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Weighted SAMME decision function. For each estimator, a sample scores w for the
+        # predicted class and -w/(K-1) for the others; scores are summed and divided by the
+        # total of estimator_weights_. Binary: negate the first column and sum both columns
+        # to get a 1d score. Single class: returns zeros of shape (n_samples, 1).
+        # Outputs: (n_samples, K) array, or (n_samples,) for binary.
+        # Exceptions: NotFittedError if not fitted; ValueError on invalid X.
+        # KNOWN ISSUE: docstring says binary output has shape (n_samples, 1); the code
+        # returns a 1d array of shape (n_samples,).
         """Compute the decision function of ``X``.
 
         Parameters
@@ -671,6 +771,12 @@ class AdaBoostClassifier(
         return pred
 
     def staged_decision_function(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding the decision function after each stage, using the cumulative
+        # sum of estimator weights seen so far as the normaliser; binary case collapsed to a
+        # 1d score like decision_function (on a copy, so accumulation is not altered).
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: a single-class fit leads to division by zero in -1/(K-1).
         """Compute decision function of ``X`` for each boosting iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -723,6 +829,13 @@ class AdaBoostClassifier(
 
     @staticmethod
     def _compute_proba_from_decision(decision, n_classes):
+        # [FUNCTION DOC]
+        # HELPER: Static method converting a decision function into probabilities via
+        # softmax of f/(K-1). Binary: builds two columns (-d/2, d/2) first.
+        # Inputs: decision - (n_samples,) or (n_samples, K) array; n_classes - K.
+        # Outputs: ndarray (n_samples, K) of probabilities.
+        # Side effects: in the multiclass case divides decision in place and softmax runs
+        # with copy False, so the passed array is modified.
         """Compute probabilities from the decision function.
 
         This is based eq. (15) of [1] where:
@@ -741,6 +854,12 @@ class AdaBoostClassifier(
         return softmax(decision, copy=False)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Class probabilities from the decision function via _compute_proba_from_decision.
+        # Single class: returns ones of shape (n_samples, 1) without validating X.
+        # Outputs: ndarray (n_samples, n_classes). Exceptions: NotFittedError.
+        # KNOWN ISSUE: docstring describes a weighted mean of sub-estimator probabilities,
+        # but probabilities derive from the SAMME decision function.
         """Predict class probabilities for X.
 
         The predicted class probabilities of an input sample is computed as
@@ -769,6 +888,11 @@ class AdaBoostClassifier(
         return self._compute_proba_from_decision(decision, n_classes)
 
     def staged_predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding class probabilities after each stage from
+        # staged_decision_function.
+        # KNOWN ISSUE: docstring says each yielded array has shape (n_samples,); it is
+        # (n_samples, n_classes).
         """Predict class probabilities for X.
 
         The predicted class probabilities of an input sample is computed as
@@ -799,6 +923,9 @@ class AdaBoostClassifier(
             yield self._compute_proba_from_decision(decision, n_classes)
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Natural log of predict_proba. Outputs: ndarray (n_samples, n_classes); may contain
+        # -inf where a probability underflows to 0.
         """Predict class log-probabilities for X.
 
         The predicted class log-probabilities of an input sample is computed as
@@ -821,6 +948,10 @@ class AdaBoostClassifier(
 
 
 class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoosting):
+    # [CLASS DOC]
+    # AdaBoost.R2 regressor. Default base estimator is DecisionTreeRegressor(max_depth=3).
+    # Each iteration fits on a weighted bootstrap sample; prediction is the weighted
+    # median over sub-estimator predictions.
     """An AdaBoost regressor.
 
     An AdaBoost [1]_ regressor is a meta-estimator that begins by fitting a
@@ -953,6 +1084,10 @@ class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoo
         loss="linear",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores parameters: forwards estimator, n_estimators, learning_rate, random_state to
+        # the base constructor, and stores loss.
+        # KNOWN ISSUE: random_state is assigned a second time redundantly.
         super().__init__(
             estimator=estimator,
             n_estimators=n_estimators,
@@ -964,10 +1099,28 @@ class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoo
         self.random_state = random_state
 
     def _validate_estimator(self):
+        # [FUNCTION DOC]
+        # Validates the base estimator (default DecisionTreeRegressor(max_depth=3)) and sets
+        # estimator_.
         """Check the estimator and set the estimator_ attribute."""
         super()._validate_estimator(default=DecisionTreeRegressor(max_depth=3))
 
     def _boost(self, iboost, X, y, sample_weight, random_state):
+        # [FUNCTION DOC]
+        # One AdaBoost.R2 iteration.
+        # Steps: create a new estimator (appended to estimators_); draw a bootstrap of
+        # n_samples indices with replacement with probabilities sample_weight from
+        # random_state; fit on it; predict on all of X; take absolute errors on samples
+        # with positive weight, divide by their maximum (if non-zero), transform by loss
+        # (linear: unchanged, square: squared, exponential: 1 - exp(-e)); average loss =
+        # weighted sum of these errors. If loss <= 0: return weights unchanged, weight 1,
+        # error 0. If loss >= 0.5: drop the estimator unless it is the only one and stop.
+        # Otherwise beta = loss/(1-loss), estimator weight = learning_rate * log(1/beta);
+        # unless last iteration, multiply positive weights by beta ** ((1 - e) *
+        # learning_rate).
+        # Outputs: (sample_weight or None, estimator_weight, estimator_error).
+        # Side effects: mutates estimators_ and sample_weight in place; consumes randomness.
+        # Exceptions: ValueError from choice if sample_weight does not sum to 1.
         """Implement a single boost for regression
 
         Perform a single boost according to the AdaBoost.R2 algorithm and
@@ -1065,6 +1218,12 @@ class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoo
         return sample_weight, estimator_weight, estimator_error
 
     def _get_median_predict(self, X, limit):
+        # [FUNCTION DOC]
+        # HELPER: Weighted median of the first limit estimators' predictions per sample:
+        # sort predictions, accumulate the corresponding estimator weights, and pick the
+        # first prediction whose cumulative weight reaches half the total.
+        # Inputs: X - validated samples; limit - number of leading estimators to use.
+        # Outputs: ndarray (n_samples,).
         # Evaluate predictions of all estimators
         predictions = np.array([est.predict(X) for est in self.estimators_[:limit]]).T
 
@@ -1082,6 +1241,9 @@ class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoo
         return predictions[np.arange(_num_samples(X)), median_estimators]
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Weighted-median prediction using all fitted estimators.
+        # Outputs: ndarray (n_samples,). Exceptions: NotFittedError; ValueError on bad X.
         """Predict regression value for X.
 
         The predicted regression value of an input sample is computed
@@ -1104,6 +1266,9 @@ class AdaBoostRegressor(_RoutingNotSupportedMixin, RegressorMixin, BaseWeightBoo
         return self._get_median_predict(X, len(self.estimators_))
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding the weighted-median prediction using the first 1, 2, ...,
+        # len(estimators_) estimators. Exceptions: NotFittedError if not fitted.
         """Return staged predictions for X.
 
         The predicted regression value of an input sample is computed

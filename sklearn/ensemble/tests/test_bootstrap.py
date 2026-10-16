@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for sklearn.ensemble._bootstrap._get_n_samples_bootstrap, which computes the
+# bootstrap sample size from n_samples, max_samples and optional sample_weight.
 """
 Testing for the utility function _get_n_samples_bootstrap
 """
@@ -14,6 +17,12 @@ from sklearn.ensemble._bootstrap import _get_n_samples_bootstrap
 
 
 def test_get_n_samples_bootstrap():
+    # [FUNCTION DOC]
+    # Verifies: max_samples None returns n_samples; int returns itself; small float
+    # fractions (relative to n_samples, or to the sum of sample weights when given)
+    # return the truncated product (floored at 1) and emit a UserWarning suggesting an
+    # integer max_samples; large enough values emit no warning (warnings turned into
+    # errors) and return the expected size.
     # max_samples=None returns n_samples
     n_samples, max_samples, sample_weight = 10, None, "not_used"
     assert _get_n_samples_bootstrap(n_samples, max_samples, sample_weight) == n_samples
@@ -62,6 +71,11 @@ def test_get_n_samples_bootstrap():
 
 @pytest.mark.parametrize("max_samples", [None, 1, 5, 1000, 0.1, 1.0, 1.5])
 def test_n_samples_bootstrap_repeated_weighted_equivalence(max_samples):
+    # [FUNCTION DOC]
+    # Parametrized over max_samples. Verifies that a dataset weighted by integer weights
+    # and the equivalent repeated dataset (n_samples = sum of weights, no weights) give
+    # the same bootstrap size, except for max_samples None where they must differ
+    # (weighted case uses n_samples, repeated case uses the weight sum).
     # weighted dataset
     n_samples = 100
     rng = np.random.RandomState(0)

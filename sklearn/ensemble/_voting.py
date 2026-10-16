@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements VotingClassifier (hard majority / soft probability-averaging vote) and
+# VotingRegressor (weighted mean of predictions) on top of a shared _BaseVoting
+# base. Sub-estimators are cloned and fitted in parallel with joblib; entries set to
+# "drop" are skipped. Both estimators are also transformers that expose the
+# per-estimator predictions. Supports metadata routing of fit parameters.
+# Side effects at import: none.
 """
 Soft Voting/Majority Rule classifier and Voting regressor.
 
@@ -46,6 +53,12 @@ from sklearn.utils.validation import (
 
 
 class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
+    # [CLASS DOC]
+    # Abstract base for voting ensembles. Holds the shared parameter constraints
+    # (estimators, weights, n_jobs, verbose), the common fit logic (validation, routing,
+    # parallel fitting of clones, building named_estimators_), weight filtering for
+    # dropped estimators, n_features_in_, HTML repr block and metadata routing.
+    # Subclasses must implement fit (which calls this fit) and the prediction methods.
     """Base class for voting.
 
     Warning: This class should not be used directly. Use derived classes
@@ -60,23 +73,52 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
     }
 
     def _log_message(self, name, idx, total):
+        # [FUNCTION DOC]
+        # HELPER: Builds the verbose progress message passed to _fit_single_estimator.
+        # Inputs: name - estimator name; idx - 1-based position; total - number of entries.
+        # Outputs: string "(idx of total) Processing name" when verbose is truthy, else None.
+        # KNOWN ISSUE: total is len(clfs) which counts dropped estimators while idx comes
+        # from enumerate over all entries, so numbering includes skipped "drop" entries.
         if not self.verbose:
             return None
         return f"({idx} of {total}) Processing {name}"
 
     @property
     def _weights_not_none(self):
+        # [FUNCTION DOC]
+        # HELPER: Property returning the weights aligned with non-dropped estimators.
+        # Outputs: None if weights is None; otherwise a list of the weights whose matching
+        # (name, estimator) entry in estimators is not the string "drop" (order preserved).
         """Get the weights of not `None` estimators."""
         if self.weights is None:
             return None
         return [w for est, w in zip(self.estimators, self.weights) if est[1] != "drop"]
 
     def _predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Calls predict of every fitted estimator in estimators_ on X and stacks
+        # the results, then transposes.
+        # Inputs: X - samples accepted by the sub-estimators.
+        # Outputs: ndarray of shape (n_samples, n_fitted_estimators).
         """Collect results from clf.predict calls."""
         return np.asarray([est.predict(X) for est in self.estimators_]).T
 
     @abstractmethod
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Shared fit logic called by subclasses after target preprocessing.
+        # Steps: validate estimators (names and non-dropped estimators); check that weights,
+        # if given, has the same length as estimators (dropped included); build per-estimator
+        # fit params: with routing enabled use process_routing, otherwise forward only
+        # sample_weight (if present) to every estimator; fit a clone of every non-dropped
+        # estimator in parallel (n_jobs) with optional verbose messages; then build
+        # named_estimators_ mapping every name to its fitted estimator or the "drop" string.
+        # Inputs: X - training data; y - (already encoded) targets; fit_params - metadata.
+        # Outputs: self.
+        # Exceptions: ValueError when weights length differs from estimators length; errors
+        # from _validate_estimators (e.g. all estimators dropped, bad names).
+        # Side effects: sets estimators_, named_estimators_, and feature_names_in_ (copied
+        # from the last fitted estimator exposing it).
         """Get common fit operations."""
         names, clfs = self._validate_estimators()
 
@@ -123,6 +165,13 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
         return self
 
     def fit_transform(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # Fits and then returns the transform output, delegating to TransformerMixin.
+        # Inputs: X, y (default None), fit_params forwarded to fit.
+        # Outputs: same array as transform after fitting.
+        # Side effects: fits the ensemble.
+        # KNOWN ISSUE: the docstring mentions class labels or probabilities, which is only
+        # accurate for VotingClassifier; for VotingRegressor it returns predictions.
         """Return class labels or probabilities for each estimator.
 
         Return predictions for X for each estimator.
@@ -148,6 +197,10 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
 
     @property
     def n_features_in_(self):
+        # [FUNCTION DOC]
+        # Property: number of input features, taken from the first fitted sub-estimator.
+        # Exceptions: AttributeError (chained from NotFittedError) when not fitted, so that
+        # hasattr returns False on unfitted instances.
         """Number of features seen during :term:`fit`."""
         # For consistency with other estimators we raise an AttributeError so
         # that hasattr() fails if the estimator isn't fitted.
@@ -163,10 +216,18 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
         return self.estimators_[0].n_features_in_
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # HELPER: Builds the HTML representation block showing the sub-estimators in
+        # parallel, labelled with their names.
+        # Outputs: _VisualBlock of kind "parallel".
         names, estimators = zip(*self.estimators)
         return _VisualBlock("parallel", estimators, names=names)
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter that routes the caller's fit metadata to the fit method of
+        # every entry in estimators (including "drop" entries, as listed).
+        # Outputs: MetadataRouter owned by self.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -192,6 +253,11 @@ class _BaseVoting(TransformerMixin, _BaseHeterogeneousEnsemble):
 
 
 class VotingClassifier(ClassifierMixin, _BaseVoting):
+    # [CLASS DOC]
+    # Voting classifier. Encodes labels with a LabelEncoder, fits sub-estimators on the
+    # integer-encoded targets, and predicts either via weighted majority vote of
+    # predicted labels (hard) or argmax of the weighted average of predict_proba outputs
+    # (soft). predict_proba is only available for soft voting.
     """Soft Voting/Majority Rule classifier for unfitted estimators.
 
     Read more in the :ref:`User Guide <voting_classifier>`.
@@ -344,6 +410,11 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         flatten_transform=True,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged (sklearn convention, no validation).
+        # Inputs: estimators - list of (name, estimator) tuples; voting - "hard" or "soft";
+        # weights - per-estimator weights or None; n_jobs; flatten_transform - bool;
+        # verbose - bool.
         super().__init__(estimators=estimators)
         self.voting = voting
         self.weights = weights
@@ -356,6 +427,18 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Validates the target and fits the ensemble.
+        # Steps: reject unsupported metadata (only sample_weight allowed without routing);
+        # determine target type; fit a LabelEncoder on y; delegate to _BaseVoting.fit with
+        # the encoded y.
+        # Inputs: X - training samples; y - class labels of shape (n_samples,);
+        # fit_params - metadata such as sample_weight.
+        # Outputs: self.
+        # Exceptions: ValueError for "unknown" or "continuous" targets;
+        # NotImplementedError for multilabel / multioutput targets; ValueError from
+        # _raise_for_params for disallowed metadata when routing is disabled.
+        # Side effects: sets le_, classes_, plus the attributes set by the base fit.
         """Fit the estimators.
 
         Parameters
@@ -409,6 +492,14 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         return super().fit(X, transformed_y, **fit_params)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts class labels.
+        # Soft: argmax over classes of predict_proba. Hard: for each sample, count the
+        # encoded labels predicted by each estimator with bincount weighted by the
+        # non-dropped weights, and take the argmax (ties go to the smallest encoded label).
+        # Encoded indices are mapped back with le_.inverse_transform.
+        # Inputs: X - samples. Outputs: array of shape (n_samples,) of original labels.
+        # Exceptions: NotFittedError if not fitted.
         """Predict class labels for X.
 
         Parameters
@@ -438,10 +529,18 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         return maj
 
     def _collect_probas(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Stacks predict_proba outputs of every fitted estimator.
+        # Outputs: ndarray of shape (n_estimators, n_samples, n_classes).
+        # KNOWN ISSUE: docstring says it collects predict results, but it calls predict_proba.
         """Collect results from clf.predict calls."""
         return np.asarray([clf.predict_proba(X) for clf in self.estimators_])
 
     def _check_voting(self):
+        # [FUNCTION DOC]
+        # HELPER: Availability check used by available_if for predict_proba.
+        # Outputs: True when voting is not "hard".
+        # Exceptions: AttributeError when voting == "hard", hiding predict_proba.
         if self.voting == "hard":
             raise AttributeError(
                 f"predict_proba is not available when voting={self.voting!r}"
@@ -450,6 +549,11 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
 
     @available_if(_check_voting)
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Soft-voting class probabilities: weighted average (non-dropped weights) of the
+        # estimators' predict_proba outputs along the estimator axis.
+        # Inputs: X - samples. Outputs: ndarray (n_samples, n_classes).
+        # Exceptions: NotFittedError if not fitted; AttributeError if voting is "hard".
         """Compute probabilities of possible outcomes for samples in X.
 
         Parameters
@@ -469,6 +573,14 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         return avg
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns per-estimator outputs. Soft voting: stacked probabilities, either
+        # horizontally concatenated to (n_samples, n_estimators * n_classes) when
+        # flatten_transform is True, or the raw (n_estimators, n_samples, n_classes) array.
+        # Hard voting: encoded label predictions of shape (n_samples, n_estimators).
+        # Exceptions: NotFittedError if not fitted.
+        # KNOWN ISSUE: hard-voting output holds encoded integer labels, not the original
+        # class labels as the docstring implies.
         """Return class labels or probabilities for X for each estimator.
 
         Parameters
@@ -501,6 +613,14 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
             return self._predict(X)
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Builds output feature names "<lowercased class name>_<estimator name>" for hard
+        # voting, or "<class name>_<estimator name><class index>" for each class in soft
+        # voting; dropped estimators are skipped.
+        # Inputs: input_features - only validated against feature_names_in_, not used.
+        # Outputs: object ndarray of strings.
+        # Exceptions: NotFittedError if not fitted; ValueError for soft voting with
+        # flatten_transform False; ValueError if input_features mismatch.
         """Get output feature names for transformation.
 
         Parameters
@@ -538,12 +658,18 @@ class VotingClassifier(ClassifierMixin, _BaseVoting):
         return np.asarray(names_out, dtype=object)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the parent tags by declaring that transform preserves no input dtype.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.transformer_tags.preserves_dtype = []
         return tags
 
 
 class VotingRegressor(RegressorMixin, _BaseVoting):
+    # [CLASS DOC]
+    # Voting regressor: fits clones of the regressors and predicts the weighted mean of
+    # their predictions. transform returns the individual predictions.
     """Prediction voting regressor for unfitted estimators.
 
     A voting regressor is an ensemble meta-estimator that fits several base
@@ -638,6 +764,8 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
     """
 
     def __init__(self, estimators, *, weights=None, n_jobs=None, verbose=False):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged: estimators, weights, n_jobs, verbose.
         super().__init__(estimators=estimators)
         self.weights = weights
         self.n_jobs = n_jobs
@@ -648,6 +776,13 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Fits the ensemble. Rejects disallowed metadata, ravels y to 1d with a
+        # DataConversionWarning for column vectors, then delegates to _BaseVoting.fit.
+        # Inputs: X - training samples; y - targets (n_samples,); fit_params - metadata.
+        # Outputs: self.
+        # Exceptions: ValueError for disallowed params or y of incompatible shape.
+        # Side effects: attributes set by the base fit.
         """Fit the estimators.
 
         Parameters
@@ -682,6 +817,10 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
         return super().fit(X, y, **fit_params)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Predicts the weighted average (non-dropped weights) of the regressors'
+        # predictions per sample. Outputs: ndarray (n_samples,).
+        # Exceptions: NotFittedError if not fitted.
         """Predict regression target for X.
 
         The predicted regression target of an input sample is computed as the
@@ -701,6 +840,9 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
         return np.average(self._predict(X), axis=1, weights=self._weights_not_none)
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Returns raw per-regressor predictions of shape (n_samples, n_fitted_estimators).
+        # Exceptions: NotFittedError if not fitted.
         """Return predictions for X for each estimator.
 
         Parameters
@@ -717,6 +859,11 @@ class VotingRegressor(RegressorMixin, _BaseVoting):
         return self._predict(X)
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Builds output names "<lowercased class name>_<estimator name>" for each
+        # non-dropped estimator. input_features is only validated.
+        # Outputs: object ndarray of strings. Exceptions: NotFittedError, ValueError on
+        # input_features mismatch.
         """Get output feature names for transformation.
 
         Parameters

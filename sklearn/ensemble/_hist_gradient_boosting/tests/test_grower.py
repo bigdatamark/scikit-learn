@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for TreeGrower of histogram gradient boosting: step-by-step growth on a
+# synthetic pre-binned dataset, conversion to TreePredictor, stopping criteria
+# (min_samples_leaf, max_depth), input/parameter validation, missing-value routing,
+# categorical splits (and equivalence with one-hot encoding) and interaction
+# constraints. n_threads is the effective OpenMP thread count.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -19,6 +25,14 @@ n_threads = _openmp_effective_n_threads()
 
 
 def _make_training_data(n_bins=256, constant_hessian=True):
+    # [FUNCTION DOC]
+    # HELPER: Generates 10000 pre-binned samples with 2 features (uniform ints in
+    # [0, n_bins - 2], Fortran-ordered) and a target from a 3-leaf ground-truth tree.
+    # Gradients equal the target (square loss around an initial prediction of 0).
+    # Inputs: n_bins - int (default 256); constant_hessian - bool (default True): if
+    # True hessians has shape (1,), else one per sample (all ones).
+    # Outputs: tuple (X_binned uint8 (10000, 2), gradients (10000,), hessians).
+    # Side effects: none; uses a fixed RandomState(42).
     rng = np.random.RandomState(42)
     n_samples = 10000
 
@@ -28,6 +42,9 @@ def _make_training_data(n_bins=256, constant_hessian=True):
     X_binned = np.asfortranarray(X_binned)
 
     def true_decision_function(input_features):
+        # [FUNCTION DOC]
+        # HELPER: Ground-truth tree: returns -1 if feature 0 <= n_bins // 2, otherwise -1 if
+        # feature 1 <= n_bins // 3 else 1. Input: one row of 2 binned values.
         """Ground truth decision function
 
         This is a very simple yet asymmetric decision tree. Therefore the
@@ -51,6 +68,9 @@ def _make_training_data(n_bins=256, constant_hessian=True):
 
 
 def _check_children_consistency(parent, left, right):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that left/right are the parent's children and that their
+    # sample_indices form a disjoint partition of the parent's sample_indices.
     # Make sure the samples are correctly dispatched from a parent to its
     # children
     assert parent.left_child is left
@@ -83,6 +103,13 @@ def _check_children_consistency(parent, left, right):
     ],
 )
 def test_grow_tree(n_bins, constant_hessian, stopping_param, shrinkage):
+    # [FUNCTION DOC]
+    # Drives the grower manually with split_next: checks the root's best split is on
+    # feature 0 at bin n_bins // 2, the children split roughly 50/50, the left child is a
+    # finalized leaf when min_gain_to_split > 0, the right child splits on feature 1 at
+    # bin n_bins // 3 with expected size proportions, no node remains splittable, and after
+    # _apply_shrinkage leaf values equal +/- shrinkage. Parametrized over n_bins, hessian
+    # type, stopping criterion and shrinkage.
     X_binned, all_gradients, all_hessians = _make_training_data(
         n_bins=n_bins, constant_hessian=constant_hessian
     )
@@ -158,6 +185,10 @@ def test_grow_tree(n_bins, constant_hessian, stopping_param, shrinkage):
 
 
 def test_predictor_from_grower():
+    # [FUNCTION DOC]
+    # Verifies that a 3-leaf tree converts into a 5-node predictor with 3 leaves, that
+    # binned probe points reach the expected leaves, and that the training set
+    # predictions equal the negated gradients exactly.
     # Build a tree on the toy 3-leaf dataset to extract the predictor.
     n_bins = 256
     X_binned, all_gradients, all_hessians = _make_training_data(n_bins=n_bins)
@@ -223,6 +254,11 @@ def test_predictor_from_grower():
     ],
 )
 def test_min_samples_leaf(n_samples, min_samples_leaf, n_bins, constant_hessian, noise):
+    # [FUNCTION DOC]
+    # Verifies that every leaf of the resulting predictor has count >= min_samples_leaf,
+    # or that the tree is a single root leaf with all samples when n_samples <
+    # min_samples_leaf. Uses a linear target on 3 normal features (optionally noisy),
+    # binned with _BinMapper.
     rng = np.random.RandomState(seed=0)
     # data = linear target, 3 features, 1 irrelevant.
     X = rng.normal(size=(n_samples, 3))
@@ -260,6 +296,9 @@ def test_min_samples_leaf(n_samples, min_samples_leaf, n_bins, constant_hessian,
 
 @pytest.mark.parametrize("n_samples, min_samples_leaf", [(99, 50), (100, 50)])
 def test_min_samples_leaf_root(n_samples, min_samples_leaf):
+    # [FUNCTION DOC]
+    # Verifies that the root is split only when n_samples >= 2 * min_samples_leaf
+    # (at least 2 leaves for 100/50, a single leaf for 99/50).
     # Make sure root node isn't split if n_samples is not at least twice
     # min_samples_leaf
     rng = np.random.RandomState(seed=0)
@@ -291,6 +330,9 @@ def test_min_samples_leaf_root(n_samples, min_samples_leaf):
 
 
 def assert_is_stump(grower):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that both children of the grower's root are leaves (no children),
+    # i.e. the tree is a stump.
     # To assert that stumps are created when max_depth=1
     for leaf in (grower.root.left_child, grower.root.right_child):
         assert leaf.left_child is None
@@ -299,6 +341,9 @@ def assert_is_stump(grower):
 
 @pytest.mark.parametrize("max_depth", [1, 2, 3])
 def test_max_depth(max_depth):
+    # [FUNCTION DOC]
+    # Verifies that the deepest finalized leaf has depth exactly max_depth (1, 2, 3) and
+    # that max_depth=1 yields a stump.
     # Make sure max_depth parameter works as expected
     rng = np.random.RandomState(seed=0)
 
@@ -324,6 +369,9 @@ def test_max_depth(max_depth):
 
 
 def test_input_validation():
+    # [FUNCTION DOC]
+    # Verifies TreeGrower raises NotImplementedError for non-uint8 X_binned and
+    # ValueError for a C-contiguous X_binned.
     X_binned, all_gradients, all_hessians = _make_training_data()
 
     X_binned_float = X_binned.astype(np.float32)
@@ -338,6 +386,9 @@ def test_input_validation():
 
 
 def test_init_parameters_validation():
+    # [FUNCTION DOC]
+    # Verifies TreeGrower raises ValueError for negative min_gain_to_split and negative
+    # min_hessian_to_split.
     X_binned, all_gradients, all_hessians = _make_training_data()
     with pytest.raises(ValueError, match="min_gain_to_split=-1 must be positive"):
         TreeGrower(X_binned, all_gradients, all_hessians, min_gain_to_split=-1)
@@ -347,6 +398,10 @@ def test_init_parameters_validation():
 
 
 def test_missing_value_predict_only():
+    # [FUNCTION DOC]
+    # Verifies that when no missing values were seen in training, NaNs at predict time
+    # follow, at each node, the child with more samples: all-NaN predictions equal the
+    # value of the leaf reached by that majority path.
     # Make sure that missing values are supported at predict time even if they
     # were not encountered in the training data: the missing values are
     # assigned to whichever child has the most samples.
@@ -390,6 +445,10 @@ def test_missing_value_predict_only():
 
 
 def test_split_on_nan_with_infinite_values():
+    # [FUNCTION DOC]
+    # Verifies that with a "split on nan" root (threshold +inf, bin threshold
+    # n_bins_non_missing - 1) a +inf sample goes left with the finite values while NaNs go
+    # right, for both predict and predict_binned (predictions equal negated gradients).
     # Make sure the split on nan situations are respected even when there are
     # samples with +inf values (we set the threshold to +inf when we have a
     # split on nan so this test makes sure this does not introduce edge-case
@@ -440,6 +499,11 @@ def test_split_on_nan_with_infinite_values():
 
 
 def test_grow_tree_categories():
+    # [FUNCTION DOC]
+    # Verifies categorical split growth on a 2-category feature: 3 nodes, a categorical
+    # root with 23 samples, left child the larger one, binned bitset containing bin 1 and
+    # raw bitset containing category 9, missing_go_to_left set, and missing values (binned
+    # index 6 or raw NaN) predicted with the left leaf value -1.
     # Check that the grower produces the right predictor tree when a split is
     # categorical
     X_binned = np.array([[0, 1] * 11 + [1]], dtype=X_BINNED_DTYPE).T
@@ -513,6 +577,11 @@ def test_grow_tree_categories():
 @pytest.mark.parametrize("n_unique_categories", (2, 10, 100))
 @pytest.mark.parametrize("target", ("binary", "random", "equal"))
 def test_ohe_equivalence(min_samples_leaf, n_unique_categories, target):
+    # [FUNCTION DOC]
+    # Verifies that a tree using a native categorical split predicts the same as a tree
+    # grown on the one-hot encoded feature, with depth no larger (strictly smaller for
+    # the "binary" parity target with more than 2 categories). Parametrized over
+    # min_samples_leaf, number of categories and target type.
     # Make sure that native categorical splits are equivalent to using a OHE,
     # when given enough depth
 
@@ -569,6 +638,12 @@ def test_ohe_equivalence(min_samples_leaf, n_unique_categories, target):
 
 
 def test_grower_interaction_constraints():
+    # [FUNCTION DOC]
+    # Verifies interaction constraints over 20 random seeds: root children's
+    # allowed_features equal the union of constraint sets containing the root feature,
+    # each child's interaction_cst_indices is a subset of its parent's, every split
+    # feature lies in the root's constraint set, and across seeds all 6 features are used
+    # at the root at least once.
     """Check that grower respects interaction constraints."""
     n_features = 6
     interaction_cst = [{0, 1}, {1, 2}, {3, 4, 5}]
@@ -577,6 +652,9 @@ def test_grower_interaction_constraints():
     root_feature_splits = []
 
     def get_all_children(node):
+        # [FUNCTION DOC]
+        # HELPER: Recursively returns a list of all descendant nodes (pre-order, left before
+        # right) of a grower node; empty list for a leaf.
         res = []
         if node.is_leaf:
             return res

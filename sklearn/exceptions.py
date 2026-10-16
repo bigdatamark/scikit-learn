@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Defines the custom exception and warning classes shared by all of scikit-learn.
+# Contains only class definitions; no functions and no import-time side effects. __all__
+# lists the public names.
+# KNOWN ISSUE: InconsistentVersionWarning is defined and public but missing from
+# __all__, so star-imports do not export it.
 """Custom warnings and errors used across scikit-learn."""
 
 # Authors: The scikit-learn developers
@@ -19,6 +25,10 @@ __all__ = [
 
 
 class UnsetMetadataPassedError(ValueError):
+    # [CLASS DOC]
+    # ValueError raised by metadata routing when metadata is passed that a consumer has
+    # neither requested nor explicitly declined. Carries the offending and routed
+    # parameters as attributes so callers can inspect them.
     """Exception class to raise if a metadata is passed which is not explicitly \
         requested (metadata=True) or not requested (metadata=False).
 
@@ -38,12 +48,22 @@ class UnsetMetadataPassedError(ValueError):
     """
 
     def __init__(self, *, message, unrequested_params, routed_params):
+        # [FUNCTION DOC]
+        # Inputs (keyword-only): message - str used as the exception message;
+        # unrequested_params - dict of param name to value passed but not requested;
+        # routed_params - dict of params that were routed.
+        # Side effects: sets self.unrequested_params and self.routed_params; message
+        # stored via ValueError init (available as args[0] and str()).
         super().__init__(message)
         self.unrequested_params = unrequested_params
         self.routed_params = routed_params
 
 
 class NotFittedError(ValueError, AttributeError):
+    # [CLASS DOC]
+    # Raised when a method needing a fitted estimator is called before fit. Inherits
+    # from both ValueError and AttributeError so that hasattr-style checks and older
+    # ValueError handlers both catch it. No extra behavior beyond the base classes.
     """Exception class to raise if estimator is used before fitting.
 
     This class inherits from both ValueError and AttributeError to help with
@@ -66,6 +86,9 @@ class NotFittedError(ValueError, AttributeError):
 
 
 class ConvergenceWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass emitted when an iterative solver stops before converging.
+    # Marker class only.
     """Custom warning to capture convergence problems
 
     .. versionchanged:: 0.18
@@ -74,6 +97,10 @@ class ConvergenceWarning(UserWarning):
 
 
 class DataConversionWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass emitted when input data is implicitly converted (dtype
+    # change, forced copy, ambiguous shape such as a column-vector y). Marker class
+    # only.
     """Warning used to notify implicit data conversions happening in the code.
 
     This warning occurs when some input data needs to be converted or
@@ -92,6 +119,9 @@ class DataConversionWarning(UserWarning):
 
 
 class DataDimensionalityWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass for questionable dimensionality, e.g. random projection to
+    # more components than features. Marker class only.
     """Custom warning to notify potential issues with data dimensionality.
 
     For example, in random projection, this warning is raised when the
@@ -106,6 +136,9 @@ class DataDimensionalityWarning(UserWarning):
 
 
 class EfficiencyWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass flagging computations that will be slow or memory-
+    # inefficient; meant to be subclassed for specific cases. Marker class only.
     """Warning used to notify the user of inefficient computation.
 
     This warning notifies the user that the efficiency may not be optimal due
@@ -117,6 +150,10 @@ class EfficiencyWarning(UserWarning):
 
 
 class FitFailedWarning(RuntimeWarning):
+    # [CLASS DOC]
+    # RuntimeWarning subclass emitted by search / cross-validation helpers when fitting
+    # the estimator on a split raised an error (and error_score is not "raise"). Marker
+    # class only.
     """Warning class used if there is an error while fitting the estimator.
 
     This Warning is used in meta estimators GridSearchCV and RandomizedSearchCV
@@ -129,6 +166,9 @@ class FitFailedWarning(RuntimeWarning):
 
 
 class SkipTestWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass used by the estimator check suite to report a skipped check
+    # (e.g. an optional dependency such as pandas is missing). Marker class only.
     """Warning class used to notify the user of a test that was skipped.
 
     For example, one of the estimator checks requires a pandas import.
@@ -138,6 +178,10 @@ class SkipTestWarning(UserWarning):
 
 
 class UndefinedMetricWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass emitted when a metric is ill-defined for the given input
+    # (e.g. zero division in precision) and a fallback value is returned. Marker class
+    # only.
     """Warning used when the metric is invalid
 
     .. versionchanged:: 0.18
@@ -146,6 +190,10 @@ class UndefinedMetricWarning(UserWarning):
 
 
 class PositiveSpectrumWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning subclass emitted by _check_psd_eigenvalues when a supposedly PSD
+    # matrix has significant negative or badly conditioned tiny eigenvalues. Marker
+    # class only.
     """Warning raised when the eigenvalues of a PSD matrix have issues
 
     This warning is typically raised by ``_check_psd_eigenvalues`` when the
@@ -158,6 +206,10 @@ class PositiveSpectrumWarning(UserWarning):
 
 
 class InconsistentVersionWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning emitted when unpickling an estimator pickled with a different scikit-
+    # learn version. Stores the versions as attributes and formats its own message in
+    # __str__.
     """Warning raised when an estimator is unpickled with an inconsistent version.
 
     Parameters
@@ -175,11 +227,21 @@ class InconsistentVersionWarning(UserWarning):
     def __init__(
         self, *, estimator_name, current_sklearn_version, original_sklearn_version
     ):
+        # [FUNCTION DOC]
+        # Inputs (keyword-only): estimator_name - str class name;
+        # current_sklearn_version - str running version; original_sklearn_version - str
+        # version used when pickling.
+        # Side effects: stores the three values as same-named attributes.
+        # KNOWN ISSUE: does not call the base __init__, so the warning's args tuple is
+        # empty; message text is only available through __str__.
         self.estimator_name = estimator_name
         self.current_sklearn_version = current_sklearn_version
         self.original_sklearn_version = original_sklearn_version
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Outputs: str message naming the estimator, both versions, a risk note and a
+        # link to the model persistence security docs.
         return (
             f"Trying to unpickle estimator {self.estimator_name} from version"
             f" {self.original_sklearn_version} when "
@@ -193,6 +255,9 @@ class InconsistentVersionWarning(UserWarning):
 
 
 class EstimatorCheckFailedWarning(UserWarning):
+    # [CLASS DOC]
+    # UserWarning emitted by the common estimator checks (when configured to warn
+    # instead of raise) for a failed check; carries the details as attributes.
     """Warning raised when an estimator check from the common tests fails.
 
     Parameters
@@ -226,6 +291,12 @@ class EstimatorCheckFailedWarning(UserWarning):
         expected_to_fail: bool,
         expected_to_fail_reason: str,
     ):
+        # [FUNCTION DOC]
+        # Inputs (keyword-only): estimator - estimator instance under test; check_name -
+        # str; exception - the Exception raised by the check; status - str check status;
+        # expected_to_fail - bool; expected_to_fail_reason - str.
+        # Side effects: stores all six as same-named attributes.
+        # KNOWN ISSUE: base __init__ not called, so args is empty.
         self.estimator = estimator
         self.check_name = check_name
         self.exception = exception
@@ -234,6 +305,12 @@ class EstimatorCheckFailedWarning(UserWarning):
         self.expected_to_fail_reason = expected_to_fail_reason
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Outputs: three-line str: check name and estimator repr, expected-failure info,
+        # and the exception text.
+        # KNOWN ISSUE: the second line is prefixed "Expected to fail reason:" and then
+        # the value is either "Expected to fail: <reason>" or "Not expected to fail",
+        # producing a redundant / misleading label.
         expected_to_fail_str = (
             f"Expected to fail: {self.expected_to_fail_reason}"
             if self.expected_to_fail
@@ -246,4 +323,6 @@ class EstimatorCheckFailedWarning(UserWarning):
         )
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Outputs: same string as __repr__.
         return self.__repr__()

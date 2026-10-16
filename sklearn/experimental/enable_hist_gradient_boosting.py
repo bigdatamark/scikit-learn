@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Deprecated no-op module kept for backward compatibility; the HistGradientBoosting
+# estimators are stable and importable from sklearn.ensemble directly.
+# Side effects: emits a UserWarning (default category of warnings.warn) on first import
+# saying the import is no longer needed. Defines nothing.
 """This is now a no-op and can be safely removed from your code.
 
 It used to enable the use of

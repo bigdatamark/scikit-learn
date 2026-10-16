@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for warm_start behavior of HistGradientBoostingClassifier/Regressor:
+# validation of max_iter, equivalence with cold fits, mixing tree depths, early
+# stopping on refit, no-op refits, state clearing, and seed handling. Module-level
+# classification and regression datasets are generated once with random_state=0.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -15,6 +20,12 @@ X_regression, y_regression = make_regression(random_state=0)
 
 
 def _assert_predictor_equal(gb_1, gb_2, X):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that two fitted HistGradientBoosting estimators are identical.
+    # Inputs: gb_1, gb_2 - fitted estimators; X - array used for prediction.
+    # Behavior: compares the node arrays of every tree of every iteration (paired with
+    # zip, so extra trees in the longer model are ignored) and then predictions on X.
+    # Exceptions: AssertionError on any mismatch.
     """Assert that two HistGBM instances are identical."""
     # Check identical nodes for each tree
     for pred_ith_1, pred_ith_2 in zip(gb_1._predictors, gb_2._predictors):
@@ -33,6 +44,9 @@ def _assert_predictor_equal(gb_1, gb_2, X):
     ),
 )
 def test_max_iter_with_warm_start_validation(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Verifies that refitting with warm_start=True and max_iter (5) lower than the
+    # already-fitted n_iter_ (10) raises ValueError with the expected message.
     # Check that a ValueError is raised when the maximum number of iterations
     # is smaller than the number of iterations from the previous fit when warm
     # start is True.
@@ -55,6 +69,9 @@ def test_max_iter_with_warm_start_validation(GradientBoosting, X, y):
     ),
 )
 def test_warm_start_yields_identical_results(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Verifies that fitting 50 iterations then warm-starting to 75 produces the same trees
+    # and predictions as a single 75-iteration fit with the same random_state.
     # Make sure that fitting 50 iterations and then 25 with warm start is
     # equivalent to fitting 75 iterations.
 
@@ -81,6 +98,9 @@ def test_warm_start_yields_identical_results(GradientBoosting, X, y):
     ),
 )
 def test_warm_start_max_depth(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Verifies that warm starting can change max_depth: the first 20 trees have depth 2 and
+    # the 10 trees added after raising max_iter to 30 and max_depth to 3 have depth 3.
     # Test if possible to fit trees of different depth in ensemble.
     gb = GradientBoosting(
         max_iter=20,
@@ -110,6 +130,10 @@ def test_warm_start_max_depth(GradientBoosting, X, y):
 )
 @pytest.mark.parametrize("scoring", (None, "loss"))
 def test_warm_start_early_stopping(GradientBoosting, X, y, scoring):
+    # [FUNCTION DOC]
+    # Verifies that a second warm-started fit with early stopping (n_iter_no_change=5, huge
+    # max_iter) adds at least one but fewer than n_iter_no_change iterations, for default
+    # and "loss" scoring.
     # Make sure that early stopping occurs after a small number of iterations
     # when fitting a second time with warm starting.
 
@@ -138,6 +162,9 @@ def test_warm_start_early_stopping(GradientBoosting, X, y, scoring):
     ),
 )
 def test_warm_start_equal_n_estimators(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Verifies that warm-start refitting a clone with the same max_iter as the already
+    # fitted model leaves it identical to the original (no new trees added).
     # Test if warm start with equal n_estimators does nothing
     gb_1 = GradientBoosting(max_depth=2, early_stopping=False)
     gb_1.fit(X, y)
@@ -158,6 +185,9 @@ def test_warm_start_equal_n_estimators(GradientBoosting, X, y):
     ),
 )
 def test_warm_start_clear(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Verifies that refitting with warm_start switched back to False discards previous
+    # state: the result equals a fresh fit (train/validation scores and trees).
     # Test if fit clears state.
     gb_1 = GradientBoosting(n_iter_no_change=5, random_state=42)
     gb_1.fit(X, y)
@@ -185,9 +215,19 @@ def test_warm_start_clear(GradientBoosting, X, y):
 )
 @pytest.mark.parametrize("rng_type", ("none", "int", "instance"))
 def test_random_seeds_warm_start(GradientBoosting, X, y, rng_type):
+    # [FUNCTION DOC]
+    # Verifies the internal _random_seed (train/val split and subsampling seed) across
+    # refits: without warm start, seeds differ for None, are equal for an int, and for a
+    # RandomState instance a new estimator matches the first fit but a refit differs; with
+    # warm start, the seed is kept unchanged between the two fits.
+    # KNOWN ISSUE: the chained assertion a != b != c does not check a != c. The comment
+    # "clears old state" on the second gb_2.fit is misleading since warm_start is still True.
     # Make sure the seeds for train/val split and small trainset subsampling
     # are correctly set in a warm start context.
     def _get_rng(rng_type):
+        # [FUNCTION DOC]
+        # HELPER: Returns a fresh random_state value for rng_type: None for "none", 42 for
+        # "int", otherwise a new RandomState(0), so each estimator gets an unconsumed rng.
         # Helper to avoid consuming rngs
         if rng_type == "none":
             return None
