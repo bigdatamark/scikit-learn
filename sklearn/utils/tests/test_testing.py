@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._testing utilities: set_random_state,
+# assert_allclose(_dense_sparse), ignore_warnings (call, decorator and context manager
+# forms), check_docstring_parameters and assert_docstring_consistency (using
+# deliberately malformed docstring fixtures defined here), TempMemmap and
+# create_memmap_backed_data, _convert_container, the raises context manager,
+# assert_run_python_script_without_output, and the warnings-as-errors filter
+# configuration. The fixture functions' docstrings are test data and must not be edited.
 import atexit
 import os
 import warnings
@@ -37,6 +45,10 @@ from sklearn.utils.metaestimators import available_if
 
 
 def test_set_random_state():
+    # [FUNCTION DOC]
+    # Verifies set_random_state sets random_state on an estimator that has it
+    # (DecisionTreeClassifier gets 3) and is a silent no-op for one that does not (LDA,
+    # smoke test).
     lda = LinearDiscriminantAnalysis()
     tree = DecisionTreeClassifier()
     # Linear Discriminant Analysis doesn't have random state: smoke test
@@ -47,6 +59,13 @@ def test_set_random_state():
 
 @pytest.mark.parametrize("csr_container", CSC_CONTAINERS)
 def test_assert_allclose_dense_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies assert_allclose_dense_sparse: passes on identical dense or sparse inputs,
+    # raises AssertionError 'Not equal to tolerance' for doubled values, ValueError when
+    # mixing dense and sparse, and AssertionError for sparse inputs of different shapes.
+    # Inputs: csr_container - parametrized from CSC_CONTAINERS.
+    # KNOWN ISSUE: the parameter is named csr_container but is drawn from
+    # CSC_CONTAINERS.
     x = np.arange(9).reshape(3, 3)
     msg = "Not equal to tolerance "
     y = csr_container(x)
@@ -66,12 +85,24 @@ def test_assert_allclose_dense_sparse(csr_container):
 
 
 def test_ignore_warning():
+    # [FUNCTION DOC]
+    # Verifies ignore_warnings in its three forms (wrapping a function, as a decorator
+    # with or without category, as a context manager): matching categories (single or
+    # tuple) are silenced while other categories still propagate; checks recorded
+    # warning counts/types; and passing a warning class as the first positional argument
+    # raises ValueError suggesting category=.
+    # KNOWN ISSUE: the first and last checks under simplefilter('error') only build the
+    # wrapped functions without calling them, so they verify nothing about suppression.
     # This check that ignore_warning decorator and context manager are working
     # as expected
     def _warning_function():
+        # [FUNCTION DOC]
+        # HELPER: Emits a single DeprecationWarning.
         warnings.warn("deprecation warning", DeprecationWarning)
 
     def _multiple_warning_function():
+        # [FUNCTION DOC]
+        # HELPER: Emits a DeprecationWarning then a UserWarning (default category).
         warnings.warn("deprecation warning", DeprecationWarning)
         warnings.warn("deprecation warning")
 
@@ -104,27 +135,42 @@ def test_ignore_warning():
     # Check the decorator
     @ignore_warnings
     def decorator_no_warning():
+        # [FUNCTION DOC]
+        # HELPER: Decorated with bare ignore_warnings; calls both warning helpers, all
+        # silenced.
         _warning_function()
         _multiple_warning_function()
 
     @ignore_warnings(category=(DeprecationWarning, UserWarning))
     def decorator_no_warning_multiple():
+        # [FUNCTION DOC]
+        # HELPER: Ignores Deprecation and User warnings; calls the multiple-warning
+        # helper.
         _multiple_warning_function()
 
     @ignore_warnings(category=DeprecationWarning)
     def decorator_no_deprecation_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores DeprecationWarning; calls the single-warning helper.
         _warning_function()
 
     @ignore_warnings(category=UserWarning)
     def decorator_no_user_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores only UserWarning; calls the DeprecationWarning helper, which
+        # still warns.
         _warning_function()
 
     @ignore_warnings(category=DeprecationWarning)
     def decorator_no_deprecation_multiple_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores DeprecationWarning; the UserWarning still escapes.
         _multiple_warning_function()
 
     @ignore_warnings(category=UserWarning)
     def decorator_no_user_multiple_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores UserWarning; the DeprecationWarning still escapes.
         _multiple_warning_function()
 
     with warnings.catch_warnings():
@@ -143,26 +189,43 @@ def test_ignore_warning():
 
     # Check the context manager
     def context_manager_no_warning():
+        # [FUNCTION DOC]
+        # HELPER: Calls the single-warning helper inside ignore_warnings() with all
+        # categories ignored.
         with ignore_warnings():
             _warning_function()
 
     def context_manager_no_warning_multiple():
+        # [FUNCTION DOC]
+        # HELPER: Calls the multiple-warning helper inside ignore_warnings for
+        # Deprecation and User warnings.
         with ignore_warnings(category=(DeprecationWarning, UserWarning)):
             _multiple_warning_function()
 
     def context_manager_no_deprecation_warning():
+        # [FUNCTION DOC]
+        # HELPER: Calls the single-warning helper with DeprecationWarning ignored.
         with ignore_warnings(category=DeprecationWarning):
             _warning_function()
 
     def context_manager_no_user_warning():
+        # [FUNCTION DOC]
+        # HELPER: Calls the DeprecationWarning helper with only UserWarning ignored, so
+        # it still warns.
         with ignore_warnings(category=UserWarning):
             _warning_function()
 
     def context_manager_no_deprecation_multiple_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores DeprecationWarning around the multiple-warning helper;
+        # UserWarning escapes.
         with ignore_warnings(category=DeprecationWarning):
             _multiple_warning_function()
 
     def context_manager_no_user_multiple_warning():
+        # [FUNCTION DOC]
+        # HELPER: Ignores UserWarning around the multiple-warning helper;
+        # DeprecationWarning escapes.
         with ignore_warnings(category=UserWarning):
             _multiple_warning_function()
 
@@ -192,6 +255,9 @@ def test_ignore_warning():
 
         @ignore_warnings(warning_class)
         def test():
+            # [FUNCTION DOC]
+            # HELPER: Dummy function whose decoration with ignore_warnings(UserWarning)
+            # must raise ValueError; body never runs.
             pass
 
 
@@ -199,6 +265,8 @@ def test_ignore_warning():
 
 
 def f_ok(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture with correct Parameters/Returns sections. Returns a + b.
     """Function f
 
     Parameters
@@ -218,6 +286,9 @@ def f_ok(a, b):
 
 
 def f_bad_sections(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture using an unknown 'Results' section, expected to make
+    # numpydoc raise. Returns a + b.
     """Function f
 
     Parameters
@@ -237,6 +308,9 @@ def f_bad_sections(a, b):
 
 
 def f_bad_order(b, a):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture whose documented parameters (a, b) are in the opposite
+    # order of the signature (b, a). Returns a + b.
     """Function f
 
     Parameters
@@ -256,6 +330,9 @@ def f_bad_order(b, a):
 
 
 def f_too_many_param_docstring(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture documenting an extra parameter c not in the signature.
+    # Returns a + b.
     """Function f
 
     Parameters
@@ -277,6 +354,8 @@ def f_too_many_param_docstring(a, b):
 
 
 def f_missing(a, b):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture omitting parameter b. Returns a + b.
     """Function f
 
     Parameters
@@ -294,6 +373,9 @@ def f_missing(a, b):
 
 
 def f_check_param_definition(a, b, c, d, e):
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture with malformed parameter definitions (no space before
+    # colon: 'a: int', 'b:', 'd:int'). Returns a + b + c + d (e is unused).
     """Function f
 
     Parameters
@@ -313,10 +395,17 @@ def f_check_param_definition(a, b, c, d, e):
 
 
 class Klass:
+    # [CLASS DOC]
+    # HELPER: Class holding method docstring fixtures for check_docstring_parameters.
     def f_missing(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Method without a docstring, so all parameters are reported missing.
         pass
 
     def f_bad_sections(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Method with an unknown 'Parameter' section header, expected to make
+        # numpydoc raise.
         """Function f
 
         Parameter
@@ -335,24 +424,44 @@ class Klass:
 
 
 class MockEst:
+    # [CLASS DOC]
+    # HELPER: Minimal delegate exposing fit, predict, predict_proba and score for
+    # MockMetaEstimator.
     def __init__(self):
+        # [FUNCTION DOC]
+        # HELPER: No-op constructor.
         """MockEstimator"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged (not self).
         return X
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged.
         return X
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged.
         return X
 
     def score(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the constant 1.0.
         return 1.0
 
 
 class MockMetaEstimator:
+    # [CLASS DOC]
+    # HELPER: Meta-estimator whose methods are conditionally exposed with available_if
+    # and/or deprecated, carrying intentionally wrong docstrings, to check
+    # check_docstring_parameters on delegated and deprecated methods.
     def __init__(self, delegate):
+        # [FUNCTION DOC]
+        # HELPER: Stores the delegate estimator.
+        # Inputs: delegate - object such as MockEst.
         """MetaEstimator to check if doctest on delegated methods work.
 
         Parameters
@@ -364,6 +473,9 @@ class MockMetaEstimator:
 
     @available_if(lambda self: hasattr(self.delegate, "predict"))
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Available if delegate has predict; returns delegate.predict(X).
+        # Docstring wrongly documents y.
         """This is available only if delegate has predict.
 
         Parameters
@@ -376,6 +488,10 @@ class MockMetaEstimator:
     @available_if(lambda self: hasattr(self.delegate, "score"))
     @deprecated("Testing a deprecated delegated method")
     def score(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Available if delegate has score; deprecated; returns None. Docstring
+        # has a short underline and documents y.
+        # Side effects: emits FutureWarning when called (deprecated).
         """This is available only if delegate has score.
 
         Parameters
@@ -386,6 +502,9 @@ class MockMetaEstimator:
 
     @available_if(lambda self: hasattr(self.delegate, "predict_proba"))
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Available if delegate has predict_proba; returns X unchanged.
+        # Docstring has a short underline.
         """This is available only if delegate has predict_proba.
 
         Parameters
@@ -397,11 +516,19 @@ class MockMetaEstimator:
 
     @deprecated("Testing deprecated function with wrong params")
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Deprecated no-op returning None, with a docstring lacking Parameters.
         """Incorrect docstring but should not be tested"""
 
 
 @skip_if_no_numpydoc
 def test_check_docstring_parameters():
+    # [FUNCTION DOC]
+    # Verifies check_docstring_parameters: no errors for a correct docstring or when
+    # missing params are ignored; RuntimeError for unknown sections; reports missing-
+    # space-before-colon definitions; and returns the exact expected diff messages for
+    # wrong order, extra, missing parameters, the Klass method, and delegated/deprecated
+    # MockMetaEstimator methods. Skipped without numpydoc.
     incorrect = check_docstring_parameters(f_ok)
     assert incorrect == []
     incorrect = check_docstring_parameters(f_ok, ignore=["b"])
@@ -529,6 +656,9 @@ def test_check_docstring_parameters():
 
 
 def f_one(a, b):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture for assert_docstring_consistency; parameters a, b and
+    # returns c, d with irregular whitespace.
     """Function one.
 
     Parameters
@@ -552,6 +682,9 @@ def f_one(a, b):  # pragma: no cover
 
 
 def f_two(a, b):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture differing from f_one only in whitespace for a, in b's
+    # description, and adding an extra parameter e.
     """Function two.
 
     Parameters
@@ -578,6 +711,9 @@ def f_two(a, b):  # pragma: no cover
 
 
 def f_three(a, b):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture differing in a's description, b's description, e's empty
+    # type and c's return description.
     """Function two.
 
     Parameters
@@ -604,6 +740,9 @@ def f_three(a, b):  # pragma: no cover
 
 @skip_if_no_numpydoc
 def test_assert_docstring_consistency_object_type():
+    # [FUNCTION DOC]
+    # Verifies TypeError when objects contains a non-callable/non-class (a string).
+    # Skipped without numpydoc.
     """Check error raised when `objects` incorrect type."""
     with pytest.raises(TypeError, match="All 'objects' must be one of"):
         assert_docstring_consistency(["string", f_one])
@@ -626,6 +765,10 @@ def test_assert_docstring_consistency_object_type():
     ],
 )
 def test_assert_docstring_consistency_arg_checks(objects, kwargs, error):
+    # [FUNCTION DOC]
+    # Verifies TypeError when exclude_params is given alongside a list include_params,
+    # or exclude_returns alongside include_returns=False.
+    # Inputs: objects; kwargs; error - expected message.
     """Check `assert_docstring_consistency` argument checking correct."""
     with pytest.raises(TypeError, match=error):
         assert_docstring_consistency(objects, **kwargs)
@@ -679,6 +822,12 @@ def test_assert_docstring_consistency_arg_checks(objects, kwargs, error):
     ],
 )
 def test_assert_docstring_consistency(objects, kwargs, error, warn):
+    # [FUNCTION DOC]
+    # Verifies consistency checking outcomes: whitespace differences are ignored;
+    # inconsistent descriptions or type specs raise AssertionError with grouped object
+    # names; excluded/skipped parameters trigger a UserWarning listing them.
+    # Inputs: objects; kwargs; error - expected AssertionError regex or ''; warn -
+    # expected UserWarning regex or ''.
     """Check `assert_docstring_consistency` gives correct results."""
     if error:
         with pytest.raises(AssertionError, match=error):
@@ -691,6 +840,8 @@ def test_assert_docstring_consistency(objects, kwargs, error, warn):
 
 
 def f_four(labels):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Docstring fixture with a labels parameter description (reference text).
     """Function four.
 
     Parameters
@@ -704,6 +855,8 @@ def f_four(labels):  # pragma: no cover
 
 
 def f_five(labels):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Same as f_four with an extra sentence inserted in the description.
     """Function five.
 
     Parameters
@@ -718,6 +871,8 @@ def f_five(labels):  # pragma: no cover
 
 
 def f_six(labels):  # pragma: no cover
+    # [FUNCTION DOC]
+    # HELPER: Variant of f_four with several words substituted.
     """Function six.
 
     Parameters
@@ -732,6 +887,9 @@ def f_six(labels):  # pragma: no cover
 
 @skip_if_no_numpydoc
 def test_assert_docstring_consistency_error_msg():
+    # [FUNCTION DOC]
+    # Verifies the exact difflib-style context diff message produced when the labels
+    # descriptions of f_four, f_five and f_six disagree.
     """Check `assert_docstring_consistency` difference message."""
     msg = r"""The description of Parameter 'labels' is inconsistent between
 \['f_four'\] and \['f_five'\] and \['f_six'\]:
@@ -781,6 +939,10 @@ def test_assert_docstring_consistency_error_msg():
 
 @skip_if_no_numpydoc
 def test_assert_docstring_consistency_descr_regex_pattern():
+    # [FUNCTION DOC]
+    # Verifies descr_regex_pattern: a regex matching all variants or just some words
+    # makes the check pass, while a regex not matching f_six raises AssertionError
+    # naming it.
     """Check `assert_docstring_consistency` `descr_regex_pattern` works."""
     # Check regex that matches full parameter descriptions
     regex_full = (
@@ -818,15 +980,29 @@ def test_assert_docstring_consistency_descr_regex_pattern():
 
 
 class RegistrationCounter:
+    # [CLASS DOC]
+    # HELPER: Callable used to monkeypatch atexit.register, counting registrations and
+    # checking the registered callable is a partial of _delete_folder.
     def __init__(self):
+        # [FUNCTION DOC]
+        # HELPER: Initializes nb_calls to 0.
         self.nb_calls = 0
 
     def __call__(self, to_register_func):
+        # [FUNCTION DOC]
+        # HELPER: Increments nb_calls and asserts the argument's func attribute is
+        # _delete_folder; returns None.
+        # Exceptions: AssertionError otherwise.
         self.nb_calls += 1
         assert to_register_func.func is _delete_folder
 
 
 def check_memmap(input_array, mmap_data, mmap_mode="r"):
+    # [FUNCTION DOC]
+    # HELPER: Asserts mmap_data is an np.memmap, writeable exactly when mmap_mode is not
+    # 'r', and equal to input_array.
+    # Inputs: input_array - reference ndarray; mmap_data - memmap; mmap_mode - str,
+    # default 'r'.
     assert isinstance(mmap_data, np.memmap)
     writeable = mmap_mode != "r"
     assert mmap_data.flags.writeable is writeable
@@ -834,6 +1010,11 @@ def check_memmap(input_array, mmap_data, mmap_mode="r"):
 
 
 def test_tempmemmap(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies TempMemmap yields a read-only (default) or r+ memmap equal to the input,
+    # deletes its temp folder on exit (non-Windows), and registers exactly one atexit
+    # cleanup per use.
+    # Inputs: monkeypatch - patches atexit.register with RegistrationCounter.
     registration_counter = RegistrationCounter()
     monkeypatch.setattr(atexit, "register", registration_counter)
 
@@ -855,6 +1036,12 @@ def test_tempmemmap(monkeypatch):
 
 
 def test_create_memmap_backed_data(monkeypatch):
+    # [FUNCTION DOC]
+    # Verifies create_memmap_backed_data for a single array, with return_folder (folder
+    # is the memmap's directory), with mmap_mode 'r+', for a list of arrays, and for a
+    # list mixing an array with a non-array (passed through); one atexit registration
+    # per call.
+    # Inputs: monkeypatch.
     registration_counter = RegistrationCounter()
     monkeypatch.setattr(atexit, "register", registration_counter)
 
@@ -920,6 +1107,13 @@ def test_convert_container(
     dtype,
     superdtype,
 ):
+    # [FUNCTION DOC]
+    # Verifies _convert_container converts [0, 1] to the requested container type (list,
+    # tuple, ndarray, sparse, pandas, pyarrow, polars, slice) and, where checkable, with
+    # the requested dtype (Python scalar subtype for list/tuple/Index; dtype checks
+    # skipped for polars/pyarrow).
+    # Inputs: constructor_name; container_type - type or lazy callable importing the
+    # library; dtype, superdtype.
     """Check that we convert the container to the right type of array with the
     right data type."""
     if constructor_name in (
@@ -956,24 +1150,35 @@ def test_convert_container(
 
 
 def test_convert_container_categories_pandas():
+    # [FUNCTION DOC]
+    # Verifies categorical_feature_names makes the pandas column dtype 'category'.
     pytest.importorskip("pandas")
     df = _convert_container([["x"]], "pandas", ["A"], categorical_feature_names=["A"])
     assert df.dtypes.iloc[0] == "category"
 
 
 def test_convert_container_categories_polars():
+    # [FUNCTION DOC]
+    # Verifies categorical_feature_names makes the polars column pl.Categorical.
     pl = pytest.importorskip("polars")
     df = _convert_container([["x"]], "polars", ["A"], categorical_feature_names=["A"])
     assert df.schema["A"] == pl.Categorical()
 
 
 def test_convert_container_categories_pyarrow():
+    # [FUNCTION DOC]
+    # Verifies categorical_feature_names makes the pyarrow column a DictionaryType.
     pa = pytest.importorskip("pyarrow")
     df = _convert_container([["x"]], "pyarrow", ["A"], categorical_feature_names=["A"])
     assert type(df.schema[0].type) is pa.DictionaryType
 
 
 def test_raises():
+    # [FUNCTION DOC]
+    # Verifies the raises context manager: passes on matching type and (any of several)
+    # match patterns setting raised_and_matched; lets non-matching exception types
+    # propagate; raises AssertionError (or custom err_msg) for wrong message or no
+    # exception, unless may_pass=True; supports tuples of exception types.
     # Tests for the raises context manager
 
     # Proper type, no match
@@ -1044,6 +1249,9 @@ def test_raises():
 
 
 def test_float32_aware_assert_allclose():
+    # [FUNCTION DOC]
+    # Verifies assert_allclose uses rtol 1e-4 for float32 and 1e-7 otherwise, with atol
+    # 0 by default even for float32.
     # The relative tolerance for float32 inputs is 1e-4
     assert_allclose(np.array([1.0 + 2e-5], dtype=np.float32), 1.0)
     with pytest.raises(AssertionError):
@@ -1063,6 +1271,10 @@ def test_float32_aware_assert_allclose():
 
 @pytest.mark.xfail(_IS_WASM, reason="cannot start subprocess")
 def test_assert_run_python_script_without_output():
+    # [FUNCTION DOC]
+    # Verifies assert_run_python_script_without_output passes for silent code, fails for
+    # any stdout output, and with pattern fails when stdout or stderr matches. xfails on
+    # WASM where subprocesses cannot start.
     code = "x = 1"
     assert_run_python_script_without_output(code)
 
@@ -1099,6 +1311,10 @@ def test_assert_run_python_script_without_output():
     ],
 )
 def test_convert_container_sparse_to_sparse(constructor_name):
+    # [FUNCTION DOC]
+    # Non-regression smoke test that a CSR sparse array can be converted to each sparse
+    # container name without error.
+    # Inputs: constructor_name.
     """Non-regression test to check that we can still convert a sparse container
     from a given format to another format.
     """
@@ -1107,6 +1323,14 @@ def test_convert_container_sparse_to_sparse(constructor_name):
 
 
 def check_warnings_as_errors(warning_info, warnings_as_errors):
+    # [FUNCTION DOC]
+    # HELPER: For one warnings-filter entry: if action is 'error' and warnings_as_errors
+    # is set, asserts emitting that warning raises; if action is 'ignore', emits a
+    # concrete message (substituting real text for regex-based messages for Pyarrow and
+    # codecs.open) and asserts it is swallowed when warnings_as_errors, otherwise
+    # recorded once with the same message and category.
+    # Inputs: warning_info - entry with action, message, category; warnings_as_errors -
+    # bool.
     if warning_info.action == "error" and warnings_as_errors:
         with pytest.raises(warning_info.category, match=warning_info.message):
             warnings.warn(
@@ -1135,12 +1359,21 @@ def check_warnings_as_errors(warning_info, warnings_as_errors):
 
 @pytest.mark.parametrize("warning_info", _get_warnings_filters_info_list())
 def test_sklearn_warnings_as_errors(warning_info):
+    # [FUNCTION DOC]
+    # Verifies the active global warning filters match each configured entry, with
+    # errors expected only when the SKLEARN_WARNINGS_AS_ERRORS env var is set to
+    # non-'0'.
+    # Inputs: warning_info - from _get_warnings_filters_info_list.
     warnings_as_errors = os.environ.get("SKLEARN_WARNINGS_AS_ERRORS", "0") != "0"
     check_warnings_as_errors(warning_info, warnings_as_errors=warnings_as_errors)
 
 
 @pytest.mark.parametrize("warning_info", _get_warnings_filters_info_list())
 def test_turn_warnings_into_errors(warning_info):
+    # [FUNCTION DOC]
+    # Verifies that after turn_warnings_into_errors (inside a catch_warnings scope)
+    # every configured filter entry behaves as in warnings-as-errors mode.
+    # Inputs: warning_info.
     with warnings.catch_warnings():
         turn_warnings_into_errors()
         check_warnings_as_errors(warning_info, warnings_as_errors=True)
