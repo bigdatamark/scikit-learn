@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Core scaling and transformation utilities of sklearn.preprocessing: scalers
+#   (MinMaxScaler, StandardScaler, MaxAbsScaler, RobustScaler), Normalizer, Binarizer,
+#   KernelCenterer, QuantileTransformer, PowerTransformer and their functional
+#   counterparts (scale, minmax_scale, maxabs_scale, robust_scale, normalize, binarize,
+#   quantile_transform, power_transform, add_dummy_feature), plus private helpers for
+#   constant-feature detection and zero-scale handling. Re-exports OneHotEncoder in
+#   __all__.
+# Module constant BOUNDS_THRESHOLD (1e-7) is the tolerance used by QuantileTransformer
+#   to detect values at the bounds of the training range.
+# Side effects at import: none.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -81,6 +92,14 @@ __all__ = [
 
 
 def _is_constant_feature(var, mean, n_samples):
+    # [FUNCTION DOC]
+    # HELPER: Flags features whose variance is indistinguishable from 0 given float
+    #   rounding.
+    # Behavior: computes eps of the highest-precision float of the namespace and returns
+    #   whether var is at most n_samples * eps * var + (n_samples * mean * eps) squared,
+    #   elementwise.
+    # Inputs: var, mean - arrays (n_features,); n_samples - int or array.
+    # Outputs: boolean array (n_features,).
     """Detect if a feature is indistinguishable from a constant feature.
 
     The detection is based on its computed variance and on the theoretical
@@ -99,6 +118,14 @@ def _is_constant_feature(var, mean, n_samples):
 
 
 def _handle_zeros_in_scale(scale, copy=True, constant_mask=None):
+    # [FUNCTION DOC]
+    # HELPER: Replaces (near-)zero scales by 1 to avoid division by zero.
+    # Behavior: scalar input returns 1.0 if exactly 0, else unchanged. Arrays: entries
+    #   in constant_mask (default: scale < 10 * eps of its dtype) are set to 1.0, on a
+    #   copy when copy is True.
+    # Inputs: scale - scalar or array; copy - bool; constant_mask - optional bool array.
+    # Outputs: scale with replacements. Side effects: modifies scale in place when copy
+    #   is False.
     """Set scales of near constant features to 1.
 
     The goal is to avoid division by very small or zero values.
@@ -144,6 +171,18 @@ def _handle_zeros_in_scale(scale, copy=True, constant_mask=None):
     prefer_skip_nested_validation=True,
 )
 def scale(X, *, axis=0, with_mean=True, with_std=True, copy=True):
+    # [FUNCTION DOC]
+    # Functional standardization along axis 0 (features) or 1 (samples).
+    # Behavior: validates X as float (1D allowed, NaN allowed, CSC sparse allowed,
+    #   copied if copy). Sparse: only axis 0 and with_mean False; divides columns by
+    #   sqrt of variance (zero variance treated as 1). Dense: computes NaN-ignoring mean
+    #   and std along axis, subtracts the mean, warns and re-centers if the result's
+    #   mean is not close to 0, divides by std (zeros replaced by 1), and again warns
+    #   and re-centers if needed.
+    # Outputs: transformed array of same shape (dense or sparse).
+    # Exceptions: ValueError for sparse input with with_mean True or axis 1.
+    # Side effects: UserWarnings on numerical issues; modifies X in place when copy is
+    #   False and no conversion was needed.
     """Standardize a dataset along any axis.
 
     Center to the mean and component wise scale to unit variance.
@@ -303,6 +342,12 @@ def scale(X, *, axis=0, with_mean=True, with_std=True, copy=True):
 
 
 class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Scales each feature linearly to feature_range using the data min and max. Fitted
+    #   attributes: min_, scale_ (per feature so that X * scale_ + min_ maps to the
+    #   range), data_min_, data_max_, data_range_, n_samples_seen_, n_features_in_,
+    #   feature_names_in_. Supports incremental fitting, NaNs (ignored), array API; no
+    #   sparse input.
     """Transform features by scaling each feature to a given range.
 
     This estimator scales and translates each feature individually such
@@ -432,11 +477,17 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, feature_range=(0, 1), *, copy=True, clip=False):
+        # [FUNCTION DOC]
+        # Stores feature_range, copy and clip verbatim.
         self.feature_range = feature_range
         self.copy = copy
         self.clip = clip
 
     def _reset(self):
+        # [FUNCTION DOC]
+        # HELPER: Deletes all fitted data-dependent attributes (scale_, min_,
+        #   n_samples_seen_, data_min_, data_max_, data_range_) if present, so fit
+        #   starts from scratch.
         """Reset internal data-dependent state of the scaler, if necessary.
 
         __init__ parameters are not touched.
@@ -452,6 +503,8 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
             del self.data_range_
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Resets state then calls partial_fit on X. Returns self.
         """Compute the minimum and maximum to be used for later scaling.
 
         Parameters
@@ -474,6 +527,16 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Updates running per-feature min/max with a batch.
+        # Behavior: check feature_range ordering; reject sparse; validate X as float
+        #   (reset only on first pass); NaN-ignoring min/max combined with stored
+        #   values; update n_samples_seen_; recompute data_range_, scale_ as range width
+        #   divided by data range (zero range replaced by 1) and min_ as range low minus
+        #   data_min times scale.
+        # Exceptions: ValueError if feature_range[0] >= feature_range[1]; TypeError for
+        #   sparse input.
+        # Outputs: self. Side effects: sets/updates all fitted attributes.
         """Online computation of min and max on X for later scaling.
 
         All of X is processed as a single batch. This is intended for cases
@@ -545,6 +608,10 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (reset=False, copy per self.copy, float), multiplies
+        #   by scale_, adds min_, optionally clips to feature_range in place.
+        # Outputs: transformed array.
         """Scale features of X according to feature_range.
 
         Parameters
@@ -586,6 +653,9 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X with check_array (no feature-name check) and
+        #   reverses the transform: subtract min_, divide by scale_. Returns the array.
         """Undo the scaling of X according to feature_range.
 
         Parameters
@@ -615,6 +685,8 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds allow_nan and array_api_support tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         tags.array_api_support = True
@@ -629,6 +701,10 @@ class MinMaxScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     prefer_skip_nested_validation=False,
 )
 def minmax_scale(X, feature_range=(0, 1), *, axis=0, copy=True):
+    # [FUNCTION DOC]
+    # Functional MinMaxScaler that also accepts 1D input (treated as a single column and
+    #   returned 1D). For axis 1 the scaler is fit on the transpose. Returns the scaled
+    #   array.
     """Transform features by scaling each feature to a given range.
 
     This estimator scales and translates each feature individually such
@@ -742,6 +818,13 @@ def minmax_scale(X, feature_range=(0, 1), *, axis=0, copy=True):
 class StandardScaler(
     CallbackSupportMixin, OneToOneFeatureMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Standardizes features by removing the (optionally weighted) mean and dividing by
+    #   the standard deviation. Fitted attributes: mean_, var_ (float64 for sparse; None
+    #   when not needed), scale_ (sqrt of var with near-constant features set to 1, or
+    #   None if with_std is False), n_samples_seen_ (int, or per-feature array when NaNs
+    #   make counts differ; float when weighted). Supports partial_fit, sparse input
+    #   when with_mean is False, NaNs, array API and fit callbacks.
     """Standardize features by removing the mean and scaling to unit variance.
 
     The standard score of a sample `x` is calculated as:
@@ -883,11 +966,16 @@ class StandardScaler(
     }
 
     def __init__(self, *, copy=True, with_mean=True, with_std=True):
+        # [FUNCTION DOC]
+        # Stores with_mean, with_std and copy verbatim.
         self.with_mean = with_mean
         self.with_std = with_std
         self.copy = copy
 
     def _reset(self):
+        # [FUNCTION DOC]
+        # HELPER: Deletes scale_, n_samples_seen_, mean_ and var_ if fitted, so fit
+        #   starts fresh.
         """Reset internal data-dependent state of the scaler, if necessary.
 
         __init__ parameters are not touched.
@@ -901,6 +989,8 @@ class StandardScaler(
             del self.var_
 
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Resets state, then partial_fit with X, y and sample_weight. Returns self.
         """Compute the mean and std to be used for later scaling.
 
         Parameters
@@ -929,6 +1019,22 @@ class StandardScaler(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Incrementally updates mean, variance and sample counts with a batch.
+        # Behavior: validate X (CSR/CSC accepted, float, NaN allowed; reset on first
+        #   call); invoke fit-begin callback; validate sample_weight. Expand
+        #   n_samples_seen_ to per-feature array (int64, or float when weighted).
+        #   Sparse: reject with_mean; with with_std compute or incrementally update
+        #   mean/var (weighted, NaN aware) and force float64; otherwise only count non-
+        #   NaN weighted samples. Dense: initialise mean/var to 0 on first pass; if
+        #   neither centering nor scaling, only count non-NaN samples; else update via
+        #   the incremental mean/var routine. Collapse n_samples_seen_ to a scalar when
+        #   equal across features. Compute scale_ from var_ with constant-feature
+        #   detection. Invoke fit-end callback.
+        # Exceptions: ValueError for sparse input with with_mean True.
+        # Outputs: self. Side effects: sets/updates fitted attributes; callbacks.
+        # KNOWN ISSUE: when sample_weight is given, n_samples_seen_ is the sum of
+        #   weights (float), despite the name.
         """Online computation of mean and std on X for later scaling.
 
         All of X is processed as a single batch. This is intended for cases
@@ -1090,6 +1196,13 @@ class StandardScaler(
         return self
 
     def transform(self, X, copy=None):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (reset=False, CSR accepted, copy per argument or
+        #   self.copy). Sparse: rejects with_mean; divides columns by scale_. Dense:
+        #   subtracts mean_ if with_mean and divides by scale_ if with_std (cast to X
+        #   dtype).
+        # Exceptions: ValueError for sparse input with with_mean True. Outputs:
+        #   transformed array.
         """Perform standardization by centering and scaling.
 
         Parameters
@@ -1135,6 +1248,10 @@ class StandardScaler(
         return X
 
     def inverse_transform(self, X, copy=None):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X with check_array (no feature-name check). Sparse:
+        #   rejects with_mean, multiplies columns by scale_. Dense: multiplies by scale_
+        #   then adds mean_ according to the flags. Returns the array.
         """Scale back the data to the original representation.
 
         Parameters
@@ -1179,6 +1296,9 @@ class StandardScaler(
         return X
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: NaN allowed, sparse allowed only when with_mean is False, preserves
+        #   float32/float64, array API supported.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         tags.input_tags.sparse = not self.with_mean
@@ -1188,6 +1308,11 @@ class StandardScaler(
 
 
 class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Scales each feature by its maximum absolute value so values lie in [-1, 1],
+    #   without centering (sparsity preserved). Fitted attributes: max_abs_, scale_
+    #   (max_abs_ with zeros replaced by 1), n_samples_seen_. Supports partial_fit,
+    #   sparse CSR/CSC, NaNs, array API for dense input.
     """Scale each feature by its maximum absolute value.
 
     This estimator scales and translates each feature individually such
@@ -1277,10 +1402,14 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, *, copy=True, clip=False):
+        # [FUNCTION DOC]
+        # Stores copy and clip verbatim.
         self.copy = copy
         self.clip = clip
 
     def _reset(self):
+        # [FUNCTION DOC]
+        # HELPER: Deletes scale_, n_samples_seen_ and max_abs_ if fitted.
         """Reset internal data-dependent state of the scaler, if necessary.
 
         __init__ parameters are not touched.
@@ -1293,6 +1422,8 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
             del self.max_abs_
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Resets state then partial_fit on X. Returns self.
         """Compute the maximum absolute value to be used for later scaling.
 
         Parameters
@@ -1315,6 +1446,11 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def partial_fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (reset on first pass; sparse allowed; NaN allowed), computes NaN-
+        #   ignoring per-feature max of absolute values (via column min/max for sparse),
+        #   combines with the stored max on later passes, updates n_samples_seen_,
+        #   max_abs_ and scale_. Returns self.
         """Online computation of max absolute value of X for later scaling.
 
         All of X is processed as a single batch. This is intended for cases
@@ -1364,6 +1500,10 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (reset=False, copy per self.copy), divides each
+        #   column by scale_; if clip, clips values (stored sparse data or dense
+        #   entries) to [-1, 1]. Returns the array.
         """Scale the data.
 
         Parameters
@@ -1410,6 +1550,9 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates with check_array (no feature-name check) and
+        #   multiplies columns by scale_. Returns the array.
         """Scale back the data to the original representation.
 
         Parameters
@@ -1442,6 +1585,8 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds allow_nan and sparse input tags.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         tags.input_tags.sparse = True
@@ -1456,6 +1601,9 @@ class MaxAbsScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     prefer_skip_nested_validation=False,
 )
 def maxabs_scale(X, *, axis=0, copy=True):
+    # [FUNCTION DOC]
+    # Functional MaxAbsScaler accepting 1D input (as one column, returned 1D) and sparse
+    #   input; axis 1 fits on the transpose. Returns the scaled array.
     """Scale each feature to the [-1, 1] range without breaking the sparsity.
 
     This estimator scales each feature individually such
@@ -1550,6 +1698,12 @@ def maxabs_scale(X, *, axis=0, copy=True):
 
 
 class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Robust scaling: subtracts the median (center_) and divides by the interquantile
+    #   range (scale_), optionally normalised so that a normal distribution gets unit
+    #   variance. Fitted attributes: center_ (None if no centering), scale_ (None if no
+    #   scaling), n_features_in_, feature_names_in_. Sparse input only without
+    #   centering.
     """Scale features using statistics that are robust to outliers.
 
     This Scaler removes the median and scales the data according to
@@ -1675,6 +1829,8 @@ class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         copy=True,
         unit_variance=False,
     ):
+        # [FUNCTION DOC]
+        # Stores parameters verbatim.
         self.with_centering = with_centering
         self.with_scaling = with_scaling
         self.quantile_range = quantile_range
@@ -1683,6 +1839,19 @@ class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSC sparse, float, NaN allowed) and quantile_range. center_ is
+        #   the NaN-ignoring median per column (dense only). scale_ is the difference
+        #   between the NaN-ignoring percentiles at quantile_range per column (for
+        #   sparse columns, stored values padded with zeros to n_samples), zero ranges
+        #   replaced by 1, and divided by the normal-distribution quantile spread when
+        #   unit_variance.
+        # Exceptions: ValueError for quantile range outside 0 <= q_min <= q_max <= 100,
+        #   or centering sparse input.
+        # Outputs: self.
+        # KNOWN ISSUE: with unit_variance and q_min equal to q_max (or q_min 0 / q_max
+        #   100), the normal-quantile adjustment is 0 or infinite, giving infinite or
+        #   zero scales; the range validation allows these values.
         """Compute the median and quantiles to be used for scaling.
 
         Parameters
@@ -1750,6 +1919,13 @@ class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (reset=False, sparse allowed, copy per self.copy).
+        #   Sparse: divides columns by scale_ when scaling. Dense: subtracts center_ and
+        #   divides by scale_ according to the flags. Returns the array.
+        # KNOWN ISSUE: sparse input with with_centering True is not rejected here
+        #   (unlike other scalers); it is silently not centered if the model was fitted
+        #   on dense data.
         """Center and scale the data.
 
         Parameters
@@ -1785,6 +1961,9 @@ class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates with check_array; multiplies by scale_ then adds
+        #   center_ (dense) or only rescales columns (sparse). Returns the array.
         """Scale back the data to the original representation.
 
         Parameters
@@ -1818,6 +1997,8 @@ class RobustScaler(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: sparse allowed only without centering; NaN allowed.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = not self.with_centering
         tags.input_tags.allow_nan = True
@@ -1838,6 +2019,9 @@ def robust_scale(
     copy=True,
     unit_variance=False,
 ):
+    # [FUNCTION DOC]
+    # Functional RobustScaler accepting 1D input (as one column, returned 1D) and sparse
+    #   input; axis 1 fits on the transpose. Returns the scaled array.
     """Standardize a dataset along any axis.
 
     Center to the median and component wise scale
@@ -1976,6 +2160,20 @@ def robust_scale(
     prefer_skip_nested_validation=True,
 )
 def normalize(X, norm="l2", *, axis=1, copy=True, return_norm=False):
+    # [FUNCTION DOC]
+    # Scales each sample (axis 1) or feature (axis 0) to unit l1, l2 or max norm.
+    # Behavior: validate X as float (CSR for axis 1, CSC for axis 0; copy per argument);
+    #   transpose for axis 0. Sparse: in-place row normalisation for l1/l2; for max,
+    #   divide stored values by the row max of absolute values when non-zero. Dense:
+    #   compute row norms (sum of abs, Euclidean, or max abs), replace zeros by 1 and
+    #   divide each row. Transpose back for axis 0.
+    # Outputs: normalized X, plus the norms array (n_rows,) if return_norm.
+    # Exceptions: NotImplementedError for return_norm with sparse input and l1/l2.
+    # Side effects: modifies X in place when copy is False and no conversion happened.
+    # KNOWN ISSUE: for sparse input with norm 'max', the max is computed as the larger
+    #   of the absolute row minimum and the row maximum, and returned norms keep zeros
+    #   (dense path replaces zero norms by 1), so return_norm results differ between
+    #   sparse and dense.
     """Scale input vectors individually to unit norm (vector length).
 
     Read more in the :ref:`User Guide <preprocessing_normalization>`.
@@ -2090,6 +2288,9 @@ def normalize(X, norm="l2", *, axis=1, copy=True, return_norm=False):
 
 
 class Normalizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateless row-wise normalizer wrapping normalize with axis 1. Fitting only
+    #   validates data and records n_features_in_ / feature_names_in_.
     """Normalize samples individually to unit norm.
 
     Each sample (i.e. each row of the data matrix) with at least one
@@ -2168,11 +2369,15 @@ class Normalizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, norm="l2", *, copy=True):
+        # [FUNCTION DOC]
+        # Stores norm and copy verbatim.
         self.norm = norm
         self.copy = copy
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR sparse allowed) and records feature metadata. Returns self.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -2195,6 +2400,9 @@ class Normalizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X, copy=None):
+        # [FUNCTION DOC]
+        # Validates X (reset=False, copy per argument or self.copy) and returns
+        #   normalize applied row-wise with the configured norm without additional copy.
         """Scale each non zero row of X to unit norm.
 
         Parameters
@@ -2218,6 +2426,8 @@ class Normalizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return normalize(X, norm=self.norm, axis=1, copy=False)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: sparse input, requires_fit False, array API support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.requires_fit = False
@@ -2234,6 +2444,15 @@ class Normalizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     prefer_skip_nested_validation=True,
 )
 def binarize(X, *, threshold=0.0, copy=True):
+    # [FUNCTION DOC]
+    # Sets entries greater than threshold to 1 and the others to 0.
+    # Behavior: validate X (CSR/CSC, copy per argument). Sparse: only stored values are
+    #   thresholded, then explicit zeros eliminated. Dense: comparison done in a float
+    #   dtype matching X and threshold; entries assigned in place.
+    # Outputs: X with the same dtype and format.
+    # Exceptions: ValueError for sparse input with threshold < 0 (implicit zeros would
+    #   need to become 1).
+    # Side effects: in-place modification when copy is False.
     """Boolean thresholding of array-like or scipy.sparse matrix.
 
     Read more in the :ref:`User Guide <preprocessing_binarization>`.
@@ -2293,6 +2512,9 @@ def binarize(X, *, threshold=0.0, copy=True):
 
 
 class Binarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Stateless transformer wrapping binarize with a fixed threshold. Fitting only
+    #   validates data and records feature metadata.
     """Binarize data (set feature values to 0 or 1) according to a threshold.
 
     Values greater than the threshold map to 1, while values less than
@@ -2369,11 +2591,16 @@ class Binarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, *, threshold=0.0, copy=True):
+        # [FUNCTION DOC]
+        # Stores threshold and copy verbatim.
         self.threshold = threshold
         self.copy = copy
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR sparse allowed) and records n_features_in_ /
+        #   feature_names_in_. Returns self.
         """Only validates estimator's parameters.
 
         This method allows to: (i) validate the estimator's parameters and
@@ -2396,6 +2623,11 @@ class Binarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X, copy=None):
+        # [FUNCTION DOC]
+        # Validates X (reset=False, CSR/CSC, copy per argument or self.copy) then
+        #   applies binarize with self.threshold without another copy. Returns the
+        #   binarized array.
+        # Exceptions: ValueError from binarize for sparse input with negative threshold.
         """Binarize each element of X.
 
         Parameters
@@ -2427,6 +2659,8 @@ class Binarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return binarize(X, threshold=self.threshold, copy=False)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: requires_fit False, array API support, sparse input.
         tags = super().__sklearn_tags__()
         tags.requires_fit = False
         tags.array_api_support = True
@@ -2435,6 +2669,11 @@ class Binarizer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
 
 
 class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Centers a kernel matrix as if the underlying feature vectors were mean-centered in
+    #   feature space. Fitted attributes: K_fit_rows_ (column means of the training
+    #   kernel, shape (n_samples_fit,)), K_fit_all_ (grand mean). Metadata routing marks
+    #   K as unused for fit/transform requests.
     r"""Center an arbitrary kernel matrix :math:`K`.
 
     Let define a kernel :math:`K` such that:
@@ -2517,6 +2756,10 @@ class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
     __metadata_request__fit = {"K": metadata_routing.UNUSED}
 
     def fit(self, K, y=None):
+        # [FUNCTION DOC]
+        # Validates K as float (records n_features_in_), requires it to be square,
+        #   stores column means and the overall mean. Returns self.
+        # Exceptions: ValueError if K is not square.
         """Fit KernelCenterer.
 
         Parameters
@@ -2550,6 +2793,12 @@ class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return self
 
     def transform(self, K, copy=True):
+        # [FUNCTION DOC]
+        # Requires fit. Validates K (n_samples_test, n_samples_fit), copied if copy.
+        #   Subtracts K_fit_rows_ from each row, subtracts each row's mean (row sum
+        #   divided by n_samples_fit), adds K_fit_all_. Returns the centered kernel.
+        # Side effects: modifies K in place when copy is False and no conversion was
+        #   needed.
         """Center kernel matrix.
 
         Parameters
@@ -2588,6 +2837,9 @@ class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # Property: number of output features, equal to n_features_in_; used to generate
+        #   prefixed output names.
         """Number of transformed output features."""
         # Used by ClassNamePrefixFeaturesOutMixin. This model preserves the
         # number of input features but this is not a one-to-one mapping in the
@@ -2596,6 +2848,8 @@ class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
         return self.n_features_in_
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: pairwise input, array API support.
         tags = super().__sklearn_tags__()
         tags.input_tags.pairwise = True
         tags.array_api_support = True
@@ -2610,6 +2864,13 @@ class KernelCenterer(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEsti
     prefer_skip_nested_validation=True,
 )
 def add_dummy_feature(X, value=1.0):
+    # [FUNCTION DOC]
+    # Prepends a constant column of value to X.
+    # Behavior: validate X as float (CSC/CSR/COO accepted). COO: shift column indices by
+    #   one and prepend one entry per row in column 0. CSC: prepend n_samples entries to
+    #   the data and shift index pointers. CSR: convert to COO, recurse, convert back to
+    #   CSR. Dense: horizontal stack of a constant column and X.
+    # Outputs: array or sparse array of shape (n_samples, n_features + 1).
     """Augment dataset with an additional dummy feature.
 
     This is useful for fitting an intercept term with implementations which
@@ -2668,6 +2929,12 @@ def add_dummy_feature(X, value=1.0):
 
 
 class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Maps each feature through its empirical CDF (estimated by n_quantiles_ quantiles)
+    #   to a uniform or normal output distribution. Fitted attributes: n_quantiles_,
+    #   quantiles_ (n_quantiles_, n_features), references_ (evenly spaced levels in [0,
+    #   1]), n_features_in_, feature_names_in_. Sparse CSC input must be non-negative
+    #   unless ignore_implicit_zeros; only stored values are transformed.
     """Transform features using quantiles information.
 
     This method transforms the features to follow a uniform or a normal
@@ -2799,6 +3066,8 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         random_state=None,
         copy=True,
     ):
+        # [FUNCTION DOC]
+        # Stores parameters verbatim.
         self.n_quantiles = n_quantiles
         self.output_distribution = output_distribution
         self.ignore_implicit_zeros = ignore_implicit_zeros
@@ -2807,6 +3076,14 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         self.copy = copy
 
     def _dense_fit(self, X, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Computes quantiles_ for dense X.
+        # Behavior: warns that ignore_implicit_zeros has no effect; subsamples rows
+        #   without replacement when subsample < n_samples; sets quantiles_ to the NaN-
+        #   ignoring percentiles at references_ (in percent) per column.
+        # Inputs: X - dense (n_samples, n_features); random_state - RandomState.
+        # Side effects: sets quantiles_; UserWarning when ignore_implicit_zeros is True;
+        #   consumes randomness.
         """Compute percentiles for dense matrices.
 
         Parameters
@@ -2832,6 +3109,16 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         self.quantiles_ = np.nanpercentile(X, references, axis=0)
 
     def _sparse_fit(self, X, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Computes quantiles_ for CSC sparse X, column by column.
+        # Behavior: when a column has more stored values than subsample, sample stored
+        #   values without replacement (all subsample slots if implicit zeros are
+        #   ignored, otherwise a proportion of subsample matching the non-zero fraction,
+        #   rest left as zeros). Otherwise use the stored values plus, unless
+        #   ignore_implicit_zeros, zeros padding to n_samples. Empty columns get all-
+        #   zero quantiles. Percentiles are NaN-ignoring.
+        # Inputs: X - CSC matrix; random_state - RandomState.
+        # Side effects: sets quantiles_ (transposed to (n_quantiles_, n_features)).
         """Compute percentiles for sparse matrices.
 
         Parameters
@@ -2880,6 +3167,13 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Checks n_quantiles <= subsample, validates X (sparse non-negativity rule
+        #   applies), warns and caps n_quantiles_ at n_samples, sets references_ as
+        #   n_quantiles_ evenly spaced levels in [0, 1], then dispatches to the sparse
+        #   or dense fit using check_random_state(random_state).
+        # Exceptions: ValueError when n_quantiles > subsample; from input checks.
+        # Outputs: self.
         """Compute the quantiles used for transforming.
 
         Parameters
@@ -2928,6 +3222,20 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return self
 
     def _transform_col(self, X_col, quantiles, inverse):
+        # [FUNCTION DOC]
+        # HELPER: Forward or inverse transform of a single column (modified in place
+        #   where possible).
+        # Behavior: forward maps from the [first, last] quantile range to [0, 1];
+        #   inverse maps from [0, 1] to that range, first applying the normal CDF if
+        #   output is normal. Bound masks: for normal, values within BOUNDS_THRESHOLD
+        #   beyond the bounds; for uniform, exact equality with the bounds. Non-NaN
+        #   values are interpolated: forward uses the average of increasing and
+        #   decreasing interpolation of references_ over quantiles (to handle repeated
+        #   quantiles), inverse interpolates quantiles over references_. Bound values
+        #   are then pinned to the output bounds. Forward normal output applies the
+        #   normal inverse CDF, clipped so values at BOUNDS_THRESHOLD remain finite.
+        # Inputs: X_col - 1D float array; quantiles - 1D array; inverse - bool.
+        # Outputs: transformed column; NaNs preserved.
         """Private function to transform a single feature."""
 
         output_distribution = self.output_distribution
@@ -2993,6 +3301,12 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return X_col
 
     def _check_inputs(self, X, in_fit, accept_sparse_negative=False, copy=False):
+        # [FUNCTION DOC]
+        # HELPER: Validates X for fit/transform (CSC sparse, float, NaN allowed,
+        #   writeable at transform time, reset only in fit, copy per argument).
+        # Exceptions: ValueError for sparse inputs with negative stored values unless
+        #   accept_sparse_negative or ignore_implicit_zeros.
+        # Outputs: validated X.
         """Check inputs before fit and transform."""
         X = validate_data(
             self,
@@ -3021,6 +3335,10 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return X
 
     def _transform(self, X, inverse=False):
+        # [FUNCTION DOC]
+        # HELPER: Applies _transform_col to every feature (the stored values for sparse
+        #   CSC, full columns for dense), writing results into X. Returns X (mutated in
+        #   place).
         """Forward and inverse transform.
 
         Parameters
@@ -3052,6 +3370,9 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return X
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (copy per self.copy; non-negative sparse rule) and
+        #   returns the forward transform.
         """Feature-wise transformation of the data.
 
         Parameters
@@ -3073,6 +3394,11 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return self._transform(X, inverse=False)
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X with check_array (CSC, copy per self.copy, NaN
+        #   allowed), checks the feature count, and applies the inverse transform.
+        #   Unlike transform, no feature-name check and no sparse non-negativity check.
+        # Exceptions: ValueError on feature count mismatch.
         """Back-projection to the original space.
 
         Parameters
@@ -3107,6 +3433,8 @@ class QuantileTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator)
         return self._transform(X, inverse=True)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Tags: sparse input and NaN allowed.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         tags.input_tags.allow_nan = True
@@ -3128,6 +3456,10 @@ def quantile_transform(
     random_state=None,
     copy=True,
 ):
+    # [FUNCTION DOC]
+    # Functional QuantileTransformer: fits on X (or its transpose for axis 1) and
+    #   returns the transformed data, transposed back for axis 1.
+    # Note: default subsample here is 100000, unlike the estimator's 10000.
     """Transform features using quantiles information.
 
     This method transforms the features to follow a uniform or a normal
@@ -3262,6 +3594,11 @@ def quantile_transform(
 
 
 class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Feature-wise parametric power transform (Yeo-Johnson or Box-Cox) with per-feature
+    #   lambda fitted by maximum likelihood, optionally followed by standardization.
+    #   Fitted attributes: lambdas_ (n_features,), private _scaler (StandardScaler) when
+    #   standardize, n_features_in_, feature_names_in_.
     """Apply a power transform featurewise to make data more Gaussian-like.
 
     Power transforms are a family of parametric, monotonic transformations
@@ -3366,12 +3703,17 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     }
 
     def __init__(self, method="yeo-johnson", *, standardize=True, copy=True):
+        # [FUNCTION DOC]
+        # Stores method, standardize and copy verbatim.
         self.method = method
         self.standardize = standardize
         self.copy = copy
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits lambdas (and the internal scaler) via _fit without returning transformed
+        #   data. Returns self.
         """Estimate the optimal parameter lambda for each feature.
 
         The optimal lambda parameter for minimizing skewness is estimated on
@@ -3395,6 +3737,9 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # Fits and returns the transformed data via _fit with force_transform, avoiding
+        #   a second validation/transform pass.
         """Fit `PowerTransformer` to `X`, then transform `X`.
 
         Parameters
@@ -3414,6 +3759,24 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return self._fit(X, y, force_transform=True)
 
     def _fit(self, X, y=None, force_transform=False):
+        # [FUNCTION DOC]
+        # HELPER: Shared fit logic.
+        # Behavior: validate X (Box-Cox requires strictly positive data); when called
+        #   from fit with copy False, copy X so the caller's data is untouched. Compute
+        #   float64 mean and variance per column. For each column: Yeo-Johnson constant
+        #   features get lambda 1 (identity); otherwise lambda is optimised (NaNs
+        #   dropped), and the column is transformed in place if standardizing or
+        #   force_transform. If standardize, fit a non-copying StandardScaler with
+        #   default output (and transform when force_transform).
+        # Inputs: X; y ignored; force_transform - bool.
+        # Outputs: X (transformed when force_transform, otherwise partially transformed
+        #   and discarded by fit).
+        # Side effects: sets lambdas_ and _scaler; mutates X when copy is False and
+        #   force_transform.
+        # Exceptions: ValueError from _check_input or for all-NaN columns with Box-Cox.
+        # KNOWN ISSUE: mean and var use non-NaN-aware reductions, so a constant feature
+        #   containing NaNs is not detected as constant and its lambda is optimised
+        #   instead of set to 1.
         X = self._check_input(X, in_fit=True, check_positive=True)
 
         if not self.copy and not force_transform:  # if call from fit()
@@ -3458,6 +3821,10 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates X (positivity for Box-Cox, feature count), applies the
+        #   per-feature power transform with the fitted lambdas in place, then
+        #   standardizes with _scaler if enabled. Returns the array.
         """Apply the power transform to each feature using the fitted lambdas.
 
         Parameters
@@ -3487,6 +3854,12 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # Requires fit. Validates with check_array (copy per self.copy), checks the
+        #   feature count, un-standardizes if enabled, then applies inverse Box-Cox or
+        #   inverse Yeo-Johnson column by column. Emits a UserWarning naming the column
+        #   if NumPy warns about invalid values in power (NaN results).
+        # Exceptions: ValueError on feature count mismatch.
         """Apply the inverse power transformation using the fitted lambdas.
 
         The inverse of the Box-Cox transformation is given by::
@@ -3558,6 +3931,13 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def _yeo_johnson_inverse_transform(self, x, lmbda):
+        # [FUNCTION DOC]
+        # HELPER: Inverse Yeo-Johnson for one column.
+        # Behavior: for non-negative values, exp(x) - 1 when lambda is 0, else (x *
+        #   lambda + 1) to the power 1/lambda, minus 1; for negative values, 1 - (-(2 -
+        #   lambda) * x + 1) to the power 1/(2 - lambda) when lambda is not 2, else 1 -
+        #   exp(-x). Zero comparisons use machine spacing of 1.0.
+        # Inputs: x - 1D float array; lmbda - float. Outputs: new array same shape.
         """Return inverse-transformed input x following Yeo-Johnson inverse
         transform with parameter lambda.
         """
@@ -3579,6 +3959,10 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return x_inv
 
     def _box_cox_optimize(self, x):
+        # [FUNCTION DOC]
+        # HELPER: Returns the maximum-likelihood Box-Cox lambda for a column ignoring
+        #   NaNs (scipy boxcox).
+        # Exceptions: ValueError if the column is all NaN.
         """Find and return optimal lambda parameter of the Box-Cox transform by
         MLE, for observed data x.
 
@@ -3595,6 +3979,11 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return lmbda
 
     def _yeo_johnson_optimize(self, x):
+        # [FUNCTION DOC]
+        # HELPER: Returns the maximum-likelihood Yeo-Johnson lambda for a column after
+        #   removing NaNs (scipy yeojohnson).
+        # KNOWN ISSUE: unlike _box_cox_optimize, an all-NaN column is not explicitly
+        #   rejected; the error then comes from scipy.
         """Find and return optimal lambda parameter of the Yeo-Johnson
         transform by MLE, for observed data x.
 
@@ -3607,6 +3996,14 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return lmbda
 
     def _check_input(self, X, in_fit, check_positive=False, check_shape=False):
+        # [FUNCTION DOC]
+        # HELPER: Validates X (2D float, writeable, copy per self.copy, NaN allowed,
+        #   reset when in_fit).
+        # Inputs: in_fit - bool; check_positive - bool, enforce strict positivity for
+        #   Box-Cox; check_shape - bool, compare column count with lambdas_.
+        # Outputs: validated X.
+        # Exceptions: ValueError for non-positive data with Box-Cox, or a feature count
+        #   mismatch.
         """Validate the input before fit and transform.
 
         Parameters
@@ -3654,6 +4051,8 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
         return X
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Adds the allow_nan input tag.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
@@ -3664,6 +4063,9 @@ class PowerTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):
     prefer_skip_nested_validation=False,
 )
 def power_transform(X, method="yeo-johnson", *, standardize=True, copy=True):
+    # [FUNCTION DOC]
+    # Functional PowerTransformer: constructs the estimator with the given options and
+    #   returns fit_transform of X.
     """Parametric, monotonic transformation to make data more Gaussian-like.
 
     Power transforms are a family of parametric, monotonic transformations
