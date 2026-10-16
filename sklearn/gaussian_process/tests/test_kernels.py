@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.gaussian_process.kernels: analytic vs numerical gradients, theta and
+# hyperparameter bookkeeping, diag/auto/cross consistency, operators, anisotropy,
+# stationarity, cloning, Matern special cases, compatibility with pairwise_kernels,
+# get/set_params and error handling. Shared read-only data X (5x2) and Y (6x2) and a
+# list of kernels covering every kernel type, plus a PairwiseKernel per metric (except
+# additive_chi2 and chi2).
 """Testing for kernels for Gaussian processes."""
 
 # Authors: The scikit-learn developers
@@ -73,6 +80,9 @@ for metric in PAIRWISE_KERNEL_FUNCTIONS:
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_gradient(kernel):
+    # [FUNCTION DOC]
+    # Verifies each kernel's gradient has shape (n_X, n_X, n_dims) and matches a
+    # numerical gradient from _approx_fprime (step 1e-10) to 4 decimals.
     # Compare analytic and numeric gradient of kernels.
     kernel = clone(kernel)  # make tests independent of one-another
     K, K_gradient = kernel(X, eval_gradient=True)
@@ -82,6 +92,9 @@ def test_kernel_gradient(kernel):
     assert K_gradient.shape[2] == kernel.theta.shape[0]
 
     def eval_kernel_for_theta(theta):
+        # [FUNCTION DOC]
+        # HELPER: Evaluates a clone of the kernel with the given theta on X. Outputs: K
+        # matrix.
         kernel_clone = kernel.clone_with_theta(theta)
         K = kernel_clone(X, eval_gradient=False)
         return K
@@ -101,6 +114,12 @@ def test_kernel_gradient(kernel):
     ],
 )
 def test_kernel_theta(kernel):
+    # [FUNCTION DOC]
+    # For basic (non-operator) kernels verifies: hyperparameter names match constructor
+    # arguments ending in "_bounds"; theta entries are logs of hyperparameter values;
+    # fixing one hyperparameter removes exactly that entry from theta and the gradient
+    # leaving the others identical; and setting theta or the attribute updates the
+    # other.
     # Check that parameter vector theta of kernel is set correctly.
     kernel = clone(kernel)  # make tests independent of one-another
     theta = kernel.theta
@@ -160,6 +179,8 @@ def test_kernel_theta(kernel):
     ],
 )
 def test_auto_vs_cross(kernel):
+    # [FUNCTION DOC]
+    # Verifies k(X) equals k(X, X) (5 decimals) for all kernels except RBF + White.
     kernel = clone(kernel)  # make tests independent of one-another
     # Auto-correlation and cross-correlation should be consistent.
     K_auto = kernel(X)
@@ -169,6 +190,8 @@ def test_auto_vs_cross(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_diag(kernel):
+    # [FUNCTION DOC]
+    # Verifies diag(X) equals the diagonal of k(X) (5 decimals).
     kernel = clone(kernel)  # make tests independent of one-another
     # Test that diag method of kernel returns consistent results.
     K_call_diag = np.diag(kernel(X))
@@ -177,6 +200,9 @@ def test_kernel_diag(kernel):
 
 
 def test_kernel_operator_commutative():
+    # [FUNCTION DOC]
+    # Verifies scalar + kernel equals kernel + scalar and scalar * kernel equals kernel
+    # * scalar on X.
     # Adding kernels and multiplying kernels should be commutative.
     # Check addition
     assert_almost_equal((RBF(2.0) + 1.0)(X), (1.0 + RBF(2.0))(X))
@@ -186,6 +212,9 @@ def test_kernel_operator_commutative():
 
 
 def test_kernel_anisotropic():
+    # [FUNCTION DOC]
+    # Verifies an anisotropic RBF equals isotropic RBFs on rescaled features, and that
+    # adding log 2 to theta doubles the constant and both length scales.
     # Anisotropic kernel should be consistent with isotropic kernels.
     kernel = 3.0 * RBF([0.5, 2.0])
 
@@ -210,6 +239,8 @@ def test_kernel_anisotropic():
     "kernel", [kernel for kernel in kernels if kernel.is_stationary()]
 )
 def test_kernel_stationary(kernel):
+    # [FUNCTION DOC]
+    # Verifies stationary kernels give a constant diagonal for k(X, X + 1).
     kernel = clone(kernel)  # make tests independent of one-another
     # Test stationarity of kernels.
     K = kernel(X, X + 1)
@@ -218,6 +249,9 @@ def test_kernel_stationary(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_input_type(kernel):
+    # [FUNCTION DOC]
+    # Verifies requires_vector_input of Exponentiation and KernelOperator kernels
+    # follows their sub-kernels.
     kernel = clone(kernel)  # make tests independent of one-another
     # Test whether kernels is for vectors or structured data
     if isinstance(kernel, Exponentiation):
@@ -229,6 +263,9 @@ def test_kernel_input_type(kernel):
 
 
 def test_compound_kernel_input_type():
+    # [FUNCTION DOC]
+    # Verifies CompoundKernel.requires_vector_input is False with only a WhiteKernel and
+    # True once an RBF is added.
     kernel = CompoundKernel([WhiteKernel(noise_level=3.0)])
     assert not kernel.requires_vector_input
 
@@ -237,6 +274,10 @@ def test_compound_kernel_input_type():
 
 
 def check_hyperparameters_equal(kernel1, kernel2):
+    # [FUNCTION DOC]
+    # HELPER: Asserts that every "hyperparameter_*" attribute of either kernel is equal
+    # between the two. Raises AttributeError if one kernel lacks an attribute of the
+    # other.
     # Check that hyperparameters of two kernels are equal
     for attr in set(dir(kernel1) + dir(kernel2)):
         if attr.startswith("hyperparameter_"):
@@ -247,6 +288,9 @@ def check_hyperparameters_equal(kernel1, kernel2):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_clone(kernel):
+    # [FUNCTION DOC]
+    # Verifies sklearn clone yields an equal but distinct kernel with identical params
+    # and hyperparameters.
     kernel = clone(kernel)  # make tests independent of one-another
     # Test that sklearn's clone works correctly on kernels.
     kernel_cloned = clone(kernel)
@@ -265,6 +309,10 @@ def test_kernel_clone(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_clone_after_set_params(kernel):
+    # [FUNCTION DOC]
+    # Regression test (issue 6961): after set_params turns a scalar length_scale into a
+    # 2-element list (non-isotropic kernels only), cloning still yields equal params and
+    # hyperparameters.
     kernel = clone(kernel)  # make tests independent of one-another
     # This test is to verify that using set_params does not
     # break clone on kernels.
@@ -294,6 +342,10 @@ def test_kernel_clone_after_set_params(kernel):
 
 
 def test_matern_kernel():
+    # [FUNCTION DOC]
+    # Verifies Matern: unit diagonal; nu=0.5 equals the absolute exponential kernel;
+    # nu=inf equals RBF; nu in {0.5, 1.5, 2.5} matches the general formula at nu +
+    # 1e-10; nu=100 is close to RBF (2 decimals).
     # Test consistency of Matern kernel for special values of nu.
     K = Matern(nu=1.5, length_scale=1.0)(X)
     # the diagonal elements of a matern kernel are 1
@@ -324,6 +376,9 @@ def test_matern_kernel():
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_kernel_versus_pairwise(kernel):
+    # [FUNCTION DOC]
+    # Verifies kernels used as callables in pairwise_kernels give the same auto (except
+    # RBF + White) and cross kernel matrices.
     kernel = clone(kernel)  # make tests independent of one-another
     # Check that GP kernels can also be used as pairwise kernels.
 
@@ -343,6 +398,11 @@ def test_kernel_versus_pairwise(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_set_get_params(kernel):
+    # [FUNCTION DOC]
+    # Verifies get_params values equal exp(theta) entries for non-fixed hyperparameters,
+    # and set_params to 10 reflects in theta, handling vector-valued hyperparameters.
+    # KNOWN ISSUE: the check isinstance("string", type(bounds)) is an inverted way to
+    # test whether bounds is a string; it works but reads misleadingly.
     kernel = clone(kernel)  # make tests independent of one-another
     # Check that set_params()/get_params() is consistent with kernel.theta.
 
@@ -386,6 +446,8 @@ def test_set_get_params(kernel):
 
 @pytest.mark.parametrize("kernel", kernels)
 def test_repr_kernels(kernel):
+    # [FUNCTION DOC]
+    # Smoke test that repr does not raise for any kernel.
     kernel = clone(kernel)  # make tests independent of one-another
     # Smoke-test for repr in kernels.
 
@@ -393,6 +455,9 @@ def test_repr_kernels(kernel):
 
 
 def test_rational_quadratic_kernel():
+    # [FUNCTION DOC]
+    # Verifies RationalQuadratic with a vector length_scale raises AttributeError when
+    # called.
     kernel = RationalQuadratic(length_scale=[1.0, 1.0])
     message = (
         "RationalQuadratic kernel only supports isotropic "

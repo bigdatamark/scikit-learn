@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Implements GaussianProcessRegressor, exact GP regression following Algorithm 2.1 of
+#   Rasmussen and Williams (2006): Cholesky factorisation of the regularised training
+#   kernel matrix, posterior mean/variance/covariance, sampling, and hyperparameter
+#   fitting by maximising the log-marginal likelihood with optional random restarts.
+#   GPR_CHOLESKY_LOWER fixes the triangle (lower) used for all Cholesky operations.
 """Gaussian processes regression."""
 
 # Authors: The scikit-learn developers
@@ -30,6 +36,12 @@ GPR_CHOLESKY_LOWER = True
 
 
 class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # GP regressor supporting multiple targets, optional target normalisation, prior
+    #   prediction without fitting (requires_fit tag is False), and custom optimizers.
+    #   Fitted attributes: kernel_, X_train_, y_train_, L_ (lower Cholesky factor), alpha_
+    #   (dual coefficients), log_marginal_likelihood_value_, plus private _y_train_mean,
+    #   _y_train_std and _rng.
     """Gaussian process regression (GPR).
 
     The implementation is based on Algorithm 2.1 of [RW2006]_.
@@ -220,6 +232,13 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         n_targets=None,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyperparameters unchanged (validated later through
+        #   _parameter_constraints): kernel (None means 1.0 * RBF(1.0)), alpha (diagonal
+        #   jitter, scalar or per-sample array, default 1e-10), optimizer
+        #   ("fmin_l_bfgs_b", callable or None), n_restarts_optimizer (default 0),
+        #   normalize_y (False), copy_X_train (True), n_targets (None, used for prior
+        #   predictions), random_state (for restarts).
         self.kernel = kernel
         self.alpha = alpha
         self.optimizer = optimizer
@@ -231,6 +250,30 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Steps: clone kernel (or build C()*RBF()) into kernel_; create _rng; validate X
+        #   and y (numeric 2-D X only if the kernel requires vector input; multi-output y
+        #   allowed); check y's target count matches n_targets if given; if normalize_y,
+        #   standardise y per target (zero std replaced by 1), else store zero means and
+        #   unit stds; validate alpha length; store training data (copied if
+        #   copy_X_train). If an optimizer is set and the kernel has hyperparameters,
+        #   minimise the negative log-marginal likelihood starting from the kernel's theta
+        #   and from n_restarts_optimizer log-uniform random draws within the bounds, keep
+        #   the best theta in kernel_ and its likelihood; otherwise just compute the
+        #   likelihood at the current theta. Finally compute L_ as the Cholesky factor of
+        #   K + alpha*I and alpha_ by solving (K + alpha*I) alpha_ = y_train_.
+        # Inputs: X - array (n_samples, n_features) or list of objects; y - (n_samples,)
+        #   or (n_samples, n_targets).
+        # Outputs: self.
+        # Exceptions: ValueError if target count differs from n_targets, if alpha array
+        #   length mismatches y, or if restarts are requested with non-finite bounds;
+        #   LinAlgError (with an added hint to increase alpha) when the kernel matrix is
+        #   not positive definite.
+        # Side effects: sets the fitted attributes listed on the class, consumes
+        #   randomness from random_state, and may emit optimizer convergence warnings.
+        # KNOWN ISSUE: when alpha is a length-1 array it overwrites the constructor
+        #   parameter self.alpha with its scalar element, mutating a public hyperparameter
+        #   during fit.
         """Fit Gaussian process regression model.
 
         Parameters
@@ -300,6 +343,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             # Choose hyperparameters based on maximizing the log-marginal
             # likelihood (potentially starting from several initial values)
             def obj_func(theta, eval_gradient=True):
+                # [FUNCTION DOC]
+                # HELPER: Objective for the optimizer: negative log-marginal likelihood
+                #   at theta (and its negative gradient when eval_gradient is True),
+                #   evaluated without cloning the kernel.
+                # Inputs: theta - log-transformed hyperparameters; eval_gradient - bool,
+                #   default True.
+                # Outputs: float, or (float, gradient array) when eval_gradient.
+                # Side effects: sets kernel_.theta to the evaluated theta.
                 if eval_gradient:
                     lml, grad = self.log_marginal_likelihood(
                         theta, eval_gradient=True, clone_kernel=False
@@ -368,6 +419,21 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X, return_std=False, return_cov=False):
+        # [FUNCTION DOC]
+        # If not fitted, uses the GP prior: mean zeros of shape (n_samples, n_targets)
+        #   squeezed, covariance kernel(X) or std sqrt(kernel.diag(X)), repeated along a
+        #   last axis for n_targets > 1; a None kernel becomes a fixed 1.0 * RBF(1.0). If
+        #   fitted: mean is K(X, X_train) times alpha_, de-normalised and squeezed for
+        #   single targets; covariance is K(X, X) - V^T V with V the triangular solve of
+        #   L_ against K(X, X_train)^T; std is the square root of diag(K(X)) minus the
+        #   column sums of squares of V. Both are scaled by the squared training std per
+        #   target and squeezed for single targets.
+        # Inputs: X - query points; return_std, return_cov - bools, default False.
+        # Outputs: y_mean, optionally followed by y_std or y_cov.
+        # Exceptions: RuntimeError if both return_std and return_cov are True;
+        #   validation errors for bad X.
+        # Side effects: warns (UserWarning) and clips to 0 when computed variances are
+        #   negative.
         """Predict using the Gaussian process regression model.
 
         We can also predict based on an unfitted model by using the GP prior.
@@ -500,6 +566,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 return y_mean, np.sqrt(y_var)
 
     def sample_y(self, X, n_samples=1, random_state=0):
+        # [FUNCTION DOC]
+        # Draws n_samples joint Gaussian samples at the query points from the predictive
+        #   mean and covariance (posterior if fitted, otherwise prior), one multivariate
+        #   normal per target.
+        # Inputs: X - query points; n_samples - int, default 1; random_state - default
+        #   0.
+        # Outputs: array (n_query, n_samples) for single target, (n_query, n_targets,
+        #   n_samples) for multiple targets.
         """Draw samples from Gaussian process and evaluate at X.
 
         Parameters
@@ -541,6 +615,18 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     def log_marginal_likelihood(
         self, theta=None, eval_gradient=False, clone_kernel=True
     ):
+        # [FUNCTION DOC]
+        # Computes, summed over targets, -0.5 y^T alpha - sum(log diag(L)) - (n/2) log(2
+        #   pi) for K(theta) + alpha*I = L L^T on the stored (normalised) training
+        #   targets; the gradient per hyperparameter is 0.5 * trace((alpha alpha^T - K^-1)
+        #   dK/dtheta), summed over targets.
+        # Inputs: theta - hyperparameters (log-scale) or None; eval_gradient - bool;
+        #   clone_kernel - if False, kernel_.theta is overwritten in place.
+        # Outputs: float, or (float, gradient array of shape (n_kernel_params,)).
+        # Exceptions: ValueError if theta is None and eval_gradient is True;
+        #   AttributeError if called before fit with theta None.
+        # Side effects: mutates kernel_ when clone_kernel is False. Returns -inf (and a
+        #   zero gradient) when the Cholesky factorisation fails instead of raising.
         """Return log-marginal likelihood of theta for training data.
 
         Parameters
@@ -656,6 +742,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             return log_likelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
+        # [FUNCTION DOC]
+        # HELPER: Runs one bounded minimisation of obj_func from initial_theta, using
+        #   scipy L-BFGS-B with analytic gradient for "fmin_l_bfgs_b" or the user callable
+        #   otherwise.
+        # Inputs: obj_func, initial_theta (array), bounds (n_params, 2 array).
+        # Outputs: (theta_opt, func_min).
+        # Exceptions: ValueError for an unknown optimizer string.
+        # Side effects: may emit a ConvergenceWarning via _check_optimize_result.
         if self.optimizer == "fmin_l_bfgs_b":
             opt_res = scipy.optimize.minimize(
                 obj_func,
@@ -674,6 +768,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return theta_opt, func_min
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks the estimator as not requiring fit (predict works from the prior).
         tags = super().__sklearn_tags__()
         tags.requires_fit = False
         return tags
