@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Implements PartialDependenceDisplay, the matplotlib visualization of partial
+# dependence (PD) and individual conditional expectation (ICE) results: one-way line or
+# bar plots, two-way contour or heatmap plots, arranged in a grid of axes, with decile
+# tick marks.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -20,6 +25,13 @@ from sklearn.utils.parallel import Parallel, delayed
 
 
 class PartialDependenceDisplay:
+    # [CLASS DOC]
+    # Holds precomputed partial_dependence results and draws them. Constructor
+    # attributes: pd_results (list of Bunch, one per plot), features (list of tuples of
+    # int indices), feature_names, target_idx (output/class row to plot), deciles (dict
+    # feature index to decile values), kind (str or list), subsample, random_state,
+    # is_categorical (list of tuples of bool or None). After plot: bounding_ax_, axes_,
+    # lines_, deciles_vlines_, deciles_hlines_, contours_, bars_, heatmaps_, figure_.
     """Partial Dependence Plot (PDP) and Individual Conditional Expectation (ICE).
 
     It is recommended to use
@@ -231,6 +243,8 @@ class PartialDependenceDisplay:
         random_state=None,
         is_categorical=None,
     ):
+        # [FUNCTION DOC]
+        # Stores all arguments as attributes without validation.
         self.pd_results = pd_results
         self.features = features
         self.feature_names = feature_names
@@ -270,6 +284,33 @@ class PartialDependenceDisplay:
         subsample=1000,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Computes partial dependence for each requested feature (or pair) and plots it.
+        # Steps: for classifiers with more than 2 classes, map target to its position in
+        # classes_ (required); otherwise target_idx is 0. Convert non-array X with
+        # check_array. Resolve feature names; expand kind to a list matching features;
+        # turn each entry into a tuple of 1 or 2 integer indices; reject ICE for pairs.
+        # Build per-plot categorical flags from a boolean mask or index/name list,
+        # rejecting mixed categorical/continuous pairs, grid_resolution below the
+        # smallest number of categories, and ICE for categorical features. Check the ax
+        # count, feature indices against feature_names and subsample (positive int or
+        # float in (0, 1)). Run partial_dependence for each entry in parallel with
+        # joblib. For multi-output regressors, require target and use it as target_idx.
+        # Compute deciles of every non-categorical target feature, build the display and
+        # plot.
+        # Inputs: estimator - fitted; X - array-like/DataFrame (n_samples, n_features);
+        # features - list of int/str or pairs; plus options forwarded to
+        # partial_dependence (sample_weight, categorical_features, feature_names,
+        # response_method, grid_resolution, percentiles, custom_values, method, kind)
+        # and to plot (n_cols, line_kw, ice_lines_kw, pd_line_kw, contour_kw, ax,
+        # centered); target; n_jobs; verbose; subsample; random_state.
+        # Outputs: PartialDependenceDisplay after plot.
+        # Exceptions: ValueError for each invalid configuration listed above and those
+        # raised by partial_dependence; ImportError without matplotlib.
+        # Side effects: creates matplotlib figures/axes when ax is None; spawns joblib
+        # workers.
+        # KNOWN ISSUE: the multi-output target check accepts target == n_tasks
+        # (inclusive upper bound), which is out of range and fails later when indexing.
         """Partial dependence (PD) and individual conditional expectation (ICE) plots.
 
         Partial dependence plots, individual conditional expectation plots, or an
@@ -784,6 +825,11 @@ class PartialDependenceDisplay:
         )
 
     def _get_sample_count(self, n_samples):
+        # [FUNCTION DOC]
+        # HELPER: Number of ICE lines to draw: an int subsample capped at n_samples, a
+        # float subsample times n_samples rounded up, or all samples when subsample is
+        # None.
+        # Inputs: n_samples - int. Outputs: int.
         """Compute the number of samples as an integer."""
         if isinstance(self.subsample, numbers.Integral):
             if self.subsample < n_samples:
@@ -803,6 +849,15 @@ class PartialDependenceDisplay:
         n_total_lines_by_plot,
         individual_line_kw,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Draws n_ice_to_plot randomly chosen ICE curves (without replacement,
+        # using a fresh RNG from random_state, so the same rows are chosen for every
+        # plot) on ax and stores each Line2D in lines_ at flat position pd_plot_idx *
+        # n_total_lines_by_plot + i.
+        # Inputs: preds - (n_samples, n_grid) predictions for the target; feature_values
+        # - grid axis; n_ice_to_plot - int; ax; pd_plot_idx - int; n_total_lines_by_plot
+        # - int; individual_line_kw - dict of plot kwargs.
+        # Side effects: draws on ax; mutates lines_.
         """Plot the ICE lines.
 
         Parameters
@@ -852,6 +907,13 @@ class PartialDependenceDisplay:
         categorical,
         bar_kw,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Draws the averaged curve: a bar chart (x tick labels rotated) for
+        # categorical features stored in bars_, otherwise a line stored in lines_ at
+        # flat index pd_line_idx.
+        # Inputs: avg_preds - 1-D averaged predictions; feature_values; ax; pd_line_idx
+        # - int; line_kw, bar_kw - dicts; categorical - bool.
+        # Side effects: draws on ax; mutates bars_ or lines_.
         """Plot the average partial dependence.
 
         Parameters
@@ -903,6 +965,19 @@ class PartialDependenceDisplay:
         bar_kw,
         pdp_lim,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Draws one one-way plot: ICE lines and/or the average (placed after the
+        # ICE lines in lines_ for "both"), decile marks at the bottom 5% of the axis
+        # when deciles are known, y limits from the min/max across all pdp_lim entries,
+        # x label from feature_names, a y label only on the first column (others lose
+        # tick labels), and a legend when the average line has a label.
+        # Inputs: kind - str; preds, avg_preds - arrays or None; feature_values;
+        # feature_idx - 1-tuple of int; n_ice_lines; ax; n_cols - int or None;
+        # pd_plot_idx; n_lines; ice_lines_kw; pd_line_kw; categorical - bool; bar_kw;
+        # pdp_lim - dict.
+        # Side effects: draws on ax; mutates lines_, bars_, deciles_vlines_.
+        # KNOWN ISSUE: y limits are taken over all pdp_lim entries, including the
+        # two-way entry (key 2), so one-way plots may share limits with two-way plots.
         """Plot 1-way partial dependence: ICE and PDP.
 
         Parameters
@@ -1014,6 +1089,21 @@ class PartialDependenceDisplay:
         categorical,
         heatmap_kw,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Draws one two-way plot. Categorical pair: an imshow heatmap of the
+        # averaged values annotated with each value (text colour chosen from the
+        # opposite end of the colormap by comparison with the mid-range), a colorbar and
+        # category tick labels; stored in heatmaps_. Otherwise: black contour lines with
+        # labels plus a filled contour using levels Z_level (stored in contours_),
+        # decile marks on both axes (limits restored), and axis labels from
+        # feature_names.
+        # Inputs: avg_preds - (n_targets, n0, n1); feature_values - two axes;
+        # feature_idx - 2-tuple; ax; pd_plot_idx; Z_level - contour levels; contour_kw,
+        # heatmap_kw - dicts; categorical - bool.
+        # Side effects: draws on ax and adds a colorbar to the figure; mutates
+        # heatmaps_, contours_, deciles_vlines_, deciles_hlines_.
+        # KNOWN ISSUE: the initial assignment of text to None is dead code, and the text
+        # array is built but never stored.
         """Plot 2-way partial dependence.
 
         Parameters
@@ -1144,6 +1234,32 @@ class PartialDependenceDisplay:
         pdp_lim=None,
         centered=False,
     ):
+        # [FUNCTION DOC]
+        # Lays out and draws all plots. Steps: expand kind and is_categorical defaults;
+        # validate kind length and values. If centered, subtract from ICE and average
+        # curves their value at the first grid point. If pdp_lim is None, compute a
+        # shared y range (padded by 5%) per number of features (1 or 2), using averages
+        # for "average" plots and ICE values otherwise. Normalize kwarg dicts (contour
+        # default alpha 0.75). Determine the number of ICE lines per plot. If ax is a
+        # single Axes, hide it and create a grid of up to n_cols columns inside its
+        # subplot spec; if an array of axes, use it directly. Allocate the artist
+        # arrays, set the two-way contour levels as 8 evenly spaced values over
+        # pdp_lim[2], then draw each plot, building per-plot line style defaults
+        # ("both": blue translucent ICE, orange dashed average).
+        # Inputs: ax - Axes, array of Axes or None; n_cols - int (default 3); line_kw,
+        # ice_lines_kw, pd_line_kw, contour_kw, bar_kw, heatmap_kw - dicts or None;
+        # pdp_lim - dict mapping 1/2 to (min, max) or None; centered - bool.
+        # Outputs: self.
+        # Exceptions: ValueError for kind mismatch or invalid values, an Axes already
+        # turned off by a previous plot, or a wrong number of axes; ImportError without
+        # matplotlib.
+        # Side effects: creates figure/subplots; sets bounding_ax_, figure_, axes_,
+        # lines_, contours_, bars_, heatmaps_, deciles_vlines_, deciles_hlines_.
+        # KNOWN ISSUE: line_kw, ice_lines_kw and pd_line_kw are reassigned inside the
+        # loop with the merged defaults of the current plot, so styles from one subplot
+        # leak into later subplots with a different kind.
+        # KNOWN ISSUE: if a user pdp_lim lacks key 2 while two-way plots are requested,
+        # Z_level is never defined and plotting fails with an UnboundLocalError.
         """Plot partial dependence plots.
 
         Parameters

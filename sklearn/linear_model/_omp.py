@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Orthogonal Matching Pursuit (OMP): greedy sparse approximation that iteratively
+# selects the feature (atom) most correlated with the current residual and refits the
+# least-squares solution on the selected atoms using an incrementally updated Cholesky
+# factor. Provides low-level solvers on X or on the Gram matrix, the public functions
+# orthogonal_mp / orthogonal_mp_gram, the OrthogonalMatchingPursuit estimator and its
+# cross-validated variant. Defines the module string premature used in RuntimeWarnings.
 """Orthogonal matching pursuit algorithms"""
 
 # Authors: The scikit-learn developers
@@ -35,6 +42,28 @@ premature = (
 
 
 def _cholesky_omp(X, y, n_nonzero_coefs, tol=None, copy_X=True, return_path=False):
+    # [FUNCTION DOC]
+    # HELPER: OMP for a single target working directly on X.
+    # Steps: copy X to Fortran order (or just ensure Fortran order when copy_X is False);
+    # alpha = X'y; loop: pick the column with largest absolute correlation with the
+    # residual; stop with a RuntimeWarning if it is already active or its initial
+    # correlation alpha squared is below machine eps; extend the lower Cholesky factor L of
+    # the active Gram matrix by solving a triangular system (stop with warning if the new
+    # diagonal is <= eps, i.e. linear dependence); swap the chosen column into the active
+    # block of X (and alpha, indices); solve L L' gamma = alpha_active with potrs; record
+    # gamma in the path; recompute the residual y - X_active gamma. Stop when the squared
+    # residual norm <= tol (tol mode) or when n_nonzero_coefs atoms are active.
+    # Inputs: X (n_samples, n_features); y (n_samples,); n_nonzero_coefs int (ignored when
+    # tol is set); tol float or None (squared residual norm target); copy_X bool;
+    # return_path bool.
+    # Outputs: gamma (n_active,) coefficients for the selected atoms, indices of selected
+    # atoms (n_active,), optional path coefs (max_features, n_active) whose column j holds
+    # the solution with j+1 atoms, and n_active.
+    # Side effects: when copy_X is False and X is already Fortran ordered, X's columns are
+    # permuted in place. Emits RuntimeWarning on premature termination.
+    # KNOWN ISSUE: the "inner product too small" check uses alpha (the initial X'y,
+    # permuted) rather than the current residual correlation, so it tests the wrong
+    # quantity.
     """Orthogonal Matching Pursuit step using the Cholesky decomposition.
 
     Parameters
@@ -160,6 +189,23 @@ def _gram_omp(
     copy_Xy=True,
     return_path=False,
 ):
+    # [FUNCTION DOC]
+    # HELPER: OMP for a single target using only the Gram matrix X'X and Xy = X'y.
+    # Same greedy loop as _cholesky_omp but the correlation vector alpha is maintained as
+    # Xy minus Gram times the current solution, the Cholesky row comes from Gram, and
+    # rows and columns of Gram are swapped to keep active atoms first. In tol mode the
+    # residual squared norm is tracked incrementally starting from tol_0 (the squared norm
+    # of y): add back the previous delta, compute the new delta as gamma dotted with
+    # (Gram gamma) restricted to the active set, subtract it, and stop when its absolute
+    # value <= tol.
+    # Inputs: Gram (n_features, n_features); Xy (n_features,); n_nonzero_coefs; tol_0 -
+    # squared norm of y (needed with tol); tol; copy_Gram; copy_Xy; return_path.
+    # Outputs: same tuple as _cholesky_omp.
+    # Side effects: permutes Gram in place when copy_Gram is False and it is Fortran
+    # ordered; Xy is copied if requested or read-only, otherwise permuted in place.
+    # RuntimeWarning on premature termination.
+    # KNOWN ISSUE: L[0, 0] is initialised to 1.0 before the loop but always overwritten
+    # on the first iteration (dead store).
     """Orthogonal Matching Pursuit step on a precomputed Gram matrix.
 
     This function uses the Cholesky decomposition method.
@@ -312,6 +358,27 @@ def orthogonal_mp(
     return_path=False,
     return_n_iter=False,
 ):
+    # [FUNCTION DOC]
+    # Public OMP solver on X for one or several targets.
+    # Validates X (Fortran, optionally copied) and y (reshaped to 2-D). Forces copying of
+    # X for each target when there are multiple targets since the low-level solver permutes
+    # columns. Defaults n_nonzero_coefs to max(10% of n_features, 1) when neither it nor tol
+    # is given. precompute="auto" means use the Gram path when n_samples > n_features; the
+    # Gram path computes X'X, X'y and (in tol mode) the squared norms of y and delegates to
+    # orthogonal_mp_gram. Otherwise runs _cholesky_omp per target and scatters each
+    # solution (or each path step) into a dense coefficient array.
+    # Inputs: X (n_samples, n_features); y ndarray (n_samples,) or (n_samples, n_targets);
+    # n_nonzero_coefs; tol; precompute bool or "auto"; copy_X; return_path;
+    # return_n_iter.
+    # Outputs: coef squeezed from (n_features, n_targets) or, with return_path,
+    # (n_features, n_targets, n_steps) where n_steps is the number of atoms of the last
+    # target processed; optionally n_iter (int for one target else list).
+    # Exceptions: ValueError if n_nonzero_coefs > n_features without tol; parameter
+    # validation errors.
+    # KNOWN ISSUE: return_n_iter is ignored on the precompute path (the Gram call does
+    # not forward it), so the return type changes with precompute.
+    # KNOWN ISSUE: with return_path and several targets, the path array is truncated to
+    # the number of steps of each target in turn, losing longer paths of earlier targets.
     r"""Orthogonal Matching Pursuit (OMP).
 
     Solves `n_targets` Orthogonal Matching Pursuit problems.
@@ -496,6 +563,23 @@ def orthogonal_mp_gram(
     return_path=False,
     return_n_iter=False,
 ):
+    # [FUNCTION DOC]
+    # Public OMP solver from the Gram matrix and X'y, for one or several targets.
+    # Validates/copies Gram (Fortran), makes Gram copies per target when there are
+    # several targets, wraps 1-D Xy (and norms_squared) into 2-D/list form, copies Xy once
+    # if requested or read-only. Defaults n_nonzero_coefs to 10% of n_features. Then runs
+    # _gram_omp per target and assembles coefficients like orthogonal_mp.
+    # Inputs: Gram (n_features, n_features); Xy (n_features,) or (n_features, n_targets);
+    # n_nonzero_coefs; tol; norms_squared (n_targets,) squared norms of y, required with
+    # tol; copy_Gram; copy_Xy; return_path; return_n_iter.
+    # Outputs: as orthogonal_mp.
+    # Exceptions: ValueError if tol is given without norms_squared, if the number of atoms
+    # is non-positive or exceeds n_features.
+    # KNOWN ISSUE: the default int(0.1 * n_features) can be 0 for fewer than 10 features,
+    # which then raises "number of atoms must be positive", unlike orthogonal_mp which
+    # uses at least 1.
+    # KNOWN ISSUE: the "tol < 0" check is unreachable because validate_params already
+    # enforces tol >= 0.
     """Gram Orthogonal Matching Pursuit (OMP).
 
     Solves `n_targets` Orthogonal Matching Pursuit problems using only
@@ -656,6 +740,9 @@ def orthogonal_mp_gram(
 
 
 class OrthogonalMatchingPursuit(RegressorMixin, MultiOutputLinearModel):
+    # [CLASS DOC]
+    # OMP linear regression estimator (multi-output capable) stopping either after
+    # n_nonzero_coefs atoms or when the residual squared norm reaches tol.
     """Orthogonal Matching Pursuit model (OMP).
 
     Fits a linear model with constraints imposed on the number of non-zero coefficients
@@ -772,6 +859,8 @@ class OrthogonalMatchingPursuit(RegressorMixin, MultiOutputLinearModel):
         fit_intercept=True,
         precompute="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores n_nonzero_coefs, tol, fit_intercept, precompute unchanged on self.
         self.n_nonzero_coefs = n_nonzero_coefs
         self.tol = tol
         self.fit_intercept = fit_intercept
@@ -779,6 +868,17 @@ class OrthogonalMatchingPursuit(RegressorMixin, MultiOutputLinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Fits the model. Validates X/y (float dtypes, multi-output), centers data and
+        # optionally precomputes the Gram matrix via _pre_fit (precompute may be "auto"),
+        # determines n_nonzero_coefs_ (default max(10% n_features, 1), None in tol mode),
+        # then calls orthogonal_mp (no Gram) or orthogonal_mp_gram (with squared norms of the
+        # centered y in tol mode), transposes the coefficients and sets the intercept from the
+        # offsets.
+        # Inputs: X (n_samples, n_features); y (n_samples,) or (n_samples, n_targets).
+        # Outputs: self.
+        # Side effects: sets coef_, intercept_, n_iter_, n_nonzero_coefs_; RuntimeWarning
+        # from the solver on premature stop.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -858,6 +958,16 @@ def _omp_path_residues(
     fit_intercept=True,
     max_iter=100,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Computes held-out residuals along the OMP path for one CV fold.
+    # Optionally copies the arrays, centers train and test X and y with the training
+    # means when fit_intercept, runs orthogonal_mp with return_path for max_iter atoms
+    # (copy_X False since already copied), and returns for each path step the test
+    # predictions minus y_test.
+    # Inputs: X_train, y_train, X_test, y_test - arrays; copy bool; fit_intercept bool;
+    # max_iter int (maximum number of atoms).
+    # Outputs: ndarray (n_steps, n_test_samples) of residuals.
+    # Side effects: mutates the input arrays in place when copy is False.
     """Compute the residues on left-out data for a full LARS path.
 
     Parameters
@@ -925,6 +1035,10 @@ def _omp_path_residues(
 
 
 class OrthogonalMatchingPursuitCV(RegressorMixin, LinearModel):
+    # [CLASS DOC]
+    # Cross-validated OMP: chooses the number of non-zero coefficients minimising mean
+    # held-out squared error, then refits an OrthogonalMatchingPursuit on all data.
+    # Single-target only.
     """Cross-validated Orthogonal Matching Pursuit model (OMP).
 
     See glossary entry for :term:`cross-validation estimator`.
@@ -1053,6 +1167,8 @@ class OrthogonalMatchingPursuitCV(RegressorMixin, LinearModel):
         n_jobs=None,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores copy, fit_intercept, max_iter, cv, n_jobs, verbose unchanged on self.
         self.copy = copy
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -1062,6 +1178,19 @@ class OrthogonalMatchingPursuitCV(RegressorMixin, LinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, **fit_params):
+        # [FUNCTION DOC]
+        # Validates X (at least 2 features) and y, converts X to float, resolves cv and routed
+        # splitter params. max_iter defaults to min(max(10% n_features, 5), n_features).
+        # Computes path residuals per fold in parallel (_omp_path_residues), truncates all
+        # folds to the shortest path, computes per-step MSE per fold, averages over folds and
+        # picks the step with minimal mean MSE (number of atoms = index + 1). Refits
+        # OrthogonalMatchingPursuit with that number of atoms.
+        # Inputs: X (n_samples, n_features); y (n_samples,); **fit_params routed to the
+        # splitter.
+        # Outputs: self.
+        # Side effects: sets n_nonzero_coefs_, coef_, intercept_, n_iter_.
+        # KNOWN ISSUE: max_iter=0 is allowed by the constraints but treated like None because
+        # of a truthiness test.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -1132,6 +1261,8 @@ class OrthogonalMatchingPursuitCV(RegressorMixin, LinearModel):
         return self
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter routing fit params to the cv splitter's split method.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
