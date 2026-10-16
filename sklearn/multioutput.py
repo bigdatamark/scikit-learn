@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Meta-estimators that extend single-output estimators to multi-output targets.
+# MultiOutputRegressor / MultiOutputClassifier fit one independent clone per target
+# column (shared base _MultiOutputEstimator). ClassifierChain / RegressorChain (shared
+# base _BaseChain) fit clones sequentially, each one seeing the original features plus
+# the previous targets (true values or cross-validated predictions) in the chain order.
+# Public names: those in __all__. No import-time side effects.
 """Multioutput regression and classification.
 
 The estimators provided in this module are meta-estimators: they require
@@ -57,6 +64,10 @@ __all__ = [
 
 
 def _fit_estimator(estimator, X, y, sample_weight=None, **fit_params):
+    # [FUNCTION DOC]
+    # HELPER: Clones estimator and fits it on (X, y), passing sample_weight only when it is
+    # not None, plus any extra fit params.
+    # Outputs: the fitted clone.
     estimator = clone(estimator)
     if sample_weight is not None:
         estimator.fit(X, y, sample_weight=sample_weight, **fit_params)
@@ -68,6 +79,13 @@ def _fit_estimator(estimator, X, y, sample_weight=None, **fit_params):
 def _partial_fit_estimator(
     estimator, X, y, classes=None, partial_fit_params=None, first_time=True
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs one partial_fit step for a single output. Clones the estimator on the
+    # first call, passes classes only when given, and forwards partial_fit_params (None
+    # treated as empty dict).
+    # Inputs: estimator; X; y - 1-D target column; classes - labels for this output or None;
+    # partial_fit_params - dict or None; first_time - bool, clone when True.
+    # Outputs: the updated estimator (mutated in place when not first_time).
     partial_fit_params = {} if partial_fit_params is None else partial_fit_params
     if first_time:
         estimator = clone(estimator)
@@ -80,12 +98,19 @@ def _partial_fit_estimator(
 
 
 def _available_if_estimator_has(attr):
+    # [FUNCTION DOC]
+    # HELPER: Returns an available_if decorator whose predicate is true when every fitted
+    # sub-estimator has attr (if estimators_ exists) or else when the unfitted estimator
+    # has attr.
+    # Inputs: attr - attribute name. Outputs: available_if descriptor factory.
     """Return a function to check if the sub-estimator(s) has(have) `attr`.
 
     Helper for Chain implementations.
     """
 
     def _check(self):
+        # [FUNCTION DOC]
+        # HELPER: Predicate described above; returns a bool rather than raising.
         if hasattr(self, "estimators_"):
             return all(hasattr(est, attr) for est in self.estimators_)
 
@@ -98,6 +123,11 @@ def _available_if_estimator_has(attr):
 
 
 class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # HELPER: Abstract base for the independent per-output meta-estimators. Validates that
+    # estimator has fit and predict; fits one clone per column of y in parallel (joblib,
+    # n_jobs). Fitted attributes: estimators_, and n_features_in_ / feature_names_in_
+    # copied from the first sub-estimator when available.
     _parameter_constraints: dict = {
         "estimator": [HasMethods(["fit", "predict"])],
         "n_jobs": [Integral, None],
@@ -105,6 +135,8 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
 
     @abstractmethod
     def __init__(self, estimator, *, n_jobs=None):
+        # [FUNCTION DOC]
+        # Stores estimator and n_jobs (abstract so the base cannot be instantiated).
         self.estimator = estimator
         self.n_jobs = n_jobs
 
@@ -114,6 +146,21 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
         prefer_skip_nested_validation=False
     )
     def partial_fit(self, X, y, classes=None, sample_weight=None, **partial_fit_params):
+        # [FUNCTION DOC]
+        # Incremental fit. first_time is True if estimators_ does not exist. Validates y as
+        # multi-output (X not validated). When routing is enabled, sample_weight is added to
+        # the routed params; otherwise sample_weight is only allowed if the estimator's fit
+        # accepts it and is wrapped in a manual routing object. Then, per column i in parallel,
+        # calls _partial_fit_estimator with the existing estimator (or template on first call)
+        # and classes[i]. On the first call copies n_features_in_ / feature_names_in_.
+        # Inputs: X; y - 2-D targets; classes - list of per-output label arrays or None;
+        # sample_weight - (n_samples,) or None; partial_fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError if y is 1-D, if sample weights are unsupported, or for
+        # unrouted metadata.
+        # Side effects: replaces estimators_; mutates the partial_fit_params kwargs dict.
+        # KNOWN ISSUE: has_fit_parameter checks the fit signature, not partial_fit, when
+        # deciding whether sample_weight is supported.
         """Incrementally fit a separate model for each class output.
 
         Parameters
@@ -207,6 +254,19 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Checks estimator has fit, validates y as multi-output (classification targets checked
+        # for classifiers), rejects 1-D y. Builds routed params: via process_routing when
+        # routing is enabled (sample_weight added), else sample-aligned fit_params via
+        # _check_method_params plus sample_weight (after checking support). Fits
+        # _fit_estimator for each column in parallel and copies feature metadata from the
+        # first fitted estimator.
+        # Inputs: X; y - (n_samples, n_outputs); sample_weight; fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError for missing fit, 1-D y, unsupported sample_weight, invalid
+        # classification targets.
+        # KNOWN ISSUE: the "should implement a fit method" check is unreachable in practice
+        # since parameter validation already requires fit and predict.
         """Fit the model to data, separately for each output variable.
 
         Parameters
@@ -283,6 +343,11 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted, then calls predict of every sub-estimator in parallel and returns the
+        # transposed stacked result (n_samples, n_outputs).
+        # Exceptions: NotFittedError; ValueError if the first estimator lacks predict
+        # (effectively unreachable).
         """Predict multi-output variable using model for each target variable.
 
         Parameters
@@ -307,6 +372,9 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
         return np.asarray(y).T
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies the wrapped estimator's sparse input tag and marks targets as multi-output,
+        # not single-output.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         tags.target_tags.single_output = False
@@ -314,6 +382,8 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
         return tags
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # MetadataRouter routing partial_fit->partial_fit and fit->fit to the wrapped estimator.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -337,6 +407,8 @@ class _MultiOutputEstimator(MetaEstimatorMixin, BaseEstimator, metaclass=ABCMeta
 
 
 class MultiOutputRegressor(RegressorMixin, _MultiOutputEstimator):
+    # [CLASS DOC]
+    # Regressor variant of _MultiOutputEstimator; adds no fitted attributes beyond the base.
     """Multi target regression.
 
     This strategy consists of fitting one regressor per target. This is a
@@ -403,10 +475,17 @@ class MultiOutputRegressor(RegressorMixin, _MultiOutputEstimator):
     """
 
     def __init__(self, estimator, *, n_jobs=None):
+        # [FUNCTION DOC]
+        # Forwards estimator and n_jobs to the base constructor.
         super().__init__(estimator, n_jobs=n_jobs)
 
     @_available_if_estimator_has("partial_fit")
     def partial_fit(self, X, y, sample_weight=None, **partial_fit_params):
+        # [FUNCTION DOC]
+        # Delegates to the base partial_fit without classes.
+        # Outputs: None.
+        # KNOWN ISSUE: the return value of super().partial_fit is discarded, so this returns
+        # None instead of self as documented, breaking method chaining.
         """Incrementally fit the model to data, for each output variable.
 
         Parameters
@@ -440,6 +519,9 @@ class MultiOutputRegressor(RegressorMixin, _MultiOutputEstimator):
 
 
 class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
+    # [CLASS DOC]
+    # Classifier variant of _MultiOutputEstimator. Adds classes_ (list of per-output class
+    # arrays), predict_proba (list output) and a subset-accuracy score.
     """Multi target classification.
 
     This strategy consists of fitting one classifier per target. This is a
@@ -509,9 +591,14 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
     """
 
     def __init__(self, estimator, *, n_jobs=None):
+        # [FUNCTION DOC]
+        # Forwards estimator and n_jobs to the base constructor.
         super().__init__(estimator, n_jobs=n_jobs)
 
     def fit(self, X, Y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Runs the base fit, then sets classes_ to the list of each sub-estimator's classes_.
+        # Outputs: self.
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -542,6 +629,9 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
         return self
 
     def _check_predict_proba(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; accesses predict_proba on every fitted sub-estimator
+        # (or the unfitted estimator), letting AttributeError propagate; returns True otherwise.
         if hasattr(self, "estimators_"):
             # raise an AttributeError if `predict_proba` does not exist for
             # each estimator
@@ -554,6 +644,11 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
 
     @available_if(_check_predict_proba)
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted and returns a list with each sub-estimator's predict_proba(X), each of
+        # shape (n_samples, n_classes_for_that_output).
+        # KNOWN ISSUE: the docstring says a ValueError is raised when an estimator lacks
+        # predict_proba; actually the method is hidden via available_if (AttributeError).
         """Return prediction probabilities for each class of each output.
 
         This method will raise a ``ValueError`` if any of the
@@ -581,6 +676,13 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
         return results
 
     def score(self, X, y):
+        # [FUNCTION DOC]
+        # Subset accuracy: fraction of samples whose predicted row equals the true row on all
+        # outputs.
+        # Inputs: X; y - 2-D array (n_samples, n_outputs), must expose ndim/shape.
+        # Outputs: float.
+        # Exceptions: ValueError if y is 1-D or its number of columns differs from the number of
+        # fitted estimators; NotFittedError.
         """Return the mean accuracy on the given test data and labels.
 
         Parameters
@@ -612,6 +714,8 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
         return np.mean(np.all(y == y_pred, axis=1))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Sets the private _skip_test tag (marked FIXME) so common estimator checks are skipped.
         tags = super().__sklearn_tags__()
         # FIXME
         tags._skip_test = True
@@ -619,12 +723,18 @@ class MultiOutputClassifier(ClassifierMixin, _MultiOutputEstimator):
 
 
 def _available_if_base_estimator_has(attr):
+    # [FUNCTION DOC]
+    # HELPER: Returns an available_if decorator whose predicate is true if the unfitted
+    # estimator has attr or all fitted estimators_ have it.
     """Return a function to check if `estimator` or `estimators_` has `attr`.
 
     Helper for Chain implementations.
     """
 
     def _check(self):
+        # [FUNCTION DOC]
+        # HELPER: Predicate above. If the estimator lacks attr and the model is unfitted,
+        # accessing estimators_ raises AttributeError, which available_if treats as missing.
         return hasattr(self.estimator, attr) or all(
             hasattr(est, attr) for est in self.estimators_
         )
@@ -633,6 +743,10 @@ def _available_if_base_estimator_has(attr):
 
 
 class _BaseChain(BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # HELPER: Abstract base for chain models. Fitted attributes: order_ (array of target
+    # column indices), estimators_ (one clone per target), chain_method_ (classifier only)
+    # and feature metadata set by validate_data.
     _parameter_constraints: dict = {
         "estimator": [HasMethods(["fit", "predict"])],
         "order": ["array-like", StrOptions({"random"}), None],
@@ -650,6 +764,8 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         random_state=None,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Stores estimator, order, cv, random_state and verbose unchanged.
         self.estimator = estimator
         self.order = order
         self.cv = cv
@@ -657,11 +773,24 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         self.verbose = verbose
 
     def _log_message(self, *, estimator_idx, n_estimators, processing_msg):
+        # [FUNCTION DOC]
+        # HELPER: Returns "(idx of n) msg" for _print_elapsed_time when verbose, else None.
         if not self.verbose:
             return None
         return f"({estimator_idx} of {n_estimators}) {processing_msg}"
 
     def _get_predictions(self, X, *, output_method):
+        # [FUNCTION DOC]
+        # HELPER: Runs the chain at prediction time. For each estimator in chain order, appends
+        # the previous estimators' chain_method_ outputs (default "predict") as extra columns
+        # to X (sparse hstack for sparse X; dok arrays converted to coo first), records the
+        # chain feature from chain_method and the output from output_method (both via
+        # _get_response_values, which gives positive-class 1-D values for binary
+        # probabilities). Finally reorders output columns back to the original target order
+        # using the inverse permutation of order_.
+        # Inputs: X; output_method - response method name for the returned values.
+        # Outputs: dense array (n_samples, n_outputs) passed through _align_api_if_sparse.
+        # Exceptions: NotFittedError; validation errors.
         """Get predictions for each model in the chain."""
         check_is_fitted(self)
         X = validate_data(self, X, accept_sparse=True, reset=False)
@@ -703,6 +832,25 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
 
     @abstractmethod
     def fit(self, X, Y, **fit_params):
+        # [FUNCTION DOC]
+        # Steps: validate X (sparse allowed) and multi-output Y; resolve order_ (None -> range,
+        # "random" -> RNG permutation, tuple -> array, else must be a permutation of
+        # range(n_outputs)); clone one estimator per output. Build augmented X_aug: with cv None
+        # the true Y columns in chain order are appended (sparse result converted to CSR);
+        # otherwise zero columns are appended (lil for sparse, coo used for sparse arrays).
+        # Route fit params (process_routing or manual). Resolve chain_method_ via
+        # _check_response_method when the subclass defines chain_method, else "predict". For
+        # each chain position fit the estimator on X plus the first chain_idx extra columns
+        # (timed/logged by _print_elapsed_time); when cv is set and not at the last position,
+        # fill the next extra column with cross_val_predict output of an unfitted template
+        # (second column for 2-D outputs).
+        # Inputs: X; Y - (n_samples, n_outputs); fit_params.
+        # Outputs: self.
+        # Exceptions: ValueError("invalid order") when order is not a permutation.
+        # Side effects: sets fitted attributes; consumes randomness; may print progress.
+        # KNOWN ISSUE: random_state is documented to seed each base estimator but is only used
+        # for the random order. The sparse cv=None path builds through lil before CSR while the
+        # cv path keeps lil for the column assignment.
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -819,6 +967,9 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns _get_predictions with output_method "predict".
+        # KNOWN ISSUE: docstring mentions ClassifierChain but this is shared by RegressorChain.
         """Predict on the data matrix X using the ClassifierChain model.
 
         Parameters
@@ -834,12 +985,18 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         return self._get_predictions(X, output_method="predict")
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies the wrapped estimator's sparse input tag.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = get_tags(self.estimator).input_tags.sparse
         return tags
 
 
 class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
+    # [CLASS DOC]
+    # Classifier chain. Adds chain_method (method whose outputs feed later classifiers) and
+    # predict_proba / predict_log_proba / decision_function. Fitted attribute classes_ is a
+    # list of per-estimator class arrays.
     """A multi-label model that arranges binary classifiers into a chain.
 
     Each model makes a prediction in the order specified by the chain using
@@ -998,6 +1155,8 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         random_state=None,
         verbose=False,
     ):
+        # [FUNCTION DOC]
+        # Forwards common parameters to _BaseChain and stores chain_method.
         super().__init__(
             estimator,
             order=order,
@@ -1012,6 +1171,10 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, Y, **fit_params):
+        # [FUNCTION DOC]
+        # Rejects unrouted metadata, runs the base fit, then sets classes_ from each estimator.
+        # Outputs: self.
+        # Exceptions: ValueError if metadata is passed without routing enabled.
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -1043,6 +1206,9 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
 
     @_available_if_base_estimator_has("predict_proba")
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns _get_predictions with output_method "predict_proba": positive-class
+        # probability per output, shape (n_samples, n_outputs).
         """Predict probability estimates.
 
         Parameters
@@ -1058,6 +1224,10 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         return self._get_predictions(X, output_method="predict_proba")
 
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Natural log of predict_proba (zeros produce -inf with a numpy warning).
+        # KNOWN ISSUE: not guarded by available_if, so on an estimator without predict_proba it
+        # fails with AttributeError at call time instead of being hidden.
         """Predict logarithm of probability estimates.
 
         Parameters
@@ -1074,6 +1244,8 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
 
     @_available_if_base_estimator_has("decision_function")
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns _get_predictions with output_method "decision_function".
         """Evaluate the decision_function of the models in the chain.
 
         Parameters
@@ -1090,6 +1262,8 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         return self._get_predictions(X, output_method="decision_function")
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # MetadataRouter routing fit->fit to the wrapped estimator.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1111,6 +1285,8 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Sets _skip_test (FIXME) and marks targets multi-output, not single-output.
         tags = super().__sklearn_tags__()
         # FIXME
         tags._skip_test = True
@@ -1120,6 +1296,8 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
 
 
 class RegressorChain(MetaEstimatorMixin, RegressorMixin, _BaseChain):
+    # [CLASS DOC]
+    # Regressor chain; uses "predict" outputs as chain features.
     """A multi-label model that arranges regressions into a chain.
 
     Each model makes a prediction in the order specified by the chain using
@@ -1220,6 +1398,10 @@ class RegressorChain(MetaEstimatorMixin, RegressorMixin, _BaseChain):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, Y, **fit_params):
+        # [FUNCTION DOC]
+        # Delegates to the base fit and returns self.
+        # KNOWN ISSUE: unlike ClassifierChain.fit, does not call _raise_for_params, so metadata
+        # passed without routing is forwarded manually instead of raising.
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -1245,6 +1427,8 @@ class RegressorChain(MetaEstimatorMixin, RegressorMixin, _BaseChain):
         return self
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # MetadataRouter routing fit->fit to the wrapped estimator.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1266,6 +1450,8 @@ class RegressorChain(MetaEstimatorMixin, RegressorMixin, _BaseChain):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks targets as multi-output, not single-output.
         tags = super().__sklearn_tags__()
         tags.target_tags.single_output = False
         tags.target_tags.multi_output = True

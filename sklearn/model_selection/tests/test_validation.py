@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.model_selection._validation: cross_val_score, cross_validate,
+# cross_val_predict, learning_curve, validation_curve, permutation_test_score and the
+# private helpers _fit_and_score, _score and _check_is_permutation. Covers scoring
+# formats, error_score handling and warnings, fit params / metadata routing, sparse and
+# pandas inputs, groups, verbosity output and array API support.
+# Defines several mock estimators and module-level fixtures data: X (15x2 ones), y
+# (7 classes), y2 (3 balanced classes) and P (5x5 identity, used by MockClassifier).
 """Test the validation module"""
 
 import os
@@ -101,22 +109,36 @@ from sklearn.utils.validation import _num_samples
 
 
 class MockImprovingEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Fake estimator for learning_curve tests. Its score depends only on the
+    # training size: on training data it returns 2 - train_sizes / n_max_train_sizes,
+    # otherwise train_sizes / n_max_train_sizes, so train scores decrease and test scores
+    # increase with more data. Training data is identified by object identity.
     """Dummy classifier to test the learning curve"""
 
     def __init__(self, n_max_train_sizes):
+        # [FUNCTION DOC]
+        # HELPER: Stores n_max_train_sizes and initializes train_sizes to 0 and X_subset None.
         self.n_max_train_sizes = n_max_train_sizes
         self.train_sizes = 0
         self.X_subset = None
 
     def fit(self, X_subset, y_subset=None):
+        # [FUNCTION DOC]
+        # HELPER: Remembers X_subset and sets train_sizes to its number of rows. Returns self.
         self.X_subset = X_subset
         self.train_sizes = X_subset.shape[0]
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Not supported; always raises NotImplementedError.
         raise NotImplementedError
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns the size-dependent score described at class level, choosing the
+        # branch with _is_training_data(X). Y is ignored.
         # training score becomes worse (2 -> 1), test error better (0 -> 1)
         if self._is_training_data(X):
             return 2.0 - float(self.train_sizes) / self.n_max_train_sizes
@@ -124,21 +146,38 @@ class MockImprovingEstimator(BaseEstimator):
             return float(self.train_sizes) / self.n_max_train_sizes
 
     def _is_training_data(self, X):
+        # [FUNCTION DOC]
+        # HELPER: True if X is the very object passed to the last fit.
         return X is self.X_subset
 
 
 class MockIncrementalImprovingEstimator(MockImprovingEstimator):
+    # [CLASS DOC]
+    # HELPER: Incremental variant: partial_fit accumulates train_sizes and remembers the
+    # first row of the latest batch; training data is detected by membership of that row.
+    # Optionally asserts that expected fit params are received with sample-aligned length.
     """Dummy classifier that provides partial_fit"""
 
     def __init__(self, n_max_train_sizes, expected_fit_params=None):
+        # [FUNCTION DOC]
+        # HELPER: Calls parent init, sets x None and stores expected_fit_params (list or None).
         super().__init__(n_max_train_sizes)
         self.x = None
         self.expected_fit_params = expected_fit_params
 
     def _is_training_data(self, X):
+        # [FUNCTION DOC]
+        # HELPER: True if the remembered row x is contained in X (numpy "in" semantics: any
+        # element match, so it is a loose check).
         return self.x in X
 
     def partial_fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # HELPER: Adds the batch size to train_sizes and stores the first row. If
+        # expected_fit_params is set, raises AssertionError when any expected param is missing
+        # or when an expected param's length differs from the batch size.
+        # Outputs: None.
+        # KNOWN ISSUE: returns None instead of self (callers in tests do not chain).
         self.train_sizes += X.shape[0]
         self.x = X[0]
         if self.expected_fit_params:
@@ -158,43 +197,70 @@ class MockIncrementalImprovingEstimator(MockImprovingEstimator):
 
 
 class MockEstimatorWithParameter(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Fake estimator for validation_curve tests: score is param on the training data
+    # and 1 - param otherwise.
     """Dummy classifier to test the validation curve"""
 
     def __init__(self, param=0.5):
+        # [FUNCTION DOC]
+        # HELPER: Sets X_subset None and stores param (default 0.5).
         self.X_subset = None
         self.param = param
 
     def fit(self, X_subset, y_subset):
+        # [FUNCTION DOC]
+        # HELPER: Remembers X_subset and its row count. Returns self.
         self.X_subset = X_subset
         self.train_sizes = X_subset.shape[0]
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Always raises NotImplementedError.
         raise NotImplementedError
 
     def score(self, X=None, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns param when X is the training object, else 1 - param.
         return self.param if self._is_training_data(X) else 1 - self.param
 
     def _is_training_data(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Identity check against the last fitted X_subset.
         return X is self.X_subset
 
 
 class MockEstimatorWithSingleFitCallAllowed(MockEstimatorWithParameter):
+    # [CLASS DOC]
+    # HELPER: Variant that fails if fit is called twice on the same instance, used to check
+    # that validation_curve clones before fitting.
     """Dummy classifier that disallows repeated calls of fit method"""
 
     def fit(self, X_subset, y_subset):
+        # [FUNCTION DOC]
+        # HELPER: Asserts fit_called_ is not yet set, sets it, then delegates to parent fit.
+        # Exceptions: AssertionError on a second call.
         assert not hasattr(self, "fit_called_"), "fit is called the second time"
         self.fit_called_ = True
         return super().fit(X_subset, y_subset)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Always raises NotImplementedError.
         raise NotImplementedError
 
 
 class MockClassifier(ClassifierMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Dummy classifier for cross-validation tests. fit checks shapes of optional
+    # fit params and records non-array params; predict returns the first column; predict_proba
+    # returns the input; score is 1 / (1 + abs(a)).
     """Dummy classifier to test the cross-validation"""
 
     def __init__(self, a=0, allow_nd=False):
+        # [FUNCTION DOC]
+        # HELPER: Stores a (score control) and allow_nd (accept >2-D X by flattening).
         self.a = a
         self.allow_nd = allow_nd
 
@@ -211,6 +277,13 @@ class MockClassifier(ClassifierMixin, BaseEstimator):
         dummy_obj=None,
         callback=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores dummy_int/str/obj, invokes callback(self) if given, flattens X when
+        # allow_nd, raises ValueError for >=3-D X otherwise, and asserts that sample_weight and
+        # sparse_sample_weight have one row per sample, class_prior has one entry per class
+        # and sparse_param has the shape of module-level P. Sets classes_. Returns self.
+        # KNOWN ISSUE: the class_prior check and classes_ use the module-level global y instead
+        # of the Y argument, so they reflect the global labels, not the fitted fold.
         """The dummy arguments are to test that this fit function can
         accept non-array arguments through cross-validation, such as:
             - int
@@ -263,17 +336,25 @@ class MockClassifier(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, T):
+        # [FUNCTION DOC]
+        # HELPER: Returns the first column of T (after flattening when allow_nd).
         if self.allow_nd:
             T = T.reshape(len(T), -1)
         return T[:, 0]
 
     def predict_proba(self, T):
+        # [FUNCTION DOC]
+        # HELPER: Returns T unchanged.
         return T
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns 1 / (1 + abs(a)); inputs ignored.
         return 1.0 / (1 + np.abs(self.a))
 
     def get_params(self, deep=False):
+        # [FUNCTION DOC]
+        # HELPER: Returns only a and allow_nd (deep ignored), so clone copies just these.
         return {"a": self.a, "allow_nd": self.allow_nd}
 
 
@@ -289,6 +370,11 @@ P = np.eye(5)
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_cross_val_score(coo_container):
+    # [FUNCTION DOC]
+    # Verifies cross_val_score with MockClassifier returns its constant score for dense and
+    # COO sparse X with 1-D and multi-output y, that list inputs are preserved (checked by
+    # CheckingClassifier), that 3-D X works with allow_nd and raises ValueError otherwise
+    # with error_score="raise".
     clf = MockClassifier()
     X_sparse = coo_container(X)
 
@@ -329,6 +415,9 @@ def test_cross_val_score(coo_container):
 
 
 def test_cross_validate_many_jobs():
+    # [FUNCTION DOC]
+    # Non-regression (#12154): cross_validate of a GridSearchCV with n_jobs=2 must not fail.
+    # Smoke test only.
     # regression test for #12154: cv='warn' with n_jobs>1 trigger a copy of
     # the parameters leading to a failure in check_cv due to cv is 'warn'
     # instead of cv == 'warn'.
@@ -339,6 +428,11 @@ def test_cross_validate_many_jobs():
 
 
 def test_cross_validate_invalid_scoring_param():
+    # [FUNCTION DOC]
+    # Checks ValueError messages for invalid scoring specifications (tuples of callables,
+    # empty tuple, duplicates, nested lists, empty dict) and that a scorer returning
+    # multiple values triggers a UserWarning "Scoring failed" (score set to nan), both as
+    # single scorer and inside a dict.
     X, y = make_classification(random_state=0)
     estimator = MockClassifier()
 
@@ -391,6 +485,9 @@ def test_cross_validate_invalid_scoring_param():
 
 
 def test_cross_validate_array_function_not_called():
+    # [FUNCTION DOC]
+    # Checks cross_validate works on _NotAnArray inputs, i.e. does not trigger NEP18
+    # __array_function__ (which would raise).
     """Check that `__array_function__` (NEP18) is not called."""
     X = _NotAnArray([[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 2], [2, 3], [2, 4]])
     y = _NotAnArray([1, 1, 1, 2, 2, 2, 1, 1])
@@ -399,6 +496,8 @@ def test_cross_validate_array_function_not_called():
 
 
 def test_cross_validate_nested_estimator():
+    # [FUNCTION DOC]
+    # Checks return_estimator=True returns a list of fitted Pipeline objects.
     # Non-regression test to ensure that nested
     # estimators are properly returned in a list
     # https://github.com/scikit-learn/scikit-learn/pull/17745
@@ -420,6 +519,10 @@ def test_cross_validate_nested_estimator():
 @pytest.mark.parametrize("use_sparse", [False, True])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_cross_validate(use_sparse: bool, csr_container):
+    # [FUNCTION DOC]
+    # Computes manual per-fold train/test MSE and R2 scores and fitted estimators with KFold
+    # for a Ridge regressor and linear SVC (dense or CSR), then compares them to
+    # cross_validate output via the single- and multi-metric check helpers.
     # Compute train and test mse/r2 scores
     cv = KFold()
 
@@ -475,6 +578,12 @@ def test_cross_validate(use_sparse: bool, csr_container):
 
 
 def check_cross_validate_single_metric(clf, X, y, scores, cv):
+    # [FUNCTION DOC]
+    # HELPER: For return_train_score True/False, checks that cross_validate with a string
+    # scorer and with a one-element list returns dicts of expected length and scores equal
+    # to the precomputed ones; then checks return_estimator gives estimators with the same
+    # coef_ (densified if sparse) and intercept_.
+    # Inputs: clf, X, y, scores tuple (train/test mse, train/test r2, fitted estimators), cv.
     (
         train_mse_scores,
         test_mse_scores,
@@ -541,6 +650,10 @@ def check_cross_validate_single_metric(clf, X, y, scores, cv):
 
 
 def check_cross_validate_multi_metric(clf, X, y, scores, cv):
+    # [FUNCTION DOC]
+    # HELPER: For tuple, dict and callable-returning-dict scorings, with and without train
+    # scores, checks the result keys, score values, ndarray types, and that fit/score times
+    # are in [0, 10).
     # Test multimetric evaluation when scoring is a list / dict
     (
         train_mse_scores,
@@ -551,6 +664,8 @@ def check_cross_validate_multi_metric(clf, X, y, scores, cv):
     ) = scores
 
     def custom_scorer(clf, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Multi-metric callable scorer returning r2 and negative MSE of clf predictions.
         y_pred = clf.predict(X)
         return {
             "r2": r2_score(y, y_pred),
@@ -614,6 +729,9 @@ def check_cross_validate_multi_metric(clf, X, y, scores, cv):
 
 
 def test_cross_val_score_predict_groups():
+    # [FUNCTION DOC]
+    # Checks that group-based splitters raise ValueError "groups ... should not be None"
+    # from both cross_val_score and cross_val_predict when groups is omitted.
     # Check if ValueError (when groups is None) propagates to cross_val_score
     # and cross_val_predict
     # And also check if groups is correctly passed to the cv object
@@ -636,6 +754,9 @@ def test_cross_val_score_predict_groups():
 
 
 def test_cross_val_score_pandas():
+    # [FUNCTION DOC]
+    # Checks cross_val_score keeps DataFrame/Series types (MockDataFrame, and pandas if
+    # installed) when passing them to the estimator, via CheckingClassifier.
     # check cross_val_score doesn't destroy pandas dataframe
     types = [(MockDataFrame, MockDataFrame)]
     try:
@@ -655,6 +776,10 @@ def test_cross_val_score_pandas():
 
 
 def test_cross_val_score_mask():
+    # [FUNCTION DOC]
+    # Intended to check boolean-mask cv splits give the same scores as index splits.
+    # KNOWN ISSUE: the mask arrays are built but cv_masks stores (train, test) index arrays,
+    # so masks are never actually tested.
     # test that cross_val_score works with boolean masks
     svm = SVC(kernel="linear")
     iris = load_iris()
@@ -674,6 +799,9 @@ def test_cross_val_score_mask():
 
 
 def test_cross_val_score_precomputed():
+    # [FUNCTION DOC]
+    # Checks a precomputed linear kernel and a callable kernel give the same scores as
+    # kernel="linear", and that ValueError is raised for non-square X and for a list kernel.
     # test for svm with precomputed kernel
     svm = SVC(kernel="precomputed")
     iris = load_iris()
@@ -702,6 +830,10 @@ def test_cross_val_score_precomputed():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_cross_val_score_fit_params(coo_container):
+    # [FUNCTION DOC]
+    # Passes array, sparse and non-array params (int, str, object, callback) through
+    # cross_val_score params and checks MockClassifier receives them correctly (shape
+    # asserts inside fit; the callback asserts the non-array values).
     clf = MockClassifier()
     n_samples = X.shape[0]
     n_classes = len(np.unique(y))
@@ -716,6 +848,8 @@ def test_cross_val_score_fit_params(coo_container):
     DUMMY_OBJ = object()
 
     def assert_fit_params(clf):
+        # [FUNCTION DOC]
+        # HELPER: Callback asserting the classifier stored the dummy int/str/object unchanged.
         # Function to test that the values are passed correctly to the
         # classifier arguments for non-array type
 
@@ -737,10 +871,15 @@ def test_cross_val_score_fit_params(coo_container):
 
 
 def test_cross_val_score_score_func():
+    # [FUNCTION DOC]
+    # Checks a custom make_scorer function is called exactly once per fold (cv=3) and its
+    # return value is reported.
     clf = MockClassifier()
     _score_func_args = []
 
     def score_func(y_test, y_predict):
+        # [FUNCTION DOC]
+        # HELPER: Records its arguments and returns 1.0.
         _score_func_args.append((y_test, y_predict))
         return 1.0
 
@@ -753,6 +892,9 @@ def test_cross_val_score_score_func():
 
 
 def test_cross_val_score_with_score_func_classification():
+    # [FUNCTION DOC]
+    # Checks default, accuracy and f1_weighted scores of linear SVC on iris match expected
+    # per-fold values.
     iris = load_iris()
     clf = SVC(kernel="linear")
 
@@ -772,6 +914,9 @@ def test_cross_val_score_with_score_func_classification():
 
 
 def test_cross_val_score_with_score_func_regression():
+    # [FUNCTION DOC]
+    # Checks default, r2, neg_mean_squared_error and explained variance scores of Ridge on a
+    # synthetic regression problem match expected per-fold values.
     X, y = make_regression(n_samples=30, n_features=20, n_informative=5, random_state=0)
     reg = Ridge()
 
@@ -797,6 +942,10 @@ def test_cross_val_score_with_score_func_regression():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_permutation_score(coo_container):
+    # [FUNCTION DOC]
+    # Checks permutation_test_score on iris: high score / low p-value, identical results
+    # with constant groups and with COO sparse X, expected values with a custom scorer, and
+    # low score / high p-value on non-informative labels.
     iris = load_iris()
     X = iris.data
     X_sparse = coo_container(X)
@@ -842,6 +991,8 @@ def test_permutation_score(coo_container):
 
     # test with custom scoring object
     def custom_score(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Returns (correct - incorrect) / n_samples.
         return ((y_true == y_pred).sum() - (y_true != y_pred).sum()) / y_true.shape[0]
 
     scorer = make_scorer(custom_score)
@@ -863,6 +1014,8 @@ def test_permutation_score(coo_container):
 
 
 def test_permutation_test_score_allow_nans():
+    # [FUNCTION DOC]
+    # Smoke test: permutation_test_score with an imputing pipeline accepts NaN input.
     # Check that permutation_test_score allows input data with NaNs
     X = np.arange(200, dtype=np.float64).reshape(10, -1)
     X[2, :] = np.nan
@@ -877,6 +1030,10 @@ def test_permutation_test_score_allow_nans():
 
 
 def test_permutation_test_score_params():
+    # [FUNCTION DOC]
+    # Checks sample_weight routing in permutation_test_score: missing weights raise
+    # AssertionError (CheckingClassifier), wrongly sized weights raise ValueError, correct
+    # weights work.
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
     clf = CheckingClassifier(expected_sample_weight=True)
@@ -892,6 +1049,8 @@ def test_permutation_test_score_params():
 
 
 def test_cross_val_score_allow_nans():
+    # [FUNCTION DOC]
+    # Smoke test: cross_val_score with an imputing pipeline accepts NaN input.
     # Check that cross_val_score allows input data with NaNs
     X = np.arange(200, dtype=np.float64).reshape(10, -1)
     X[2, :] = np.nan
@@ -906,6 +1065,9 @@ def test_cross_val_score_allow_nans():
 
 
 def test_cross_val_score_multilabel():
+    # [FUNCTION DOC]
+    # Checks precision with micro, macro and samples averaging on a small multilabel
+    # dataset with 1-NN gives the hand-computed per-fold values.
     X = np.array(
         [
             [-3, 4],
@@ -937,6 +1099,12 @@ def test_cross_val_score_multilabel():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_cross_val_predict(coo_container):
+    # [FUNCTION DOC]
+    # Checks cross_val_predict for Ridge on diabetes equals a manual KFold loop, returns
+    # one prediction per sample for default cv, LeaveOneOut and COO sparse X, works for
+    # unsupervised KMeans, raises ValueError when the cv does not partition the samples
+    # (BadCV), and warns (RuntimeWarning) when a training fold misses classes with
+    # predict_proba.
     X, y = load_diabetes(return_X_y=True)
     cv = KFold()
 
@@ -968,7 +1136,11 @@ def test_cross_val_predict(coo_container):
     assert len(preds) == len(y)
 
     class BadCV:
+        # [CLASS DOC]
+        # HELPER: Splitter yielding the same non-covering train/test pair four times.
         def split(self, X, y=None, groups=None):
+            # [FUNCTION DOC]
+            # HELPER: Yields train indices 0..3 and test indices 4..8, four times; ignores inputs.
             for i in range(4):
                 yield np.array([0, 1, 2, 3]), np.array([4, 5, 6, 7, 8])
 
@@ -993,6 +1165,10 @@ def test_cross_val_predict(coo_container):
 
 
 def test_cross_val_predict_decision_function_shape():
+    # [FUNCTION DOC]
+    # Checks decision_function output shapes: (n,) for binary, (n, 3) for iris, (n, 45) for
+    # OvO SVC on digits; and ValueError messages for a binary fold with a single class and
+    # for an OvO fold whose output width does not match the classes in the fold.
     X, y = make_classification(n_classes=2, n_samples=50, random_state=0)
 
     preds = cross_val_predict(LogisticRegression(), X, y, method="decision_function")
@@ -1041,6 +1217,8 @@ def test_cross_val_predict_decision_function_shape():
 
 
 def test_cross_val_predict_predict_proba_shape():
+    # [FUNCTION DOC]
+    # Checks predict_proba output shape is (n, n_classes) for binary and 3-class data.
     X, y = make_classification(n_classes=2, n_samples=50, random_state=0)
 
     preds = cross_val_predict(LogisticRegression(), X, y, method="predict_proba")
@@ -1053,6 +1231,8 @@ def test_cross_val_predict_predict_proba_shape():
 
 
 def test_cross_val_predict_predict_log_proba_shape():
+    # [FUNCTION DOC]
+    # Checks predict_log_proba output shape is (n, n_classes) for binary and 3-class data.
     X, y = make_classification(n_classes=2, n_samples=50, random_state=0)
 
     preds = cross_val_predict(LogisticRegression(), X, y, method="predict_log_proba")
@@ -1066,6 +1246,10 @@ def test_cross_val_predict_predict_log_proba_shape():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_cross_val_predict_input_types(coo_container):
+    # [FUNCTION DOC]
+    # Checks cross_val_predict output shapes for dense/COO X with 1-D and 2-D y, that list
+    # X/y are passed unchanged (CheckingClassifier), that decision_function works with list
+    # inputs, and that 3-D X is passed through.
     iris = load_iris()
     X, y = iris.data, iris.target
     X_sparse = coo_container(X)
@@ -1119,6 +1303,9 @@ def test_cross_val_predict_input_types(coo_container):
 
 
 def test_cross_val_predict_pandas():
+    # [FUNCTION DOC]
+    # Checks cross_val_predict keeps DataFrame/Series types (MockDataFrame and pandas if
+    # available) when passed to the estimator.
     # check cross_val_score doesn't destroy pandas dataframe
     types = [(MockDataFrame, MockDataFrame)]
     try:
@@ -1137,6 +1324,10 @@ def test_cross_val_predict_pandas():
 
 
 def test_cross_val_predict_unbalanced():
+    # [FUNCTION DOC]
+    # Checks predict_proba with a class present only in one fold: that class gets
+    # probability 0 in the other fold's predictions, other classes are positive and rows
+    # sum to 1.
     X, y = make_classification(
         n_samples=100,
         n_features=2,
@@ -1159,6 +1350,9 @@ def test_cross_val_predict_unbalanced():
 
 
 def test_cross_val_predict_y_none():
+    # [FUNCTION DOC]
+    # Checks cross_val_predict works with y=None: predict equals the first column of X and
+    # predict_proba equals X (MockClassifier behavior).
     # ensure that cross_val_predict works when y is None
     mock_classifier = MockClassifier()
     rng = np.random.RandomState(42)
@@ -1173,6 +1367,9 @@ def test_cross_val_predict_y_none():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_cross_val_score_sparse_fit_params(coo_container):
+    # [FUNCTION DOC]
+    # Checks a sparse sample-aligned fit param (COO identity) is correctly sliced per fold;
+    # MockClassifier asserts its row count and scores are all 1.
     iris = load_iris()
     X, y = iris.data, iris.target
     clf = MockClassifier()
@@ -1182,6 +1379,11 @@ def test_cross_val_score_sparse_fit_params(coo_container):
 
 
 def test_learning_curve():
+    # [FUNCTION DOC]
+    # Checks learning_curve with MockImprovingEstimator (with and without shuffle) emits no
+    # warnings, returns arrays of shape (10, 3) for scores and times (float64), train sizes
+    # 2..20 and linearly varying mean train/test scores; and that a one-time splitter
+    # (OneTimeSplitter) gives the same scores, proving cv.split is consumed once.
     n_samples = 30
     n_splits = 3
     X, y = make_classification(
@@ -1243,6 +1445,8 @@ def test_learning_curve():
 
 
 def test_learning_curve_unsupervised():
+    # [FUNCTION DOC]
+    # Same expectations as test_learning_curve with y=None and cv=3.
     X, _ = make_classification(
         n_samples=30,
         n_features=1,
@@ -1262,6 +1466,8 @@ def test_learning_curve_unsupervised():
 
 
 def test_learning_curve_verbose(capsys):
+    # [FUNCTION DOC]
+    # Checks verbose=1 prints a "[learning_curve]" line to stdout (captured by capsys).
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1277,6 +1483,9 @@ def test_learning_curve_verbose(capsys):
 
 
 def test_learning_curve_incremental_learning_not_possible():
+    # [FUNCTION DOC]
+    # Checks exploit_incremental_learning=True raises ValueError for an estimator without
+    # partial_fit.
     X, y = make_classification(
         n_samples=2,
         n_features=1,
@@ -1293,6 +1502,9 @@ def test_learning_curve_incremental_learning_not_possible():
 
 
 def test_learning_curve_incremental_learning():
+    # [FUNCTION DOC]
+    # Checks incremental learning (partial_fit) yields the expected sizes and linear score
+    # means, with and without shuffle.
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1319,6 +1531,8 @@ def test_learning_curve_incremental_learning():
 
 
 def test_learning_curve_incremental_learning_unsupervised():
+    # [FUNCTION DOC]
+    # Same as the incremental test but with y=None.
     X, _ = make_classification(
         n_samples=30,
         n_features=1,
@@ -1343,6 +1557,9 @@ def test_learning_curve_incremental_learning_unsupervised():
 
 
 def test_learning_curve_batch_and_incremental_learning_are_equal():
+    # [FUNCTION DOC]
+    # Checks SGDClassifier with max_iter=1 and no shuffling gives the same mean scores in
+    # batch and incremental modes.
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1382,6 +1599,9 @@ def test_learning_curve_batch_and_incremental_learning_are_equal():
 
 
 def test_learning_curve_n_sample_range_out_of_bounds():
+    # [FUNCTION DOC]
+    # Checks ValueError for train_sizes containing 0, 0.0, fractions > 1, or absolute sizes
+    # above the maximum training size.
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1405,6 +1625,9 @@ def test_learning_curve_n_sample_range_out_of_bounds():
 
 
 def test_learning_curve_remove_duplicate_sample_sizes():
+    # [FUNCTION DOC]
+    # Checks duplicate absolute sizes produced from fractions are removed with a
+    # RuntimeWarning and train_sizes becomes [1, 2].
     X, y = make_classification(
         n_samples=3,
         n_features=1,
@@ -1427,6 +1650,10 @@ def test_learning_curve_remove_duplicate_sample_sizes():
 
 
 def test_learning_curve_with_boolean_indices():
+    # [FUNCTION DOC]
+    # Checks learning_curve with an explicit KFold gives the expected sizes and scores.
+    # KNOWN ISSUE: despite the name, no boolean index masks are used; it duplicates the
+    # plain KFold case.
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1447,6 +1674,10 @@ def test_learning_curve_with_boolean_indices():
 
 
 def test_learning_curve_with_shuffle():
+    # [FUNCTION DOC]
+    # Non-regression for PR #7506: with GroupKFold splits whose first increments miss a
+    # class, shuffle=True gives expected mean scores, the unshuffled run fails with
+    # ValueError under error_score="raise", and incremental learning matches batch scores.
     # Following test case was designed this way to verify the code
     # changes made in pull request: #7506.
     X = np.array(
@@ -1527,6 +1758,9 @@ def test_learning_curve_with_shuffle():
 
 
 def test_learning_curve_params():
+    # [FUNCTION DOC]
+    # Checks sample_weight routing in learning_curve: missing weights raise AssertionError,
+    # wrongly sized weights raise ValueError, correct weights work.
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
     clf = CheckingClassifier(expected_sample_weight=True)
@@ -1546,6 +1780,9 @@ def test_learning_curve_params():
 
 
 def test_learning_curve_incremental_learning_params():
+    # [FUNCTION DOC]
+    # Checks that in incremental mode, missing expected fit params make
+    # MockIncrementalImprovingEstimator raise AssertionError (error_score="raise").
     X, y = make_classification(
         n_samples=30,
         n_features=1,
@@ -1570,6 +1807,9 @@ def test_learning_curve_incremental_learning_params():
 
 
 def test_validation_curve():
+    # [FUNCTION DOC]
+    # Checks validation_curve with MockEstimatorWithParameter emits no warnings and that
+    # mean train/test scores equal param_range and 1 - param_range.
     X, y = make_classification(
         n_samples=2,
         n_features=1,
@@ -1597,6 +1837,9 @@ def test_validation_curve():
 
 
 def test_validation_curve_clone_estimator():
+    # [FUNCTION DOC]
+    # Checks validation_curve clones the estimator for every fit (the mock raises on a
+    # second fit of the same instance).
     X, y = make_classification(
         n_samples=2,
         n_features=1,
@@ -1619,6 +1862,10 @@ def test_validation_curve_clone_estimator():
 
 
 def test_validation_curve_cv_splits_consistency():
+    # [FUNCTION DOC]
+    # Checks the same splits are used for every parameter value: with OneTimeSplitter and a
+    # shuffled KFold, duplicated C values give identical scores; unshuffled KFold matches
+    # OneTimeSplitter results.
     n_samples = 100
     n_splits = 5
     X, y = make_classification(n_samples=100, random_state=0)
@@ -1665,6 +1912,9 @@ def test_validation_curve_cv_splits_consistency():
 
 
 def test_validation_curve_params():
+    # [FUNCTION DOC]
+    # Checks sample_weight routing in validation_curve: missing weights raise
+    # AssertionError, wrongly sized weights raise ValueError, correct weights work.
     X = np.arange(100).reshape(10, 10)
     y = np.array([0] * 5 + [1] * 5)
     clf = CheckingClassifier(expected_sample_weight=True)
@@ -1703,6 +1953,9 @@ def test_validation_curve_params():
 
 
 def test_check_is_permutation():
+    # [FUNCTION DOC]
+    # Checks _check_is_permutation accepts a shuffled arange and rejects arrays with a
+    # missing element, a duplicated element, or an extra duplicate index.
     rng = np.random.RandomState(0)
     p = np.arange(100)
     rng.shuffle(p)
@@ -1718,6 +1971,9 @@ def test_check_is_permutation():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_cross_val_predict_sparse_prediction(csr_container):
+    # [FUNCTION DOC]
+    # Checks OvR multilabel cross_val_predict gives the same predictions for CSR sparse X/y
+    # (densified) as for dense inputs.
     # check that cross_val_predict gives same result for sparse and dense input
     X, y = make_multilabel_classification(
         n_classes=2,
@@ -1736,6 +1992,12 @@ def test_cross_val_predict_sparse_prediction(csr_container):
 
 
 def check_cross_val_predict_binary(est, X, y, method):
+    # [FUNCTION DOC]
+    # HELPER: Builds expected out-of-fold outputs of method with a manual unshuffled
+    # 3-fold KFold loop (shape (n,) for binary decision_function, (n, 2) otherwise, or
+    # y.shape for 2-D y), then checks cross_val_predict matches for y, y+1, y-2 and string
+    # labels.
+    # Inputs: est - estimator; X, y; method - prediction method name.
     """Helper for tests of cross_val_predict with binary classification"""
     cv = KFold(n_splits=3, shuffle=False)
 
@@ -1757,6 +2019,11 @@ def check_cross_val_predict_binary(est, X, y, method):
 
 
 def check_cross_val_predict_multiclass(est, X, y, method):
+    # [FUNCTION DOC]
+    # HELPER: Builds expected out-of-fold outputs for multiclass y: columns for classes
+    # absent from a training fold keep the default (float64 min for decision_function and
+    # predict_log_proba, 0 for predict_proba); then compares cross_val_predict for several
+    # label encodings.
     """Helper for tests of cross_val_predict with multiclass classification"""
     cv = KFold(n_splits=3, shuffle=False)
 
@@ -1785,6 +2052,11 @@ def check_cross_val_predict_multiclass(est, X, y, method):
 
 
 def check_cross_val_predict_multilabel(est, X, y, method):
+    # [FUNCTION DOC]
+    # HELPER: For 2-D targets with estimators returning a list of per-output arrays, builds
+    # expected per-output arrays (1-D for binary decision_function), fills columns of the
+    # classes seen in each training fold, and checks every element of the cross_val_predict
+    # output list for several label encodings.
     """Check the output of cross_val_predict for 2D targets using
     Estimators which provide a predictions as a list with one
     element per class.
@@ -1837,6 +2109,9 @@ def check_cross_val_predict_multilabel(est, X, y, method):
 
 
 def check_cross_val_predict_with_method_binary(est):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_cross_val_predict_binary for decision_function, predict_proba and
+    # predict_log_proba on a binary make_classification problem.
     # This test includes the decision_function with two classes.
     # This is a special case: it has only one column of output.
     X, y = make_classification(n_classes=2, random_state=0)
@@ -1845,6 +2120,9 @@ def check_cross_val_predict_with_method_binary(est):
 
 
 def check_cross_val_predict_with_method_multiclass(est):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_cross_val_predict_multiclass for the three probability/decision
+    # methods on shuffled iris.
     iris = load_iris()
     X, y = iris.data, iris.target
     X, y = shuffle(X, y, random_state=0)
@@ -1853,11 +2131,16 @@ def check_cross_val_predict_with_method_multiclass(est):
 
 
 def test_cross_val_predict_with_method():
+    # [FUNCTION DOC]
+    # Runs the binary and multiclass method checks with LogisticRegression.
     check_cross_val_predict_with_method_binary(LogisticRegression())
     check_cross_val_predict_with_method_multiclass(LogisticRegression())
 
 
 def test_cross_val_predict_method_checking():
+    # [FUNCTION DOC]
+    # Non-regression for #9639: cross_val_predict must not check prediction methods before
+    # fitting; runs multiclass checks with SGDClassifier(loss="log_loss").
     # Regression test for issue #9639. Tests that cross_val_predict does not
     # check estimator methods (e.g. predict_proba) before fitting
     iris = load_iris()
@@ -1869,6 +2152,8 @@ def test_cross_val_predict_method_checking():
 
 
 def test_gridsearchcv_cross_val_predict_with_method():
+    # [FUNCTION DOC]
+    # Runs multiclass method checks with a GridSearchCV-wrapped LogisticRegression.
     iris = load_iris()
     X, y = iris.data, iris.target
     X, y = shuffle(X, y, random_state=0)
@@ -1878,6 +2163,9 @@ def test_gridsearchcv_cross_val_predict_with_method():
 
 
 def test_cross_val_predict_with_method_multilabel_ovr():
+    # [FUNCTION DOC]
+    # Checks OvR multilabel predict_proba / decision_function outputs (2-D arrays) via the
+    # binary check helper.
     # OVR does multilabel predictions, but only arrays of
     # binary indicator columns. The output of predict_proba
     # is a 2D array with shape (n_samples, n_classes).
@@ -1892,10 +2180,16 @@ def test_cross_val_predict_with_method_multilabel_ovr():
 
 
 class RFWithDecisionFunction(RandomForestClassifier):
+    # [CLASS DOC]
+    # HELPER: RandomForestClassifier with a fake decision_function for multioutput tasks.
     # None of the current multioutput-multiclass estimators have
     # decision function methods. Create a mock decision function
     # to test the cross_val_predict function's handling of this case.
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the list of per-output predict_proba arrays, reducing binary outputs
+        # to the last-class column.
+        # Exceptions: AssertionError if predict_proba does not return a list (single output).
         probs = self.predict_proba(X)
         msg = "This helper should only be used on multioutput-multiclass tasks"
         assert isinstance(probs, list), msg
@@ -1904,6 +2198,10 @@ class RFWithDecisionFunction(RandomForestClassifier):
 
 
 def test_cross_val_predict_with_method_multilabel_rf():
+    # [FUNCTION DOC]
+    # Checks multioutput-multiclass random forest predictions (3 classes in the first
+    # column) for predict_proba, predict_log_proba and decision_function via the multilabel
+    # helper, with warnings suppressed.
     # The RandomForest allows multiple classes in each label.
     # Output of predict_proba is a list of outputs of predict_proba
     # for each individual label.
@@ -1921,6 +2219,9 @@ def test_cross_val_predict_with_method_multilabel_rf():
 
 
 def test_cross_val_predict_with_method_rare_class():
+    # [FUNCTION DOC]
+    # Checks multiclass predictions when one class is missing from a training fold use the
+    # default fill values for that class.
     # Test a multiclass problem where one class will be missing from
     # one of the CV training sets.
     rng = np.random.RandomState(0)
@@ -1935,6 +2236,9 @@ def test_cross_val_predict_with_method_rare_class():
 
 
 def test_cross_val_predict_with_method_multilabel_rf_rare_class():
+    # [FUNCTION DOC]
+    # Same as the rf multilabel test but with a class having one example, so some training
+    # fold lacks it.
     # The RandomForest allows anything for the contents of the labels.
     # Output of predict_proba is a list of outputs of predict_proba
     # for each individual label.
@@ -1952,6 +2256,16 @@ def test_cross_val_predict_with_method_multilabel_rf_rare_class():
 
 
 def get_expected_predictions(X, y, cv, classes, est, method):
+    # [FUNCTION DOC]
+    # HELPER: Manual out-of-fold predictions: fits est on each training fold, places the
+    # method outputs into the columns given by est.classes_ in a (len(test), classes) block
+    # filled with 0 (predict_proba) or the float min, and assembles an (n_samples, classes)
+    # array.
+    # Inputs: X, y, cv splitter, classes - total number of classes, est (refitted in
+    # place), method name.
+    # Outputs: float array (n_samples, classes).
+    # KNOWN ISSUE: relies on classes_ being integers 0..classes-1 to use them as column
+    # indices.
     expected_predictions = np.zeros([len(y), classes])
     func = getattr(est, method)
 
@@ -1972,6 +2286,12 @@ def get_expected_predictions(X, y, cv, classes, est, method):
 
 
 def test_cross_val_predict_class_subset():
+    # [FUNCTION DOC]
+    # Checks cross_val_predict with KFold(3)/KFold(4) on ordered labels (so training folds
+    # miss classes) and on shuffled labels matches get_expected_predictions for each
+    # method.
+    # KNOWN ISSUE: y is overwritten with shuffled labels inside the methods loop, so only
+    # the first method is tested with the ordered labels.
     X = np.arange(200).reshape(100, 2)
     y = np.array([x // 10 for x in range(100)])
     classes = 10
@@ -2012,6 +2332,10 @@ def test_cross_val_predict_class_subset():
 
 
 def test_score_memmap():
+    # [FUNCTION DOC]
+    # Checks a scorer returning a 0-d memmap is accepted while a non-scalar memmap raises
+    # ValueError; cleans up the temp file with retries (Windows file locking).
+    # Side effects: creates and deletes a temporary file.
     # Ensure a scalar score of memmap type is accepted
     iris = load_iris()
     X, y = iris.data, iris.target
@@ -2038,6 +2362,9 @@ def test_score_memmap():
 
 
 def test_permutation_test_score_pandas():
+    # [FUNCTION DOC]
+    # Checks permutation_test_score keeps DataFrame/Series types when passed to the
+    # estimator.
     # check permutation_test_score doesn't destroy pandas dataframe
     types = [(MockDataFrame, MockDataFrame)]
     try:
@@ -2058,6 +2385,9 @@ def test_permutation_test_score_pandas():
 
 
 def test_fit_and_score_failing():
+    # [FUNCTION DOC]
+    # Checks _fit_and_score with error_score="raise" re-raises the FailingClassifier
+    # ValueError; also covers FailingClassifier.score.
     # Create a failing classifier to deliberately fail
     failing_clf = FailingClassifier(FailingClassifier.FAILING_PARAMETER)
     # dummy X data
@@ -2085,6 +2415,8 @@ def test_fit_and_score_failing():
 
 
 def test_fit_and_score_working():
+    # [FUNCTION DOC]
+    # Checks return_parameters=True makes _fit_and_score return the given parameters.
     X, y = make_classification(n_samples=30, random_state=0)
     clf = SVC(kernel="linear", random_state=0)
     train, test = next(ShuffleSplit().split(X))
@@ -2107,10 +2439,17 @@ def test_fit_and_score_working():
 
 
 class DataDependentFailingClassifier(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose fit fails when any X value exceeds max_x_value; score is 0.
     def __init__(self, max_x_value=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores max_x_value.
         self.max_x_value = max_x_value
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Raises ValueError reporting how many X values exceed max_x_value.
+        # Outputs: None (does not return self).
         num_values_too_high = (X > self.max_x_value).sum()
         if num_values_too_high:
             raise ValueError(
@@ -2118,11 +2457,16 @@ class DataDependentFailingClassifier(BaseEstimator):
             )
 
     def score(self, X=None, Y=None):
+        # [FUNCTION DOC]
+        # HELPER: Always 0.0.
         return 0.0
 
 
 @pytest.mark.parametrize("error_score", [np.nan, 0])
 def test_cross_validate_some_failing_fits_warning(error_score):
+    # [FUNCTION DOC]
+    # Checks that when 2 of 3 fits fail, cross_validate emits a FitFailedWarning summarizing
+    # the failures, the error_score value and the individual error message.
     # Create a failing classifier to deliberately fail
     failing_clf = DataDependentFailingClassifier(max_x_value=8)
     # dummy X data
@@ -2151,6 +2495,9 @@ def test_cross_validate_some_failing_fits_warning(error_score):
 
 @pytest.mark.parametrize("error_score", [np.nan, 0])
 def test_cross_validate_all_failing_fits_error(error_score):
+    # [FUNCTION DOC]
+    # Checks that when all 7 fits fail, cross_validate raises ValueError saying all fits
+    # failed and including the individual error message.
     # Create a failing classifier to deliberately fail
     failing_clf = FailingClassifier(FailingClassifier.FAILING_PARAMETER)
     # dummy X data
@@ -2174,12 +2521,17 @@ def test_cross_validate_all_failing_fits_error(error_score):
 
 
 def _failing_scorer(estimator, X, y, error_msg):
+    # [FUNCTION DOC]
+    # HELPER: Scorer that always raises ValueError(error_msg).
     raise ValueError(error_msg)
 
 
 @pytest.mark.filterwarnings("ignore:lbfgs failed to converge")
 @pytest.mark.parametrize("error_score", [np.nan, 0, "raise"])
 def test_cross_val_score_failing_scorer(error_score):
+    # [FUNCTION DOC]
+    # Checks a failing scorer re-raises with error_score="raise", otherwise emits a
+    # "Scoring failed" UserWarning and returns error_score for every fold.
     # check that an estimator can fail during scoring in `cross_val_score` and
     # that we can optionally replaced it with `error_score`
     X, y = load_iris(return_X_y=True)
@@ -2212,6 +2564,11 @@ def test_cross_val_score_failing_scorer(error_score):
 def test_cross_validate_failing_scorer(
     error_score, return_train_score, with_multimetric
 ):
+    # [FUNCTION DOC]
+    # Checks failing scorers in cross_validate (single or multimetric, with and without
+    # train scores): re-raise with error_score="raise"; otherwise a "Scoring failed"
+    # UserWarning, failing scorer entries equal error_score and the non-failing scorer
+    # (score_2) yields floats.
     # Check that an estimator can fail during scoring in `cross_validate` and
     # that we can optionally replace it with `error_score`. In the multimetric
     # case also check the result of a non-failing scorer where the other scorers
@@ -2271,6 +2628,8 @@ def test_cross_validate_failing_scorer(
 
 
 def three_params_scorer(i, j, k):
+    # [FUNCTION DOC]
+    # HELPER: Scorer with signature (estimator, X, y) that always returns 3.4213.
     return 3.4213
 
 
@@ -2313,6 +2672,11 @@ def three_params_scorer(i, j, k):
 def test_fit_and_score_verbosity(
     capsys, train_score, scorer, verbose, split_prg, cdt_prg, expected
 ):
+    # [FUNCTION DOC]
+    # Checks the "[CV ...] END" progress line printed by _fit_and_score for different
+    # verbose levels, split/candidate progress, single vs multimetric scorers and
+    # train-score reporting, by matching the captured stdout line against a regex (second
+    # line when more than two lines are printed).
     X, y = make_classification(n_samples=30, random_state=0)
     clf = SVC(kernel="linear", random_state=0)
     train, test = next(ShuffleSplit().split(X))
@@ -2343,9 +2707,14 @@ def test_fit_and_score_verbosity(
 
 
 def test_score():
+    # [FUNCTION DOC]
+    # Checks _score raises ValueError "scoring must return a number, got None" when the
+    # scorer returns None.
     error_message = "scoring must return a number, got None"
 
     def two_params_scorer(estimator, X_test):
+        # [FUNCTION DOC]
+        # HELPER: Scorer returning None.
         return None
 
     with pytest.raises(ValueError, match=error_message):
@@ -2360,7 +2729,12 @@ def test_score():
 
 
 def test_callable_multimetric_confusion_matrix_cross_validate():
+    # [FUNCTION DOC]
+    # Checks a callable scorer returning a dict of confusion-matrix entries produces
+    # test_tn/fp/fn/tp keys in cross_validate results.
     def custom_scorer(clf, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Returns tn, fp, fn, tp from the binary confusion matrix of clf predictions.
         y_pred = clf.predict(X)
         cm = confusion_matrix(y, y_pred)
         return {"tn": cm[0, 0], "fp": cm[0, 1], "fn": cm[1, 0], "tp": cm[1, 1]}
@@ -2376,6 +2750,8 @@ def test_callable_multimetric_confusion_matrix_cross_validate():
 
 
 def test_learning_curve_partial_fit_regressors():
+    # [FUNCTION DOC]
+    # Non-regression for #22981: incremental learning_curve with MLPRegressor must not fail.
     """Check that regressors with partial_fit is supported.
 
     Non-regression test for #22981.
@@ -2387,6 +2763,10 @@ def test_learning_curve_partial_fit_regressors():
 
 
 def test_learning_curve_some_failing_fits_warning(global_random_seed):
+    # [FUNCTION DOC]
+    # Sorts targets so the two smallest training sizes contain one class (SVC fails),
+    # then checks a FitFailedWarning "10 fits failed out of a total of 25" and that only the
+    # first two train-size rows are all NaN.
     """Checks for fit failures in `learning_curve` and raises the required warning"""
 
     X, y = make_classification(
@@ -2420,6 +2800,9 @@ def test_learning_curve_some_failing_fits_warning(global_random_seed):
 
 
 def test_cross_validate_return_indices(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks return_indices=False omits "indices", and True returns per-split train/test
+    # index arrays with sizes 100/50 identical to the KFold splits.
     """Check the behaviour of `return_indices` in `cross_validate`."""
     X, y = load_iris(return_X_y=True)
     X = scale(X)  # scale features for better convergence
@@ -2461,6 +2844,9 @@ def test_cross_validate_return_indices(global_random_seed):
 )
 @config_context(enable_metadata_routing=True)
 def test_groups_with_routing_validation(func, extra_args):
+    # [FUNCTION DOC]
+    # With metadata routing enabled, checks every validation function raises ValueError when
+    # groups is passed directly instead of through params.
     """Check that we raise an error if `groups` are passed to the cv method instead
     of `params` when metadata routing is enabled.
     """
@@ -2488,6 +2874,9 @@ def test_groups_with_routing_validation(func, extra_args):
 )
 @config_context(enable_metadata_routing=True)
 def test_cross_validate_params_none(func, extra_args):
+    # [FUNCTION DOC]
+    # Non-regression for #30447: with routing enabled, params=None (default) must not
+    # raise in any validation function.
     """Test that no errors are raised when passing `params=None`, which is the
     default value.
     Non-regression test for: https://github.com/scikit-learn/scikit-learn/issues/30447
@@ -2509,6 +2898,10 @@ def test_cross_validate_params_none(func, extra_args):
 )
 @config_context(enable_metadata_routing=True)
 def test_passed_unrequested_metadata(func, extra_args):
+    # [FUNCTION DOC]
+    # With routing enabled, checks UnsetMetadataPassedError when metadata is passed but not
+    # requested by ConsumingClassifier.fit, and (except cross_val_predict, which does not
+    # score) when requested by fit/partial_fit but not by score.
     """Check that we raise an error when passing metadata that is not
     requested."""
 
@@ -2558,6 +2951,11 @@ def test_passed_unrequested_metadata(func, extra_args):
 )
 @config_context(enable_metadata_routing=True)
 def test_validation_functions_routing(func, extra_args):
+    # [FUNCTION DOC]
+    # With routing enabled, passes aliased metadata for splitter, estimator (fit and
+    # partial_fit) and scorer to each validation function, then checks via the registries
+    # that each consumer received the correctly split metadata (check_recorded_metadata).
+    # cross_val_predict gets no scorer params.
     """Check that the respective cv method is properly dispatching the metadata
     to the consumer."""
     scorer_registry = _Registry()
@@ -2655,6 +3053,9 @@ def test_validation_functions_routing(func, extra_args):
 
 @config_context(enable_metadata_routing=True)
 def test_learning_curve_exploit_incremental_learning_routing():
+    # [FUNCTION DOC]
+    # Checks learning_curve with exploit_incremental_learning routes aliased sample_weight
+    # and metadata to partial_fit of the estimator, verified through the registry.
     """Test that learning_curve routes metadata to the estimator correctly while
     partial_fitting it with `exploit_incremental_learning=True`."""
 
@@ -2708,6 +3109,9 @@ def test_learning_curve_exploit_incremental_learning_routing():
 def test_cross_val_predict_array_api_compliance(
     estimator, cv, namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Checks cross_val_predict with array API inputs (array_api_dispatch enabled) matches the
+    # NumPy result within dtype tolerance, for Ridge and LDA and several cv values.
     """Test that `cross_val_predict` functions correctly with the array API
     with both a classifier and a regressor."""
 
