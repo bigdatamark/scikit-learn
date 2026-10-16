@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for scorer objects in sklearn.metrics._scorer: get_scorer / get_scorer_names,
+# make_scorer, check_scoring, _check_multimetric_scoring, _MultimetricScorer,
+# _PassthroughScorer and _CurveScorer. Covers consistency between scorers and the
+# underlying metrics, sample_weight support, pos_label handling, response method
+# caching in multimetric scoring, reprs, pickling, memmap inputs and metadata
+# routing. Module-level lists group scorer names by task (regression,
+# classification, supervised clustering, multilabel-only, positive-y required).
 import numbers
 import pickle
 import re
@@ -147,6 +155,9 @@ REQUIRE_POSITIVE_Y_SCORERS = ["neg_mean_poisson_deviance", "neg_mean_gamma_devia
 
 
 def _require_positive_y(y):
+    # [FUNCTION DOC]
+    # HELPER: Shifts targets so that all values are strictly positive (adds |min| + 1).
+    # Inputs: y - numeric ndarray. Outputs: new shifted array; input not modified.
     """Make targets strictly positive"""
     offset = abs(y.min()) + 1
     y = y + offset
@@ -154,6 +165,13 @@ def _require_positive_y(y):
 
 
 def _make_estimators(X_train, y_train, y_ml_train):
+    # [FUNCTION DOC]
+    # HELPER: Fits one DecisionTreeRegressor (on positive-shifted y), one
+    # DecisionTreeClassifier (on y) and one multilabel DecisionTreeClassifier (on
+    # y_ml), all with random_state 0, and maps every scorer name in the module lists
+    # to the appropriate fitted estimator.
+    # Inputs: X_train (n_samples, n_features); y_train (n_samples,); y_ml_train
+    # (n_samples, n_labels). Outputs: dict scorer name -> fitted estimator.
     # Make estimators that make sense to test various scoring methods
     sensible_regr = DecisionTreeRegressor(random_state=0)
     # some of the regressions scorers require strictly positive input.
@@ -172,6 +190,13 @@ def _make_estimators(X_train, y_train, y_ml_train):
 
 @pytest.fixture(scope="module")
 def memmap_data_and_estimators(tmp_path_factory):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture: builds a small classification and multilabel
+    # dataset, dumps it with joblib to a temp dir, reloads it as read-only memmaps and
+    # fits estimators on them via _make_estimators.
+    # Inputs: tmp_path_factory pytest fixture.
+    # Yields: (X_mm, y_mm, y_ml_mm, estimators dict).
+    # Side effects: writes a pickle file in a temporary directory.
     temp_folder = tmp_path_factory.mktemp("sklearn_test_score_objects")
     X, y = make_classification(n_samples=30, n_features=5, random_state=0)
     _, y_ml = make_multilabel_classification(n_samples=X.shape[0], random_state=0)
@@ -184,47 +209,73 @@ def memmap_data_and_estimators(tmp_path_factory):
 
 
 class EstimatorWithFit(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with only a no-op fit; used to test scoring validators.
     """Dummy estimator to test scoring validators"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit. Inputs: X, y ignored. Outputs: self.
         return self
 
 
 class EstimatorWithFitAndScore(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with a no-op fit and a constant score method.
     """Dummy estimator to test scoring validators"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit. Outputs: self.
         return self
 
     def score(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Always returns 1.0 regardless of X, y.
         return 1.0
 
 
 class EstimatorWithFitAndPredict(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator that memorizes y in fit and returns it from predict.
     """Dummy estimator to test scoring validators"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Stores y as attribute y (non-underscore attribute). Outputs: self.
         self.y = y
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the stored training targets regardless of X (length may not
+        # match X).
         return self.y
 
 
 class DummyScorer:
+    # [CLASS DOC]
+    # HELPER: Callable scorer that always returns 1.
     """Dummy scorer that always returns 1."""
 
     def __call__(self, est, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Ignores est, X, y and returns 1.
         return 1
 
 
 def test_all_scorers_repr():
+    # [FUNCTION DOC]
+    # Smoke test: repr works for every registered scorer.
     # Test that all scorers have a working repr
     for name in get_scorer_names():
         repr(get_scorer(name))
 
 
 def test_repr_partial():
+    # [FUNCTION DOC]
+    # Verifies repr of a scorer built from a functools.partial metric shows the
+    # partial with its bound pos_label.
     metric = partial(precision_score, pos_label=1)
     scorer = make_scorer(metric)
     pattern = (
@@ -234,6 +285,12 @@ def test_repr_partial():
 
 
 def check_scoring_validator_for_single_metric_usecases(scoring_validator):
+    # [FUNCTION DOC]
+    # HELPER: Shared checks for a scoring validator (e.g. check_scoring): estimator
+    # with score gives a _PassthroughScorer; estimator without score and no scoring
+    # raises TypeError; scoring string gives a working _Scorer using predict; with
+    # check_scoring, allow_none returns None for an estimator without score.
+    # Inputs: scoring_validator - callable taking (estimator, scoring=..., ...).
     # Test all branches of single metric usecases
     estimator = EstimatorWithFitAndScore()
     estimator.fit([[1]], [1])
@@ -288,6 +345,12 @@ def check_scoring_validator_for_single_metric_usecases(scoring_validator):
     ],
 )
 def test_check_scoring_and_check_multimetric_scoring(scoring):
+    # [FUNCTION DOC]
+    # Verifies check_scoring single-metric behaviours, then that
+    # _check_multimetric_scoring turns lists / tuples / dicts of names or scorers into
+    # a dict of predict-based _Scorer objects keyed by name, giving the expected
+    # accuracy (2/3) and precision (0.5) on a tiny LinearSVC problem.
+    # Inputs: scoring - parametrized multimetric specification.
     check_scoring_validator_for_single_metric_usecases(check_scoring)
     # To make sure the check_scoring is correctly applied to the constituent
     # scorers
@@ -340,6 +403,11 @@ def test_check_scoring_and_check_multimetric_scoring(scoring):
     ],
 )
 def test_check_scoring_and_check_multimetric_scoring_errors(scoring, msg):
+    # [FUNCTION DOC]
+    # Verifies _check_multimetric_scoring raises ValueError with a specific message for
+    # invalid specs (callables in list, non-strings, empty, duplicates, non-string
+    # dict keys, empty dict).
+    # Inputs: scoring, msg - parametrized.
     # Make sure it raises errors when scoring parameter is not valid.
     # More weird corner cases are tested at test_validation.py
     estimator = EstimatorWithFitAndPredict()
@@ -350,6 +418,10 @@ def test_check_scoring_and_check_multimetric_scoring_errors(scoring, msg):
 
 
 def test_check_scoring_gridsearchcv():
+    # [FUNCTION DOC]
+    # Verifies check_scoring on GridSearchCV and a pipeline returns a predict-based
+    # _Scorer, and that cross_val_score calls a custom scorer on an estimator that only
+    # has fit.
     # test that check_scoring works on GridSearchCV and pipeline.
     # slightly redundant non-regression test.
 
@@ -396,6 +468,10 @@ def test_check_scoring_gridsearchcv():
     ],
 )
 def test_classification_binary_scores(scorer_name, metric):
+    # [FUNCTION DOC]
+    # Verifies get_scorer(name) on a binary LinearSVC equals the metric applied to the
+    # classifier's predictions.
+    # Inputs: scorer_name, metric - parametrized.
     # check consistency between score and scorer for scores supporting
     # binary classification.
     X, y = make_blobs(random_state=0, centers=2)
@@ -428,6 +504,10 @@ def test_classification_binary_scores(scorer_name, metric):
     ],
 )
 def test_classification_multiclass_scores(scorer_name, metric):
+    # [FUNCTION DOC]
+    # Same consistency check for multiclass scorers using a decision tree on a
+    # stratified 3-class split.
+    # Inputs: scorer_name, metric - parametrized.
     # check consistency between score and scorer for scores supporting
     # multiclass classification.
     X, y = make_classification(
@@ -447,6 +527,11 @@ def test_classification_multiclass_scores(scorer_name, metric):
 
 
 def test_custom_scorer_pickling():
+    # [FUNCTION DOC]
+    # Verifies a make_scorer scorer with extra kwargs gives the same score after a
+    # pickle round-trip.
+    # KNOWN ISSUE: the final repr smoke test calls repr on fbeta_score (the function)
+    # rather than on the scorer, so it does not test scorer repr.
     # test that custom scorer can be pickled
     X, y = make_blobs(random_state=0, centers=2)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
@@ -464,6 +549,8 @@ def test_custom_scorer_pickling():
 
 
 def test_regression_scorers():
+    # [FUNCTION DOC]
+    # Verifies the r2 scorer matches r2_score on Ridge predictions (diabetes data).
     # Test regression scorers.
     diabetes = load_diabetes()
     X, y = diabetes.data, diabetes.target
@@ -476,6 +563,12 @@ def test_regression_scorers():
 
 
 def test_thresholded_scorers():
+    # [FUNCTION DOC]
+    # Verifies roc_auc scorer matches roc_auc_score on decision_function and on
+    # positive-class probabilities, neg_log_loss equals minus log_loss, fallback to
+    # predict_proba without decision_function, AttributeError for a regressor,
+    # ValueError for 3 classes (multi_class required), and ValueError when the
+    # classifier was trained on a single class (roc_auc and neg_log_loss).
     # Test scorers that take thresholds.
     X, y = make_blobs(random_state=0, centers=2)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
@@ -527,6 +620,10 @@ def test_thresholded_scorers():
 
 
 def test_thresholded_scorers_multilabel_indicator_data():
+    # [FUNCTION DOC]
+    # Verifies roc_auc scorer on multilabel indicator targets for a multi-output tree
+    # (positive-class column of each output's probabilities), OneVsRest predict_proba,
+    # and OneVsRest decision_function.
     # Test that the scorer work with multilabel-indicator format
     # for multilabel and multi-output multi-class classifier
     X, y = make_multilabel_classification(allow_unlabeled=False, random_state=0)
@@ -556,6 +653,9 @@ def test_thresholded_scorers_multilabel_indicator_data():
 
 
 def test_supervised_cluster_scorers():
+    # [FUNCTION DOC]
+    # Verifies each supervised clustering scorer equals the cluster metric applied to
+    # KMeans predictions against true labels.
     # Test clustering scorers against gold standard labeling.
     X, y = make_blobs(random_state=0, centers=2)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
@@ -568,6 +668,9 @@ def test_supervised_cluster_scorers():
 
 
 def test_raises_on_score_list():
+    # [FUNCTION DOC]
+    # Verifies a scorer returning an array (f1 with average None) makes
+    # cross_val_score and GridSearchCV.fit raise ValueError.
     # Test that when a list of scores is returned, we raise proper errors.
     X, y = make_blobs(random_state=0)
     f1_scorer_no_average = make_scorer(f1_score, average=None)
@@ -582,6 +685,13 @@ def test_raises_on_score_list():
 
 
 def test_classification_scorer_sample_weight():
+    # [FUNCTION DOC]
+    # For every non-regression scorer: weighted score with the first 10 test weights
+    # set to 0 differs from the unweighted score and equals the score computed on the
+    # remaining samples; sample_weight None is accepted. Scorers lacking sample_weight
+    # support must raise a TypeError mentioning sample_weight. top_k_accuracy is
+    # forced to k 1.
+    # Side effects: mutates the _kwargs of the scorer copy returned by get_scorer.
     # Test that classification scorers support sample_weight or raise sensible
     # errors
 
@@ -641,6 +751,9 @@ def test_classification_scorer_sample_weight():
 
 
 def test_regression_scorer_sample_weight():
+    # [FUNCTION DOC]
+    # Same sample_weight checks for regression scorers on a DecisionTreeRegressor,
+    # zero-weighting the first 11 test samples (odd count kept for median AE).
     # Test that regression scorers support sample_weight or raise sensible
     # errors
 
@@ -688,6 +801,10 @@ def test_regression_scorer_sample_weight():
 
 @pytest.mark.parametrize("name", get_scorer_names())
 def test_scorer_memmap_input(name, memmap_data_and_estimators):
+    # [FUNCTION DOC]
+    # Non-regression: every scorer returns a plain Python number on memmap inputs.
+    # Positive-only scorers get shifted targets; warnings are ignored.
+    # Inputs: name - parametrized scorer name; memmap_data_and_estimators fixture.
     # Non-regression test for #6147: some score functions would
     # return singleton memmap when computed on memmap data instead of scalar
     # float values.
@@ -710,6 +827,9 @@ def test_scorer_memmap_input(name, memmap_data_and_estimators):
 
 
 def test_scoring_is_not_metric():
+    # [FUNCTION DOC]
+    # Verifies check_scoring raises ValueError suggesting make_scorer when given a raw
+    # metric function as scoring.
     with pytest.raises(ValueError, match="make_scorer"):
         check_scoring(LogisticRegression(), scoring=f1_score)
     with pytest.raises(ValueError, match="make_scorer"):
@@ -751,29 +871,49 @@ def test_multimetric_scorer_calls_method_once(
     expected_predict_proba_count,
     expected_decision_func_count,
 ):
+    # [FUNCTION DOC]
+    # Verifies _MultimetricScorer caches responses so predict, predict_proba and
+    # decision_function are each called at most once (expected counts parametrized),
+    # using a mock classifier counting calls; result keys match scorer names.
+    # Side effects: uses unseeded global numpy randomness for the mocked probabilities.
     X, y = np.array([[1], [1], [0], [0], [0]]), np.array([0, 1, 1, 1, 0])
     pos_proba = np.random.rand(X.shape[0])
     proba = np.c_[1 - pos_proba, pos_proba]
 
     class MyClassifier(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Mock classifier returning fixed outputs (the enclosing y, proba,
+        # pos_proba) and counting calls of each response method.
         def __init__(self):
+            # [FUNCTION DOC]
+            # HELPER: Initializes the three call counters to 0.
             self._expected_predict_count = 0
             self._expected_predict_proba_count = 0
             self._expected_decision_function_count = 0
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets classes_ to unique labels of y. Outputs: self.
             self.classes_ = np.unique(y)
             return self
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Increments predict counter; returns the enclosing test's y.
             self._expected_predict_count += 1
             return y
 
         def predict_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Increments predict_proba counter; returns the fixed probability
+            #   matrix.
             self._expected_predict_proba_count += 1
             return proba
 
         def decision_function(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Increments decision_function counter; returns the fixed positive
+            #   probs.
             self._expected_decision_function_count += 1
             return pos_proba
 
@@ -805,10 +945,19 @@ def test_multimetric_scorer_calls_method_once(
     ],
 )
 def test_multimetric_scorer_calls_method_once_classifier_no_decision(scorers):
+    # [FUNCTION DOC]
+    # Verifies that for a classifier without decision_function (KNN), roc_auc and
+    # neg_log_loss in a multimetric scorer share a single predict_proba call.
+    # Inputs: scorers - parametrized list of names or dict of custom scorers.
     predict_proba_call_cnt = 0
 
     class MockKNeighborsClassifier(KNeighborsClassifier):
+        # [CLASS DOC]
+        # HELPER: KNeighborsClassifier subclass counting predict_proba calls.
         def predict_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Increments the enclosing counter then delegates to the parent
+            #   method.
             nonlocal predict_proba_call_cnt
             predict_proba_call_cnt += 1
             return super().predict_proba(X)
@@ -827,10 +976,17 @@ def test_multimetric_scorer_calls_method_once_classifier_no_decision(scorers):
 
 
 def test_multimetric_scorer_calls_method_once_regressor_threshold():
+    # [FUNCTION DOC]
+    # Verifies two regression scorers in a multimetric scorer call predict only once.
     predict_called_cnt = 0
 
     class MockDecisionTreeRegressor(DecisionTreeRegressor):
+        # [CLASS DOC]
+        # HELPER: DecisionTreeRegressor subclass counting predict calls.
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Increments the enclosing counter then delegates to the parent
+            #   method.
             nonlocal predict_called_cnt
             predict_called_cnt += 1
             return super().predict(X)
@@ -850,6 +1006,8 @@ def test_multimetric_scorer_calls_method_once_regressor_threshold():
 
 
 def test_multimetric_scorer_sanity_check():
+    # [FUNCTION DOC]
+    # Verifies multimetric scorer results equal calling each named scorer separately.
     # scoring dictionary returned is the same as calling each scorer separately
     scorers = {
         "a1": "accuracy",
@@ -882,6 +1040,11 @@ def test_multimetric_scorer_sanity_check():
 
 @pytest.mark.parametrize("raise_exc", [True, False])
 def test_multimetric_scorer_exception_handling(raise_exc):
+    # [FUNCTION DOC]
+    # Verifies with raise_exc True a failing scorer (MSLE on targets <= -1) raises
+    # ValueError, and with raise_exc False the failing entries contain the error
+    # message string while the working scorer returns a float.
+    # Inputs: raise_exc - parametrized bool.
     """Check that the calling of the `_MultimetricScorer` returns
     exception messages in the result dict for the failing scorers
     in case of `raise_exc` is `False` and if `raise_exc` is `True`,
@@ -940,6 +1103,10 @@ def test_multimetric_scorer_exception_handling(raise_exc):
     ],
 )
 def test_multiclass_roc_proba_scorer(scorer_name, metric):
+    # [FUNCTION DOC]
+    # Verifies multiclass roc_auc scorers (ovr/ovo, weighted) equal roc_auc_score on
+    # LogisticRegression probabilities.
+    # Inputs: scorer_name, metric - parametrized.
     scorer = get_scorer(scorer_name)
     X, y = make_classification(
         n_classes=3, n_informative=3, n_samples=20, random_state=0
@@ -952,6 +1119,9 @@ def test_multiclass_roc_proba_scorer(scorer_name, metric):
 
 
 def test_multiclass_roc_proba_scorer_label():
+    # [FUNCTION DOC]
+    # Verifies a custom ovo roc_auc scorer with explicit labels on a binary-ized y
+    # equals the direct roc_auc_score with the same labels.
     scorer = make_scorer(
         roc_auc_score,
         multi_class="ovo",
@@ -977,6 +1147,10 @@ def test_multiclass_roc_proba_scorer_label():
     ["roc_auc_ovr", "roc_auc_ovo", "roc_auc_ovr_weighted", "roc_auc_ovo_weighted"],
 )
 def test_multiclass_roc_no_proba_scorer_errors(scorer_name):
+    # [FUNCTION DOC]
+    # Verifies multiclass roc_auc scorers raise AttributeError for Perceptron (no
+    # predict_proba).
+    # Inputs: scorer_name - parametrized.
     # Perceptron has no predict_proba
     scorer = get_scorer(scorer_name)
     X, y = make_classification(
@@ -990,6 +1164,11 @@ def test_multiclass_roc_no_proba_scorer_errors(scorer_name):
 
 @pytest.fixture
 def string_labeled_classification_problem():
+    # [FUNCTION DOC]
+    # HELPER: Fixture building an imbalanced binary breast-cancer problem with string
+    # labels (positive cancer is lexicographically first), 2 features, stratified
+    # split, and a fitted LogisticRegression.
+    # Outputs: (classifier, X_test, y_test, y_pred, y_pred_proba, y_pred_decision).
     """Train a classifier on binary problem with string target.
 
     The classifier is trained on a binary classification problem where the
@@ -1045,6 +1224,12 @@ def string_labeled_classification_problem():
 
 
 def test_average_precision_pos_label(string_labeled_classification_problem):
+    # [FUNCTION DOC]
+    # Verifies average precision with string pos_label: proba and negated decision
+    # values agree; a scorer without pos_label raises ValueError (default 1 invalid);
+    # with pos_label it matches the metric both via decision_function and when
+    # predict_proba is unusable.
+    # Side effects: monkeypatches predict_proba on a deep copy of the classifier.
     # check that _Scorer will lead to the right score when passing
     # `pos_label`. Currently, only `average_precision_score` is defined to
     # be such a scorer.
@@ -1097,6 +1282,8 @@ def test_average_precision_pos_label(string_labeled_classification_problem):
     clf_without_predict_proba = deepcopy(clf)
 
     def _predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Replacement predict_proba that always raises NotImplementedError.
         raise NotImplementedError
 
     clf_without_predict_proba.predict_proba = partial(
@@ -1111,6 +1298,9 @@ def test_average_precision_pos_label(string_labeled_classification_problem):
 
 
 def test_brier_score_loss_pos_label(string_labeled_classification_problem):
+    # [FUNCTION DOC]
+    # Verifies Brier loss is symmetric across pos_label and that a probability scorer
+    # with pos_label cancer matches the metric on the cancer column.
     # check that _Scorer leads to the right score when `pos_label` is
     # provided. Currently only the `brier_score_loss` is defined to be such
     # a scorer.
@@ -1140,6 +1330,10 @@ def test_brier_score_loss_pos_label(string_labeled_classification_problem):
 def test_non_symmetric_metric_pos_label(
     score_func, string_labeled_classification_problem
 ):
+    # [FUNCTION DOC]
+    # Verifies non-symmetric label metrics differ by pos_label and that make_scorer
+    # with pos_label returns the metric value for that label.
+    # Inputs: score_func - parametrized; fixture.
     # check that _Scorer leads to the right score when `pos_label` is
     # provided. We check for all possible metric supported.
     # Note: At some point we may end up having "scorer tags".
@@ -1171,6 +1365,10 @@ def test_non_symmetric_metric_pos_label(
     ids=["non-thresholded scorer", "probability scorer", "thresholded scorer"],
 )
 def test_scorer_select_proba_error(scorer):
+    # [FUNCTION DOC]
+    # Verifies scorers configured with a pos_label absent from y raise ValueError
+    # (not a valid label).
+    # Inputs: scorer - parametrized scorer.
     # check that we raise the proper error when passing an unknown
     # pos_label
     X, y = make_classification(
@@ -1185,6 +1383,10 @@ def test_scorer_select_proba_error(scorer):
 
 
 def test_invalid_default_pos_label_ignored_on_multiclass():
+    # [FUNCTION DOC]
+    # Verifies the default pos_label of average precision is ignored on multiclass
+    # string targets (score > 0.7) while an explicit invalid pos_label raises
+    # ValueError.
     iris = load_iris()
     X = iris.data
     y = np.array(iris.target_names)[iris.target]
@@ -1217,11 +1419,16 @@ def test_invalid_default_pos_label_ignored_on_multiclass():
 
 
 def test_get_scorer_return_copy():
+    # [FUNCTION DOC]
+    # Verifies get_scorer returns a new object on each call.
     # test that get_scorer returns a copy
     assert get_scorer("roc_auc") is not get_scorer("roc_auc")
 
 
 def test_scorer_no_op_multiclass_select_proba():
+    # [FUNCTION DOC]
+    # Verifies a multiclass ovo roc_auc scorer with explicit labels does not fail when
+    # the scored y happens to contain only two classes.
     # check that calling a _Scorer on a multiclass problem do not raise
     # even if `y_true` would be binary during the scoring.
     # `_select_proba_binary` should not be called in this case.
@@ -1245,6 +1452,9 @@ def test_scorer_no_op_multiclass_select_proba():
 
 @pytest.mark.parametrize("name", get_scorer_names())
 def test_scorer_set_score_request_raises(name):
+    # [FUNCTION DOC]
+    # Verifies set_score_request raises RuntimeError when metadata routing is off.
+    # Inputs: name - parametrized scorer name.
     """Test that set_score_request is only available when feature flag is on."""
     # Make sure they expose the routing methods.
     scorer = get_scorer(name)
@@ -1255,6 +1465,13 @@ def test_scorer_set_score_request_raises(name):
 @pytest.mark.parametrize("name", get_scorer_names(), ids=get_scorer_names())
 @config_context(enable_metadata_routing=True)
 def test_scorer_metadata_request(name):
+    # [FUNCTION DOC]
+    # With metadata routing enabled, verifies for each scorer: routing methods exist;
+    # nothing requested by default; set_score_request mutates and returns the same
+    # instance and requests sample_weight only on score; routing unrequested
+    # sample_weight raises UnsetMetadataPassedError if the metric accepts it, or
+    # TypeError at validation otherwise; a requesting scorer receives sample_weight.
+    # Inputs: name - parametrized scorer name.
     """Testing metadata requests for scorers.
 
     This test checks many small things in a large test, to reduce the
@@ -1325,6 +1542,9 @@ def test_scorer_metadata_request(name):
 
 @config_context(enable_metadata_routing=True)
 def test_metadata_kwarg_conflict():
+    # [FUNCTION DOC]
+    # Verifies UserWarnings when requesting metadata already fixed as make_scorer
+    # kwargs and when passing it again at call time.
     """This test makes sure the right warning is raised if the user passes
     some metadata both as a constructor to make_scorer, and during __call__.
     """
@@ -1348,6 +1568,8 @@ def test_metadata_kwarg_conflict():
 
 @config_context(enable_metadata_routing=True)
 def test_PassthroughScorer_set_score_request():
+    # [FUNCTION DOC]
+    # Verifies _PassthroughScorer has no set_score_request with routing enabled.
     """Test that _PassthroughScorer.set_score_request raises when routing enabled."""
     est = LogisticRegression().set_score_request(sample_weight="estimator_weights")
     # make a `_PassthroughScorer` with `check_scoring`:
@@ -1360,6 +1582,8 @@ def test_PassthroughScorer_set_score_request():
 
 
 def test_PassthroughScorer_set_score_request_raises_without_routing_enabled():
+    # [FUNCTION DOC]
+    # Verifies _PassthroughScorer has no set_score_request with routing disabled.
     """Test that _PassthroughScorer.set_score_request raises if metadata routing is
     disabled."""
     scorer = check_scoring(LogisticRegression(), None)
@@ -1373,16 +1597,25 @@ def test_PassthroughScorer_set_score_request_raises_without_routing_enabled():
 
 @config_context(enable_metadata_routing=True)
 def test_multimetric_scoring_metadata_routing():
+    # [FUNCTION DOC]
+    # Verifies _MultimetricScorer routes sample_weight only to scorers that requested
+    # it (asserted inside the score functions).
     # Test that _MultimetricScorer properly routes metadata.
     def score1(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Metric ignoring inputs, returns 1.
         return 1
 
     def score2(y_true, y_pred, sample_weight="test"):
+        # [FUNCTION DOC]
+        # HELPER: Asserts sample_weight kept its default (not routed); returns 1.
         # make sure sample_weight is not passed
         assert sample_weight == "test"
         return 1
 
     def score3(y_true, y_pred, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts sample_weight was routed (not None); returns 1.
         # make sure sample_weight is passed
         assert sample_weight is not None
         return 1
@@ -1407,16 +1640,23 @@ def test_multimetric_scoring_metadata_routing():
 
 @config_context(enable_metadata_routing=False)
 def test_multimetric_scoring_kwargs():
+    # [FUNCTION DOC]
+    # Verifies that without routing _MultimetricScorer forwards generic kwargs to all
+    # scorers and sample_weight only to scorers whose metric accepts it.
     # Test that _MultimetricScorer correctly forwards kwargs
     # to the scorers when metadata routing is disabled.
     # `sample_weight` is only forwarded to the scorers that accept it.
     # Other arguments are forwarded to all scorers.
     def score1(y_true, y_pred, common_arg=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts common_arg was forwarded; returns 1.
         # make sure common_arg is passed
         assert common_arg is not None
         return 1
 
     def score2(y_true, y_pred, common_arg=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts both common_arg and sample_weight were forwarded; returns 1.
         # make sure common_arg is passed
         assert common_arg is not None
         # make sure sample_weight is passed
@@ -1440,10 +1680,14 @@ def test_multimetric_scoring_kwargs():
 
 
 def test_kwargs_without_metadata_routing_error():
+    # [FUNCTION DOC]
+    # Verifies passing arbitrary kwargs to a scorer without routing raises ValueError.
     # Test that kwargs are not supported in scorers if metadata routing is not
     # enabled.
     # TODO: remove when enable_metadata_routing is deprecated
     def score(y_true, y_pred, param=None):
+        # [FUNCTION DOC]
+        # HELPER: Dummy metric returning 1 (never actually called).
         return 1  # pragma: no cover
 
     X, y = make_classification(
@@ -1460,6 +1704,9 @@ def test_kwargs_without_metadata_routing_error():
 
 
 def test_get_scorer_multilabel_indicator():
+    # [FUNCTION DOC]
+    # Non-regression: average_precision scorer works on multilabel indicator targets
+    # with KNN (score > 0.8).
     """Check that our scorer deal with multi-label indicator matrices.
 
     Non-regression test for:
@@ -1502,12 +1749,23 @@ def test_get_scorer_multilabel_indicator():
     ],
 )
 def test_make_scorer_repr(scorer, expected_repr):
+    # [FUNCTION DOC]
+    # Verifies scorer reprs show metric name, greater_is_better, response_method and
+    # kwargs.
+    # Inputs: scorer, expected_repr - parametrized.
     """Check the representation of the scorer."""
     assert repr(scorer) == expected_repr
 
 
 @pytest.mark.parametrize("pass_estimator", [True, False])
 def test_get_scorer_multimetric(pass_estimator):
+    # [FUNCTION DOC]
+    # Verifies check_scoring (with or without estimator bound) accepts set / list /
+    # tuple of names and dicts mixing names and custom scorers, returning dicts of
+    # scores equal to the direct metrics.
+    # Inputs: pass_estimator - parametrized bool.
+    # KNOWN ISSUE: when pass_estimator is True check_scoring is called without an
+    # estimator, and when False the estimator is bound; the flag name reads inverted.
     """Check that check_scoring is compatible with multi-metric configurations."""
     X, y = make_classification(n_samples=150, n_features=10, random_state=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
@@ -1538,6 +1796,8 @@ def test_get_scorer_multimetric(pass_estimator):
             assert result[name] == pytest.approx(expected_results[name])
 
     def double_accuracy(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Returns twice the accuracy of y_pred against y_true.
         return 2 * accuracy_score(y_true, y_pred)
 
     custom_scorer = make_scorer(double_accuracy, response_method="predict")
@@ -1560,6 +1820,8 @@ def test_get_scorer_multimetric(pass_estimator):
 
 
 def test_multimetric_scorer_repr():
+    # [FUNCTION DOC]
+    # Verifies the string form of a multimetric scorer lists the scorer names.
     """Check repr for multimetric scorer"""
     multi_metric_scorer = check_scoring(scoring=["accuracy", "r2"])
 
@@ -1567,10 +1829,15 @@ def test_multimetric_scorer_repr():
 
 
 def test_check_scoring_multimetric_raise_exc():
+    # [FUNCTION DOC]
+    # Verifies check_scoring with raise_exc False stores the error string of a failing
+    # scorer in the result, and with True propagates the ValueError.
     """Test that check_scoring returns error code for a subset of scorers in
     multimetric scoring if raise_exc=False and raises otherwise."""
 
     def raising_scorer(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Scorer that always raises ValueError.
         raise ValueError("That doesn't work.")
 
     X, y = make_classification(n_samples=150, n_features=10, random_state=0)
@@ -1596,6 +1863,10 @@ def test_check_scoring_multimetric_raise_exc():
 
 @pytest.mark.parametrize("enable_metadata_routing", [True, False])
 def test_metadata_routing_multimetric_metadata_routing(enable_metadata_routing):
+    # [FUNCTION DOC]
+    # Non-regression: _MultimetricScorer works with routing on or off when no metadata
+    # is passed.
+    # Inputs: enable_metadata_routing - parametrized bool.
     """Test multimetric scorer works with and without metadata routing enabled when
     there is no actual metadata to pass.
 
@@ -1610,6 +1881,11 @@ def test_metadata_routing_multimetric_metadata_routing(enable_metadata_routing):
 
 
 def test_curve_scorer():
+    # [FUNCTION DOC]
+    # Verifies _CurveScorer returns scores and thresholds of equal shape, thresholds
+    # spanning the predicted probability range, balanced accuracy in expected ranges
+    # with and without adjusted kwarg, and non-positive scores with sign -1.
+    # KNOWN ISSUE: the comment before the adjusted check says not adjusted.
     """Check the behaviour of the `_CurveScorer` class."""
     X, y = make_classification(random_state=0)
     estimator = LogisticRegression().fit(X, y)
@@ -1658,6 +1934,10 @@ def test_curve_scorer():
 
 
 def test_curve_scorer_pos_label(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies _CurveScorer forwards pos_label: thresholds span the probabilities of
+    # the pos_label column and recall curves differ as expected.
+    # Inputs: global_random_seed fixture.
     """Check that we propagate properly the `pos_label` parameter to the scorer."""
     n_samples = 30
     X, y = make_classification(
@@ -1702,6 +1982,10 @@ def test_curve_scorer_pos_label(global_random_seed):
 
 @config_context(enable_metadata_routing=True)
 def test_Pipeline_in_PassthroughScorer():
+    # [FUNCTION DOC]
+    # Non-regression: GridSearchCV over a pipeline requesting sample_weight for fit
+    # and score runs without error under metadata routing.
+    # Side effects: data from make_classification without a fixed random_state.
     """Non-regression test for
     https://github.com/scikit-learn/scikit-learn/issues/30937
 
