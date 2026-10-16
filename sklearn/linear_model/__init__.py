@@ -1,3 +1,16 @@
+# [PACKAGE DOC]
+# Public namespace for scikit-learn's linear models. Re-exports estimators and path
+# functions from private submodules: ordinary least squares (LinearRegression), Bayesian
+# (ARDRegression, BayesianRidge), coordinate-descent L1/L2 models and their CV/multi-
+# task
+# variants plus enet_path/lasso_path, GLMs (Gamma/Poisson/Tweedie), HuberRegressor, LARS
+# family plus lars_path/lars_path_gram, LogisticRegression(CV), OMP and
+# orthogonal_mp(_gram), passive-aggressive models, Perceptron, QuantileRegressor,
+# RANSACRegressor, Ridge family plus ridge_regression, SGD models (classifier,
+# regressor,
+# one-class SVM) and TheilSenRegressor. __all__ lists these names.
+# Side effects: importing loads all those submodules (including compiled Cython
+# extensions); no other global state is changed.
 """A variety of linear models."""
 
 # Authors: The scikit-learn developers
