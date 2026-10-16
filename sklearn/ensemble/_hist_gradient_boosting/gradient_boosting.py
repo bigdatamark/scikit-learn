@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Public histogram-based gradient boosting estimators
+# (HistGradientBoostingRegressor, HistGradientBoostingClassifier) and their
+# shared base class. Implements input preprocessing (categorical ordinal
+# encoding), binning, the Newton-boosting loop over TreeGrower trees, early
+# stopping (loss or scorer based, on a validation split or provided X_val),
+# warm start, prediction and partial dependence. At import time it builds a
+# module-level copy of the _LOSSES registry extended with poisson, gamma and
+# quantile losses.
 """Fast Gradient Boosting decision trees for classification and regression."""
 
 # Authors: The scikit-learn developers
@@ -66,6 +75,15 @@ _LOSSES.update(
 
 
 def _update_leaves_values(loss, grower, y_true, raw_prediction, sample_weight):
+    # [FUNCTION DOC]
+    # HELPER: For non-differentiable losses (absolute error, pinball), replaces each
+    # finalized leaf value of grower by shrinkage times the loss's intercept-only
+    # fit (e.g. weighted median or quantile) of the residuals y_true minus
+    # raw_prediction over the leaf's samples (weights restricted to those samples).
+    # Inputs: loss - BaseLoss; grower - grown TreeGrower; y_true, raw_prediction -
+    # 1d arrays (n_samples,) for one tree output; sample_weight - array or None.
+    # Outputs: none. Side effects: mutates leaf.value of every finalized leaf; L2
+    # regularization is ignored.
     """Update the leaf values to be predicted by the tree.
 
     Update equals:
@@ -108,6 +126,15 @@ def _update_leaves_values(loss, grower, y_true, raw_prediction, sample_weight):
 
 @contextmanager
 def _patch_raw_predict(estimator, raw_predictions):
+    # [FUNCTION DOC]
+    # HELPER: Context manager that temporarily replaces estimator._raw_predict by a
+    # function ignoring its arguments and returning the precomputed raw_predictions,
+    # so a scorer calling predict/predict_proba reuses incrementally updated
+    # predictions during early stopping. Yields the estimator.
+    # Side effects: mutates the estimator instance attribute; not thread safe.
+    # KNOWN ISSUE: restoration is not in a finally block, so if the scorer raises the
+    # patched method stays attached; also restoring sets an instance attribute
+    # holding the bound method instead of deleting the patch.
     """Context manager that patches _raw_predict to return raw_predictions.
 
     `raw_predictions` is typically a precomputed array to avoid redundant
@@ -133,6 +160,8 @@ def _patch_raw_predict(estimator, raw_predictions):
     orig_raw_predict = estimator._raw_predict
 
     def _patched_raw_predicts(*args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Ignores all arguments and returns the captured raw_predictions array.
         return raw_predictions
 
     estimator._raw_predict = _patched_raw_predicts
@@ -141,6 +170,13 @@ def _patch_raw_predict(estimator, raw_predictions):
 
 
 class BaseHistGradientBoosting(BaseEstimator, ABC):
+    # [CLASS DOC]
+    # Abstract base for both HGB estimators: parameter constraints, preprocessing,
+    # fit loop, early stopping helpers and raw prediction. Subclasses provide
+    # _get_loss, _encode_y and _encode_y_val (and may override
+    # _finalize_sample_weight). Main fitted private state: _preprocessor,
+    # _bin_mapper, _baseline_prediction, _predictors (list per iteration of lists
+    # of TreePredictor), _loss, _random_seed, _feature_subsample_rng.
     """Base class for histogram-based gradient boosting estimators."""
 
     _parameter_constraints: dict = {
@@ -200,6 +236,8 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         verbose,
         random_state,
     ):
+        # [FUNCTION DOC]
+        # Abstract constructor storing every hyperparameter unchanged as an attribute.
         self.loss = loss
         self.learning_rate = learning_rate
         self.max_iter = max_iter
@@ -222,6 +260,10 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         self.random_state = random_state
 
     def _validate_parameters(self):
+        # [FUNCTION DOC]
+        # HELPER: Raises ValueError when monotonic_cst is set and more than one tree per
+        # iteration is built (multiclass). Requires n_trees_per_iteration_ (set by
+        # _encode_y).
         """Validate parameters passed to __init__.
 
         The parameters that are directly passed to the grower are checked in
@@ -232,6 +274,9 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
             )
 
     def _finalize_sample_weight(self, sample_weight, y):
+        # [FUNCTION DOC]
+        # HELPER: Hook for subclasses to adjust sample weights (e.g. class weights);
+        # base version returns sample_weight unchanged (possibly None).
         """Finalize sample weight.
 
         Used by subclasses to adjust sample_weights. This is useful for implementing
@@ -240,6 +285,22 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return sample_weight
 
     def _preprocess_X(self, X, *, reset):
+        # [FUNCTION DOC]
+        # HELPER: Validates X as float (NaN allowed). With reset False (predict time):
+        # returns the validated array, using the fitted preprocessor if any. With reset
+        # True (fit): determines is_categorical_; if no categorical feature, validates
+        # and returns (X, None) with no preprocessor. Otherwise builds a
+        # ColumnTransformer with an OrdinalEncoder (unknown and missing -> NaN) on the
+        # categorical columns and a check_array FunctionTransformer on the others, fits
+        # it, checks categories, copies n_features_in_ / feature_names_in_ from it, and
+        # records _is_categorical_remapped (categorical columns come first in output).
+        # Outputs: X array when reset is False; (X, known_categories) when True.
+        # Exceptions: from validation and _check_categories.
+        # Side effects: sets is_categorical_, _preprocessor, _is_categorical_remapped,
+        # n_features_in_, feature_names_in_.
+        # KNOWN ISSUE: the inline comment "At this point, reset is False" is wrong; that
+        # code path runs when reset is True. The return type also differs between the
+        # two modes (array vs tuple).
         """Preprocess and validate X.
 
         Parameters
@@ -310,6 +371,13 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return X, known_categories
 
     def _check_categories(self):
+        # [FUNCTION DOC]
+        # HELPER: For each categorical column of the fitted encoder, drops a trailing NaN
+        # category and checks the cardinality does not exceed max_bins; returns a list
+        # of length n_features_in_ with None for numerical features and
+        # arange(n_categories) as float for categorical ones (indexed by input feature
+        # position).
+        # Exceptions: ValueError naming the feature when cardinality > max_bins.
         """Check categories found by the preprocessor and return their encoded values.
 
         Returns a list of length ``self.n_features_in_``, with one entry per
@@ -354,6 +422,12 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return known_categories
 
     def _check_interaction_cst(self, n_features):
+        # [FUNCTION DOC]
+        # HELPER: Converts interaction_cst into a list of sets of feature indices:
+        # None -> None; "no_interactions" -> one singleton per feature; "pairwise" ->
+        # all pairs; otherwise the user groups. Validates each element is an integer in
+        # [0, n_features), then appends one extra group with all unlisted features.
+        # Exceptions: ValueError if groups are not iterable or contain invalid indices.
         """Check and validation for interaction constraints."""
         if self.interaction_cst is None:
             return None
@@ -401,6 +475,43 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         y_val=None,
         sample_weight_val=None,
     ):
+        # [FUNCTION DOC]
+        # Fits the boosted ensemble. Steps: preprocess X (fit encoder), validate and
+        # encode y, validate sample_weight (setting _fitted_with_sw) and finalize it
+        # via the class-weight hook; validate optional X_val/y_val/sample_weight_val
+        # (both must be given, early_stopping must not be False). Draw _random_seed and
+        # a feature-subsampling Generator unless warm-starting a fitted model. Validate
+        # parameters, monotonic constraints (reordered so categorical features come
+        # first) and interaction constraints. Set _in_fit so _raw_predict treats inputs
+        # as binned. Resolve the loss, do_early_stopping_ ("auto" means n_samples >
+        # 10000), and, if early stopping without given validation data, split off a
+        # (stratified for classifiers) validation set using _random_seed. Fit the
+        # _BinMapper on training data (n_bins = max_bins + 1) and bin validation data;
+        # compute per-feature has_missing_values from the training bins.
+        # On a fresh fit: clear scores, compute baseline prediction (loss intercept),
+        # initialise raw predictions (and validation raw predictions when a predefined
+        # scorer or loss scoring is used), and record initial train/validation scores.
+        # On warm start: require max_iter >= n_iter_, convert score arrays to lists and
+        # recompute raw predictions from existing predictors. Then for each iteration:
+        # update gradients (and hessians unless constant) in place, grow one tree per
+        # output column with TreeGrower, refit leaf values for non-differentiable
+        # losses, build the TreePredictor, add its predictions to raw_predictions; when
+        # early stopping, update validation raw predictions, append scores and stop if
+        # _should_stop. Verbose output reports timings.
+        # Inputs: X (n_samples, n_features), y (n_samples,), sample_weight optional;
+        # keyword X_val, y_val, sample_weight_val optional.
+        # Outputs: self.
+        # Exceptions: ValueError for mismatched validation inputs, X_val with
+        # early_stopping False, warm start with max_iter < n_iter_, plus validation
+        # errors from helpers.
+        # Side effects: sets is_categorical_, _preprocessor, n_features_in_, _loss,
+        # _bin_mapper, _baseline_prediction, _predictors, train_score_,
+        # validation_score_ (ndarrays at the end), do_early_stopping_, _n_features,
+        # _use_validation_data, _scorer, _random_seed, _feature_subsample_rng; consumes
+        # random_state; prints when verbose; deletes _in_fit at the end.
+        # KNOWN ISSUE: _fitted_with_sw is only ever set to True, so refitting without
+        # sample weights keeps partial dependence disabled. _in_fit is not removed if
+        # an exception occurs mid-fit, leaving _raw_predict treating inputs as binned.
         """Fit the gradient boosting model.
 
         Parameters
@@ -956,15 +1067,25 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return self
 
     def _is_fitted(self):
+        # [FUNCTION DOC]
+        # HELPER: True if at least one iteration of predictors exists.
         return len(getattr(self, "_predictors", [])) > 0
 
     def _clear_state(self):
+        # [FUNCTION DOC]
+        # HELPER: Deletes train_score_ and validation_score_ attributes if present.
         """Clear the state of the gradient boosting model."""
         for var in ("train_score_", "validation_score_"):
             if hasattr(self, var):
                 delattr(self, var)
 
     def _get_small_trainset(self, X_binned_train, y_train, sample_weight_train, seed):
+        # [FUNCTION DOC]
+        # HELPER: If the training set has more than 10000 rows, draws 10000 indices
+        # without replacement (stratified for classifiers) using seed and returns the
+        # corresponding C-contiguous binned rows, targets, weights and the indices;
+        # otherwise returns the full inputs and slice(None).
+        # Outputs: tuple (X_small, y_small, sample_weight_small, indices).
         """Compute the indices of the subsample set and return this set.
 
         For efficiency, we need to subsample the training set to compute scores
@@ -1009,6 +1130,12 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         raw_predictions_small_train=None,
         raw_predictions_val=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Appends a scorer-based training score (decoding class labels for
+        # classifiers) and, if validation data is used, a validation score; uses
+        # precomputed raw predictions when given. Returns _should_stop on validation
+        # scores if available, else on training scores.
+        # Side effects: appends to train_score_ / validation_score_.
         """Check if fitting should be early-stopped based on scorer.
 
         Scores are computed on validation data or on training data.
@@ -1038,6 +1165,10 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
             return self._should_stop(self.train_score_)
 
     def _score_with_raw_predictions(self, X, y, sample_weight, raw_predictions=None):
+        # [FUNCTION DOC]
+        # HELPER: Calls self._scorer(self, X, y[, sample_weight]); when raw_predictions
+        # is given, does so under _patch_raw_predict so predictions are not recomputed.
+        # Outputs: float score.
         if raw_predictions is None:
             patcher_raw_predict = nullcontext()
         else:
@@ -1059,6 +1190,10 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         sample_weight_val,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Appends the negative mean loss on training raw predictions to
+        # train_score_, and on validation raw predictions to validation_score_ when
+        # validation data is used; returns _should_stop on the relevant list.
         """Check if fitting should be early-stopped based on loss.
 
         Scores are computed on validation data or on training data.
@@ -1086,6 +1221,10 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
             return self._should_stop(self.train_score_)
 
     def _should_stop(self, scores):
+        # [FUNCTION DOC]
+        # HELPER: With n = n_iter_no_change, returns False if fewer than n+1 scores
+        # exist; otherwise True iff none of the last n scores exceeds the score n+1
+        # positions from the end plus tol (higher is better).
         """
         Return True (do early stopping) if the last n scores aren't better
         than the (n-1)th-to-last score, up to some tolerance.
@@ -1104,6 +1243,11 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return not any(recent_improvements)
 
     def _bin_data(self, X, sample_weight, is_training_data):
+        # [FUNCTION DOC]
+        # HELPER: Fits and transforms with _bin_mapper for training data (passing
+        # sample_weight, F-ordered result), or only transforms validation data and makes
+        # it C-contiguous. Prints size and timing when verbose.
+        # Outputs: uint8 binned array. Side effects: fits _bin_mapper for training data.
         """Bin data X.
 
         If is_training_data, then fit the _bin_mapper attribute.
@@ -1135,6 +1279,10 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return X_binned
 
     def _print_iteration_stats(self, iteration_start_time):
+        # [FUNCTION DOC]
+        # HELPER: Prints a one-line summary of the last iteration: number of trees,
+        # leaves (and average), max depth, latest train/validation loss or score (loss
+        # shown positive) when early stopping, and elapsed time.
         """Print info about the current fitting iteration."""
         log_msg = ""
 
@@ -1178,6 +1326,12 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         print(log_msg)
 
     def _raw_predict(self, X, n_threads=None):
+        # [FUNCTION DOC]
+        # Returns baseline plus the sum of all trees' leaf values, shape
+        # (n_samples, n_trees_per_iteration). During fit (_in_fit set) X is assumed
+        # binned and predict_binned is used; otherwise X is preprocessed and raw
+        # prediction is used. n_threads is resolved independently of fit.
+        # Exceptions: NotFittedError; validation errors for X.
         """Return the sum of the leaves values over all predictors.
 
         Parameters
@@ -1218,6 +1372,11 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return raw_predictions
 
     def _predict_iterations(self, X, predictors, raw_predictions, is_binned, n_threads):
+        # [FUNCTION DOC]
+        # HELPER: For each iteration and each output column k, adds the predictions of
+        # the k-th tree to column k of raw_predictions (binned or raw path; the raw path
+        # uses known-category bitsets from the bin mapper).
+        # Side effects: mutates raw_predictions in place.
         """Add the predictions of the predictors to raw_predictions."""
         if not is_binned:
             (
@@ -1243,6 +1402,11 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
                 raw_predictions[:, k] += predict(X)
 
     def _staged_raw_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator: preprocesses X, checks feature count, starts from the baseline and
+        # after adding each iteration's trees yields a copy of the raw predictions
+        # (n_samples, n_trees_per_iteration).
+        # Exceptions: NotFittedError; ValueError on feature count mismatch.
         """Compute raw predictions of ``X`` for each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1290,6 +1454,12 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
             yield raw_predictions.copy()
 
     def _compute_partial_dependence_recursion(self, grid, target_features):
+        # [FUNCTION DOC]
+        # Computes partial dependence with the recursion method: for each tree adds its
+        # weighted-traversal contribution into the row of its output column of a
+        # (n_trees_per_iteration, n_grid) array (learning rate already in leaves).
+        # Baseline prediction is not added.
+        # Exceptions: NotImplementedError if the model was fitted with sample weights.
         """Fast partial dependence computation.
 
         Parameters
@@ -1333,30 +1503,45 @@ class BaseHistGradientBoosting(BaseEstimator, ABC):
         return averaged_predictions
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags declaring that input may contain NaN.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
 
     @abstractmethod
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # Abstract: return the BaseLoss instance for the configured loss.
         pass
 
     @abstractmethod
     def _encode_y(self, y=None):
+        # [FUNCTION DOC]
+        # Abstract: validate/encode training targets and set n_trees_per_iteration_.
         pass  # pragma: no cover
 
     @abstractmethod
     def _encode_y_val(self, y=None):
+        # [FUNCTION DOC]
+        # Abstract: encode validation targets consistently with _encode_y.
         pass  # pragma: no cover
 
     @property
     def n_iter_(self):
+        # [FUNCTION DOC]
+        # Property: number of boosting iterations performed (length of _predictors).
+        # Raises NotFittedError if unfitted.
         """Number of iterations of the boosting process."""
         check_is_fitted(self)
         return len(self._predictors)
 
 
 class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
+    # [CLASS DOC]
+    # Regressor variant: one tree per iteration; predictions are the loss's inverse
+    # link applied to raw predictions. Adds the quantile parameter for the quantile
+    # loss.
     """Histogram-based Gradient Boosting Regression Tree.
 
     This estimator is much faster than
@@ -1668,6 +1853,8 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
         verbose=0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to the base constructor and stores quantile.
         super().__init__(
             loss=loss,
             learning_rate=learning_rate,
@@ -1693,6 +1880,8 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
         self.quantile = quantile
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns inverse link of raveled raw predictions, shape (n_samples,).
         """Predict values for X.
 
         Parameters
@@ -1711,6 +1900,8 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
         return self._loss.link.inverse(self._raw_predict(X).ravel())
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding inverse-link predictions after each iteration.
         """Predict regression target for each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -1732,6 +1923,10 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
             yield self._loss.link.inverse(raw_predictions.ravel())
 
     def _encode_y(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Sets n_trees_per_iteration_ to 1, casts y to Y_DTYPE, and checks
+        # strictly positive y for gamma and non-negative y with positive sum for
+        # poisson. Exceptions: ValueError on violation.
         # Just convert y to the expected dtype
         self.n_trees_per_iteration_ = 1
         y = y.astype(Y_DTYPE, copy=False)
@@ -1748,9 +1943,15 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
         return y
 
     def _encode_y_val(self, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Same as _encode_y (also re-sets n_trees_per_iteration_ to 1).
         return self._encode_y(y)
 
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: Instantiates the loss class from the module _LOSSES registry, passing
+        # quantile for the quantile loss. KeyError if loss name unknown (prevented by
+        # parameter validation).
         if self.loss == "quantile":
             return _LOSSES[self.loss](
                 sample_weight=sample_weight, quantile=self.quantile
@@ -1760,6 +1961,10 @@ class HistGradientBoostingRegressor(RegressorMixin, BaseHistGradientBoosting):
 
 
 class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
+    # [CLASS DOC]
+    # Classifier variant using log loss: one tree per iteration for binary problems,
+    # one per class for multiclass. Supports class_weight via
+    # _finalize_sample_weight.
     """Histogram-based Gradient Boosting Classification Tree.
 
     This estimator is much faster than
@@ -2062,6 +2267,8 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         random_state=None,
         class_weight=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to the base constructor and stores class_weight.
         super().__init__(
             loss=loss,
             learning_rate=learning_rate,
@@ -2087,6 +2294,9 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         self.class_weight = class_weight
 
     def _finalize_sample_weight(self, sample_weight, y):
+        # [FUNCTION DOC]
+        # HELPER: Multiplies sample_weight (or uses ones) by per-sample class weights
+        # from compute_sample_weight when class_weight is set; else returns it as is.
         """Adjust sample_weights with class_weights."""
         if self.class_weight is None:
             return sample_weight
@@ -2099,6 +2309,9 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
             return expanded_class_weight
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Binary: class index 1 where raw prediction > 0 (ties go to class 0);
+        # multiclass: argmax of raw predictions. Returns labels from classes_.
         """Predict classes for X.
 
         Parameters
@@ -2122,6 +2335,8 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         return self.classes_[encoded_classes]
 
     def staged_predict(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding class labels per iteration, same rule as predict.
         """Predict classes at each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -2148,6 +2363,8 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
             yield self.classes_.take(encoded_classes, axis=0)
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the loss's probabilities for raw predictions, (n_samples, n_classes).
         """Predict class probabilities for X.
 
         Parameters
@@ -2164,6 +2381,10 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         return self._loss.predict_proba(raw_predictions)
 
     def staged_predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding class probabilities after each iteration.
+        # KNOWN ISSUE: docstring says yielded shape is (n_samples,) but each array is
+        # (n_samples, n_classes).
         """Predict class probabilities at each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -2184,6 +2405,8 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
             yield self._loss.predict_proba(raw_predictions)
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns raw predictions, raveled to (n_samples,) in the binary case.
         """Compute the decision function of ``X``.
 
         Parameters
@@ -2205,6 +2428,8 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         return decision
 
     def staged_decision_function(self, X):
+        # [FUNCTION DOC]
+        # Generator yielding raw predictions per iteration, raveled for binary.
         """Compute decision function of ``X`` for each iteration.
 
         This method allows monitoring (i.e. determine error on testing set)
@@ -2229,6 +2454,10 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
             yield staged_decision
 
     def _encode_y(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Checks classification targets, fits a LabelEncoder (stored as
+        # _label_encoder), sets classes_ and n_trees_per_iteration_ (1 if at most 2
+        # classes, else n_classes), returns encoded y as Y_DTYPE.
         """Create self._label_encoder and encode y correspondingly."""
         # encode classes into 0 ... n_classes - 1 and sets attributes classes_
         # and n_trees_per_iteration_
@@ -2247,10 +2476,16 @@ class HistGradientBoostingClassifier(ClassifierMixin, BaseHistGradientBoosting):
         return encoded_y
 
     def _encode_y_val(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Encodes validation labels with the fitted _label_encoder (ValueError
+        # on unseen labels) and casts to Y_DTYPE.
         encoded_y = self._label_encoder.transform(y)
         return encoded_y.astype(Y_DTYPE, copy=False)
 
     def _get_loss(self, sample_weight):
+        # [FUNCTION DOC]
+        # HELPER: HalfBinomialLoss when one tree per iteration, otherwise
+        # HalfMultinomialLoss with n_classes trees.
         # At this point self.loss == "log_loss"
         if self.n_trees_per_iteration_ == 1:
             return HalfBinomialLoss(sample_weight=sample_weight)
