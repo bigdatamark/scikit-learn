@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for coordinate descent linear models (Lasso, ElasticNet and their CV
+# variants) fitted on sparse input, mostly checking agreement with dense input,
+# known toy solutions, convergence warnings and read-only buffers.
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -21,6 +25,9 @@ from sklearn.utils.fixes import (
 
 
 def test_sparse_coef():
+    # [FUNCTION DOC]
+    # Sets coef_ manually on an unfitted ElasticNet and checks sparse_coef_ is a sparse
+    # matrix whose single dense row equals coef_.
     # Check that the sparse_coef property works
     clf = ElasticNet()
     clf.coef_ = [1, 2, 3]
@@ -31,6 +38,9 @@ def test_sparse_coef():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_lasso_zero(csc_container):
+    # [FUNCTION DOC]
+    # Fits Lasso on an all-zero sparse CSC X with zero targets; coef_, predictions and
+    # dual_gap_ must all be 0 (no crash on empty data).
     # Check that the sparse lasso can handle zero data without crashing
     X = csc_container((3, 1))
     y = [0, 0, 0]
@@ -45,6 +55,11 @@ def test_lasso_zero(csc_container):
 @pytest.mark.parametrize("with_sample_weight", [True, False])
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_enet_toy_list_input(with_sample_weight, csc_container):
+    # [FUNCTION DOC]
+    # On a sparse 3-point line y = x, with and without uniform sample weights: alpha=0
+    # reproduces least squares (warnings ignored), and two (alpha, l1_ratio) settings
+    # match precomputed coefficients and predictions, with zero dual gap.
+    # KNOWN ISSUE: the name says "list input" but X is converted to a CSC container.
     # Test ElasticNet for various values of alpha and l1_ratio with list X
 
     X = np.array([[-1], [0], [1]])
@@ -83,6 +98,9 @@ def test_enet_toy_list_input(with_sample_weight, csc_container):
 
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_enet_toy_explicit_sparse_input(lil_container):
+    # [FUNCTION DOC]
+    # Same expected values as the previous test, building X and test samples
+    # element-wise in LIL containers (implicit zero for the middle sample).
     # Test ElasticNet for various values of alpha and l1_ratio with sparse X
     # training samples
     X = lil_container((3, 1))
@@ -129,6 +147,13 @@ def make_sparse_data(
     positive=False,
     n_targets=1,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds a seeded ill-posed regression problem: ground-truth weights
+    # (n_features, n_targets) with only the first n_informative nonzero (absolute
+    # values if positive), Gaussian X with about 50% entries zeroed, noiseless
+    # y = X w, X wrapped in sparse_container. y is raveled when n_targets is 1.
+    # Outputs: (X sparse (n_samples, n_features), y (n_samples,) or (n_samples,
+    # n_targets)).
     random_state = np.random.RandomState(seed)
 
     # build an ill-posed linear regression problem with many noisy features and
@@ -158,6 +183,10 @@ def make_sparse_data(
     [(0.1, False, False), (0.1, True, False), (1e-3, False, True), (1e-3, True, True)],
 )
 def test_sparse_enet_not_as_toy_dataset(csc_container, alpha, fit_intercept, positive):
+    # [FUNCTION DOC]
+    # For several alpha / fit_intercept / positive settings, fits ElasticNet on half
+    # of sparse data: dual gap near 0, test R2 above 0.85, coef_/intercept_ equal to
+    # the dense fit to 5 decimals, and fewer than 2 * n_informative nonzero coefs.
     n_samples, n_features, max_iter = 100, 100, 1000
     n_informative = 10
 
@@ -206,6 +235,9 @@ def test_sparse_enet_not_as_toy_dataset(csc_container, alpha, fit_intercept, pos
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_sparse_lasso_not_as_toy_dataset(csc_container):
+    # [FUNCTION DOC]
+    # Sparse Lasso without intercept converges (dual gap near 0), scores above 0.85,
+    # the dense fit does too, and exactly n_informative coefficients are nonzero.
     n_samples = 100
     max_iter = 1000
     n_informative = 10
@@ -233,6 +265,9 @@ def test_sparse_lasso_not_as_toy_dataset(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_enet_multitarget(csc_container):
+    # [FUNCTION DOC]
+    # Fits ElasticNet on 3 targets jointly and checks each row of coef_, intercept_ and
+    # dual_gap_ matches a separate single-target fit.
     n_targets = 3
     X, y = make_sparse_data(csc_container, n_targets=n_targets)
 
@@ -254,6 +289,9 @@ def test_enet_multitarget(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_path_parameters(csc_container):
+    # [FUNCTION DOC]
+    # ElasticNetCV with an integer alphas=10 keeps l1_ratio and alphas, produces 10
+    # alphas_, and mse_path_ is identical for sparse and dense input.
     X, y = make_sparse_data(csc_container)
     max_iter = 50
     n_alphas = 10
@@ -289,6 +327,12 @@ def test_sparse_dense_equality(
     with_sample_weight,
     csc_container,
 ):
+    # [FUNCTION DOC]
+    # Parametrized over models, intercept, l1_ratio, shapes and sample weights: sparse
+    # and dense fits agree on coef_ and intercept_, and with intercept the weighted
+    # mean prediction equals the weighted mean of y (balance property).
+    # KNOWN ISSUE: combinations with l1_ratio=0 for models other than ElasticNet
+    # return early and are reported as passed instead of skipped.
     X, y = make_regression(
         n_samples=n_samples,
         n_features=n_features,
@@ -322,6 +366,9 @@ def test_sparse_dense_equality(
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_same_output_sparse_dense_lasso_and_enet_cv(csc_container):
+    # [FUNCTION DOC]
+    # ElasticNetCV and LassoCV give the same alpha_, intercept_, mse_path_ and alphas_
+    # on sparse and dense versions of the same data.
     X, y = make_sparse_data(csc_container, n_samples=40, n_features=10)
     clfs = ElasticNetCV(max_iter=100, tol=1e-7)
     clfs.fit(X, y)
@@ -344,6 +391,9 @@ def test_same_output_sparse_dense_lasso_and_enet_cv(csc_container):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_same_multiple_output_sparse_dense(coo_container):
+    # [FUNCTION DOC]
+    # Multi-output ElasticNet trained on dense lists and on COO input gives the same
+    # prediction for one sample (dense vs sparse sample).
     l = ElasticNet()
     X = [
         [0, 1, 2, 3, 4],
@@ -372,6 +422,9 @@ def test_same_multiple_output_sparse_dense(coo_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_sparse_enet_coordinate_descent(csc_container):
+    # [FUNCTION DOC]
+    # With warm_start, very bad initial coef_ and max_iter=2, fitting sparse Lasso
+    # must emit ConvergenceWarning with the expected message.
     """Test that a warning is issued if model does not converge"""
     clf = Lasso(
         alpha=1e-10, fit_intercept=False, warm_start=True, max_iter=2, tol=1e-10
@@ -391,6 +444,9 @@ def test_sparse_enet_coordinate_descent(csc_container):
 
 @pytest.mark.parametrize("copy_X", (True, False))
 def test_sparse_read_only_buffer(copy_X):
+    # [FUNCTION DOC]
+    # Fits ElasticNet on a random CSC matrix whose data array is a read-only memmap,
+    # for copy_X True and False; passes if no error is raised.
     """Test that sparse coordinate descent works for read-only buffers"""
     rng = np.random.RandomState(0)
 

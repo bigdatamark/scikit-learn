@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Defines RocCurveDisplay, the matplotlib visualization of one or several ROC
+# curves (true positive rate versus false positive rate) for binary classifiers, with
+# optional AUC in the legend, a chance-level diagonal and despined axes. Supports a
+# single curve (from_estimator / from_predictions) or one curve per CV fold
+# (from_cv_results). No import-time side effects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -15,6 +21,11 @@ from sklearn.utils._response import _get_response_values_binary
 
 
 class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
+    # [CLASS DOC]
+    # Stores precomputed ROC coordinates (single arrays or lists of per-curve arrays)
+    # and draws them. Attributes set by plot: line_ (Line2D, or list of Line2D when
+    #   several
+    # curves), chance_level_ (Line2D or None), ax_, figure_.
     """ROC Curve visualization.
 
     It is recommended to use
@@ -133,6 +144,14 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         name=None,
         pos_label=None,
     ):
+        # [FUNCTION DOC]
+        # Stores inputs without validation.
+        # Inputs: fpr, tpr - ndarray or list of ndarrays (one per curve); roc_auc -
+        #   float, list
+        # of floats or None; name - str, list of str or None; pos_label - optional label
+        #   shown
+        # in axis labels.
+        # Side effects: sets the same-named attributes.
         self.fpr = fpr
         self.tpr = tpr
         self.roc_auc = roc_auc
@@ -140,6 +159,18 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         self.pos_label = pos_label
 
     def _validate_plot_params(self, *, ax, name):
+        # [FUNCTION DOC]
+        # HELPER: Runs the mixin validation (matplotlib check, axes creation, default
+        #   name
+        # from self.name), then wraps fpr, tpr, roc_auc and name into lists (None stays
+        #   None)
+        # and checks that fpr, tpr, roc_auc (if given) and name (if a list of length
+        #   other than
+        # 1) have equal lengths.
+        # Inputs: ax - Axes or None; name - str, list or None.
+        # Outputs: tuple (fpr list, tpr list, roc_auc list or None, name list or None).
+        # Exceptions: ImportError without matplotlib; ValueError on length mismatch.
+        # Side effects: sets self.ax_ and self.figure_.
         self.ax_, self.figure_, name = super()._validate_plot_params(ax=ax, name=name)
 
         fpr = _convert_to_list_leaving_none(self.fpr)
@@ -167,6 +198,28 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         chance_level_kw=None,
         despine=False,
     ):
+        # [FUNCTION DOC]
+        # Validates parameters, computes legend metric info (mean/std AUC when one
+        # curve_kwargs dict is shared by several curves, else per-curve AUC), builds
+        #   per-curve
+        # line kwargs with 'AUC' labels (multi-curve defaults alpha 0.5, dashed, blue),
+        #   draws
+        # every curve, collapses line_ to a single artist when there is one curve,
+        #   labels axes
+        # (including the positive label when known), sets limits to [-0.01, 1.01] with
+        #   equal
+        # aspect, optionally draws the chance diagonal (default label 'Chance level (AUC
+        #   =
+        # 0.5)', black dashed, overridden by chance_level_kw), optionally despines, and
+        #   adds a
+        # lower-right legend if the first curve or the chance line has a label.
+        # Inputs: ax; name; curve_kwargs - dict, list of dicts or None;
+        #   plot_chance_level bool;
+        # chance_level_kw dict or None; despine bool.
+        # Outputs: self.
+        # Exceptions: ValueError for length mismatches or invalid curve_kwargs/name
+        # combinations; TypeError for conflicting style aliases.
+        # Side effects: draws; sets ax_, figure_, line_, chance_level_.
         """Plot visualization.
 
         Parameters
@@ -311,6 +364,16 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         chance_level_kw=None,
         despine=False,
     ):
+        # [FUNCTION DOC]
+        # Gets binary scores and the resolved pos_label from the estimator (name
+        #   defaults to
+        # the estimator class name) and delegates to from_predictions.
+        # Inputs: estimator - fitted binary classifier; X, y; sample_weight;
+        # drop_intermediate; response_method; pos_label; name; ax; curve_kwargs;
+        # plot_chance_level; chance_level_kw; despine.
+        # Outputs: RocCurveDisplay.
+        # Exceptions: ImportError; ValueError from response validation.
+        # Side effects: calls estimator prediction methods; plots.
         """Create a ROC Curve display from an estimator.
 
         For general information regarding `scikit-learn` visualization tools,
@@ -448,6 +511,19 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         chance_level_kw=None,
         despine=False,
     ):
+        # [FUNCTION DOC]
+        # Validates binary y_true, lengths and pos_label (name defaults to
+        #   'Classifier'),
+        # computes fpr/tpr with roc_curve and the AUC with auc, builds the display (name
+        #   stored
+        # on the instance) and plots it.
+        # Inputs: y_true (n_samples,); y_score (n_samples,); other parameters as in plot
+        #   plus
+        # sample_weight, drop_intermediate, pos_label.
+        # Outputs: RocCurveDisplay.
+        # Exceptions: ValueError for non-binary targets, length mismatch or invalid
+        #   pos_label.
+        # Side effects: plots.
         """Plot ROC curve given the true and predicted values.
 
         For general information regarding `scikit-learn` visualization tools,
@@ -590,6 +666,28 @@ class RocCurveDisplay(_BinaryClassifierCurveDisplayMixin):
         chance_level_kwargs=None,
         despine=False,
     ):
+        # [FUNCTION DOC]
+        # Validates cv_results (needs 'estimator' and 'indices' keys), X sample count
+        #   and a
+        # binary y. For each fold, indexes y, X and sample_weight with the fold's test
+        #   indices,
+        # gets binary scores from that fold's estimator, computes the ROC curve and AUC,
+        #   and
+        # collects them into lists; then builds a multi-curve display and plots it.
+        # Inputs: cv_results - dict from cross_validate with return_estimator and
+        # return_indices; X, y - full dataset; sample_weight; drop_intermediate;
+        # response_method; pos_label; ax; name; curve_kwargs; plot_chance_level;
+        # chance_level_kwargs; despine.
+        # Outputs: RocCurveDisplay with list-valued fpr, tpr, roc_auc.
+        # Exceptions: ValueError for missing keys, wrong number of samples, non-binary
+        #   y, or
+        # response errors.
+        # Side effects: calls prediction methods of every fold estimator; plots.
+        # KNOWN ISSUE: the parameter is named chance_level_kwargs here but
+        #   chance_level_kw in
+        # the other constructors and plot. The pos_label stored on the display is the
+        #   one
+        # resolved for the last fold only.
         """Create a multi-fold ROC curve display given cross-validation results.
 
         .. versionadded:: 1.7
