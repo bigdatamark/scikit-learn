@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.pipeline: Pipeline, FeatureUnion, make_pipeline, make_union and
+# _transform_one. Covers construction/validation, parameter get/set, method
+# delegation, caching with joblib memory, verbose output, feature names, set_output,
+# metadata routing, array API support, callbacks and tags. At import, loads iris and
+# marks its data/target read-only to prevent cross-test mutation; defines a small text
+# corpus (JUNK_FOOD_DOCS) and a set of mock estimators used throughout.
 """
 Test the pipeline module.
 """
@@ -99,96 +106,163 @@ JUNK_FOOD_DOCS = (
 
 
 class NoFit(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with two params (a, b) and no fit method; used to check
+    # that pipelines reject steps lacking fit.
     """Small class to test parameter dispatching."""
 
     def __init__(self, a=None, b=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores a and b (default None) unchanged as attributes.
         self.a = a
         self.b = b
 
 
 class NoTrans(NoFit):
+    # [CLASS DOC]
+    # HELPER: Estimator with fit but no transform, with hand-written get_params/set_params.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit; returns self.
         return self
 
     def get_params(self, deep=False):
+        # [FUNCTION DOC]
+        # HELPER: Returns a dict with keys "a" and "b"; deep is ignored.
         return {"a": self.a, "b": self.b}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: Sets only self.a from params["a"]; returns self.
+        # Exceptions: KeyError if "a" is not in params.
+        # KNOWN ISSUE: any other key (including "b") is silently ignored, unlike
+        # BaseEstimator.set_params.
         self.a = params["a"]
         return self
 
 
 class NoInvTransf(TransformerMixin, NoTrans):
+    # [CLASS DOC]
+    # HELPER: Identity transformer without inverse_transform.
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged.
         return X
 
 
 class Transf(NoInvTransf):
+    # [CLASS DOC]
+    # HELPER: Identity transformer with identity inverse_transform.
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged.
         return X
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged.
         return X
 
 
 class TransfFitParams(Transf):
+    # [CLASS DOC]
+    # HELPER: Identity transformer that records the keyword arguments passed to fit.
     def fit(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # HELPER: Stores fit_params dict on self.fit_params; returns self.
         self.fit_params = fit_params
         return self
 
 
 class Mult(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Always-fitted transformer/predictor that multiplies its input by mult;
+    # predict, predict_proba, predict_log_proba and decision_function all return the row
+    # sums of the scaled input.
     def __init__(self, mult=1):
+        # [FUNCTION DOC]
+        # HELPER: Stores the multiplier (default 1).
         self.mult = mult
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # HELPER: Reports the estimator as always fitted.
         return True
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit; returns self.
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X as an array multiplied elementwise by mult.
         return np.asarray(X) * self.mult
 
     def inverse_transform(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns X as an array divided elementwise by mult.
         return np.asarray(X) / self.mult
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns, per sample, the sum over features of X times mult (1D array).
         return (np.asarray(X) * self.mult).sum(axis=1)
 
     predict_proba = predict_log_proba = decision_function = predict
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns the sum of all entries of X; y is ignored.
         return np.sum(X)
 
 
 class FitParamT(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Mock classifier whose predict returns the should_succeed flag passed at fit.
     """Mock classifier"""
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # HELPER: Initializes successful to False.
         self.successful = False
 
     def fit(self, X, y, should_succeed=False):
+        # [FUNCTION DOC]
+        # HELPER: Sets successful to should_succeed and fitted_ to True.
+        # KNOWN ISSUE: returns None instead of self, violating the estimator fit contract.
         self.successful = should_succeed
         self.fitted_ = True
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns the boolean successful, not an array of predictions.
         return self.successful
 
     def fit_predict(self, X, y, should_succeed=False):
+        # [FUNCTION DOC]
+        # HELPER: Calls fit with should_succeed then returns predict(X).
         self.fit(X, y, should_succeed=should_succeed)
         return self.predict(X)
 
     def score(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns the sum of X, after elementwise multiplying by sample_weight when
+        # given (broadcast across columns).
         if sample_weight is not None:
             X = X * sample_weight
         return np.sum(X)
 
 
 class DummyTransf(Transf):
+    # [CLASS DOC]
+    # HELPER: Identity transformer that records column means and fit time; used to detect
+    # whether fit was served from the memory cache.
     """Transformer which store the column means"""
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Sets means_ (column means of X) and timestamp_ (time.time()); returns self.
         self.means_ = np.mean(X, axis=0)
         # store timestamp to figure out whether the result of 'fit' has been
         # cached or not
@@ -197,28 +271,47 @@ class DummyTransf(Transf):
 
 
 class DummyEstimatorParams(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Always-fitted estimator whose prediction methods record the got_attribute
+    # keyword and return self; used to test passing predict params.
     """Mock classifier that takes params on predict"""
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # HELPER: Reports the estimator as always fitted.
         return True
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit; returns self.
         return self
 
     def predict(self, X, got_attribute=False):
+        # [FUNCTION DOC]
+        # HELPER: Stores got_attribute on self and returns self.
         self.got_attribute = got_attribute
         return self
 
     def predict_proba(self, X, got_attribute=False):
+        # [FUNCTION DOC]
+        # HELPER: Stores got_attribute on self and returns self.
         self.got_attribute = got_attribute
         return self
 
     def predict_log_proba(self, X, got_attribute=False):
+        # [FUNCTION DOC]
+        # HELPER: Stores got_attribute on self and returns self.
         self.got_attribute = got_attribute
         return self
 
 
 def test_pipeline_invalid_parameters():
+    # [FUNCTION DOC]
+    # Verifies Pipeline validation and params: invalid step tuples raise TypeError, a
+    # last step without fit and intermediate steps without transform raise TypeError
+    # with specific messages, get_params(deep) exposes nested params, set_params forwards
+    # to steps, steps are not cloned at construction, invalid nested params raise
+    # ValueError, and clone copies estimators while keeping other params equal.
     # Test the various init parameters of the pipeline in fit
     # method
     pipeline = Pipeline([(1, 1)])
@@ -317,6 +410,9 @@ def test_pipeline_invalid_parameters():
     ],
 )
 def test_meta_estimator_raises_class_not_instance_error(meta_estimators, class_name):
+    # [FUNCTION DOC]
+    # Non-regression for issue 32719: passing an estimator class instead of an instance
+    # in Pipeline or FeatureUnion raises TypeError naming the class at fit time.
     # non-regression tests for https://github.com/scikit-learn/scikit-learn/issues/32719
     meta_estimators = clone(meta_estimators)
     msg = re.escape(
@@ -328,6 +424,8 @@ def test_meta_estimator_raises_class_not_instance_error(meta_estimators, class_n
 
 
 def test_empty_pipeline():
+    # [FUNCTION DOC]
+    # Verifies fitting an empty Pipeline raises ValueError "The pipeline is empty".
     X = iris.data
     y = iris.target
 
@@ -338,6 +436,8 @@ def test_empty_pipeline():
 
 
 def test_empty_pipeline_dir():
+    # [FUNCTION DOC]
+    # Verifies dir() works on an empty Pipeline and includes "steps".
     """Check that dir() works on an empty pipeline"""
     pipe = Pipeline([])
     attrs = dir(pipe)
@@ -345,6 +445,9 @@ def test_empty_pipeline_dir():
 
 
 def test_pipeline_init_tuple():
+    # [FUNCTION DOC]
+    # Smoke test: Pipeline accepts steps given as a tuple, including after replacing a
+    # step with "passthrough".
     # Pipeline accepts steps as tuple
     X = np.array([[1, 2]])
     pipe = Pipeline((("transf", Transf()), ("clf", FitParamT())))
@@ -357,6 +460,9 @@ def test_pipeline_init_tuple():
 
 
 def test_pipeline_methods_anova():
+    # [FUNCTION DOC]
+    # Smoke test: SelectKBest + LogisticRegression pipeline supports fit, predict,
+    # predict_proba, predict_log_proba and score on iris.
     # Test the various methods of the pipeline (anova).
     X = iris.data
     y = iris.target
@@ -372,6 +478,9 @@ def test_pipeline_methods_anova():
 
 
 def test_pipeline_fit_params():
+    # [FUNCTION DOC]
+    # Verifies step-prefixed fit params reach the right step (FitParamT predicts True),
+    # other steps keep defaults, and an unknown fit param raises TypeError.
     # Test that the pipeline can take fit parameters
     pipe = Pipeline([("transf", Transf()), ("clf", FitParamT())])
     pipe.fit(X=None, y=None, clf__should_succeed=True)
@@ -388,6 +497,9 @@ def test_pipeline_fit_params():
 
 
 def test_pipeline_sample_weight_supported():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.score forwards sample_weight to a final step that supports it
+    # (sum 3 unweighted, 8 with weights [2, 3]).
     # Pipeline should pass sample_weight
     X = np.array([[1, 2]])
     pipe = Pipeline([("transf", Transf()), ("clf", FitParamT())])
@@ -399,6 +511,9 @@ def test_pipeline_sample_weight_supported():
 
 
 def test_pipeline_sample_weight_unsupported():
+    # [FUNCTION DOC]
+    # Verifies sample_weight=None is not forwarded to a final step whose score lacks it,
+    # while a non-None sample_weight raises TypeError from the step's score.
     # When sample_weight is None it shouldn't be passed
     X = np.array([[1, 2]])
     pipe = Pipeline([("transf", Transf()), ("clf", Mult())])
@@ -412,6 +527,9 @@ def test_pipeline_sample_weight_unsupported():
 
 
 def test_pipeline_raise_set_params_error():
+    # [FUNCTION DOC]
+    # Verifies set_params error messages: unknown top-level or compound outer names
+    # report Pipeline's valid params; unknown inner names report the step's valid params.
     # Test pipeline raises set params error message for nested models.
     pipe = Pipeline([("cls", LinearRegression())])
 
@@ -439,6 +557,9 @@ def test_pipeline_raise_set_params_error():
 
 
 def test_pipeline_methods_pca_classifier():
+    # [FUNCTION DOC]
+    # Smoke test: PCA(mle, whiten) + LogisticRegression pipeline supports fit, predict,
+    # predict_proba, predict_log_proba and score.
     # Test the various methods of the pipeline (pca + svm).
     X = iris.data
     y = iris.target
@@ -454,6 +575,9 @@ def test_pipeline_methods_pca_classifier():
 
 
 def test_pipeline_score_samples_pca_lof():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.score_samples with PCA + LocalOutlierFactor(novelty) returns one
+    # score per sample equal to applying the steps manually.
     X = iris.data
     # Test that the score_samples method is implemented on a pipeline.
     # Test that the score_samples method on pipeline yields same results as
@@ -470,6 +594,9 @@ def test_pipeline_score_samples_pca_lof():
 
 
 def test_score_samples_on_pipeline_without_score_samples():
+    # [FUNCTION DOC]
+    # Verifies score_samples is unavailable when the final step lacks it: AttributeError
+    # from Pipeline whose __cause__ is the inner estimator's AttributeError.
     X = np.array([[1], [2]])
     y = np.array([1, 2])
     # Test that a pipeline does not have score_samples method when the final
@@ -487,6 +614,9 @@ def test_score_samples_on_pipeline_without_score_samples():
 
 
 def test_pipeline_methods_preprocessing_classifier():
+    # [FUNCTION DOC]
+    # For StandardScaler and PCA preprocessors before LogisticRegression, verifies output
+    # shapes of predict, predict_proba, predict_log_proba and decision_function.
     # Test the various methods of the pipeline (preprocessing + svm).
     X = iris.data
     y = iris.target
@@ -517,6 +647,9 @@ def test_pipeline_methods_preprocessing_classifier():
 
 
 def test_fit_predict_on_pipeline():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.fit_predict with StandardScaler + KMeans equals running the steps
+    # separately with identically configured estimators.
     # test that the fit_predict method is implemented on a pipeline
     # test that the fit_predict on pipeline yields same results as applying
     # transform and clustering steps separately
@@ -539,6 +672,9 @@ def test_fit_predict_on_pipeline():
 
 
 def test_fit_predict_on_pipeline_without_fit_predict():
+    # [FUNCTION DOC]
+    # Verifies accessing fit_predict on a pipeline whose final step lacks it raises a
+    # chained AttributeError.
     # tests that a pipeline does not have fit_predict method when final
     # step of pipeline does not have fit_predict defined
     scaler = StandardScaler()
@@ -554,6 +690,9 @@ def test_fit_predict_on_pipeline_without_fit_predict():
 
 
 def test_fit_predict_with_intermediate_fit_params():
+    # [FUNCTION DOC]
+    # Verifies fit_predict routes step-prefixed fit params to the intermediate step and
+    # the final step, and does not leak the final step's params to the transformer.
     # tests that Pipeline passes fit_params to intermediate steps
     # when fit_predict is invoked
     pipe = Pipeline([("transf", TransfFitParams()), ("clf", FitParamT())])
@@ -569,6 +708,10 @@ def test_fit_predict_with_intermediate_fit_params():
     "method_name", ["predict", "predict_proba", "predict_log_proba"]
 )
 def test_predict_methods_with_predict_params(method_name):
+    # [FUNCTION DOC]
+    # Verifies extra keyword params given to predict / predict_proba / predict_log_proba
+    # are forwarded to the final estimator.
+    # Inputs: method_name - name of the prediction method (parametrized).
     # tests that Pipeline passes predict_* to the final estimator
     # when predict_* is invoked
     pipe = Pipeline([("transf", Transf()), ("clf", DummyEstimatorParams())])
@@ -581,6 +724,13 @@ def test_predict_methods_with_predict_params(method_name):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_feature_union(csr_container):
+    # [FUNCTION DOC]
+    # Sanity checks FeatureUnion on centered iris: output is the column concatenation of
+    # TruncatedSVD and SelectKBest results, sparse input matches dense, clone copies
+    # transformers, nested set_params changes output width, transformers without
+    # fit_transform are supported, transformers without transform raise TypeError, and
+    # a tuple of transformers is accepted.
+    # Inputs: csr_container - CSR matrix/array class (parametrized).
     # basic sanity check for feature union
     X = iris.data.copy()
     X -= X.mean(axis=0)
@@ -628,6 +778,8 @@ def test_feature_union(csr_container):
 
 
 def test_feature_union_named_transformers():
+    # [FUNCTION DOC]
+    # Verifies named_transformers supports both key and attribute access.
     """Check the behaviour of `named_transformers` attribute."""
     transf = Transf()
     noinvtransf = NoInvTransf()
@@ -641,6 +793,9 @@ def test_feature_union_named_transformers():
 
 
 def test_make_union():
+    # [FUNCTION DOC]
+    # Verifies make_union auto-names steps from lowercase class names and keeps the
+    # given transformer instances.
     pca = PCA(svd_solver="full")
     mock = Transf()
     fu = make_union(pca, mock)
@@ -650,6 +805,9 @@ def test_make_union():
 
 
 def test_make_union_kwargs():
+    # [FUNCTION DOC]
+    # Verifies make_union forwards n_jobs and rejects unsupported keywords such as
+    # transformer_weights with TypeError.
     pca = PCA(svd_solver="full")
     mock = Transf()
     fu = make_union(pca, mock, n_jobs=3)
@@ -665,6 +823,11 @@ def test_make_union_kwargs():
 
 
 def create_mock_transformer(base_name, n_features=3):
+    # [FUNCTION DOC]
+    # HELPER: Returns a Transf instance whose get_feature_names_out is overridden to
+    # return "<base_name>0" .. "<base_name>{n_features-1}" regardless of input features.
+    # Inputs: base_name - str prefix; n_features - int, default 3.
+    # Outputs: the patched Transf instance.
     """Helper to create a mock transformer with custom feature names."""
     mock = Transf()
     mock.get_feature_names_out = lambda input_features: [
@@ -674,6 +837,9 @@ def create_mock_transformer(base_name, n_features=3):
 
 
 def test_make_union_passes_verbose_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies make_union forwards verbose_feature_names_out, and that with True the
+    # output names are prefixed with the step name ("pca__pca0", "transf__transf0", ...).
     # Test that make_union passes verbose_feature_names_out
     # to the FeatureUnion.
     X = iris.data
@@ -703,6 +869,9 @@ def test_make_union_passes_verbose_feature_names_out():
 
 
 def test_pipeline_transform():
+    # [FUNCTION DOC]
+    # Verifies a pipeline ending in PCA: fit().transform, fit_transform and PCA alone give
+    # the same result, and inverse_transform matches PCA's.
     # Test whether pipeline works with a transformer at the end.
     # Also test pipeline.transform and pipeline.inverse_transform
     X = iris.data
@@ -722,6 +891,9 @@ def test_pipeline_transform():
 
 
 def test_pipeline_fit_transform():
+    # [FUNCTION DOC]
+    # Verifies fit_transform works when the final transformer lacks fit_transform
+    # (falls back to fit then transform).
     # Test whether pipeline works with a transformer missing fit_transform
     X = iris.data
     y = iris.target
@@ -738,6 +910,11 @@ def test_pipeline_fit_transform():
     "start, end", [(0, 1), (0, 2), (1, 2), (1, 3), (None, 1), (1, None), (None, None)]
 )
 def test_pipeline_slice(start, end):
+    # [FUNCTION DOC]
+    # Verifies slicing a Pipeline returns a Pipeline with the sliced steps and
+    # named_steps while keeping other params (memory, verbose), and that a negative slice
+    # step raises ValueError.
+    # Inputs: start, end - slice bounds (parametrized).
     pipe = Pipeline(
         [("transf1", Transf()), ("transf2", Transf()), ("clf", FitParamT())],
         memory="123",
@@ -766,6 +943,9 @@ def test_pipeline_slice(start, end):
 
 
 def test_pipeline_index():
+    # [FUNCTION DOC]
+    # Verifies integer and name indexing of a Pipeline, IndexError for out-of-range
+    # integers and KeyError for unknown names.
     transf = Transf()
     clf = FitParamT()
     pipe = Pipeline([("transf", transf), ("clf", clf)])
@@ -784,6 +964,10 @@ def test_pipeline_index():
 
 
 def test_set_pipeline_steps():
+    # [FUNCTION DOC]
+    # Verifies steps can be replaced via attribute assignment, set_params(steps=...) and
+    # set_params(<name>=...), and that an invalid last step raises TypeError on fit and
+    # makes fit_transform unavailable (AttributeError).
     transf1 = Transf()
     transf2 = Transf()
     pipeline = Pipeline([("mock", transf1)])
@@ -817,6 +1001,9 @@ def test_set_pipeline_steps():
 
 
 def test_pipeline_named_steps():
+    # [FUNCTION DOC]
+    # Verifies named_steps Bunch access by key and attribute, and that a step named
+    # "values" is shadowed by the dict method of the same name.
     transf = Transf()
     mult2 = Mult(mult=2)
     pipeline = Pipeline([("mock", transf), ("mult", mult2)])
@@ -835,6 +1022,10 @@ def test_pipeline_named_steps():
 
 @pytest.mark.parametrize("passthrough", [None, "passthrough"])
 def test_pipeline_correctly_adjusts_steps(passthrough):
+    # [FUNCTION DOC]
+    # Verifies fitting with a None/"passthrough" intermediate step keeps the original
+    # step names and order.
+    # Inputs: passthrough - None or "passthrough" (parametrized).
     X = np.array([[1]])
     y = np.array([1])
     mult2 = Mult(mult=2)
@@ -853,6 +1044,13 @@ def test_pipeline_correctly_adjusts_steps(passthrough):
 
 @pytest.mark.parametrize("passthrough", [None, "passthrough"])
 def test_set_pipeline_step_passthrough(passthrough):
+    # [FUNCTION DOC]
+    # Verifies that replacing Mult steps with None/"passthrough" (intermediate, first or
+    # last, via set_params or at construction) yields the product of remaining
+    # multipliers for fit_transform/predict/inverse_transform, correct get_params, no
+    # AttributeError for other methods, and that a passthrough final step removes predict
+    # with a chained AttributeError.
+    # Inputs: passthrough - None or "passthrough" (parametrized).
     X = np.array([[1]])
     y = np.array([1])
     mult2 = Mult(mult=2)
@@ -860,6 +1058,9 @@ def test_set_pipeline_step_passthrough(passthrough):
     mult5 = Mult(mult=5)
 
     def make():
+        # [FUNCTION DOC]
+        # HELPER: Builds a fresh 3-step Pipeline of the shared Mult(2), Mult(3), Mult(5)
+        # instances.
         return Pipeline([("m2", mult2), ("m3", mult3), ("last", mult5)])
 
     pipeline = make()
@@ -933,6 +1134,10 @@ def test_set_pipeline_step_passthrough(passthrough):
 
 
 def test_pipeline_ducktyping():
+    # [FUNCTION DOC]
+    # Verifies Pipeline exposes predict/transform/inverse_transform only when the steps
+    # support them (duck typing via available_if), including passthrough-only pipelines
+    # and pipelines containing a step without inverse_transform.
     pipeline = make_pipeline(Mult(5))
     pipeline.predict
     pipeline.transform
@@ -961,6 +1166,9 @@ def test_pipeline_ducktyping():
 
 
 def test_make_pipeline():
+    # [FUNCTION DOC]
+    # Verifies make_pipeline builds a Pipeline with lowercase class-name step names,
+    # suffixed "-1", "-2" when names collide.
     t1 = Transf()
     t2 = Transf()
     pipe = make_pipeline(t1, t2)
@@ -988,6 +1196,10 @@ def test_make_pipeline():
     ],
 )
 def test_pipeline_estimator_type(pipeline, check_estimator_type):
+    # [FUNCTION DOC]
+    # Non-regression (issue 30197): smoke-tests repr and checks the estimator type tag
+    # (classifier, regressor or None) of the pipeline.
+    # Inputs: pipeline - Pipeline instance; check_estimator_type - predicate callable.
     """Check that the estimator type returned by the pipeline is correct.
 
     Non-regression test as part of:
@@ -999,6 +1211,8 @@ def test_pipeline_estimator_type(pipeline, check_estimator_type):
 
 
 def test_sklearn_tags_with_empty_pipeline():
+    # [FUNCTION DOC]
+    # Verifies an empty Pipeline returns the same tags as a plain BaseEstimator.
     """Check that we propagate properly the tags in a Pipeline.
 
     Non-regression test as part of:
@@ -1012,6 +1226,10 @@ def test_sklearn_tags_with_empty_pipeline():
 
 
 def test_feature_union_weights():
+    # [FUNCTION DOC]
+    # Verifies transformer_weights scale the weighted transformer's output (10x PCA
+    # columns) for fit+transform and fit_transform, and that weighting works with a
+    # transformer lacking fit_transform (7 output columns).
     # test feature union with transformer weights
     X = iris.data
     y = iris.target
@@ -1048,6 +1266,10 @@ def test_feature_union_weights():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_feature_union_parallel():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion with n_jobs=2 on two CountVectorizers gives the same sparse
+    # output as sequential, both via fit+transform and fit_transform, and that
+    # transformers stay fitted afterwards. Marked thread_unsafe because of a loky bug.
     # test that n_jobs work for FeatureUnion
     X = JUNK_FOOD_DOCS
 
@@ -1093,6 +1315,10 @@ def test_feature_union_parallel():
 
 
 def test_feature_union_feature_names():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion.get_feature_names_out prefixes names with the transformer
+    # name (35 names for the two vectorizers on JUNK_FOOD_DOCS) and raises
+    # AttributeError naming the transformer when one lacks get_feature_names_out.
     word_vect = CountVectorizer(analyzer="word")
     char_vect = CountVectorizer(analyzer="char_wb", ngram_range=(3, 3))
     ft = FeatureUnion([("chars", char_vect), ("words", word_vect)])
@@ -1112,6 +1338,9 @@ def test_feature_union_feature_names():
 
 
 def test_classes_property():
+    # [FUNCTION DOC]
+    # Verifies classes_ is unavailable on a regressor pipeline and on an unfitted
+    # classifier pipeline, and equals the unique labels after fitting a classifier.
     X = iris.data
     y = iris.target
 
@@ -1128,6 +1357,10 @@ def test_classes_property():
 
 
 def test_set_feature_union_steps():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion transformer replacement via attribute assignment,
+    # set_params(transformer_list=...) and set_params(<name>=...), checking transform
+    # output and prefixed feature names after each change.
     mult2 = Mult(2)
     mult3 = Mult(3)
     mult5 = Mult(5)
@@ -1157,6 +1390,10 @@ def test_set_feature_union_steps():
 
 
 def test_set_feature_union_step_drop():
+    # [FUNCTION DOC]
+    # Verifies setting transformers to "drop" (via set_params or at construction)
+    # removes their output columns and feature names, including dropping all (empty
+    # output), and that a dropped step can be restored.
     mult2 = Mult(2)
     mult3 = Mult(3)
 
@@ -1192,6 +1429,11 @@ def test_set_feature_union_step_drop():
 
 
 def test_set_feature_union_passthrough():
+    # [FUNCTION DOC]
+    # Verifies "passthrough" transformers in FeatureUnion: they output the input
+    # unchanged (scaled by transformer_weights when given), their feature names are the
+    # input names prefixed by the step name, and steps can be switched between
+    # passthrough and real transformers via set_params or at construction.
     """Check the behaviour of setting a transformer to `"passthrough"`."""
     mult2 = Mult(2)
     mult3 = Mult(3)
@@ -1305,6 +1547,9 @@ def test_set_feature_union_passthrough():
 
 
 def test_feature_union_passthrough_get_feature_names_out_true():
+    # [FUNCTION DOC]
+    # Verifies default verbose feature names for PCA + passthrough on a numpy input
+    # (passthrough names derived as x0..x3).
     """Check feature_names_out for verbose_feature_names_out=True (default)"""
     X = iris.data
     pca = PCA(n_components=2, svd_solver="randomized", random_state=0)
@@ -1325,6 +1570,8 @@ def test_feature_union_passthrough_get_feature_names_out_true():
 
 
 def test_feature_union_passthrough_get_feature_names_out_false():
+    # [FUNCTION DOC]
+    # Verifies non-verbose feature names (no step prefixes) for PCA + passthrough.
     """Check feature_names_out for verbose_feature_names_out=False"""
     X = iris.data
     pca = PCA(n_components=2, svd_solver="randomized", random_state=0)
@@ -1347,6 +1594,9 @@ def test_feature_union_passthrough_get_feature_names_out_false():
 
 
 def test_feature_union_passthrough_get_feature_names_out_false_errors():
+    # [FUNCTION DOC]
+    # Verifies non-verbose names raise ValueError listing duplicated names when two
+    # transformers output column "a". Skipped without pandas.
     """Check get_feature_names_out and non-verbose names and colliding names."""
     pd = pytest.importorskip("pandas")
     X = pd.DataFrame([[1, 2], [2, 3]], columns=["a", "b"])
@@ -1370,6 +1620,9 @@ def test_feature_union_passthrough_get_feature_names_out_false_errors():
 
 
 def test_feature_union_passthrough_get_feature_names_out_false_errors_overlap_over_5():
+    # [FUNCTION DOC]
+    # Verifies the duplicate-name error message truncates the list to the first five
+    # names followed by "...". Skipped without pandas.
     """Check get_feature_names_out with non-verbose names and >= 5 colliding names."""
     pd = pytest.importorskip("pandas")
     X = pd.DataFrame([list(range(10))], columns=[f"f{i}" for i in range(10)])
@@ -1393,16 +1646,28 @@ def test_feature_union_passthrough_get_feature_names_out_false_errors_overlap_ov
 
 # DfOutTransformer that does not define get_feature_names_out
 class DfOutTransformer(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Transformer subtracting offset from X, with a no-op set_output and no
+    # get_feature_names_out; when given a DataFrame it returns a DataFrame with the
+    # same columns.
     def __init__(self, offset=1.0):
+        # [FUNCTION DOC]
+        # HELPER: Stores offset (default 1.0).
         self.offset = offset
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit; returns self.
         return self
 
     def transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns X minus offset; y is ignored.
         return X - self.offset
 
     def set_output(self, transform=None):
+        # [FUNCTION DOC]
+        # HELPER: Ignores the requested output container and returns self.
         # This transformer will always output a DataFrame regardless of the
         # configuration.
         return self
@@ -1415,6 +1680,11 @@ class DfOutTransformer(BaseEstimator):
     ids=["StandardScaler", "DfOutTransformer", "passthrough"],
 )
 def test_feature_union_duplicate_column_names(df_lib_name, T1):
+    # [FUNCTION DOC]
+    # Non-regression (issue 32104): with DataFrame output, duplicated column names from
+    # two transformers are prefixed when verbose_feature_names_out is True, the input
+    # frame is not mutated, and ValueError is raised when it is False.
+    # Inputs: df_lib_name - "pandas" or "polars"; T1 - first transformer (parametrized).
     """Check FeatureUnion behavior when transformers output duplicate column names.
 
     Check that an error is raised when verbose_feature_names_out is False.
@@ -1441,6 +1711,13 @@ def test_feature_union_duplicate_column_names(df_lib_name, T1):
 
 
 def test_step_name_validation():
+    # [FUNCTION DOC]
+    # For Pipeline and FeatureUnion, verifies ValueError for names containing "__",
+    # duplicate names and names equal to a constructor argument, whether the steps are
+    # set at construction, via setattr or via set_params, raised on fit and
+    # fit_transform.
+    # KNOWN ISSUE: the inline comment says validation happens at construction, but the
+    # test (and implementation) only checks errors at fit / fit_transform time.
     error_message_1 = r"Estimator names must not contain __: got \['a__q'\]"
     error_message_2 = r"Names provided are not unique: \['a', 'a'\]"
     error_message_3 = r"Estimator names conflict with constructor arguments: \['%s'\]"
@@ -1479,12 +1756,23 @@ def test_step_name_validation():
 
 
 def test_set_params_nested_pipeline():
+    # [FUNCTION DOC]
+    # Smoke test: set_params on nested pipelines can replace a step and set its params in
+    # the same call, in either order of keys.
     estimator = Pipeline([("a", Pipeline([("b", DummyRegressor())]))])
     estimator.set_params(a__b__alpha=0.001, a__b=Lasso())
     estimator.set_params(a__steps=[("b", LogisticRegression())], a__b__C=5)
 
 
 def test_pipeline_memory():
+    # [FUNCTION DOC]
+    # Verifies joblib memory caching in Pipeline: a cached pipeline gives the same
+    # predictions/scores/means_ as an uncached one, the user's transformer instance is
+    # left unfitted (a clone is fitted), refitting reuses the cache (same timestamp_),
+    # and a new pipeline with identical estimators but a different step name also hits
+    # the cache.
+    # Side effects: creates and removes a temporary cache directory; joblib verbose
+    # output.
     X = iris.data
     y = iris.target
     cachedir = mkdtemp()
@@ -1548,6 +1836,12 @@ def test_pipeline_memory():
 
 
 def test_make_pipeline_memory():
+    # [FUNCTION DOC]
+    # Verifies make_pipeline forwards the memory argument (and defaults to None) and the
+    # resulting length.
+    # Side effects: creates and removes a temporary directory.
+    # KNOWN ISSUE: the temp directory is not removed if an assertion fails (no
+    # try/finally).
     cachedir = mkdtemp()
     memory = joblib.Memory(location=cachedir, verbose=10)
     pipeline = make_pipeline(DummyTransf(), SVC(), memory=memory)
@@ -1560,18 +1854,31 @@ def test_make_pipeline_memory():
 
 
 class FeatureNameSaver(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Identity transformer that records feature_names_in_ during fit and echoes
+    # input_features from get_feature_names_out.
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets feature names / n_features_in_ via _check_feature_names(reset=True);
+        # returns self.
         _check_feature_names(self, X, reset=True)
         return self
 
     def transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns X unchanged; y is ignored.
         return X
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns input_features unchanged (may be None).
         return input_features
 
 
 def test_features_names_passthrough():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out on a pipeline slice containing a passthrough step
+    # returns the provided input feature names.
     """Check pipeline.get_feature_names_out with passthrough"""
     pipe = Pipeline(
         steps=[
@@ -1588,6 +1895,9 @@ def test_features_names_passthrough():
 
 
 def test_feature_names_count_vectorizer():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out on a sliced pipeline with CountVectorizer returns
+    # the vocabulary, ignoring the passed input_features value.
     """Check pipeline.get_feature_names_out with vectorizers"""
     pipe = Pipeline(steps=[("vect", CountVectorizer()), ("clf", LogisticRegression())])
     y = ["pizza" in x for x in JUNK_FOOD_DOCS]
@@ -1603,6 +1913,9 @@ def test_feature_names_count_vectorizer():
 
 
 def test_pipeline_feature_names_out_error_without_definition():
+    # [FUNCTION DOC]
+    # Verifies AttributeError "does not provide get_feature_names_out" when a step lacks
+    # that method.
     """Check that error is raised when a transformer does not define
     `get_feature_names_out`."""
     pipe = Pipeline(steps=[("notrans", NoTrans())])
@@ -1615,6 +1928,8 @@ def test_pipeline_feature_names_out_error_without_definition():
 
 
 def test_pipeline_param_error():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.fit rejects an unprefixed sample_weight argument with ValueError.
     clf = make_pipeline(LogisticRegression())
     with pytest.raises(
         ValueError, match="Pipeline.fit does not accept the sample_weight parameter"
@@ -1687,6 +2002,11 @@ parameter_grid_test_verbose = (
 
 @pytest.mark.parametrize("est, pattern, method", parameter_grid_test_verbose)
 def test_verbose(est, method, pattern, capsys):
+    # [FUNCTION DOC]
+    # Verifies verbose output: nothing printed with verbose=False, and with verbose=True
+    # the captured stdout matches the per-step "(step i of n) Processing <name> ...
+    # total=" pattern for Pipeline/FeatureUnion fit, fit_transform and fit_predict.
+    # Inputs: est - estimator; method - method name; pattern - regex; capsys - fixture.
     func = getattr(est, method)
 
     X = [[1, 2, 3], [4, 5, 6]]
@@ -1702,6 +2022,9 @@ def test_verbose(est, method, pattern, capsys):
 
 
 def test_n_features_in_pipeline():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.n_features_in_ is delegated to the first step: absent before
+    # fit, present after fitting the pipeline or just the first step.
     # make sure pipelines delegate n_features_in to the first step
 
     X = [[1, 2], [3, 4], [5, 6]]
@@ -1725,6 +2048,9 @@ def test_n_features_in_pipeline():
 
 
 def test_n_features_in_feature_union():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion.n_features_in_ is delegated to the first transformer in the
+    # same way.
     # make sure FeatureUnion delegates n_features_in to the first transformer
 
     X = [[1, 2], [3, 4], [5, 6]]
@@ -1745,14 +2071,23 @@ def test_n_features_in_feature_union():
 
 
 def test_feature_union_fit_params():
+    # [FUNCTION DOC]
+    # Regression test (issue 15117): FeatureUnion forwards fit params to every
+    # transformer in fit and fit_transform; missing params cause the dummy to raise.
     # Regression test for issue: #15117
     class DummyTransformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Identity transformer that requires fit params to equal exactly {"a": 0}.
         def fit(self, X, y=None, **fit_params):
+            # [FUNCTION DOC]
+            # HELPER: Raises ValueError unless fit_params equals {"a": 0}; returns self.
             if fit_params != {"a": 0}:
                 raise ValueError
             return self
 
         def transform(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns X unchanged.
             return X
 
     X, y = iris.data, iris.target
@@ -1768,11 +2103,18 @@ def test_feature_union_fit_params():
 
 
 def test_feature_union_fit_params_without_fit_transform():
+    # [FUNCTION DOC]
+    # Verifies metadata reaches transformers lacking fit_transform when metadata routing
+    # is disabled: wrong value raises, correct value succeeds.
     # Test that metadata is passed correctly to underlying transformers that don't
     # implement a `fit_transform` method when SLEP6 is not enabled.
 
     class DummyTransformer(ConsumingNoFitTransformTransformer):
+        # [CLASS DOC]
+        # HELPER: Consuming transformer without fit_transform requiring metadata == 1.
         def fit(self, X, y=None, **fit_params):
+            # [FUNCTION DOC]
+            # HELPER: Raises ValueError unless fit_params equals {"metadata": 1}; returns self.
             if fit_params != {"metadata": 1}:
                 raise ValueError
             return self
@@ -1792,6 +2134,11 @@ def test_feature_union_fit_params_without_fit_transform():
 
 
 def test_pipeline_missing_values_leniency():
+    # [FUNCTION DOC]
+    # Verifies Pipeline defers NaN validation to its steps: with about 10% NaNs,
+    # SimpleImputer + LogisticRegression fits and scores above 0.4.
+    # KNOWN ISSUE: the NaN mask uses the global unseeded numpy RNG, so the test data are
+    # not reproducible.
     # check that pipeline let the missing values validation to
     # the underlying transformers and predictors.
     X, y = iris.data.copy(), iris.target.copy()
@@ -1802,6 +2149,9 @@ def test_pipeline_missing_values_leniency():
 
 
 def test_feature_union_warns_unknown_transformer_weight():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion.fit raises ValueError when transformer_weights names a
+    # transformer absent from transformer_list.
     # Warn user when transformer_weights containers a key not present in
     # transformer_list
     X = [[1, 2], [3, 4], [5, 6]]
@@ -1821,6 +2171,9 @@ def test_feature_union_warns_unknown_transformer_weight():
 
 @pytest.mark.parametrize("passthrough", [None, "passthrough"])
 def test_pipeline_get_tags_none(passthrough):
+    # [FUNCTION DOC]
+    # Non-regression (issue 18815): tags are computed when the first step is None or
+    # "passthrough"; the pairwise input tag is False.
     # Checks that tags are set correctly when the first transformer is None or
     # 'passthrough'
     # Non-regression test for:
@@ -1833,6 +2186,11 @@ def test_pipeline_get_tags_none(passthrough):
 # checks.
 @pytest.mark.parametrize("Predictor", [MinimalRegressor, MinimalClassifier])
 def test_search_cv_using_minimal_compatible_estimator(Predictor):
+    # [FUNCTION DOC]
+    # Verifies pipelines of minimal (non-BaseEstimator) transformer and predictor fit,
+    # predict the majority class (classifier) or mean (regressor), and score with
+    # accuracy/R2 respectively.
+    # Inputs: Predictor - MinimalRegressor or MinimalClassifier class (parametrized).
     # Check that third-party library estimators can be part of a pipeline
     # and tuned by grid-search without inheriting from BaseEstimator.
     rng = np.random.RandomState(0)
@@ -1853,8 +2211,15 @@ def test_search_cv_using_minimal_compatible_estimator(Predictor):
 
 
 def test_pipeline_check_if_fitted():
+    # [FUNCTION DOC]
+    # Verifies check_is_fitted on a Pipeline raises NotFittedError before fit and passes
+    # after.
     class Estimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator that only sets fitted_ in fit.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets fitted_ to True; returns self.
             self.fitted_ = True
             return self
 
@@ -1866,6 +2231,10 @@ def test_pipeline_check_if_fitted():
 
 
 def test_feature_union_check_if_fitted():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion.__sklearn_is_fitted__: unfitted transformers make it
+    # unfitted, a passthrough-only union is always fitted, and mixed unions become fitted
+    # after fit.
     """Check __sklearn_is_fitted__ is defined correctly."""
 
     X = [[1, 2], [3, 4], [5, 6]]
@@ -1891,6 +2260,9 @@ def test_feature_union_check_if_fitted():
 
 
 def test_pipeline_get_feature_names_out_passes_names_through():
+    # [FUNCTION DOC]
+    # Non-regression (issue 21349): Pipeline.get_feature_names_out chains each step's
+    # names, so a first step adding "my_prefix_" yields prefixed names at the end.
     """Check that pipeline passes names through.
 
     Non-regression test for #21349.
@@ -1898,7 +2270,12 @@ def test_pipeline_get_feature_names_out_passes_names_through():
     X, y = iris.data, iris.target
 
     class AddPrefixStandardScalar(StandardScaler):
+        # [CLASS DOC]
+        # HELPER: StandardScaler whose output feature names get a "my_prefix_" prefix.
         def get_feature_names_out(self, input_features=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns the parent's output names with "my_prefix_" prepended, as an
+            # object array.
             names = super().get_feature_names_out(input_features=input_features)
             return np.asarray([f"my_prefix_{name}" for name in names], dtype=object)
 
@@ -1912,6 +2289,9 @@ def test_pipeline_get_feature_names_out_passes_names_through():
 
 
 def test_pipeline_set_output_integration():
+    # [FUNCTION DOC]
+    # Verifies set_output(transform="pandas") on a pipeline makes the final estimator see
+    # the same feature names the preceding steps output. Skipped without pandas.
     """Test pipeline's set_output with feature names."""
     pytest.importorskip("pandas")
 
@@ -1929,6 +2309,10 @@ def test_pipeline_set_output_integration():
 
 @pytest.mark.parametrize("df_library", ["pandas", "polars"])
 def test_feature_union_set_output(df_library):
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion.set_output returns a DataFrame of the requested library whose
+    # columns equal get_feature_names_out (and whose index is preserved for pandas).
+    # Inputs: df_library - "pandas" or "polars" (parametrized).
     """Test feature union with set_output API."""
     lib = pytest.importorskip(df_library)
 
@@ -1946,6 +2330,9 @@ def test_feature_union_set_output(df_library):
 
 
 def test_feature_union_getitem():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion string indexing returns transformers, "passthrough" and
+    # "drop" entries as given.
     """Check FeatureUnion.__getitem__ returns expected results."""
     scalar = StandardScaler()
     pca = PCA()
@@ -1965,6 +2352,9 @@ def test_feature_union_getitem():
 
 @pytest.mark.parametrize("key", [0, slice(0, 2)])
 def test_feature_union_getitem_error(key):
+    # [FUNCTION DOC]
+    # Verifies non-string keys (int, slice) raise KeyError "Only string keys are
+    # supported".
     """Raise error when __getitem__ gets a non-string input."""
 
     union = FeatureUnion([("scalar", StandardScaler()), ("pca", PCA())])
@@ -1975,6 +2365,9 @@ def test_feature_union_getitem_error(key):
 
 
 def test_feature_union_feature_names_in_():
+    # [FUNCTION DOC]
+    # Test for issue 24754: feature_names_in_ is exposed when the first transformer has
+    # it (DataFrame input, including passthrough) and absent for numpy input.
     """Ensure feature union has `.feature_names_in_` attribute if `X` has a
     `columns` attribute.
 
@@ -2007,6 +2400,9 @@ def test_feature_union_feature_names_in_():
 
 
 def test_feature_union_1d_output():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion raises ValueError naming the transformer that returns a 1D
+    # output.
     """Test that FeatureUnion raises error for 1D transformer outputs."""
     X = np.arange(6).reshape(3, 2)
 
@@ -2027,6 +2423,11 @@ def test_feature_union_1d_output():
     yield_namespace_device_dtype_combinations(),
 )
 def test_feature_union_array_api_compliance(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion of two Nystroem transformers under array_api_dispatch keeps
+    # fitted attributes in the input namespace/device and matches the numpy result
+    # within dtype tolerance, with concatenated width 13.
+    # Inputs: array_namespace, device_name, dtype_name - parametrized combinations.
     """Test that FeatureUnion with Array API-compatible transformers works."""
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rnd = np.random.RandomState(0)
@@ -2066,6 +2467,9 @@ def test_feature_union_array_api_compliance(array_namespace, device_name, dtype_
 
 
 def test_feature_union_array_api_support_tag():
+    # [FUNCTION DOC]
+    # Verifies the array_api_support tag of FeatureUnion is True only if all
+    # non-passthrough/drop transformers support it (passthrough/drop count as support).
     """Check that FeatureUnion.array_api_support tag reflects its transformers."""
     # All transformers support Array API -> union supports it
     union = FeatureUnion(
@@ -2107,9 +2511,20 @@ def test_feature_union_array_api_support_tag():
 @config_context(enable_metadata_routing=True)
 @pytest.mark.parametrize("pipeline_method", ["fit", "fit_transform"])
 def test_transform_input_pipeline(pipeline_method):
+    # [FUNCTION DOC]
+    # Verifies transform_input=["sample_weight"] under metadata routing: each step that
+    # requests sample_weight receives it transformed by all preceding steps
+    # (ConsumingTransformer adds 1 per transform), including through an alias
+    # ("other_weights" + 3 for the last step), while the step not requesting metadata
+    # receives none; for fit only fit is recorded on the last step, for fit_transform
+    # fit_transform, fit and transform are.
+    # Inputs: pipeline_method - "fit" or "fit_transform" (parametrized).
     """Test that with transform_input, data is correctly transformed for each step."""
 
     def get_transformer(registry, sample_weight, metadata):
+        # [FUNCTION DOC]
+        # HELPER: Returns a ConsumingTransformer bound to registry whose fit and transform
+        # requests for sample_weight and metadata are set to the given values (bool or alias).
         """Get a transformer with requests set."""
         return (
             ConsumingTransformer(registry=registry)
@@ -2118,6 +2533,10 @@ def test_transform_input_pipeline(pipeline_method):
         )
 
     def get_pipeline():
+        # [FUNCTION DOC]
+        # HELPER: Builds a 4-step pipeline of ConsumingTransformers with distinct request
+        # settings and transform_input=["sample_weight"].
+        # Outputs: tuple (pipeline, registry_1, registry_2, registry_3, registry_4).
         """Get a pipeline and corresponding registries.
 
         The pipeline has 4 steps, with different request values set to test different
@@ -2185,18 +2604,34 @@ def test_transform_input_pipeline(pipeline_method):
 
 @config_context(enable_metadata_routing=True)
 def test_transform_input_explicit_value_check():
+    # [FUNCTION DOC]
+    # Verifies transform_input passes X_val through the fitted preceding transformers
+    # (+1) before handing it to the final estimator's fit, while y_val and y are
+    # untouched.
     """Test that the right transformed values are passed to `fit`."""
 
     class Transformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer adding 1 to its input.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets fitted_; returns self.
             self.fitted_ = True
             return self
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns X + 1.
             return X + 1
 
     class Estimator(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Classifier whose fit asserts the exact X, y, X_val and y_val received.
         def fit(self, X, y, X_val=None, y_val=None):
+            # [FUNCTION DOC]
+            # HELPER: Asserts X == [[1, 2]], y == [0, 1], X_val == [[2, 3]], y_val == [0, 1];
+            # returns self.
+            # Exceptions: AssertionError on mismatch.
             assert_array_equal(X, np.array([[1, 2]]))
             assert_array_equal(y, np.array([0, 1]))
             assert_array_equal(X_val, np.array([[2, 3]]))
@@ -2218,6 +2653,9 @@ def test_transform_input_explicit_value_check():
 
 
 def test_transform_input_no_slep6():
+    # [FUNCTION DOC]
+    # Verifies setting transform_input without metadata routing enabled raises
+    # ValueError at fit.
     """Make sure the right error is raised if slep6 is not enabled."""
     X = np.array([[1, 2], [3, 4]])
     y = np.array([0, 1])
@@ -2228,10 +2666,19 @@ def test_transform_input_no_slep6():
 
 @config_context(enable_metadata_routing=True)
 def test_transform_tuple_input():
+    # [FUNCTION DOC]
+    # Verifies that a tuple of arrays given for a transform_input parameter has each
+    # element transformed separately and is passed on as a tuple.
     """Test that if metadata is a tuple of arrays, both arrays are transformed."""
 
     class Estimator(ClassifierMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Classifier whose fit asserts X_val and y_val are tuples with each X_val
+        # element shifted by 1.
         def fit(self, X, y, X_val=None, y_val=None):
+            # [FUNCTION DOC]
+            # HELPER: Asserts the tuple contents of X_val / y_val; sets fitted_; returns self.
+            # Exceptions: AssertionError on mismatch.
             assert isinstance(X_val, tuple)
             assert isinstance(y_val, tuple)
             # Here we make sure that each X_val is transformed by the transformer
@@ -2243,11 +2690,17 @@ def test_transform_tuple_input():
             return self
 
     class Transformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer adding 1 to its input.
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Sets fitted_; returns self.
             self.fitted_ = True
             return self
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns X + 1.
             return X + 1
 
     X = np.array([[1, 2]])
@@ -2284,7 +2737,13 @@ def test_transform_tuple_input():
     ],
 )
 def test_pipeline_warns_not_fitted(method):
+    # [FUNCTION DOC]
+    # Verifies that calling a non-fit method on an unfitted Pipeline raises
+    # NotFittedError even when the final step itself does not check fittedness.
+    # Inputs: method - delegated method name (parametrized).
     class StatelessEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator that never checks fittedness and returns trivial outputs.
         """Stateless estimator that doesn't check if it's fitted.
 
         Stateless estimators that don't require fit, should properly set the
@@ -2293,30 +2752,48 @@ def test_pipeline_warns_not_fitted(method):
         """
 
         def fit(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Returns self (never executed in the test).
             return self  # pragma: no cover
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns X unchanged.
             return X
 
         def predict(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns an array of ones of length len(X).
             return np.ones(len(X))
 
         def predict_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns a 1D array of ones of length len(X).
             return np.ones(len(X))
 
         def predict_log_proba(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns a 1D array of zeros of length len(X).
             return np.zeros(len(X))
 
         def decision_function(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns an array of ones of length len(X).
             return np.ones(len(X))
 
         def score(self, X, y):
+            # [FUNCTION DOC]
+            # HELPER: Returns 1.
             return 1
 
         def score_samples(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns an array of ones of length len(X).
             return np.ones(len(X))
 
         def inverse_transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns X unchanged.
             return X
 
     pipe = Pipeline([("estimator", StatelessEstimator())])
@@ -2329,57 +2806,83 @@ def test_pipeline_warns_not_fitted(method):
 
 
 class SimpleEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Always-fitted estimator implementing every routable method; each method
+    # asserts that both sample_weight and prop were received (not None), so it fails
+    # unless metadata is routed to it.
     # This class is used in this section for testing routing in the pipeline.
     # This class should have every set_{method}_request
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # HELPER: Reports the estimator as always fitted.
         return True
 
     def fit(self, X, y, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts sample_weight and prop are not None; returns self.
         assert sample_weight is not None, sample_weight
         assert prop is not None, prop
         return self
 
     def fit_transform(self, X, y, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns X + 1.
         assert sample_weight is not None
         assert prop is not None
         return X + 1
 
     def fit_predict(self, X, y, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns ones of length len(X).
         assert sample_weight is not None
         assert prop is not None
         return np.ones(len(X))
 
     def predict(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns ones of length len(X).
         assert sample_weight is not None
         assert prop is not None
         return np.ones(len(X))
 
     def predict_proba(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns a 1D array of ones of length len(X).
         assert sample_weight is not None
         assert prop is not None
         return np.ones(len(X))
 
     def predict_log_proba(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns a 1D array of zeros of length len(X).
         assert sample_weight is not None
         assert prop is not None
         return np.zeros(len(X))
 
     def decision_function(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns ones of length len(X).
         assert sample_weight is not None
         assert prop is not None
         return np.ones(len(X))
 
     def score(self, X, y, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns 1.
         assert sample_weight is not None
         assert prop is not None
         return 1
 
     def transform(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns X + 1.
         assert sample_weight is not None
         assert prop is not None
         return X + 1
 
     def inverse_transform(self, X, sample_weight=None, prop=None):
+        # [FUNCTION DOC]
+        # HELPER: Asserts metadata received; returns X - 1.
         assert sample_weight is not None
         assert prop is not None
         return X - 1
@@ -2391,9 +2894,20 @@ class SimpleEstimator(BaseEstimator):
 )
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_for_pipeline(parent_method):
+    # [FUNCTION DOC]
+    # For each routable Pipeline method (except split and partial_fit), verifies
+    # requested metadata reaches the transformer step: for inverse_transform only the
+    # transformer's inverse_transform records it; for fit-like methods fit and transform
+    # record it; otherwise (after a prior fit whose records are cleared) only transform.
+    # The method is called with y first and retried without y on TypeError.
+    # Inputs: parent_method - Pipeline method name (parametrized).
     """Test that metadata is routed correctly for pipelines."""
 
     def set_request(est, method, **kwarg):
+        # [FUNCTION DOC]
+        # HELPER: Calls set_<m>_request(**kwarg) on est for method, or for every
+        # sub-method when method is composite (e.g. fit_transform).
+        # Outputs: est (mutated in place).
         """Set requests for a given method.
 
         If the given method is a composite method, set the same requests for
@@ -2477,6 +2991,10 @@ def test_metadata_routing_for_pipeline(parent_method):
 @pytest.mark.parametrize("method", sorted(set(METHODS) - {"split", "partial_fit"}))
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_error_for_pipeline(method):
+    # [FUNCTION DOC]
+    # Verifies passing unrequested metadata to any Pipeline method raises ValueError
+    # listing the unset params and the target method.
+    # Inputs: method - Pipeline method name (parametrized).
     """Test that metadata is not routed for pipelines when not requested."""
     X, y = [[1]], [1]
     sample_weight, prop = [1], "a"
@@ -2501,6 +3019,9 @@ def test_metadata_routing_error_for_pipeline(method):
     "method", ["decision_function", "transform", "inverse_transform"]
 )
 def test_routing_passed_metadata_not_supported(method):
+    # [FUNCTION DOC]
+    # Verifies passing metadata to decision_function / transform / inverse_transform
+    # with routing disabled raises ValueError mentioning enable_metadata_routing.
     """Test that the right error message is raised when metadata is passed while
     not supported when `enable_metadata_routing=False`."""
 
@@ -2514,6 +3035,9 @@ def test_routing_passed_metadata_not_supported(method):
 
 @config_context(enable_metadata_routing=True)
 def test_pipeline_with_estimator_with_len():
+    # [FUNCTION DOC]
+    # Smoke test: a pipeline whose steps define __len__ (tree ensembles) fits and predicts
+    # with metadata routing enabled.
     """Test that pipeline works with estimators that have a `__len__` method."""
     pipe = Pipeline(
         [("trs", RandomTreesEmbedding()), ("estimator", RandomForestClassifier())]
@@ -2525,6 +3049,9 @@ def test_pipeline_with_estimator_with_len():
 @pytest.mark.parametrize("last_step", [None, "passthrough"])
 @config_context(enable_metadata_routing=True)
 def test_pipeline_with_no_last_step(last_step):
+    # [FUNCTION DOC]
+    # Verifies a pipeline with a None/"passthrough" last step passes data through on
+    # transform under metadata routing.
     """Test that the pipeline works when there is not last step.
 
     It should just ignore and pass through the data on transform.
@@ -2535,6 +3062,9 @@ def test_pipeline_with_no_last_step(last_step):
 
 @config_context(enable_metadata_routing=True)
 def test_feature_union_metadata_routing_error():
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion raises UnsetMetadataPassedError when metadata is passed but
+    # the sub-transformer's fit request, then its transform request, is not set.
     """Test that the right error is raised when metadata is not requested."""
     X = np.array([[0, 1], [2, 2], [4, 6]])
     y = [1, 2, 3]
@@ -2576,6 +3106,9 @@ def test_feature_union_metadata_routing_error():
 
 @config_context(enable_metadata_routing=True)
 def test_feature_union_get_metadata_routing_without_fit():
+    # [FUNCTION DOC]
+    # Smoke test: get_metadata_routing works on an unfitted FeatureUnion whose child sets
+    # no requests.
     """Test that get_metadata_routing() works regardless of the Child's
     consumption of any metadata."""
     feature_union = FeatureUnion([("sub_transformer", ConsumingTransformer())])
@@ -2587,6 +3120,13 @@ def test_feature_union_get_metadata_routing_without_fit():
     "transformer", [ConsumingTransformer, ConsumingNoFitTransformTransformer]
 )
 def test_feature_union_metadata_routing(transformer):
+    # [FUNCTION DOC]
+    # Verifies FeatureUnion routes requested sample_weight and metadata to each
+    # sub-transformer during fit, fit_transform and fit+transform, checking the recorded
+    # fit calls in each transformer's registry.
+    # Inputs: transformer - consuming transformer class (parametrized).
+    # KNOWN ISSUE: the loop variable "transformer" shadows the parametrized argument of
+    # the same name; harmless here but misleading.
     """Test that metadata is routed correctly for FeatureUnion."""
     X = np.array([[0, 1], [2, 2], [4, 6]])
     y = [1, 2, 3]
@@ -2628,6 +3168,10 @@ def test_feature_union_metadata_routing(transformer):
 
 
 def test_transform_one_accepts_plain_dict_params():
+    # [FUNCTION DOC]
+    # Regression test (issue 34005): _transform_one works when params is a plain dict
+    # (as produced by some joblib backends) rather than a Bunch, matching the scaler's
+    # transform.
     """Regression test for #34005.
 
     Some joblib backends (notably dask) downgrade ``Bunch`` to plain ``dict``
@@ -2651,6 +3195,10 @@ def test_transform_one_accepts_plain_dict_params():
 
 @skip_callback_test_if_wasm
 def test_pipeline_with_callbacks():
+    # [FUNCTION DOC]
+    # Verifies an auto-propagated callback on a Pipeline gets one setup/teardown and
+    # task begin/end hooks for the root, each step (passthrough counted) and the inner
+    # iterations of MaxIterEstimator. Skipped on WASM.
     """Check that callbacks are propagated correctly for a pipeline.
 
     passthrough step is counted as one task.
@@ -2677,6 +3225,9 @@ def test_pipeline_with_callbacks():
 
 @skip_callback_test_if_wasm
 def test_pipeline_with_callbacks_on_steps():
+    # [FUNCTION DOC]
+    # Verifies callbacks set directly on steps are invoked once per step fit (plus one
+    # per iteration for MaxIterEstimator) when the pipeline is fitted. Skipped on WASM.
     """Check that callbacks registered on steps are correctly invoked."""
     X, y = load_iris(return_X_y=True)
 
@@ -2702,6 +3253,10 @@ def test_pipeline_with_callbacks_on_steps():
 
 @skip_callback_test_if_wasm
 def test_pipeline_memory_callbacks_second_fit_same_pipeline():
+    # [FUNCTION DOC]
+    # Verifies callbacks with memory caching: propagated callbacks are not stored on the
+    # cached transformer, and a second fit hits the cache so one fewer task begin/end is
+    # recorded. Uses a temporary directory. Skipped on WASM.
     """Check that callbacks don't break the caching mechanism of the pipeline."""
     X, y = load_iris(return_X_y=True)
     with TemporaryDirectory() as cachedir:
