@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Hook for redistributors (e.g. Windows wheels) to run custom initialisation code
+# when sklearn is imported; imported by sklearn/__init__.py before OpenMP-linked
+# modules. In the standard source distribution it contains no code: no contents
+# and no side effects.
 """Distributor init file
 
 Distributors: you can add custom code here to support particular distributions

@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Maintenance script: for every estimator from _tested_estimators, runs
+# check_estimator with on_skip=None and on_fail=None (collecting results instead of
+# raising) while silencing stdout/stderr, then compares the names of failed checks
+# with the expected-failure (xfail) mapping from _get_expected_failed_checks.
+# Prints, per estimator class, unexpected failures and expected failures that did
+# not occur.
+# Inputs: none. Outputs: printed report. Side effects: runs the full common-check
+# suite (slow), stdout printing. Results are environment dependent.
 # This script checks that the common tests marked with xfail are actually
 # failing.
 # Note that in some cases, a test might be marked with xfail because it is

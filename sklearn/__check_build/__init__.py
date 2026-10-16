@@ -1,3 +1,9 @@
+# [PACKAGE DOC]
+# Package sklearn.__check_build: imported early by sklearn/__init__.py to verify the
+# compiled extensions exist. At import time it tries to import the compiled
+# _check_build extension; on ImportError it calls raise_build_error, which raises a
+# more informative ImportError. Exposes INPLACE_MSG / STANDARD_MSG message strings
+# and raise_build_error.
 """Module to give helpful messages to the user that did not
 compile scikit-learn properly.
 """
@@ -18,6 +24,14 @@ Python version, your operating system and your platform."""
 
 
 def raise_build_error(e):
+    # [FUNCTION DOC]
+    # HELPER: Raises an ImportError explaining that scikit-learn was not built properly.
+    # The message contains the original error e, the package directory path, a listing
+    # of its files formatted three per line (names padded to 26 chars), build
+    # instructions and a hint: INPLACE_MSG when the directory path is exactly the
+    # relative "sklearn/__check_build" (importing from a source tree), else STANDARD_MSG.
+    # Inputs: e - the original exception. Outputs: never returns.
+    # Exceptions: always ImportError. Side effects: lists a directory.
     # Raise a comprehensible error and list the contents of the
     # directory to help debugging on the mailing list.
     local_dir = os.path.split(__file__)[0]

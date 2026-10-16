@@ -1,3 +1,18 @@
+# [MODULE DOC]
+# Gallery example script (sphinx-gallery format) that fits a small
+# DecisionTreeClassifier (max_leaf_nodes=3, random_state=0) on a train split of the
+# iris dataset and walks its low-level tree_ arrays.
+# Steps: (1) iterative DFS with an explicit stack from the root to compute each
+# node's depth and leaf flag (a node is a leaf when children_left equals
+# children_right, both -1); (2) print every node with its rounded value array and
+# split rule; (3) plot the tree with proportions; (4) use decision_path (CSR
+# indicator matrix) and apply to print the split rules followed by test sample 0,
+# skipping its leaf; (5) find nodes shared by test samples 0 and 1 by summing their
+# indicator rows and comparing with the group size, and print that share as a
+# percentage of all nodes.
+# Inputs: none (loads the bundled iris data). Outputs: printed text and a
+# matplotlib figure shown via plt.show().
+# Side effects: stdout printing, opens a plot window; deterministic (fixed seeds).
 """
 =========================================
 Understanding the decision tree structure

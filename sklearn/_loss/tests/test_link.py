@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for sklearn._loss.link: Interval validation and membership, the
+# _inclusive_low_high helper, round-trip consistency of every link in _LINKS, and
+# agreement of Array API inputs with NumPy results.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -21,6 +25,9 @@ LINK_FUNCTIONS = list(_LINKS.values())
 
 
 def test_interval_raises():
+    # [FUNCTION DOC]
+    # Verifies that constructing Interval(1, 0, ...) raises ValueError with the exact
+    # "low <= high" message.
     """Test that interval with low > high raises ValueError."""
     with pytest.raises(
         ValueError, match="One must have low <= high; got low=1, high=0."
@@ -46,6 +53,13 @@ def test_interval_raises():
     ],
 )
 def test_is_in_range(interval):
+    # [FUNCTION DOC]
+    # For bounded, unbounded and negative intervals with all inclusiveness combos,
+    # verifies that a linspace between the _inclusive_low_high values is included, and
+    # that appending low, high or both is included exactly when the corresponding ends
+    # are inclusive (infinite bounds are never included as values are checked
+    # against strict/non-strict comparisons with inf).
+    # Inputs: interval - parametrized Interval.
     """Test that low and high are always within the interval used for linspace."""
     low, high = _inclusive_low_high(interval)
     x = np.linspace(low, high, num=10)
@@ -66,6 +80,12 @@ def test_is_in_range(interval):
 
 @pytest.mark.parametrize("link", LINK_FUNCTIONS)
 def test_link_inverse_identity(link, global_random_seed):
+    # [FUNCTION DOC]
+    # For every link class, draws random raw predictions (uniform in [-20, 20], or
+    # [-10, 10] for HalfLogitLink; shape (100, 10) and symmetrized for the multiclass
+    # link) and checks with assert_allclose that link(inverse(raw)) recovers raw and
+    # inverse(link(y_pred)) recovers y_pred.
+    # Inputs: link - link class; global_random_seed - fixture seed.
     """Test that link of inverse gives identity."""
     rng = np.random.RandomState(global_random_seed)
     link = link()
@@ -96,6 +116,13 @@ def test_link_inverse_identity(link, global_random_seed):
 def test_link_inverse_array_api(
     namespace, device_name, dtype_name, link, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # For every Array API namespace/device/dtype combination and every link, checks
+    # under array_api_dispatch that inverse and link computed on namespace arrays match
+    # the NumPy results after moving back to CPU. Non-float64 dtypes halve the inputs to
+    # avoid overflow and use looser rtol (1e-3 multiclass, 1e-4 otherwise).
+    # Skips (via _array_api_for_tests) when the namespace/device is unavailable.
+    # KNOWN ISSUE: atol is only applied to the link comparison, not to the inverse one.
     """Test that link and inverse link give same result for array API inputs."""
     rng = np.random.RandomState(global_random_seed)
     link = link()

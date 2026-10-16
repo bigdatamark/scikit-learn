@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn._loss.loss: valid domains, values at specific points, dtype /
+# read-only / output-buffer handling, agreement of Python wrappers with the Cython
+# functions, gradients and hessians against finite differences, sample weights,
+# intercept-only fits against numerical optimisation, predict_proba, pickling,
+# Tweedie consistency and the Array API variants.
+# Module globals: ALL_LOSSES (classes in _LOSSES) and LOSS_INSTANCES (default
+# instances plus extra quantile/power variants), plus the Y_*_PARAMS domain tables.
 import inspect
 import pickle
 
@@ -69,6 +77,10 @@ LOSS_INSTANCES += [
 
 
 def loss_instance_name(param):
+    # [FUNCTION DOC]
+    # HELPER: pytest ids function. For a BaseLoss instance returns the class name with
+    # its quantile (Pinball/Huber) or power (Tweedie) appended; other params are str().
+    # KNOWN ISSUE: the Huber branch omits the closing parenthesis in the id.
     if isinstance(param, BaseLoss):
         loss = param
         name = loss.__class__.__name__
@@ -86,6 +98,17 @@ def loss_instance_name(param):
 def random_y_true_raw_prediction(
     loss, n_samples, y_bound=(-100, 100), raw_bound=(-5, 5), seed=42
 ):
+    # [FUNCTION DOC]
+    # HELPER: Generates reproducible (seeded RandomState) y_true and raw_prediction
+    # inside the loss's valid domains. Multiclass: raw_prediction uniform in raw_bound
+    # with shape (n_samples, n_classes) and y_true = sample index modulo n_classes
+    # (as floats). Otherwise: raw_prediction uniform in raw_bound intersected with the
+    # y_pred interval when the link is identity; y_true uniform in y_bound intersected
+    # with interval_y_true, with every (n_samples // 3)-th value set to 0 (and shifted
+    # by one to 1) when those ends are inclusive.
+    # Outputs: tuple (y_true, raw_prediction) float64 arrays.
+    # Exceptions: ZeroDivision-like ValueError (zero slice step) if n_samples < 3 and a
+    # boundary is inclusive.
     """Random generate y_true and raw_prediction in valid range."""
     rng = np.random.RandomState(seed)
     if loss.is_multiclass:
@@ -121,6 +144,10 @@ def random_y_true_raw_prediction(
 
 
 def numerical_derivative(func, x, eps):
+    # [FUNCTION DOC]
+    # HELPER: Fourth-order central finite difference of func at x with step eps, using
+    # points x +- h and x +- 2h. Inputs: func vectorised callable; x array; eps float.
+    # Outputs: array of derivatives of x's shape.
     """Helper function for numerical (first) derivatives."""
     # For numerical derivatives, see
     # https://en.wikipedia.org/wiki/Numerical_differentiation
@@ -136,6 +163,12 @@ def numerical_derivative(func, x, eps):
 
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 def test_loss_boundary(loss):
+    # [FUNCTION DOC]
+    # For each loss instance, builds y_true values across the valid interval (class
+    # labels for multiclass) plus inclusive end points, and y_pred values across the
+    # y_pred interval (multiclass rows with one varying column and two equal ones),
+    # asserts both are reported in range, and checks that computing the loss on
+    # link(y_pred) does not raise.
     """Test interval ranges of y_true and y_pred in losses."""
     # make sure low and high are always within the interval, used for linspace
     if loss.is_multiclass:
@@ -226,6 +259,9 @@ Y_PRED_PARAMS = [
     Y_COMMON_PARAMS + Y_TRUE_PARAMS,
 )
 def test_loss_boundary_y_true(loss, y_true_success, y_true_fail):
+    # [FUNCTION DOC]
+    # For each (loss, successes, failures) entry, asserts in_y_true_range is True for
+    # each success value and False for each failure value (single-element arrays).
     """Test boundaries of y_true for loss functions."""
     for y in y_true_success:
         assert loss.in_y_true_range(np.array([y]))
@@ -238,6 +274,8 @@ def test_loss_boundary_y_true(loss, y_true_success, y_true_fail):
     Y_COMMON_PARAMS + Y_PRED_PARAMS,
 )
 def test_loss_boundary_y_pred(loss, y_pred_success, y_pred_fail):
+    # [FUNCTION DOC]
+    # Same as the y_true boundary test but for in_y_pred_range.
     """Test boundaries of y_pred for loss functions."""
     for y in y_pred_success:
         assert loss.in_y_pred_range(np.array([y]))
@@ -368,6 +406,11 @@ def test_loss_boundary_y_pred(loss, y_pred_success, y_pred_fail):
 def test_loss_on_specific_values(
     loss, y_true, raw_prediction, loss_true, gradient_true, hessian_true
 ):
+    # [FUNCTION DOC]
+    # Evaluates __call__, gradient, loss_gradient and gradient_hessian on single-sample
+    # inputs and compares loss, gradient and hessian with hand-computed (or mpmath)
+    # reference values at tolerance 1e-15, skipping gradient/hessian when the reference
+    # is None. Includes extreme raw predictions for the binomial loss.
     """Test losses, gradients and hessians at specific values."""
     loss1 = loss(y_true=np.array([y_true]), raw_prediction=np.array([raw_prediction]))
     grad1 = loss.gradient(
@@ -403,6 +446,13 @@ def test_loss_on_specific_values(
 def test_loss_dtype(
     loss, readonly_memmap, dtype_in, dtype_out, sample_weight, out1, out2, n_threads
 ):
+    # [FUNCTION DOC]
+    # For every loss class and combination of input/output dtype, read-only memmapped
+    # inputs, sample_weight, provided output buffers and thread count, calls every
+    # public method (loss, gradient, loss_gradient, gradient_hessian, __call__,
+    # fit_intercept_only, constant_to_optimal_zero, predict_proba, gradient_proba) and
+    # asserts provided buffers are returned as the same objects. Mainly checks that no
+    # exception is raised for mixed float32/float64 in/out combinations.
     """Test acceptance of dtypes, readonly and writeable arrays in loss functions.
 
     Check that loss accepts if all input arrays are either all float32 or all
@@ -495,6 +545,13 @@ def test_loss_dtype(
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", [None, "range"])
 def test_loss_same_as_C_functions(loss, sample_weight):
+    # [FUNCTION DOC]
+    # Checks that the Python wrapper methods and the underlying closs Cython methods
+    # (called directly with output buffers) give identical results for loss, gradient,
+    # loss_gradient and gradient_hessian, with and without a linearly increasing
+    # sample_weight.
+    # KNOWN ISSUE: the loss_gradient comparison calls closs.loss_gradient twice (both
+    # Cython) instead of comparing the Python wrapper with Cython.
     """Test that Python and Cython functions return same results."""
     y_true, raw_prediction = random_y_true_raw_prediction(
         loss=loss,
@@ -575,6 +632,12 @@ def test_loss_same_as_C_functions(loss, sample_weight):
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", [None, "range"])
 def test_loss_gradients_are_the_same(loss, sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # With random valid data (global seed) and optional linear sample weights, calls
+    # loss, gradient, loss_gradient and gradient_hessian with explicit output buffers;
+    # asserts losses and gradients agree across methods, that returned arrays equal and
+    # share memory with the buffers, and for gradient_proba (multiclass only) that its
+    # gradient matches and probabilities sum to 1.
     """Test that loss and gradient are the same across different functions.
 
     Also test that output arguments contain correct results.
@@ -656,6 +719,10 @@ def test_loss_gradients_are_the_same(loss, sample_weight, global_random_seed):
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", ["ones", "random"])
 def test_sample_weight_multiplies(loss, sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that passing sample_weight (all ones, or random normal values including
+    # negatives) to loss, loss_gradient and gradient_hessian equals multiplying the
+    # unweighted outputs by the weights (row-wise for multiclass gradients/hessians).
     """Test sample weights in loss, gradients and hessians.
 
     Make sure that passing sample weights to loss, gradient and hessian
@@ -726,6 +793,10 @@ def test_sample_weight_multiplies(loss, sample_weight, global_random_seed):
 
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 def test_graceful_squeezing(loss):
+    # [FUNCTION DOC]
+    # For 1d-raw-prediction losses, verifies that passing raw_prediction reshaped to
+    # (n_samples, 1) yields the same results for loss, loss_gradient, gradient and
+    # gradient_hessian as the 1d version.
     """Test that reshaped raw_prediction gives same results."""
     y_true, raw_prediction = random_y_true_raw_prediction(
         loss=loss,
@@ -758,6 +829,11 @@ def test_graceful_squeezing(loss):
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", [None, "range"])
 def test_loss_of_perfect_prediction(loss, sample_weight):
+    # [FUNCTION DOC]
+    # Builds perfect predictions (y_true = inverse link of raw values, clipped into the
+    # y_pred domain for identity links; for multiclass, one sample per class with
+    # raw_prediction +exp(10) on the true class and -exp(10) elsewhere) and asserts
+    # the (optionally weighted) loss equals minus constant_to_optimal_zero.
     """Test value of perfect predictions.
 
     Loss of y_pred = y_true plus constant_to_optimal_zero should sums up to
@@ -808,6 +884,11 @@ def test_loss_of_perfect_prediction(loss, sample_weight):
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", [None, "range"])
 def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Compares gradient_hessian output with fourth-order finite differences of loss
+    # (for the gradient) and gradient (for the hessian), per class for multiclass by
+    # perturbing only column k. Hessian comparison is skipped for losses with
+    # approx_hessian. Also checks gradient/hessian shapes equal raw_prediction's shape.
     """Test gradients and hessians with numerical derivatives.
 
     Gradient should equal the numerical derivatives of the loss function.
@@ -837,6 +918,9 @@ def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed)
     if not loss.is_multiclass:
 
         def loss_func(x):
+            # [FUNCTION DOC]
+            # HELPER: closure returning per-sample weighted loss as a function of raw
+            # predictions x (binary/regression case).
             return loss.loss(
                 y_true=y_true,
                 raw_prediction=x,
@@ -847,6 +931,8 @@ def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed)
         assert_allclose(g, g_numeric, rtol=5e-6, atol=1e-10)
 
         def grad_func(x):
+            # [FUNCTION DOC]
+            # HELPER: closure returning per-sample weighted gradient as a function of x.
             return loss.gradient(
                 y_true=y_true,
                 raw_prediction=x,
@@ -868,6 +954,9 @@ def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed)
         for k in range(loss.n_classes):
 
             def loss_func(x):
+                # [FUNCTION DOC]
+                # HELPER: closure that copies raw_prediction, replaces column k with x and returns
+                # the per-sample weighted loss (k bound from the enclosing loop at call time).
                 raw = raw_prediction.copy()
                 raw[:, k] = x
                 return loss.loss(
@@ -880,6 +969,9 @@ def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed)
             assert_allclose(g[:, k], g_numeric, rtol=5e-6, atol=1e-10)
 
             def grad_func(x):
+                # [FUNCTION DOC]
+                # HELPER: closure that copies raw_prediction, replaces column k with x and returns
+                # column k of the weighted gradient.
                 raw = raw_prediction.copy()
                 raw[:, k] = x
                 return loss.gradient(
@@ -915,6 +1007,11 @@ def test_gradients_hessians_numerically(loss, sample_weight, global_random_seed)
 )
 @skip_if_32bit
 def test_derivatives(loss, x0, y_true):
+    # [FUNCTION DOC]
+    # For squared error, binomial and Poisson losses on a single sample, runs scipy's
+    # Halley iteration (newton with fprime and fprime2 from the loss) on loss plus
+    # constant_to_optimal_zero, then asserts the inverse link of the optimum equals
+    # y_true, the shifted loss is ~0 and the gradient is ~0. Skipped on 32-bit.
     """Test that gradients are zero at the minimum of the loss.
 
     We check this on a single value/sample using Halley's method with the
@@ -927,6 +1024,9 @@ def test_derivatives(loss, x0, y_true):
     x0 = np.array([x0], dtype=np.float64)
 
     def func(x: np.ndarray) -> np.ndarray:
+        # [FUNCTION DOC]
+        # HELPER: loss plus constant_to_optimal_zero for the single sample, so its minimum
+        # value (and root) is zero.
         """Compute loss plus constant term.
 
         The constant term is such that the minimum function value is zero,
@@ -937,9 +1037,13 @@ def test_derivatives(loss, x0, y_true):
         ) + loss.constant_to_optimal_zero(y_true=y_true)
 
     def fprime(x: np.ndarray) -> np.ndarray:
+        # [FUNCTION DOC]
+        # HELPER: gradient of the loss at x (first derivative for newton).
         return loss.gradient(y_true=y_true, raw_prediction=x)
 
     def fprime2(x: np.ndarray) -> np.ndarray:
+        # [FUNCTION DOC]
+        # HELPER: hessian of the loss at x (second derivative for newton).
         return loss.gradient_hessian(y_true=y_true, raw_prediction=x)[1]
 
     optimum = newton(
@@ -963,6 +1067,13 @@ def test_derivatives(loss, x0, y_true):
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 @pytest.mark.parametrize("sample_weight", [None, "range"])
 def test_loss_intercept_only(loss, sample_weight):
+    # [FUNCTION DOC]
+    # Checks that fit_intercept_only returns the minimiser of the mean loss: compares
+    # with minimize_scalar for 1d losses (and expects a float scalar of y_true's dtype)
+    # and with constrained SLSQP (sum of raw predictions = 0) for multiclass, also
+    # checking the summed gradient at the intercept is ~0 and the result is finite.
+    # KNOWN ISSUE: in the 1d branch the comparisons with opt.x and with zero gradient
+    # are bare expressions without assert, so they verify nothing.
     """Test that fit_intercept_only returns the argmin of the loss.
 
     Also test that the gradient is zero at the minimum.
@@ -981,6 +1092,9 @@ def test_loss_intercept_only(loss, sample_weight):
 
     # find minimum by optimization
     def fun(x):
+        # [FUNCTION DOC]
+        # HELPER: objective for the optimiser; broadcasts the candidate intercept x to all
+        # samples (and classes) and returns the weighted mean loss.
         if not loss.is_multiclass:
             raw_prediction = np.full(shape=(n_samples), fill_value=x)
         else:
@@ -1040,6 +1154,13 @@ def test_loss_intercept_only(loss, sample_weight):
     ],
 )
 def test_specific_fit_intercept_only(loss, func, random_dist, global_random_seed):
+    # [FUNCTION DOC]
+    # For losses with a known optimal functional (mean, median, 25% percentile) and a
+    # matching random distribution (100 samples), checks fit_intercept_only equals
+    # link(func(y)) and inverse link equals func(y); then fills y with each inclusive
+    # domain end and checks the intercept stays finite.
+    # KNOWN ISSUE: the isinstance(loss, IdentityLink) check is always False (loss is a
+    # loss, not a link), so that assertion never runs.
     """Test that fit_intercept_only returns the correct functional.
 
     We test the functional for specific, meaningful distributions, e.g.
@@ -1071,6 +1192,14 @@ def test_specific_fit_intercept_only(loss, func, random_dist, global_random_seed
 
 
 def test_multinomial_loss_fit_intercept_only():
+    # [FUNCTION DOC]
+    # Checks HalfMultinomialLoss(n_classes=4).fit_intercept_only returns shape
+    # (n_classes,) equal to log of class frequencies minus their mean (and to
+    # link.link of the frequencies), and that degenerate all-0 / all-1 targets give
+    # finite float64 results.
+    # KNOWN ISSUE: labels are drawn with randint(0, n_classes + 1), so the
+    # out-of-range label 4 appears in y_train; it is silently ignored by the frequency
+    # computation.
     """Test that fit_intercept_only returns the mean functional for CCE."""
     rng = np.random.RandomState(0)
     n_classes = 4
@@ -1094,6 +1223,9 @@ def test_multinomial_loss_fit_intercept_only():
 
 
 def test_multinomial_cy_gradient(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that the Cython-level _test_cy_gradient of CyHalfMultinomialLoss matches
+    # loss.gradient for random data with linear sample weights.
     """Test that Multinomial cy_gradient gives the same result as gradient.
 
     CyHalfMultinomialLoss does not inherit from CyLossFunction and has a different API.
@@ -1124,6 +1256,9 @@ def test_multinomial_cy_gradient(global_random_seed):
 
 
 def test_binomial_and_multinomial_loss(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks that the binomial loss on raw r equals the multinomial loss with
+    # n_classes=2 on raw columns (-r/2, r/2) for random binary labels.
     """Test that multinomial loss with n_classes = 2 is the same as binomial loss."""
     rng = np.random.RandomState(global_random_seed)
     n_samples = 20
@@ -1143,6 +1278,10 @@ def test_binomial_and_multinomial_loss(global_random_seed):
 @pytest.mark.parametrize("y_true", (np.array([0.0, 0, 0]), np.array([1.0, 1, 1])))
 @pytest.mark.parametrize("y_pred", (np.array([-5.0, -5, -5]), np.array([3.0, 3, 3])))
 def test_binomial_vs_alternative_formulation(y_true, y_pred, global_dtype):
+    # [FUNCTION DOC]
+    # Compares HalfBinomialLoss mean loss and gradient with the ESL formulation using
+    # z = 2y - 1 (log(1 + exp(-z f)) and -z / (1 + exp(z f))) for all-0/all-1 targets,
+    # two raw values and both global dtypes.
     """Test that both formulations of the binomial deviance agree.
 
     Often, the binomial deviance or log loss is written in terms of a variable
@@ -1158,10 +1297,14 @@ def test_binomial_vs_alternative_formulation(y_true, y_pred, global_dtype):
     """
 
     def alt_loss(y, raw_pred):
+        # [FUNCTION DOC]
+        # HELPER: mean ESL-form binomial loss for labels y and raw predictions raw_pred.
         z = 2 * y - 1
         return np.mean(np.log(1 + np.exp(-z * raw_pred)))
 
     def alt_gradient(y, raw_pred):
+        # [FUNCTION DOC]
+        # HELPER: per-sample ESL-form binomial gradient.
         # alternative gradient formula according to ESL
         z = 2 * y - 1
         return -z / (1 + np.exp(z * raw_pred))
@@ -1178,6 +1321,11 @@ def test_binomial_vs_alternative_formulation(y_true, y_pred, global_dtype):
 
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 def test_predict_proba(loss, global_random_seed):
+    # [FUNCTION DOC]
+    # For losses providing predict_proba, checks the shape (n_samples, n_classes) and
+    # that rows sum to 1; for gradient_proba, checks all four combinations of provided
+    # / missing output buffers give normalised probabilities and a gradient equal to
+    # loss.gradient.
     """Test that predict_proba and gradient_proba work as expected."""
     n_samples = 20
     y_true, raw_prediction = random_y_true_raw_prediction(
@@ -1225,6 +1373,12 @@ def test_predict_proba(loss, global_random_seed):
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 @pytest.mark.parametrize("order", ("C", "F"))
 def test_init_gradient_and_hessians(loss, sample_weight, dtype, order):
+    # [FUNCTION DOC]
+    # Checks init_gradient_and_hessian shapes (hessian of shape (1,) when the hessian
+    # is constant, (n_samples, n_classes) for multiclass), dtypes and C/F contiguity,
+    # for losses constructed with and without sample_weight.
+    # KNOWN ISSUE: the "range" case uses all-ones weights, and the final else branch
+    # asserts the hessian shape twice and never checks the gradient shape.
     """Test that init_gradient_and_hessian works as expected.
 
     passing sample_weight to a loss correctly influences the constant_hessian
@@ -1271,6 +1425,9 @@ def test_init_gradient_and_hessians(loss, sample_weight, dtype, order):
     ],
 )
 def test_init_gradient_and_hessian_raises(loss, params, err_msg):
+    # [FUNCTION DOC]
+    # Checks init_gradient_and_hessian raises ValueError (or TypeError) with the
+    # expected message for an integer dtype.
     """Test that init_gradient_and_hessian raises errors for invalid input."""
     loss = loss()
     with pytest.raises((ValueError, TypeError), match=err_msg):
@@ -1309,6 +1466,9 @@ def test_init_gradient_and_hessian_raises(loss, params, err_msg):
     ],
 )
 def test_loss_init_parameter_validation(loss, params, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Checks PinballLoss and HuberLoss constructors raise TypeError for quantile=None
+    # and ValueError for quantile 0 or 1.1, with check_scalar's messages.
     """Test that loss raises errors for invalid input."""
     with pytest.raises(err_type, match=err_msg):
         loss(**params)
@@ -1316,6 +1476,8 @@ def test_loss_init_parameter_validation(loss, params, err_type, err_msg):
 
 @pytest.mark.parametrize("loss", LOSS_INSTANCES, ids=loss_instance_name)
 def test_loss_pickle(loss):
+    # [FUNCTION DOC]
+    # Checks that a pickled-then-unpickled loss gives the same mean loss on random data.
     """Test that losses can be pickled."""
     n_samples = 20
     y_true, raw_prediction = random_y_true_raw_prediction(
@@ -1334,6 +1496,11 @@ def test_loss_pickle(loss):
 
 @pytest.mark.parametrize("p", [-1.5, 0, 1, 1.5, 2, 3])
 def test_tweedie_log_identity_consistency(p):
+    # [FUNCTION DOC]
+    # For several powers, checks that HalfTweedieLoss (log link) and
+    # HalfTweedieLossIdentity give the same loss once constant_to_optimal_zero is added,
+    # and that gradients/hessians satisfy the chain rule with y_pred = exp(raw):
+    # grad_log = y_pred * grad_id and hess_log = y_pred * grad_id + y_pred^2 * hess_id.
     """Test for identical losses when only the link function is different."""
     half_tweedie_log = HalfTweedieLoss(power=p)
     half_tweedie_identity = HalfTweedieLossIdentity(power=p)
@@ -1403,9 +1570,19 @@ def test_loss_array_api(
     device_name,
     dtype_name,
 ):
+    # [FUNCTION DOC]
+    # For each Array API loss (binomial, multinomial, Poisson), method (__call__,
+    # gradient, loss, loss_gradient), with/without non-negative random sample weights
+    # and each namespace/device/dtype, compares the Array API result (under
+    # array_api_dispatch) with the NumPy/Cython loss on the same data; also checks
+    # dtype and device of returned arrays. Raw predictions span [-50, 50].
     def _assert_array_api_result(
         result_xp, result_np, raw_prediction_xp, xp, rtol, atol
     ):
+        # [FUNCTION DOC]
+        # HELPER: asserts result_xp, moved to NumPy on CPU, is close to result_np with the
+        # given tolerances, and has the same dtype and device as raw_prediction_xp.
+        # Input xp is unused.
         assert_allclose(
             move_to(result_xp, xp=np, device="cpu"), result_np, rtol=rtol, atol=atol
         )
@@ -1482,6 +1659,10 @@ def test_loss_array_api(
     yield_namespace_device_dtype_combinations(),
 )
 def test_log1pexp(namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # For 300 values in [-40, 40] and each namespace/device/dtype, compares _log1pexp
+    # with a 100-bit-precision mpmath reference of log(1 + exp(x)), with relative
+    # tolerance 1e-5 (float32) or 1e-12 otherwise. Skipped if mpmath is missing.
     mpmath = pytest.importorskip("mpmath")
     mpmath.mp.prec = 100  # Significantly more precise reference than float64.
     values_to_test = np.linspace(-40, 40, 300)
@@ -1510,6 +1691,9 @@ def test_log1pexp(namespace, device_name, dtype_name):
 
 
 def test_cy_loss_classes_module():
+    # [FUNCTION DOC]
+    # Checks that every Cy* class in the compiled sklearn._loss._loss module has
+    # __module__ equal to "sklearn._loss._loss" (guards the Meson package layout).
     """Check that Cython extension types in _loss have the correct __module__.
 
     When _loss_cython_tree in meson.build is missing __init__.py files, Cython

@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Private loss classes used by linear models, GLMs, SGD and (Hist)GradientBoosting.
+# Each loss composes a Cython CyLossFunction (closs) doing the element-wise,
+# optionally OpenMP-parallel loss/gradient/hessian computations, with a link object
+# from sklearn._loss.link mapping raw predictions to predictions. BaseLoss wraps
+# the Cython calls (allocation of outputs, squeezing (n, 1) shapes). Concrete
+# classes set domains (interval_y_true / interval_y_pred), hessian flags, and
+# override fit_intercept_only, constant_to_optimal_zero and predict_proba where
+# needed. *ArrayAPI variants reimplement computations with Array API namespaces in
+# pure Python. _LOSSES maps string names to loss classes.
 """
 This module contains loss classes suitable for fitting.
 
@@ -75,6 +85,12 @@ from sklearn.utils.stats import _weighted_percentile
 # mentioned Cython edge case and have easier to understand code (which method calls
 # which code).
 class BaseLoss:
+    # [CLASS DOC]
+    # Base class composing a Cython loss (closs) and a link. Class attributes:
+    # differentiable (True) and is_multiclass (False). Instance attributes set in
+    # __init__: closs, link, n_classes, xp, device, approx_hessian=False,
+    # constant_hessian=False, interval_y_true = open real line, interval_y_pred taken
+    # from the link. Output-array arguments (*_out) are filled in place when provided.
     """Base class for a loss function of 1-dimensional targets.
 
     Conventions:
@@ -148,6 +164,9 @@ class BaseLoss:
     is_multiclass = False
 
     def __init__(self, closs, link, n_classes=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Stores the given closs, link, n_classes, xp and device and initialises the flags
+        # and intervals listed in the class doc. No validation.
         self.closs = closs
         self.link = link
         self.n_classes = n_classes
@@ -159,6 +178,8 @@ class BaseLoss:
         self.interval_y_pred = self.link.interval_y_pred
 
     def in_y_true_range(self, y):
+        # [FUNCTION DOC]
+        # Returns True if all values of y lie in interval_y_true (see Interval.includes).
         """Return True if y is in the valid range of y_true.
 
         Parameters
@@ -168,6 +189,8 @@ class BaseLoss:
         return self.interval_y_true.includes(y)
 
     def in_y_pred_range(self, y):
+        # [FUNCTION DOC]
+        # Returns True if all values of y lie in interval_y_pred.
         """Return True if y is in the valid range of y_pred.
 
         Parameters
@@ -184,6 +207,12 @@ class BaseLoss:
         loss_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Allocates loss_out like y_true if missing, squeezes a (n_samples, 1)
+        # raw_prediction to 1d, then calls closs.loss which writes the (optionally
+        # sample-weighted) per-sample losses into loss_out.
+        # Outputs: loss_out (n_samples,). Side effects: writes into the provided loss_out.
+        # Exceptions: errors from the Cython layer on dtype/shape/contiguity mismatch.
         """Compute the pointwise loss value for each input.
 
         Parameters
@@ -230,6 +259,13 @@ class BaseLoss:
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Allocates missing outputs (loss like y_true and gradient like raw_prediction; when
+        # only one output is given, the other is allocated with its dtype), squeezes
+        # (n_samples, 1) raw_prediction and gradient_out to 1d, then calls
+        # closs.loss_gradient to fill both.
+        # Outputs: tuple (loss_out, gradient_out). Side effects: writes provided buffers.
+        # Note: the returned gradient may be a squeezed view of the passed gradient_out.
         """Compute loss and gradient w.r.t. raw_prediction for each input.
 
         Parameters
@@ -292,6 +328,10 @@ class BaseLoss:
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Allocates gradient_out like raw_prediction if missing, squeezes (n_samples, 1)
+        # arrays, and calls closs.gradient to fill per-sample (weighted) gradients.
+        # Outputs: gradient_out. Side effects: writes into the provided gradient_out.
         """Compute gradient of loss w.r.t raw_prediction for each input.
 
         Parameters
@@ -342,6 +382,11 @@ class BaseLoss:
         hessian_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Allocates missing gradient/hessian outputs (like raw_prediction, or like the
+        # other provided output), squeezes (n_samples, 1) arrays, and calls
+        # closs.gradient_hessian to fill both.
+        # Outputs: tuple (gradient_out, hessian_out). Side effects: writes provided buffers.
         """Compute gradient and hessian of loss w.r.t raw_prediction.
 
         Parameters
@@ -400,6 +445,11 @@ class BaseLoss:
         return gradient_out, hessian_out
 
     def __call__(self, y_true, raw_prediction, sample_weight=None, n_threads=1):
+        # [FUNCTION DOC]
+        # Returns the mean per-sample loss, weighted by sample_weight via np.average
+        # (the per-sample loss is computed unweighted to avoid double weighting).
+        # Outputs: numpy float scalar.
+        # Exceptions: ZeroDivisionError from np.average if the weights sum to zero.
         """Compute the weighted average loss.
 
         Parameters
@@ -431,6 +481,12 @@ class BaseLoss:
         )
 
     def fit_intercept_only(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Default intercept-only fit: takes the weighted mean of y_true over axis 0, clips
+        # it into interval_y_pred (exclusive finite ends are moved inward by 10 machine eps
+        # of the mean's dtype; infinite ends are not clipped) and applies the link.
+        # Inputs: y_true (n_samples,) or (n_samples, k); sample_weight optional.
+        # Outputs: scalar or array in raw-prediction space.
         """Compute raw_prediction of an intercept-only model.
 
         This can be used as initial estimates of predictions, i.e. before the
@@ -473,6 +529,12 @@ class BaseLoss:
             return self.link.link(np.clip(y_pred, a_min, a_max))
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns the per-sample constant term that, when added to the loss, makes the loss
+        # of perfect predictions zero. Base implementation returns zeros like y_true;
+        # sample_weight is ignored here.
+        # KNOWN ISSUE: the docstring says the constant is added to raw predictions; it is
+        # actually added to the loss values.
         """Calculate term dropped in loss.
 
         With this term added, the loss of perfect predictions is zero.
@@ -494,6 +556,15 @@ class BaseLoss:
         return np.zeros_like(y_true)
 
     def init_gradient_and_hessian(self, n_samples, dtype=np.float64, order="F"):
+        # [FUNCTION DOC]
+        # Allocates the gradient array of shape (n_samples,) or (n_samples, n_classes) for
+        # multiclass losses, uninitialised, with the given dtype and memory order. The
+        # hessian is a length-1 array of ones when constant_hessian is True, otherwise an
+        # uninitialised array of the gradient's shape.
+        # Outputs: tuple (gradient, hessian).
+        # Exceptions: ValueError if dtype is not np.float32 or np.float64.
+        # KNOWN ISSUE: the docstring calls the outputs C-contiguous although the default
+        # order is 'F'.
         """Initialize arrays for gradients and hessians.
 
         Unless hessians are constant, arrays are initialized with undefined values.
@@ -546,6 +617,9 @@ class BaseLoss:
 
 
 class HalfSquaredError(BaseLoss):
+    # [CLASS DOC]
+    # Half squared error loss with identity link. constant_hessian is True only when
+    # the constructor receives sample_weight=None (unit hessian).
     """Half squared error with identity link, for regression.
 
     Domain:
@@ -564,6 +638,9 @@ class HalfSquaredError(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds the base loss with CyHalfSquaredError and IdentityLink; sample_weight is
+        # used only to decide constant_hessian (not stored).
         super().__init__(
             closs=CyHalfSquaredError(), link=IdentityLink(), xp=xp, device=device
         )
@@ -571,6 +648,10 @@ class HalfSquaredError(BaseLoss):
 
 
 class AbsoluteError(BaseLoss):
+    # [CLASS DOC]
+    # Absolute error with identity link; differentiable is False and the hessian is
+    # approximated (set to 1). constant_hessian when no sample_weight is given.
+    # Intercept-only fit is the (weighted) median.
     """Absolute error with identity link, for regression.
 
     Domain:
@@ -591,6 +672,9 @@ class AbsoluteError(BaseLoss):
     differentiable = False
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds the base loss with CyAbsoluteError and IdentityLink, sets approx_hessian
+        # True and constant_hessian to whether sample_weight is None.
         super().__init__(
             closs=CyAbsoluteError(), link=IdentityLink(), xp=xp, device=device
         )
@@ -598,6 +682,10 @@ class AbsoluteError(BaseLoss):
         self.constant_hessian = sample_weight is None
 
     def fit_intercept_only(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Intercept-only fit for absolute error: np.median over axis 0 when sample_weight is
+        # None, else the weighted 50th percentile via _weighted_percentile.
+        # Outputs: scalar or per-column array.
         """Compute raw_prediction of an intercept-only model.
 
         This is the weighted median of the target, i.e. over the samples
@@ -610,6 +698,10 @@ class AbsoluteError(BaseLoss):
 
 
 class PinballLoss(BaseLoss):
+    # [CLASS DOC]
+    # Pinball (quantile) loss with identity link; quantile is stored in the Cython
+    # object (closs.quantile). Not differentiable, approximate unit hessian,
+    # constant_hessian when sample_weight is None.
     """Quantile loss aka pinball loss, for regression.
 
     Domain:
@@ -642,6 +734,11 @@ class PinballLoss(BaseLoss):
     differentiable = False
 
     def __init__(self, sample_weight=None, quantile=0.5, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Validates quantile as a real number strictly inside (0, 1) with check_scalar,
+        # builds CyPinballLoss(quantile) with IdentityLink and sets approx_hessian True and
+        # constant_hessian to whether sample_weight is None.
+        # Exceptions: TypeError / ValueError from check_scalar.
         check_scalar(
             quantile,
             "quantile",
@@ -660,6 +757,11 @@ class PinballLoss(BaseLoss):
         self.constant_hessian = sample_weight is None
 
     def fit_intercept_only(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Intercept-only fit: the (weighted) percentile of y_true at 100 * quantile, via
+        # np.percentile over axis 0 or _weighted_percentile when weights are given.
+        # KNOWN ISSUE: the docstring says "weighted median", but it computes the quantile
+        # given by closs.quantile.
         """Compute raw_prediction of an intercept-only model.
 
         This is the weighted median of the target, i.e. over the samples
@@ -674,6 +776,13 @@ class PinballLoss(BaseLoss):
 
 
 class HuberLoss(BaseLoss):
+    # [CLASS DOC]
+    # Huber loss with identity link. The threshold delta lives in closs.delta (mutable
+    # by callers such as HGBT, which recompute it from the quantile of absolute
+    # residuals); quantile is stored on the Python object. Not differentiable,
+    # approximate hessian, never constant hessian.
+    # KNOWN ISSUE: the docstring lists "quantile in (0, 1)" under Domain and has a
+    # mis-indented "Reference" heading.
     """Huber loss, for regression.
 
     Domain:
@@ -712,6 +821,11 @@ class HuberLoss(BaseLoss):
     def __init__(
         self, sample_weight=None, quantile=0.9, delta=0.5, xp=None, device=None
     ):
+        # [FUNCTION DOC]
+        # Validates quantile in the open interval (0, 1) with check_scalar, stores it as
+        # self.quantile, builds CyHuberLoss(delta) with IdentityLink, and sets
+        # approx_hessian True and constant_hessian False. sample_weight is unused.
+        # Exceptions: TypeError / ValueError from check_scalar. delta is not validated.
         check_scalar(
             quantile,
             "quantile",
@@ -731,6 +845,13 @@ class HuberLoss(BaseLoss):
         self.constant_hessian = False
 
     def fit_intercept_only(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Intercept-only fit following Friedman (2001): computes the (weighted) median of
+        # y_true, then adds the (weighted) mean of the residuals from the median clipped
+        # in magnitude to closs.delta (sign times min(delta, |residual|)).
+        # Outputs: scalar (1d y_true).
+        # KNOWN ISSUE: the docstring claims it returns the weighted median; it returns the
+        # median plus a clipped-residual correction.
         """Compute raw_prediction of an intercept-only model.
 
         This is the weighted median of the target, i.e. over the samples
@@ -750,6 +871,8 @@ class HuberLoss(BaseLoss):
 
 
 class HalfPoissonLoss(BaseLoss):
+    # [CLASS DOC]
+    # Half Poisson deviance with log link; y_true in [0, inf), y_pred in (0, inf).
     """Half Poisson deviance loss with log-link, for regression.
 
     Domain:
@@ -771,12 +894,18 @@ class HalfPoissonLoss(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfPoissonLoss with LogLink and sets interval_y_true to [0, inf).
+        # sample_weight is unused.
         super().__init__(
             closs=CyHalfPoissonLoss(), link=LogLink(), xp=xp, device=device
         )
         self.interval_y_true = Interval(0, np.inf, True, False)
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns per-sample y*log(y) - y (xlogy gives 0 at y = 0), multiplied by
+        # sample_weight if given. Outputs: array (n_samples,).
         term = xlogy(y_true, y_true) - y_true
         if sample_weight is not None:
             term *= sample_weight
@@ -784,6 +913,8 @@ class HalfPoissonLoss(BaseLoss):
 
 
 class HalfGammaLoss(BaseLoss):
+    # [CLASS DOC]
+    # Half Gamma deviance with log link; y_true and y_pred in (0, inf).
     """Half Gamma deviance loss with log-link, for regression.
 
     Domain:
@@ -804,10 +935,14 @@ class HalfGammaLoss(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfGammaLoss with LogLink and sets interval_y_true to (0, inf).
         super().__init__(closs=CyHalfGammaLoss(), link=LogLink(), xp=xp, device=device)
         self.interval_y_true = Interval(0, np.inf, False, False)
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns per-sample -log(y) - 1, multiplied by sample_weight if given.
         term = -np.log(y_true) - 1
         if sample_weight is not None:
             term *= sample_weight
@@ -815,6 +950,10 @@ class HalfGammaLoss(BaseLoss):
 
 
 class HalfTweedieLoss(BaseLoss):
+    # [CLASS DOC]
+    # Half Tweedie deviance with log link, parametrised by power (stored in
+    # closs.power). interval_y_true depends on power: real line for power <= 0,
+    # [0, inf) for 0 < power < 2, (0, inf) for power >= 2.
     """Half Tweedie deviance loss with log-link, for regression.
 
     Domain:
@@ -846,6 +985,9 @@ class HalfTweedieLoss(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, power=1.5, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfTweedieLoss(power) with LogLink and sets interval_y_true by power as
+        # described in the class doc. power is not validated beyond float conversion.
         super().__init__(
             closs=CyHalfTweedieLoss(power=float(power)),
             link=LogLink(),
@@ -860,6 +1002,10 @@ class HalfTweedieLoss(BaseLoss):
             self.interval_y_true = Interval(0, np.inf, False, False)
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Dispatches to HalfSquaredError (power 0, zeros), HalfPoissonLoss (power 1) or
+        # HalfGammaLoss (power 2); otherwise returns max(y, 0)^(2-p) / ((1-p)(2-p)),
+        # multiplied by sample_weight if given.
         if self.closs.power == 0:
             return HalfSquaredError().constant_to_optimal_zero(
                 y_true=y_true, sample_weight=sample_weight
@@ -881,6 +1027,11 @@ class HalfTweedieLoss(BaseLoss):
 
 
 class HalfTweedieLossIdentity(BaseLoss):
+    # [CLASS DOC]
+    # Half Tweedie deviance with identity link (y_pred = raw_prediction). y_true domain
+    # as for HalfTweedieLoss; y_pred domain is the real line for power 0, else (0, inf).
+    # Its loss already includes the constant term, so the base
+    # constant_to_optimal_zero (zeros) applies.
     """Half Tweedie deviance loss with identity link, for regression.
 
     Domain:
@@ -909,6 +1060,9 @@ class HalfTweedieLossIdentity(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, power=1.5, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfTweedieLossIdentity(power) with IdentityLink and overrides
+        # interval_y_true and interval_y_pred depending on power.
         super().__init__(
             closs=CyHalfTweedieLossIdentity(power=float(power)),
             link=IdentityLink(),
@@ -929,6 +1083,9 @@ class HalfTweedieLossIdentity(BaseLoss):
 
 
 class HalfBinomialLoss(BaseLoss):
+    # [CLASS DOC]
+    # Half binomial deviance (log loss) with logit link for binary classification;
+    # n_classes is 2, y_true in [0, 1] (inclusive), y_pred in (0, 1).
     """Half Binomial deviance loss with logit link, for binary classification.
 
     This is also know as binary cross entropy, log-loss and logistic loss.
@@ -961,6 +1118,9 @@ class HalfBinomialLoss(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfBinomialLoss with LogitLink and n_classes=2, sets interval_y_true to
+        # the closed interval [0, 1].
         super().__init__(
             closs=CyHalfBinomialLoss(),
             link=LogitLink(),
@@ -971,6 +1131,9 @@ class HalfBinomialLoss(BaseLoss):
         self.interval_y_true = Interval(0, 1, True, True)
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns y*log(y) + (1-y)*log(1-y) per sample (zero for y in {0, 1}), multiplied
+        # by sample_weight if given.
         # This is non-zero only if y_true is neither 0 nor 1.
         term = xlogy(y_true, y_true) + xlogy(1 - y_true, 1 - y_true)
         if sample_weight is not None:
@@ -978,6 +1141,9 @@ class HalfBinomialLoss(BaseLoss):
         return term
 
     def predict_proba(self, raw_prediction):
+        # [FUNCTION DOC]
+        # Squeezes (n_samples, 1) input, then returns an (n_samples, 2) array with column 1
+        # = expit(raw_prediction) and column 0 = its complement, in raw_prediction's dtype.
         """Predict probabilities.
 
         Parameters
@@ -1000,6 +1166,12 @@ class HalfBinomialLoss(BaseLoss):
 
 
 class HalfMultinomialLoss(BaseLoss):
+    # [CLASS DOC]
+    # Multinomial cross-entropy with softmax inverse link and symmetric multinomial
+    # logit link; is_multiclass True. y_true holds integer-valued class labels in
+    # [0, n_classes). Hessian methods return only the diagonal per class. Caches
+    # class_indexing_offsets, y_true_int and y_true_one_hot are reserved for the Array
+    # API subclass.
     """Categorical cross-entropy loss, for multiclass classification.
 
     Domain:
@@ -1051,6 +1223,10 @@ class HalfMultinomialLoss(BaseLoss):
     is_multiclass = True
 
     def __init__(self, sample_weight=None, n_classes=3, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyHalfMultinomialLoss with MultinomialLogit and n_classes (default 3),
+        # sets interval_y_true to [0, inf), interval_y_pred to (0, 1) and the three Array
+        # API caches to None.
         super().__init__(
             closs=CyHalfMultinomialLoss(),
             link=MultinomialLogit(),
@@ -1068,6 +1244,9 @@ class HalfMultinomialLoss(BaseLoss):
         self.y_true_one_hot = None
 
     def in_y_true_range(self, y):
+        # [FUNCTION DOC]
+        # Returns True if y lies in [0, inf) and all values are integral (compared after
+        # casting to int). Uses NumPy directly.
         """Return True if y is in the valid range of y_true.
 
         Parameters
@@ -1077,6 +1256,13 @@ class HalfMultinomialLoss(BaseLoss):
         return self.interval_y_true.includes(y) and np.all(y.astype(int) == y)
 
     def fit_intercept_only(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Intercept-only fit: for each class k computes the weighted frequency of
+        # y_true == k, clips it to [eps, 1 - eps] (dtype eps of y_true), and returns the
+        # symmetric multinomial logit of the frequency vector as a 1d array (n_classes,).
+        # KNOWN ISSUE: docstring says "softmax of the weighted average"; it is the link
+        # (inverse of softmax) of class frequencies. y_true must be floating, since
+        # np.finfo is called on its dtype.
         """Compute raw_prediction of an intercept-only model.
 
         This is the softmax of the weighted average of the target, i.e. over
@@ -1103,6 +1289,8 @@ class HalfMultinomialLoss(BaseLoss):
         return self.link.link(out[None, :]).reshape(-1)
 
     def predict_proba(self, raw_prediction):
+        # [FUNCTION DOC]
+        # Returns the row-wise softmax of raw_prediction (n_samples, n_classes).
         """Predict probabilities.
 
         Parameters
@@ -1126,6 +1314,13 @@ class HalfMultinomialLoss(BaseLoss):
         proba_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Allocates missing gradient/proba outputs (like raw_prediction, or like the other
+        # provided output) and calls closs.gradient_proba, which fills per-sample class
+        # probabilities (softmax) and gradients (proba minus one-hot of y_true, times
+        # sample_weight).
+        # Outputs: tuple (gradient_out, proba_out), both (n_samples, n_classes).
+        # Side effects: writes provided buffers. No (n, 1) squeezing here.
         """Compute gradient and class probabilities fow raw_prediction.
 
         Parameters
@@ -1174,6 +1369,10 @@ class HalfMultinomialLoss(BaseLoss):
 
 
 class ExponentialLoss(BaseLoss):
+    # [CLASS DOC]
+    # Exponential (boosting) loss with half-logit link for binary classification;
+    # n_classes 2, y_true in [0, 1] inclusive. Not listed in the package __all__ but
+    # registered in _LOSSES.
     """Exponential loss with (half) logit link, for binary classification.
 
     This is also know as boosting loss.
@@ -1210,6 +1409,9 @@ class ExponentialLoss(BaseLoss):
     """
 
     def __init__(self, sample_weight=None, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Builds CyExponentialLoss with HalfLogitLink and n_classes=2, and sets
+        # interval_y_true to [0, 1].
         super().__init__(
             closs=CyExponentialLoss(),
             link=HalfLogitLink(),
@@ -1220,6 +1422,9 @@ class ExponentialLoss(BaseLoss):
         self.interval_y_true = Interval(0, 1, True, True)
 
     def constant_to_optimal_zero(self, y_true, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns -2 * sqrt(y * (1 - y)) per sample (zero for y in {0, 1}), multiplied by
+        # sample_weight if given.
         # This is non-zero only if y_true is neither 0 nor 1.
         term = -2 * np.sqrt(y_true * (1 - y_true))
         if sample_weight is not None:
@@ -1227,6 +1432,9 @@ class ExponentialLoss(BaseLoss):
         return term
 
     def predict_proba(self, raw_prediction):
+        # [FUNCTION DOC]
+        # Squeezes (n_samples, 1) input and returns an (n_samples, 2) array: column 1 is
+        # expit(2 * raw_prediction) and column 0 its complement.
         """Predict probabilities.
 
         Parameters
@@ -1263,6 +1471,13 @@ _LOSSES = {
 
 
 class ArrayAPILossMixin:
+    # [CLASS DOC]
+    # Mixin placed before a NumPy/Cython loss in the MRO to replace __call__, loss,
+    # loss_gradient and gradient with pure Array API implementations built on
+    # self._compute_loss / self._compute_gradient using self.xp. *_out buffers and
+    # n_threads are ignored; fresh arrays are returned.
+    # KNOWN ISSUE: gradient_hessian, gradient_proba and predict_proba are not
+    # overridden, so they still go through the Cython / NumPy code paths.
     """Mixin for loss classes that are compatible with the array API.
 
     Currently this mixin redefines methods:
@@ -1283,6 +1498,10 @@ class ArrayAPILossMixin:
         sample_weight=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Computes the unweighted per-sample loss via self.loss and returns its
+        # sample_weight-weighted average (sklearn _average in namespace xp) as a Python
+        # float.
         """Compute the weighted average loss for the array API losses.
 
         Parameters
@@ -1315,6 +1534,9 @@ class ArrayAPILossMixin:
         loss_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Returns self._compute_loss(y_true, raw_prediction, sample_weight): per-sample loss,
+        # multiplied by sample_weight when given. loss_out and n_threads are ignored.
         """Compute the pointwise loss value for each input.
 
         Parameters
@@ -1351,6 +1573,9 @@ class ArrayAPILossMixin:
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Returns the tuple (loss, gradient) from _compute_loss and _compute_gradient;
+        # the output buffers and n_threads are ignored.
         """Compute loss and gradient w.r.t. raw_prediction for each input.
 
         Parameters
@@ -1398,6 +1623,9 @@ class ArrayAPILossMixin:
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Returns self._compute_gradient(...) (weighted per-sample gradient); output
+        # buffer and n_threads are ignored.
         """Compute gradient of loss w.r.t raw_prediction for each input.
 
         Parameters
@@ -1428,6 +1656,16 @@ class ArrayAPILossMixin:
 
 
 def _log1pexp(raw_prediction, raw_prediction_exp, xp):
+    # [FUNCTION DOC]
+    # HELPER: Element-wise, numerically stable log(1 + exp(x)) for Array API arrays,
+    # given x and precomputed exp(x). Piecewise by dtype-dependent cutoffs c0 < c1 <
+    # c2 < c3 (float64: -37, -2, 18, 33.3; any other dtype: -17, -1, 9, 14.6):
+    # x <= c0 -> exp(x); x <= c1 -> log1p(exp(x)); x <= c2 -> log(1 + exp(x));
+    # x <= c3 -> x + 1/exp(x); else x.
+    # Outputs: array of the same shape as raw_prediction.
+    # KNOWN ISSUE: the docstring says it returns a float; it returns an array. All
+    # branches are evaluated eagerly, so overflow in exp(x) for large x may emit
+    # warnings even though that branch is discarded.
     """Numerically stable version of log(1 + exp(x)) that is compatible with
     the array API.
 
@@ -1503,6 +1741,10 @@ def _log1pexp(raw_prediction, raw_prediction_exp, xp):
 
 
 class HalfBinomialLossArrayAPI(ArrayAPILossMixin, HalfBinomialLoss):
+    # [CLASS DOC]
+    # Array API version of HalfBinomialLoss: loss and gradient computed in self.xp
+    # with the stable _log1pexp formulation; exp(raw_prediction) is shared between
+    # loss and gradient in loss_gradient.
     """A version of the HalfBinomialLoss that is compatible with the array API."""
 
     def loss_gradient(
@@ -1514,6 +1756,9 @@ class HalfBinomialLossArrayAPI(ArrayAPILossMixin, HalfBinomialLoss):
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Computes exp(raw_prediction) once and passes it to _compute_loss and
+        # _compute_gradient. Returns (loss, gradient); buffers and n_threads ignored.
         raw_prediction_exp = self.xp.exp(raw_prediction)
         loss = self._compute_loss(
             y_true=y_true,
@@ -1536,6 +1781,10 @@ class HalfBinomialLossArrayAPI(ArrayAPILossMixin, HalfBinomialLoss):
         sample_weight=None,
         raw_prediction_exp=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Per-sample loss log(1 + exp(x)) - y * x using _log1pexp; exp(x) is computed
+        # if not supplied. Multiplied in place by sample_weight when given.
+        # Outputs: array (n_samples,).
         if raw_prediction_exp is None:
             raw_prediction_exp = self.xp.exp(raw_prediction)
         log1pexp = _log1pexp(
@@ -1555,6 +1804,11 @@ class HalfBinomialLossArrayAPI(ArrayAPILossMixin, HalfBinomialLoss):
         sample_weight=None,
         raw_prediction_exp=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Per-sample gradient expit(x) - y. For x above a cutoff (-37 for float64,
+        # -17 otherwise) it uses ((1 - y) - y * exp(-x)) / (1 + exp(-x)); below it uses
+        # exp(x) - y (accurate for very negative x). Multiplied in place by sample_weight.
+        # Outputs: array (n_samples,).
         xp = self.xp
         if raw_prediction_exp is None:
             raw_prediction_exp = xp.exp(raw_prediction)
@@ -1571,6 +1825,13 @@ class HalfBinomialLossArrayAPI(ArrayAPILossMixin, HalfBinomialLoss):
 
 
 class HalfMultinomialLossArrayAPI(ArrayAPILossMixin, HalfMultinomialLoss):
+    # [CLASS DOC]
+    # Array API version of HalfMultinomialLoss. Caches integer labels (y_true_int),
+    # flat-index offsets (row index * n_classes) and the one-hot label matrix on the
+    # instance across calls.
+    # KNOWN ISSUE: caches are filled on first use and never invalidated, so calling the
+    # same instance with a different y_true (or different n_samples) silently reuses
+    # stale labels/offsets.
     """A version of the HalfMultinomialLoss that is compatible with the array API.
 
     Parameters
@@ -1589,6 +1850,9 @@ class HalfMultinomialLossArrayAPI(ArrayAPILossMixin, HalfMultinomialLoss):
     """
 
     def __init__(self, sample_weight=None, n_classes=3, xp=None, device=None):
+        # [FUNCTION DOC]
+        # Calls HalfMultinomialLoss.__init__ with n_classes, xp and device (sample_weight
+        # is dropped) and resets the three caches to None (redundant with the parent).
         super().__init__(n_classes=n_classes, xp=xp, device=device)
         # These instance variables are specifically to store certain
         # intermediate values in order to avoid having to recompute
@@ -1607,6 +1871,13 @@ class HalfMultinomialLossArrayAPI(ArrayAPILossMixin, HalfMultinomialLoss):
         raw_prediction,
         sample_weight=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Per-sample loss logsumexp over classes minus the raw prediction of the
+        # true class. The true-class entries are gathered from the flattened (row-major)
+        # raw_prediction at index label + row * n_classes, using cached int labels and
+        # offsets. Multiplied in place by sample_weight if given.
+        # Inputs: y_true (n_samples,) label-encoded; raw_prediction (n_samples, n_classes).
+        # Outputs: array (n_samples,). Side effects: fills caches on first call.
         xp = self.xp
         device = self.device
         log_sum_exp = _logsumexp(raw_prediction, axis=1, xp=xp)
@@ -1631,6 +1902,11 @@ class HalfMultinomialLossArrayAPI(ArrayAPILossMixin, HalfMultinomialLoss):
         raw_prediction,
         sample_weight=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Gradient softmax(raw_prediction) minus the cached one-hot encoding of
+        # y_true (built with array_api_extra one_hot in raw_prediction's dtype), scaled
+        # row-wise by sample_weight when given.
+        # Outputs: array (n_samples, n_classes). Side effects: fills caches on first call.
         xp = self.xp
         device_ = self.device
         if self.y_true_one_hot is None:
@@ -1659,6 +1935,9 @@ class HalfMultinomialLossArrayAPI(ArrayAPILossMixin, HalfMultinomialLoss):
 
 
 class HalfPoissonLossArrayAPI(ArrayAPILossMixin, HalfPoissonLoss):
+    # [CLASS DOC]
+    # Array API version of HalfPoissonLoss (log link), sharing exp(raw_prediction)
+    # between loss and gradient. Not exported in the package __init__.
     """A version of the HalfPoissonLoss that is compatible with the array API."""
 
     def loss_gradient(
@@ -1670,6 +1949,9 @@ class HalfPoissonLossArrayAPI(ArrayAPILossMixin, HalfPoissonLoss):
         gradient_out=None,
         n_threads=1,
     ):
+        # [FUNCTION DOC]
+        # Computes exp(raw_prediction) once and returns (loss, gradient) from the helpers;
+        # buffers and n_threads ignored.
         raw_prediction_exp = self.xp.exp(raw_prediction)
         loss = self._compute_loss(
             y_true=y_true,
@@ -1692,6 +1974,9 @@ class HalfPoissonLossArrayAPI(ArrayAPILossMixin, HalfPoissonLoss):
         sample_weight=None,
         raw_prediction_exp=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Per-sample loss exp(x) - y * x (constant term omitted), multiplied in
+        # place by sample_weight when given.
         if raw_prediction_exp is None:
             raw_prediction_exp = self.xp.exp(raw_prediction)
         loss = raw_prediction_exp - y_true * raw_prediction
@@ -1706,6 +1991,9 @@ class HalfPoissonLossArrayAPI(ArrayAPILossMixin, HalfPoissonLoss):
         sample_weight=None,
         raw_prediction_exp=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Per-sample gradient exp(x) - y, multiplied in place by sample_weight when
+        # given.
         if raw_prediction_exp is None:
             raw_prediction_exp = self.xp.exp(raw_prediction)
         grad = raw_prediction_exp - y_true

@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Holds scikit-learn's runtime configuration. _global_config is the process-wide
+# default dict, initialised at import time from environment variables
+# SKLEARN_ASSUME_FINITE, SKLEARN_WORKING_MEMORY and SKLEARN_PAIRWISE_DIST_CHUNK_SIZE
+# plus hard-coded defaults. Each thread lazily gets its own mutable copy in
+# _threadlocal, so set_config / config_context only affect the calling thread
+# (new threads start from _global_config, not from the parent thread's settings).
+# KNOWN ISSUE: SKLEARN_ASSUME_FINITE is converted with bool() on the raw string, so
+# any non-empty value, including "0" or "False", enables assume_finite.
+# Exceptions at import: ValueError if the integer env variables are not integers.
 """Global configuration state and functions for management"""
 
 # Authors: The scikit-learn developers
@@ -26,6 +36,10 @@ _threadlocal = threading.local()
 
 
 def _get_threadlocal_config():
+    # [FUNCTION DOC]
+    # HELPER: Returns the calling thread's mutable config dict, creating it as a shallow
+    # copy of _global_config on first access in that thread.
+    # Side effects: may set the global_config attribute on _threadlocal.
     """Get a threadlocal **mutable** configuration. If the configuration
     does not exist, copy the default global configuration."""
     if not hasattr(_threadlocal, "global_config"):
@@ -34,6 +48,9 @@ def _get_threadlocal_config():
 
 
 def get_config():
+    # [FUNCTION DOC]
+    # Returns a shallow copy of the calling thread's configuration dict, so mutating
+    # the result does not change the configuration.
     """Retrieve the current scikit-learn configuration.
 
     This reflects the effective global configurations as established by default upon
@@ -74,6 +91,16 @@ def set_config(
     skip_parameter_validation=None,
     sparse_interface=None,
 ):
+    # [FUNCTION DOC]
+    # For each argument that is not None, stores it under the same key in the calling
+    # thread's config dict; None leaves the key unchanged. No value validation is done
+    # here except array_api_dispatch, which is checked via _check_array_api_dispatch
+    # (lazily imported) before being stored.
+    # Outputs: None. Exceptions: whatever _check_array_api_dispatch raises (e.g. when
+    # array_api_compat or a required SciPy/NumPy setting is missing).
+    # Side effects: mutates thread-local configuration.
+    # KNOWN ISSUE: the docstring lists sparse_interface default as "spmatrix", but the
+    # parameter default is None (unchanged); the global default is "spmatrix".
     """Set global scikit-learn configuration.
 
     These settings control the behaviour of scikit-learn functions during a library
@@ -260,6 +287,15 @@ def config_context(
     skip_parameter_validation=None,
     sparse_interface=None,
 ):
+    # [FUNCTION DOC]
+    # Generator-based context manager: snapshots the current thread config with
+    # get_config, applies the given keyword-only overrides via set_config (None means
+    # unchanged), yields None, and in a finally block restores every key of the
+    # snapshot via set_config, so all settings revert even on exceptions.
+    # Exceptions: same as set_config.
+    # Side effects: temporarily mutates thread-local configuration.
+    # KNOWN ISSUE: the docstring says sparse_interface was added in 1.8 while
+    # set_config says 1.9.
     """Context manager to temporarily change the global scikit-learn configuration.
 
     This context manager can be used to apply scikit-learn configuration changes within

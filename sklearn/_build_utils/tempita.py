@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# [MODULE DOC]
+# HELPER: Build script invoked by Meson to render Cython Tempita templates (*.tp)
+# into source files. Run as a script: main() parses arguments and renders one file.
+# Import-time requirement: Cython must be installed.
 
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
@@ -13,6 +17,13 @@ from Cython import Tempita as tempita
 
 
 def process_tempita(fromfile, outfile=None):
+    # [FUNCTION DOC]
+    # HELPER: Reads fromfile as UTF-8, renders it as a Tempita template with no
+    # substitution variables, and writes the result to outfile as UTF-8.
+    # Inputs: fromfile - template path; outfile - output path.
+    # Outputs: None. Side effects: writes outfile (overwrites).
+    # KNOWN ISSUE: outfile defaults to None, which makes open() fail; the default is
+    # unusable. The docstring example mentions ".in" while templates use ".tp".
     """Process tempita templated file and write out the result.
 
     The template file is expected to end in `.c.tp` or `.pyx.tp`:
@@ -30,6 +41,11 @@ def process_tempita(fromfile, outfile=None):
 
 
 def main():
+    # [FUNCTION DOC]
+    # HELPER: CLI entry point. Parses infile, -o/--outdir and an ignored -i/--ignore
+    # option; the output path is outdir (joined to the cwd) plus the input base name
+    # with its final ".tp" extension removed; then calls process_tempita.
+    # Exceptions: ValueError if infile does not end with ".tp" or outdir is missing.
     parser = argparse.ArgumentParser()
     parser.add_argument("infile", type=str, help="Path to the input file")
     parser.add_argument("-o", "--outdir", type=str, help="Path to the output directory")

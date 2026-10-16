@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# [MODULE DOC]
+# HELPER: Build script that prints the scikit-learn version. At run/import time it
+# reads ../__init__.py relative to this file, takes the first line starting with
+# "__version__", splits on " = " and removes quotes, then prints the version string.
+# Exceptions: StopIteration if no such line exists; IndexError if the assignment
+# lacks the " = " spacing. Side effects: file read, stdout; the file handle is not
+# explicitly closed.
 """Extract version number from __init__.py"""
 
 # Authors: The scikit-learn developers

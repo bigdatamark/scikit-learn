@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Single source of truth for scikit-learn's minimum dependency versions. Defines
+# *_MIN_VERSION constants and dependent_packages, mapping package name to a tuple
+# (minimum version string, comma-separated tags among build, install, tests, docs,
+# examples, benchmark, maintenance).
+# When run as a script, takes one positional package name (restricted to the keys of
+# dependent_packages; argparse exits with an error otherwise) and prints its minimum
+# version. No side effects on import.
 """All minimum dependencies for scikit-learn."""
 
 # Authors: The scikit-learn developers

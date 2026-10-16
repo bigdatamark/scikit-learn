@@ -1,3 +1,12 @@
+# [PACKAGE DOC]
+# Top-level sklearn package. Defines __version__, re-exports clone, get_config,
+# set_config, config_context and show_versions, and lazily exposes the submodules in
+# _submodules through module-level __getattr__/__dir__ (PEP 562), so subpackages
+# are imported on first attribute access.
+# Import-time side effects: creates the "sklearn" logger; sets the environment
+# variables KMP_DUPLICATE_LIB_OK=True and KMP_INIT_AT_FORK=FALSE if unset; imports
+# __check_build (raises a helpful ImportError if extensions are not built) and
+# _distributor_init before anything linked to OpenMP.
 """Configure global settings and get information about the working environment."""
 
 # Authors: The scikit-learn developers
@@ -123,10 +132,21 @@ __all__ = _submodules + [
 
 
 def __dir__():
+    # [FUNCTION DOC]
+    # Module-level __dir__ hook: returns __all__ (submodule names plus re-exported
+    # functions) for dir(sklearn) and tab completion.
     return __all__
 
 
 def __getattr__(name):
+    # [FUNCTION DOC]
+    # Module-level __getattr__ hook (called only for names not found normally): imports
+    # and returns sklearn.<name> for names in _submodules, otherwise returns the module
+    # global of that name.
+    # Exceptions: AttributeError for unknown names.
+    # Side effects: importing a submodule.
+    # KNOWN ISSUE: the globals() fallback is effectively dead, since existing globals
+    # never reach __getattr__.
     if name in _submodules:
         return _importlib.import_module(f"sklearn.{name}")
     else:
@@ -137,6 +157,13 @@ def __getattr__(name):
 
 
 def setup_module(module):
+    # [FUNCTION DOC]
+    # Pytest module-level setup hook: seeds numpy's global RNG and Python's random
+    # module with SKLEARN_SEED from the environment, or a random int32-range value if
+    # unset, and prints the seed.
+    # Inputs: module - the test module (unused).
+    # Exceptions: ValueError if SKLEARN_SEED is not numeric.
+    # Side effects: global RNG state, stdout.
     """Fixture for the tests to assure globally controllable seeding of RNGs"""
 
     import numpy as np

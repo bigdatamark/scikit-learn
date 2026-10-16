@@ -1,3 +1,17 @@
+# [MODULE DOC]
+# CI maintenance script that opens, updates or closes a GitHub tracking issue for a
+# scheduled CI job. All work happens at import/run time (no main guard).
+# Flow: parse CLI args (token, ci_name, issue_repo, link_to_ci_run, --job-name,
+# --junit-file, --tests-passed, --auto-close); exactly one of --junit-file and
+# --tests-passed must be given, otherwise print a message and exit(1). Build a
+# GitHub client, the title "CI failed on <ci_name> (last failure: <date>)" and the
+# link URL; with --job-name, look up the job in the workflow run (run id = last URL
+# path segment) and append "/job/<id>", warning if not found.
+# If --tests-passed is given: "true" closes/comment-updates the issue, anything else
+# creates/updates it with an empty body. Otherwise parse the JUnit XML (defusedxml):
+# missing file -> issue with an explanatory body; a collection error plus each
+# testcase with a failure child become bullet lines; no failures -> close path.
+# Side effects: GitHub API writes, stdout, sys.exit in every terminal path.
 """Creates or updates an issue if the CI fails. This is useful to keep track of
 scheduled jobs that are failing repeatedly.
 
@@ -91,6 +105,10 @@ if args.job_name is not None:
 
 
 def get_issue():
+    # [FUNCTION DOC]
+    # HELPER: Searches the issue repo for an open issue authored by the bot user whose
+    # title contains title_query.
+    # Outputs: the first matching Issue object, or None. Side effects: GitHub API calls.
     login = gh.get_user().login
     issues = gh.search_issues(
         f"repo:{args.issue_repo} {title_query} in:title state:open author:{login}"
@@ -102,6 +120,12 @@ def get_issue():
 
 
 def create_or_update_issue(body=""):
+    # [FUNCTION DOC]
+    # HELPER: Creates a new tracking issue, or edits the existing one's title and body,
+    # with a header linking to the CI run (url) and the given body (str, default "").
+    # Bodies longer than 60000 chars are truncated with a note about the original length.
+    # Outputs: never returns; always calls sys.exit() (status 0) after printing.
+    # Side effects: GitHub API write, stdout, process exit.
     # Interact with GitHub API to create issue
     link = f"[{args.ci_name}]({url})"
     issue = get_issue()
@@ -130,6 +154,13 @@ def create_or_update_issue(body=""):
 
 
 def close_issue_if_opened():
+    # [FUNCTION DOC]
+    # HELPER: Called when tests passed. If an open tracking issue exists, edits the
+    # existing "## CI is no longer failing!" comment or creates one with a link to the
+    # successful run, then closes the issue unless --auto-close is not "true".
+    # Outputs: never returns; always sys.exit(). Side effects: GitHub API writes, stdout.
+    # KNOWN ISSUE: it prints "Commented on issue" before the comment is actually
+    # written.
     print("Test has no failures!")
     issue = get_issue()
     if issue is not None:

@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Package sklearn._loss: private loss-function objects (value, gradient, hessian,
+# link functions) used by gradient-based estimators such as HistGradientBoosting,
+# GLMs and logistic regression. Re-exports the concrete loss classes from
+# sklearn._loss.loss (AbsoluteError, HalfBinomialLoss and its Array API variant,
+# HalfGammaLoss, HalfMultinomialLoss and its Array API variant, HalfPoissonLoss,
+# HalfSquaredError, HalfTweedieLoss, HalfTweedieLossIdentity, HuberLoss,
+# PinballLoss). Import-time side effects: imports the compiled _loss extension.
 """
 The :mod:`sklearn._loss` module includes loss function classes suitable for
 fitting classification and regression tasks.
