@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Thin Python wrapper (TreePredictor) around a fitted tree stored as a structured
+# array of PREDICTOR_RECORD_DTYPE nodes. All heavy work is delegated to the Cython
+# routines in _predictor (raw prediction, binned prediction, partial dependence).
 """
 This module contains the TreePredictor class which is used for prediction.
 """
@@ -19,6 +23,10 @@ from sklearn.ensemble._hist_gradient_boosting.common import (
 
 
 class TreePredictor:
+    # [CLASS DOC]
+    # Holds one fitted tree: the nodes record array plus categorical bitsets for
+    # binned and raw prediction. Built by TreeGrower.make_predictor; stored in
+    # _predictors of the HGB estimators. Supports pickling with dtype normalization.
     """Tree class used for predictions.
 
     Parameters
@@ -34,19 +42,33 @@ class TreePredictor:
     """
 
     def __init__(self, nodes, binned_left_cat_bitsets, raw_left_cat_bitsets):
+        # [FUNCTION DOC]
+        # Stores the three arrays as attributes nodes, binned_left_cat_bitsets,
+        # raw_left_cat_bitsets without validation or copying.
         self.nodes = nodes
         self.binned_left_cat_bitsets = binned_left_cat_bitsets
         self.raw_left_cat_bitsets = raw_left_cat_bitsets
 
     def get_n_leaf_nodes(self):
+        # [FUNCTION DOC]
+        # Returns the count of nodes whose is_leaf field is true, as a Python int.
         """Return number of leaves."""
         return int(self.nodes["is_leaf"].sum())
 
     def get_max_depth(self):
+        # [FUNCTION DOC]
+        # Returns the maximum value of the depth field over all nodes (leaves are the
+        # deepest), as a Python int.
         """Return maximum depth among all leaves."""
         return int(self.nodes["depth"].max())
 
     def predict(self, X, known_cat_bitsets, f_idx_map, n_threads):
+        # [FUNCTION DOC]
+        # Allocates a float output vector of length n_samples (Y_DTYPE) and lets
+        # _predict_from_raw_data walk the tree for each row of raw X (handling NaN via
+        # missing_go_to_left and categorical splits via the raw bitsets, with unknown
+        # categories checked through known_cat_bitsets/f_idx_map), filling it in parallel.
+        # Outputs: ndarray (n_samples,) of leaf values. Side effects: none.
         """Predict raw values for non-binned data.
 
         Parameters
@@ -83,6 +105,11 @@ class TreePredictor:
         return out
 
     def predict_binned(self, X, missing_values_bin_idx, n_threads):
+        # [FUNCTION DOC]
+        # Same as predict but for already binned uint8 X: _predict_from_binned_data
+        # compares bin indices with bin_threshold, routes missing_values_bin_idx using
+        # missing_go_to_left, and uses binned_left_cat_bitsets for categorical splits.
+        # Outputs: ndarray (n_samples,) of leaf values.
         """Predict raw values for binned data.
 
         Parameters
@@ -113,6 +140,9 @@ class TreePredictor:
         return out
 
     def compute_partial_dependence(self, grid, target_features, out):
+        # [FUNCTION DOC]
+        # Delegates to the Cython _compute_partial_dependence (weighted tree traversal
+        # method) which writes into out. Side effects: mutates out in place; returns None.
         """Fast partial dependence computation.
 
         Parameters
@@ -130,6 +160,12 @@ class TreePredictor:
         _compute_partial_dependence(self.nodes, grid, target_features, out)
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # Unpickling hook: restores state via the parent __setstate__ when available,
+        # otherwise by updating __dict__ directly, then casts nodes to the current
+        # platform PREDICTOR_RECORD_DTYPE (intp width differs between 32/64-bit) with
+        # same_kind casting. Side effects: sets self attributes; may raise numpy casting
+        # errors if the stored dtype is incompatible.
         try:
             super().__setstate__(state)
         except AttributeError:

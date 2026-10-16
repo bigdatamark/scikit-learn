@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Binning of continuous and categorical features into uint8 bin indices for the
+# histogram-based gradient boosting estimators. Provides the threshold finder
+# _find_binning_thresholds and the _BinMapper transformer; the actual mapping is
+# done by the Cython helper _map_to_bins.
 """
 This module contains the BinMapper class.
 
@@ -29,6 +34,25 @@ from sklearn.utils.validation import check_is_fitted
 
 
 def _find_binning_thresholds(col_data, max_bins, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Computes the increasing bin thresholds for a single continuous feature.
+    # Steps: drop NaN entries (and their weights); if weights are given drop entries
+    # with zero weight; sort values (and weights accordingly); take the distinct
+    # values. If only one distinct value, return an empty array. If at most max_bins
+    # distinct values, thresholds are midpoints between consecutive distinct values.
+    # Otherwise thresholds are the max_bins-1 interior percentiles (equally spaced
+    # in 0..100, endpoints excluded) using the averaged inverted CDF method, or the
+    # weighted percentile with averaging when weights are given. Duplicate
+    # thresholds are then removed and values clipped to ALMOST_INF so +inf is never
+    # a threshold.
+    # Inputs: col_data - 1d float array; max_bins - int, number of bins for
+    # non-missing values; sample_weight - optional 1d array aligned with col_data.
+    # Outputs: 1d float array of at most max_bins-1 increasing thresholds.
+    # Exceptions: AssertionError if percentile output size is unexpected.
+    # Side effects: none on inputs (filtering/sorting produce copies).
+    # KNOWN ISSUE: the docstring does not document sample_weight; if all weights are
+    # zero (or all values NaN) the distinct array is empty and the midpoint branch
+    # yields an empty result rather than an explicit check.
     """Extract quantiles from a continuous feature.
 
     Missing values are ignored for finding the thresholds.
@@ -112,6 +136,11 @@ def _find_binning_thresholds(col_data, max_bins, sample_weight=None):
 
 
 class _BinMapper(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Transformer mapping X to uint8 bins, one bin per category for categorical
+    # features and quantile-based bins for continuous ones; the last bin
+    # (n_bins - 1) is reserved for missing values. Fitted attributes:
+    # bin_thresholds_, n_bins_non_missing_, is_categorical_, missing_values_bin_idx_.
     """Transformer that maps a dataset into integer-valued bins.
 
     For continuous features, the bins are created in a feature-wise fashion,
@@ -202,6 +231,9 @@ class _BinMapper(TransformerMixin, BaseEstimator):
         random_state=None,
         n_threads=None,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters unchanged (sklearn estimator convention); no
+        # validation here.
         self.n_bins = n_bins
         self.subsample = subsample
         self.is_categorical = is_categorical
@@ -210,6 +242,22 @@ class _BinMapper(TransformerMixin, BaseEstimator):
         self.n_threads = n_threads
 
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates n_bins in [3, 256], converts X to float (NaN allowed). If subsample
+        # is set and n_samples exceeds it, draws subsample rows with replacement (using
+        # probabilities proportional to sample_weight when given, then drops the
+        # weights since they were consumed by the resampling). Builds is_categorical_
+        # (all zeros by default), checks consistency between is_categorical_ and
+        # known_categories, computes thresholds of continuous features in parallel with
+        # threading via _find_binning_thresholds, and for categorical features uses the
+        # known categories themselves as thresholds.
+        # Inputs: X (n_samples, n_features); y ignored; sample_weight optional
+        # (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError for bad n_bins, categorical feature without known
+        # categories, or categories given for a non-categorical feature.
+        # Side effects: sets is_categorical_, missing_values_bin_idx_, bin_thresholds_,
+        # n_bins_non_missing_; consumes random_state randomness when subsampling.
         """Fit data X by computing the binning thresholds.
 
         The last bin is reserved for missing values, whether missing values
@@ -310,6 +358,14 @@ class _BinMapper(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Converts X to float, checks it is fitted and has the fitted number of
+        # features, then fills a Fortran-ordered uint8 array of the same shape via
+        # _map_to_bins (binary search on thresholds; NaN to missing_values_bin_idx_).
+        # Outputs: X_binned uint8 (n_samples, n_features), F-ordered.
+        # Exceptions: ValueError on feature count mismatch; NotFittedError if unfitted.
+        # KNOWN ISSUE: input validation runs before check_is_fitted, so an unfitted
+        # mapper with bad input reports the input error first.
         """Bin data X.
 
         Missing values will be mapped to the last bin.
@@ -350,6 +406,12 @@ class _BinMapper(TransformerMixin, BaseEstimator):
         return binned
 
     def make_known_categories_bitsets(self):
+        # [FUNCTION DOC]
+        # Builds one 256-bit bitset (8 uint32 words) per categorical feature with the
+        # bits of its known raw category values set, plus f_idx_map mapping each
+        # original feature index to its row in that array (0 for non-categorical
+        # features). Outputs: (known_cat_bitsets (n_cat, 8), f_idx_map (n_features,)
+        # uint32). Side effects: none. Requires a fitted mapper.
         """Create bitsets of known categories.
 
         Returns
