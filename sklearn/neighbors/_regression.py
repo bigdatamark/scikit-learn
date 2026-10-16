@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Neighbor-based regressors: KNeighborsRegressor (average of the k nearest training
+# targets) and RadiusNeighborsRegressor (average of training targets within a radius),
+# both with uniform, distance or callable weighting and multi-output support.
+# Side effects at import: building KNeighborsRegressor appends DistanceMetric to the
+# "metric" constraint list (see KNOWN ISSUE on that class).
 """Nearest Neighbor Regression."""
 
 # Authors: The scikit-learn developers
@@ -19,6 +25,13 @@ from sklearn.utils._param_validation import StrOptions
 
 
 class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
+    # [CLASS DOC]
+    # k-nearest-neighbors regressor; prediction is the (weighted) mean of neighbor
+    # targets.
+    # KNOWN ISSUE: the class-level constraint dict is a shallow copy of NeighborsBase's,
+    # so
+    # appending DistanceMetric to its "metric" list mutates the list shared with
+    # NeighborsBase and every other neighbors estimator.
     """Regression based on k-nearest neighbors.
 
     The target is predicted by local interpolation of the targets
@@ -185,6 +198,8 @@ class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards neighbor parameters to NeighborsBase and stores weights.
         super().__init__(
             n_neighbors=n_neighbors,
             algorithm=algorithm,
@@ -197,6 +212,8 @@ class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
         self.weights = weights
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Marks pairwise input when metric is precomputed.
         tags = super().__sklearn_tags__()
         # For cross-validation routines to split data correctly
         tags.input_tags.pairwise = self.metric == "precomputed"
@@ -207,6 +224,9 @@ class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Delegates to NeighborsBase._fit, which stores the targets as _y. Outputs:
+        # self.
         """Fit the k-nearest neighbors regressor from the training dataset.
 
         Parameters
@@ -227,6 +247,18 @@ class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
         return self._fit(X, y)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Gets neighbor indices (and distances unless weights is uniform); computes
+        # weights.
+        # Uniform: per-output mean of neighbor targets. Otherwise: per output, the sum
+        # of
+        # weights times neighbor targets divided by the weight sum. Output is raveled
+        # when y
+        # was 1D.
+        # Inputs: X - (n_queries, n_features), precomputed distances, or None.
+        # Outputs: float array (n_queries,) or (n_queries, n_outputs).
+        # Exceptions: those of kneighbors; division by zero gives NaN/inf if all weights
+        # 0.
         """Predict the target for the provided data.
 
         Parameters
@@ -273,6 +305,8 @@ class KNeighborsRegressor(KNeighborsMixin, RegressorMixin, NeighborsBase):
 
 
 class RadiusNeighborsRegressor(RadiusNeighborsMixin, RegressorMixin, NeighborsBase):
+    # [CLASS DOC]
+    # Radius-neighbors regressor; queries with no neighbors get NaN predictions.
     """Regression based on neighbors within a fixed radius.
 
     The target is predicted by local interpolation of the targets
@@ -423,6 +457,8 @@ class RadiusNeighborsRegressor(RadiusNeighborsMixin, RegressorMixin, NeighborsBa
         metric_params=None,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards neighbor parameters to NeighborsBase and stores weights.
         super().__init__(
             radius=radius,
             algorithm=algorithm,
@@ -439,6 +475,8 @@ class RadiusNeighborsRegressor(RadiusNeighborsMixin, RegressorMixin, NeighborsBa
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Delegates to NeighborsBase._fit. Outputs: self.
         """Fit the radius neighbors regressor from the training dataset.
 
         Parameters
@@ -459,6 +497,18 @@ class RadiusNeighborsRegressor(RadiusNeighborsMixin, RegressorMixin, NeighborsBa
         return self._fit(X, y)
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Gets radius neighbors and weights; for each query, the (weighted) average of
+        # neighbor targets per output, or a row of NaN when it has no neighbors. Warns
+        # if any
+        # prediction is NaN; ravels for 1D y.
+        # Outputs: array (n_queries,) or (n_queries, n_outputs).
+        # Side effects: UserWarning when NaN predictions occur.
+        # KNOWN ISSUE: the NaN placeholder is built with the dtype of y, so integer
+        # targets
+        # cannot hold NaN (the fill fails or is cast); the warning also fires when
+        # training
+        # targets themselves contain NaN.
         """Predict the target for the provided data.
 
         Parameters

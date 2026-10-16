@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Composite estimators: Pipeline (sequential chain of transformers ending in any
+#   estimator, with optional joblib caching of fitted transformers, metadata routing,
+#   transform_input support and fit callbacks) and FeatureUnion (applies transformers in
+#   parallel to the same input and concatenates their outputs column-wise), plus the
+#   factory functions make_pipeline and make_union and private helpers that
+#   fit/transform a single step.
+# Public names: Pipeline, FeatureUnion, make_pipeline, make_union. Side effects at
+#   import: none.
 """Utilities to build a composite estimator as a chain of transforms and estimators."""
 
 # Authors: The scikit-learn developers
@@ -38,11 +47,20 @@ __all__ = ["FeatureUnion", "Pipeline", "make_pipeline", "make_union"]
 
 
 def _final_estimator_has(attr):
+    # [FUNCTION DOC]
+    # HELPER: Builds a predicate for available_if that checks whether the pipeline's
+    #   final estimator has attribute attr.
+    # Inputs: attr - attribute name.
+    # Outputs: function taking the pipeline and returning True, or letting the final
+    #   estimator's original AttributeError propagate.
     """Check that final_estimator has `attr`.
 
     Used together with `available_if` in `Pipeline`."""
 
     def check(self):
+        # [FUNCTION DOC]
+        # HELPER: Accesses attr on self._final_estimator (raising its AttributeError
+        #   if missing) and returns True.
         # raise original `AttributeError` if `attr` does not exist
         getattr(self._final_estimator, attr)
         return True
@@ -53,6 +71,16 @@ def _final_estimator_has(attr):
 def _cached_transform(
     sub_pipeline, *, cache, param_name, param_value, transform_params
 ):
+    # [FUNCTION DOC]
+    # HELPER: Transforms one metadata value through a sub-pipeline, memoised per
+    #   parameter name. If param_value is a tuple each element is transformed separately
+    #   and a tuple is returned (supports multiple validation sets as in
+    #   lightgbm/xgboost).
+    # Inputs: sub_pipeline - fitted Pipeline of preceding steps; cache - dict mutated
+    #   in place; param_name - str key; param_value - data or tuple of data;
+    #   transform_params - kwargs passed to transform.
+    # Outputs: the transformed value (cached).
+    # Side effects: stores the result in cache.
     """Transform a parameter value using a sub-pipeline and cache the result.
 
     Parameters
@@ -91,6 +119,13 @@ def _cached_transform(
 
 
 class Pipeline(CallbackSupportMixin, _BaseComposition):
+    # [CLASS DOC]
+    # Sequential composite estimator. steps is a list of (name, estimator) pairs;
+    #   intermediate steps must be transformers (or None/'passthrough'), the last may be
+    #   any estimator, None or 'passthrough'. Public methods of the final estimator are
+    #   exposed through available_if. Fitting clones intermediate transformers when
+    #   caching is enabled and stores the fitted objects back into steps. Supports
+    #   callbacks via CallbackSupportMixin.
     """
     A sequence of data transformers with an optional final predictor.
 
@@ -216,12 +251,21 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
     }
 
     def __init__(self, steps, *, transform_input=None, memory=None, verbose=False):
+        # [FUNCTION DOC]
+        # Stores steps, transform_input (list of metadata names to transform through
+        #   preceding steps, or None), memory (None, path or joblib Memory-like) and
+        #   verbose unchanged; no validation here.
         self.steps = steps
         self.transform_input = transform_input
         self.memory = memory
         self.verbose = verbose
 
     def set_output(self, *, transform=None):
+        # [FUNCTION DOC]
+        # Calls set_output(transform=...) on every non-passthrough step (including the
+        #   final one).
+        # Inputs: transform - "default", "pandas", "polars" or None (no change).
+        # Outputs: self. Side effects: configures each step.
         """Set the output container when `"transform"` and `"fit_transform"` are called.
 
         Calling `set_output` will set the output of all estimators in `steps`.
@@ -249,6 +293,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return self
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns the parameters, including steps and, when deep, each step and its
+        #   nested parameters as name__param, via _BaseComposition._get_params.
         """Get parameters for this estimator.
 
         Returns the parameters given in the constructor as well as the
@@ -268,6 +315,10 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return self._get_params("steps", deep=deep)
 
     def set_params(self, **kwargs):
+        # [FUNCTION DOC]
+        # Sets parameters, including replacing whole steps by name, via
+        #   _BaseComposition._set_params.
+        # Outputs: self.
         """Set the parameters of this estimator.
 
         Valid parameter keys can be listed with ``get_params()``. Note that
@@ -290,6 +341,13 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return self
 
     def _validate_steps(self):
+        # [FUNCTION DOC]
+        # HELPER: Validates steps: non-empty, valid unique names, estimator instances
+        #   (not classes); intermediate steps other than None/'passthrough' must have
+        #   fit or fit_transform and transform; the last must have fit unless
+        #   None/'passthrough'.
+        # Exceptions: ValueError for an empty pipeline or bad names; TypeError for
+        #   invalid steps.
         if not self.steps:
             raise ValueError("The pipeline is empty. Please add steps.")
         names, estimators = zip(*self.steps)
@@ -328,6 +386,11 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
             )
 
     def _iter(self, with_final=True, filter_passthrough=True):
+        # [FUNCTION DOC]
+        # HELPER: Generates (index, name, estimator) tuples over steps, optionally
+        #   excluding the final step and, when filter_passthrough is True, skipping None
+        #   and 'passthrough' steps.
+        # Inputs: with_final - bool (True); filter_passthrough - bool (True).
         """
         Generate (idx, (name, trans)) tuples from self.steps
 
@@ -345,12 +408,21 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
                 yield idx, name, trans
 
     def __len__(self):
+        # [FUNCTION DOC]
+        # Returns the number of steps.
         """
         Returns the length of the Pipeline
         """
         return len(self.steps)
 
     def __getitem__(self, ind):
+        # [FUNCTION DOC]
+        # Indexing: a slice (step 1 or None) returns a new Pipeline over the selected
+        #   steps sharing the same estimator objects, memory and verbose; an int returns
+        #   that step's estimator; a string returns the step with that name.
+        # Exceptions: ValueError for slices with another step; IndexError/KeyError for
+        #   bad indices or names.
+        # KNOWN ISSUE: slicing does not forward transform_input to the sub-pipeline.
         """Returns a sub-pipeline or a single estimator in the pipeline
 
         Indexing with an integer will return an estimator; using a slice
@@ -378,6 +450,8 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @property
     def named_steps(self):
+        # [FUNCTION DOC]
+        # Read-only Bunch mapping step names to estimators, allowing attribute access.
         """Access the steps by name.
 
         Read-only attribute to access any step by given name.
@@ -387,6 +461,10 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @property
     def _final_estimator(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns the last step's estimator, mapping None to 'passthrough'.
+        #   Raises AttributeError for an empty steps list; returns None when steps is
+        #   malformed (so parameter validation can report it).
         try:
             estimator = self.steps[-1][1]
             return "passthrough" if estimator is None else estimator
@@ -403,6 +481,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
             return None
 
     def _log_message(self, step_idx):
+        # [FUNCTION DOC]
+        # HELPER: Returns the verbose progress message "(step i of n) Processing name"
+        #   for step_idx, or None when not verbose.
         if not self.verbose:
             return None
         name, _ = self.steps[step_idx]
@@ -410,6 +491,15 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return "(step %d of %d) Processing %s" % (step_idx + 1, len(self.steps), name)
 
     def _check_method_params(self, method, props, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Builds per-step routed parameters for a fit-like method. With
+        #   metadata routing enabled delegates to process_routing. Otherwise every
+        #   parameter must be named step__param and is forwarded to that step's fit,
+        #   fit_transform and fit_predict.
+        # Inputs: method - caller name; props - dict of user parameters.
+        # Outputs: Bunch of per-step, per-method parameter dicts.
+        # Exceptions: ValueError for a parameter without the double-underscore prefix;
+        #   KeyError if the step name is unknown or refers to a None step.
         if _routing_enabled():
             return process_routing(self, method, **props, **kwargs)
         # Routing disabled: fit_params for a step are forwarded to whichever
@@ -435,6 +525,16 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return _manual_routing(per_step)
 
     def _get_metadata_for_step(self, *, step_idx, step_params, all_params):
+        # [FUNCTION DOC]
+        # HELPER: Applies transform_input: for steps after the first, every routed
+        #   parameter whose name is in transform_input is passed through the already-
+        #   fitted sub-pipeline self[:step_idx] (transform metadata for that sub-
+        #   pipeline taken from all_params), each name transformed once via
+        #   _cached_transform. Returns step_params unchanged when transform_input is
+        #   None, no metadata is given, or step_idx is 0.
+        # Inputs: step_idx - int; step_params - per-method dict for this step;
+        #   all_params - all user metadata.
+        # Outputs: dict of method -> Bunch of (possibly transformed) parameters.
         """Get params (metadata) for step `name`.
 
         This transforms the metadata up to this step if required, which is
@@ -514,6 +614,20 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
     # Estimator interface
 
     def _fit(self, X, y=None, routed_params=None, raw_params=None, callback_ctx=None):
+        # [FUNCTION DOC]
+        # HELPER: Fits all intermediate steps in order. Converts steps to a list,
+        #   validates them, wraps _fit_transform_one_with_callbacks in memory.cache
+        #   (ignoring caller and callback_ctx); for each step: passthrough steps only
+        #   emit callback begin/end; otherwise clone the transformer unless caching is
+        #   disabled (memory without location), compute its metadata, fit-transform it
+        #   (or load from cache) and store the fitted transformer back into steps.
+        # Inputs: X, y; routed_params - per-step params; raw_params - original
+        #   metadata; callback_ctx - callback context (required in practice).
+        # Outputs: transformed X to feed the final estimator.
+        # Side effects: mutates self.steps; may write to the cache directory; prints
+        #   timings when verbose.
+        # KNOWN ISSUE: callback_ctx defaults to None but is dereferenced
+        #   unconditionally, so calling _fit without a context fails.
         """Fit the pipeline except the last step.
 
         routed_params is the output of `process_routing`
@@ -580,6 +694,14 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits all transformers then the final estimator (unless passthrough) on the
+        #   transformed data, with metadata routed per step and callbacks notified
+        #   around each task.
+        # Inputs: X, y; params - metadata (step__param form when routing is disabled).
+        # Outputs: self.
+        # Exceptions: ValueError if transform_input is set while metadata routing is
+        #   disabled, plus any step errors.
         """Fit the model.
 
         Fit all the transformers one after the other and sequentially transform the
@@ -653,6 +775,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return self
 
     def _can_fit_transform(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate: True if the final step is passthrough or has
+        #   transform or fit_transform.
         return (
             self._final_estimator == "passthrough"
             or hasattr(self._final_estimator, "transform")
@@ -665,6 +790,13 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         prefer_skip_nested_validation=False
     )
     def fit_transform(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits all steps and returns the output of the last one: uses the final
+        #   estimator's fit_transform when present, else fit followed by transform;
+        #   passthrough returns the intermediate output.
+        # Inputs: X, y, routed metadata.
+        # Outputs: transformed array of shape (n_samples, n_transformed_features).
+        # Side effects: fits steps; callbacks.
         """Fit the model and transform with the final estimator.
 
         Fit all the transformers one after the other and sequentially transform
@@ -745,6 +877,12 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("predict"))
     def predict(self, X, **params):
+        # [FUNCTION DOC]
+        # Applies transform of every intermediate step then the final estimator's
+        #   predict. Without routing, params go only to the final predict; with routing,
+        #   metadata is routed to each transform and to predict.
+        # Outputs: final estimator's predictions.
+        # Exceptions: NotFittedError if not fitted.
         """Transform the data, and apply `predict` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -806,6 +944,11 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         prefer_skip_nested_validation=False
     )
     def fit_predict(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits intermediate steps (fit_transform) then calls fit_predict of the final
+        #   estimator on the transformed data.
+        # Outputs: predictions from fit_predict.
+        # Side effects: fits all steps; callbacks.
         """Transform the data, and apply `fit_predict` with the final estimator.
 
         Call `fit_transform` of each transformer in the pipeline. The
@@ -881,6 +1024,10 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("predict_proba"))
     def predict_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # Transforms through intermediate steps then calls the final predict_proba,
+        #   routing params like predict.
+        # Outputs: probability array (n_samples, n_classes).
         """Transform the data, and apply `predict_proba` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -935,6 +1082,11 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("decision_function"))
     def decision_function(self, X, **params):
+        # [FUNCTION DOC]
+        # Transforms through intermediate steps then calls the final
+        #   decision_function. params are only allowed when metadata routing is enabled
+        #   (otherwise _raise_for_params raises ValueError).
+        # Outputs: decision scores.
         """Transform the data, and apply `decision_function` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -982,6 +1134,10 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("score_samples"))
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Transforms through intermediate steps then calls the final score_samples.
+        #   Accepts no metadata.
+        # Outputs: array (n_samples,).
         """Transform the data, and apply `score_samples` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -1008,6 +1164,10 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("predict_log_proba"))
     def predict_log_proba(self, X, **params):
+        # [FUNCTION DOC]
+        # Transforms through intermediate steps then calls the final
+        #   predict_log_proba, routing params like predict.
+        # Outputs: log-probability array.
         """Transform the data, and apply `predict_log_proba` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -1062,12 +1222,20 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         )
 
     def _can_transform(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate: True if the final step is passthrough or has
+        #   transform.
         return self._final_estimator == "passthrough" or hasattr(
             self._final_estimator, "transform"
         )
 
     @available_if(_can_transform)
     def transform(self, X, **params):
+        # [FUNCTION DOC]
+        # Applies transform of every non-passthrough step including the final one.
+        #   params are only allowed with routing enabled.
+        # Outputs: transformed data.
+        # Exceptions: NotFittedError; ValueError for params without routing.
         """Transform the data, and apply `transform` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -1111,10 +1279,18 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return Xt
 
     def _can_inverse_transform(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate: True if every non-passthrough step has
+        #   inverse_transform.
         return all(hasattr(t, "inverse_transform") for _, _, t in self._iter())
 
     @available_if(_can_inverse_transform)
     def inverse_transform(self, X, **params):
+        # [FUNCTION DOC]
+        # Applies inverse_transform of each non-passthrough step in reverse order.
+        #   params only with routing enabled.
+        # Inputs: X - data in the output space of the pipeline.
+        # Outputs: data in the original input space.
         """Apply `inverse_transform` for each step in a reverse order.
 
         All estimators in the pipeline must support `inverse_transform`.
@@ -1156,6 +1332,11 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @available_if(_final_estimator_has("score"))
     def score(self, X, y=None, sample_weight=None, **params):
+        # [FUNCTION DOC]
+        # Transforms through intermediate steps then calls the final score. Without
+        #   routing, sample_weight (if given) is forwarded to score as its only extra
+        #   argument; with routing, sample_weight and params are routed.
+        # Outputs: float score.
         """Transform the data, and apply `score` with the final estimator.
 
         Call `transform` of each transformer in the pipeline. The transformed
@@ -1213,6 +1394,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @property
     def classes_(self):
+        # [FUNCTION DOC]
+        # Delegates to the final step's classes_; AttributeError for an empty pipeline
+        #   (or if the final step lacks classes_).
         """The classes labels. Only exist if the last step is a classifier."""
         try:
             return self.steps[-1][1].classes_
@@ -1222,6 +1406,12 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
             )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Derives tags: pairwise from the first step; sparse support only if all non-
+        #   passthrough steps support sparse (may be pessimistic); estimator type,
+        #   multi-output and classifier/regressor/transformer tags copied from the final
+        #   step. Malformed steps are tolerated (errors ignored).
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
 
         if not self.steps:
@@ -1262,6 +1452,12 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         return tags
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Chains get_feature_names_out through all non-passthrough steps starting from
+        #   input_features.
+        # Outputs: ndarray of str feature names.
+        # Exceptions: AttributeError if a step lacks get_feature_names_out (suggests
+        #   slicing off the final step).
         """Get output feature names for transformation.
 
         Transform input features using the pipeline.
@@ -1289,6 +1485,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @property
     def n_features_in_(self):
+        # [FUNCTION DOC]
+        # Delegates to the first step's n_features_in_; AttributeError if the pipeline
+        #   is empty or the first step is unfitted/passthrough.
         """Number of features seen during first step `fit` method."""
         # delegate to first step (which will call check_is_fitted)
         try:
@@ -1300,6 +1499,9 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
     @property
     def feature_names_in_(self):
+        # [FUNCTION DOC]
+        # Delegates to the first step's feature_names_in_; AttributeError if the
+        #   pipeline is empty or the attribute is missing.
         """Names of features seen during first step `fit` method."""
         # delegate to first step (which will call check_is_fitted)
         try:
@@ -1310,6 +1512,14 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
             )
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # Fitted check used by check_is_fitted: finds the last step that is not
+        #   'passthrough' and checks only that step; all-passthrough pipelines count as
+        #   fitted.
+        # Outputs: bool.
+        # KNOWN ISSUE: None steps are not skipped like 'passthrough', so a trailing
+        #   None step is passed to check_is_fitted, which raises TypeError rather than
+        #   returning a boolean.
         """Indicate whether pipeline has been fit.
 
         This is done by checking whether the last non-`passthrough` step of the
@@ -1339,7 +1549,14 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
             return False
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # Builds the serial HTML representation block, labelling each step "name:
+        #   ClassName" or "name: passthrough" with the estimator repr as details.
+        # Outputs: _VisualBlock.
         def _get_name(name, est):
+            # [FUNCTION DOC]
+            # HELPER: Returns the display label for one step ("name: passthrough" for
+            #   None/'passthrough', else "name: ClassName").
             if est is None or est == "passthrough":
                 return f"{name}: passthrough"
             # Is an estimator
@@ -1358,6 +1575,14 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
         )
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds the MetadataRouter: each non-passthrough intermediate step maps
+        #   fit/fit_transform/fit_predict to its fit_transform if available, else to fit
+        #   and transform, and maps predict, predict_proba, decision_function,
+        #   predict_log_proba, transform and score to transform and inverse_transform to
+        #   inverse_transform. The final step (unless None/passthrough) maps each method
+        #   to its own namesake, plus fit_transform (or fit and transform) for fitting.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -1434,6 +1659,12 @@ class Pipeline(CallbackSupportMixin, _BaseComposition):
 
 
 def _name_estimators(estimators):
+    # [FUNCTION DOC]
+    # HELPER: Generates step names from estimator class names in lowercase (or the
+    #   string itself for string steps); names occurring more than once get suffixes -1,
+    #   -2, ... in order of appearance.
+    # Inputs: estimators - sequence.
+    # Outputs: list of (name, estimator) tuples.
     """Generate names for estimators."""
 
     names = [
@@ -1458,6 +1689,11 @@ def _name_estimators(estimators):
 
 
 def make_pipeline(*steps, memory=None, transform_input=None, verbose=False):
+    # [FUNCTION DOC]
+    # Builds a Pipeline from positional estimators with auto-generated names
+    #   (_name_estimators).
+    # Inputs: *steps; memory, transform_input, verbose as in Pipeline.
+    # Outputs: unfitted Pipeline.
     """Construct a :class:`Pipeline` from the given estimators.
 
     This is a shorthand for the :class:`Pipeline` constructor; it does not
@@ -1522,6 +1758,10 @@ def make_pipeline(*steps, memory=None, transform_input=None, verbose=False):
 
 
 def _transform_one(transformer, X, y, weight, params):
+    # [FUNCTION DOC]
+    # HELPER: Calls transformer.transform with params["transform"] and multiplies the
+    #   result by weight if weight is not None.
+    # Outputs: transformed data.
     """Call transform and apply weight to output.
 
     Parameters
@@ -1553,6 +1793,15 @@ def _transform_one(transformer, X, y, weight, params):
 def _fit_transform_one(
     transformer, X, y, weight, message_clsname="", message=None, params=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits and transforms one transformer, timing it with an optional verbose
+    #   message: uses fit_transform with params["fit_transform"] if available, else fit
+    #   with params["fit"] followed by transform with params["transform"]. Multiplies
+    #   output by weight when given.
+    # Inputs: transformer, X, y, weight (float or None), message_clsname, message,
+    #   params (dict or None).
+    # Outputs: (transformed data, fitted transformer).
+    # Side effects: fits the transformer in place.
     """
     Fits ``transformer`` to ``X`` and ``y``. The transformed result is returned
     with the fitted transformer. If ``weight`` is not ``None``, the result will
@@ -1587,6 +1836,13 @@ def _fit_transform_one_with_callbacks(
     caller,
     callback_ctx,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Same as _fit_transform_one but wrapped in callback notifications:
+    #   propagates the callback context to the transformer and calls
+    #   on_fit_task_begin/end with caller as the estimator.
+    # Inputs: as _fit_transform_one plus keyword-only caller (the owning pipeline) and
+    #   callback_ctx.
+    # Outputs: (transformed data, fitted transformer).
     with callback_ctx.propagate_callback_context(transformer):
         callback_ctx.call_on_fit_task_begin(estimator=caller, X=X, y=y)
 
@@ -1600,6 +1856,10 @@ def _fit_transform_one_with_callbacks(
 
 
 def _fit_one(transformer, X, y, weight, message_clsname="", message=None, params=None):
+    # [FUNCTION DOC]
+    # HELPER: Fits one transformer with params["fit"], timed with an optional verbose
+    #   message.
+    # Outputs: the fitted transformer. The weight argument is ignored.
     """
     Fits ``transformer`` to ``X`` and ``y``.
     """
@@ -1608,6 +1868,12 @@ def _fit_one(transformer, X, y, weight, message_clsname="", message=None, params
 
 
 class FeatureUnion(TransformerMixin, _BaseComposition):
+    # [CLASS DOC]
+    # Concatenates the outputs of several transformers applied to the same input.
+    #   transformer_list holds (name, transformer) pairs where a transformer may be
+    #   'drop' (ignored) or 'passthrough' (identity via FunctionTransformer). Optional
+    #   per-name multiplicative weights; fitting and transforming run in parallel with
+    #   joblib.
     """Concatenates results of multiple transformer objects.
 
     This estimator applies a list of transformer objects in parallel to the
@@ -1720,6 +1986,9 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         verbose=False,
         verbose_feature_names_out=True,
     ):
+        # [FUNCTION DOC]
+        # Stores transformer_list, n_jobs, transformer_weights (dict name -> weight or
+        #   None), verbose and verbose_feature_names_out unchanged.
         self.transformer_list = transformer_list
         self.n_jobs = n_jobs
         self.transformer_weights = transformer_weights
@@ -1727,6 +1996,13 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         self.verbose_feature_names_out = verbose_feature_names_out
 
     def set_output(self, *, transform=None):
+        # [FUNCTION DOC]
+        # Sets the output container on the union itself (via TransformerMixin) and on
+        #   every non-dropped transformer.
+        # Outputs: self.
+        # KNOWN ISSUE: 'passthrough' entries are replaced by a fresh
+        #   FunctionTransformer in _iter, so the configuration applied to that temporary
+        #   object is lost.
         """Set the output container when `"transform"` and `"fit_transform"` are called.
 
         `set_output` will set the output of all estimators in `transformer_list`.
@@ -1753,10 +2029,15 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
 
     @property
     def named_transformers(self):
+        # [FUNCTION DOC]
+        # Bunch mapping names to transformers in transformer_list.
         # Use Bunch object to improve autocomplete
         return Bunch(**dict(self.transformer_list))
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns parameters including transformer_list and, when deep, each
+        #   transformer and its nested params.
         """Get parameters for this estimator.
 
         Returns the parameters given in the constructor as well as the
@@ -1777,6 +2058,8 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return self._get_params("transformer_list", deep=deep)
 
     def set_params(self, **kwargs):
+        # [FUNCTION DOC]
+        # Sets parameters, including replacing transformers by name. Outputs: self.
         """Set the parameters of this estimator.
 
         Valid parameter keys can be listed with ``get_params()``. Note that
@@ -1799,6 +2082,11 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return self
 
     def _validate_transformers(self):
+        # [FUNCTION DOC]
+        # HELPER: Validates names and that each transformer other than
+        #   'drop'/'passthrough' is an instance implementing (fit or fit_transform) and
+        #   transform.
+        # Exceptions: ValueError for bad names; TypeError for invalid transformers.
         names, transformers = zip(*self.transformer_list)
 
         # validate names
@@ -1818,6 +2106,10 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
                 )
 
     def _validate_transformer_weights(self):
+        # [FUNCTION DOC]
+        # HELPER: Checks that every key of transformer_weights names a transformer in
+        #   transformer_list.
+        # Exceptions: ValueError for unknown names.
         if not self.transformer_weights:
             return
 
@@ -1830,6 +2122,10 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
                 )
 
     def _iter(self):
+        # [FUNCTION DOC]
+        # HELPER: Generates (name, transformer, weight) for each entry, skipping
+        #   'drop' and replacing 'passthrough' with a new one-to-one
+        #   FunctionTransformer; weight is None when not specified.
         """
         Generate (name, trans, weight) tuples excluding None and
         'drop' transformers.
@@ -1845,6 +2141,12 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
             yield (name, trans, get_weight(name))
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Collects output feature names of each active transformer (from its
+        #   get_feature_names_out, or the column names recorded from dataframe outputs
+        #   during the last transform) and combines them via
+        #   _add_prefix_for_feature_names_out.
+        # Exceptions: AttributeError if names are unavailable for a transformer.
         """Get output feature names for transformation.
 
         Parameters
@@ -1878,6 +2180,14 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         )
 
     def _add_prefix_for_feature_names_out(self, transformer_with_feature_names_out):
+        # [FUNCTION DOC]
+        # HELPER: With verbose_feature_names_out, prefixes each name with
+        #   "transformer_name__" and returns an object array. Otherwise checks names are
+        #   unique across transformers and concatenates them.
+        # Inputs: list of (name, feature_names) pairs.
+        # Outputs: ndarray of names.
+        # Exceptions: ValueError listing up to 5 duplicated names (sorted) when not
+        #   unique.
         """Add prefix for feature names out that includes the transformer names.
 
         Parameters
@@ -1926,6 +2236,11 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         )
 
     def fit(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # Fits every active transformer in parallel (_fit_one), routing metadata (all
+        #   fit_params passed to every transformer when routing is disabled), then
+        #   stores fitted transformers back into transformer_list.
+        # Outputs: self.
         """Fit all transformers using X.
 
         Parameters
@@ -1972,6 +2287,12 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return self
 
     def fit_transform(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Fits and transforms every active transformer in parallel, stores the fitted
+        #   transformers and horizontally stacks the (weighted) outputs. Returns an
+        #   empty (n_samples, 0) array in X's namespace/device when all transformers are
+        #   dropped.
+        # Outputs: stacked array, sparse CSR or dataframe.
         """Fit all transformers, transform the data and concatenate results.
 
         Parameters
@@ -2027,11 +2348,21 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return self._hstack(Xs)
 
     def _log_message(self, name, idx, total):
+        # [FUNCTION DOC]
+        # HELPER: Verbose message "(step idx of total) Processing name", or None when
+        #   not verbose.
         if not self.verbose:
             return None
         return "(step %d of %d) Processing %s" % (idx, total, name)
 
     def _parallel_func(self, X, y, func, routed_params):
+        # [FUNCTION DOC]
+        # HELPER: Converts transformer_list to a list, validates transformers and
+        #   weights, then runs func (_fit_one or _fit_transform_one) for each active
+        #   transformer in parallel with n_jobs, passing weight, verbose message and
+        #   that transformer's routed params.
+        # Outputs: list of results in transformer order.
+        # Side effects: replaces self.transformer_list with a list copy.
         """Runs func in parallel on X and y"""
         self.transformer_list = list(self.transformer_list)
         self._validate_transformers()
@@ -2052,6 +2383,11 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         )
 
     def transform(self, X, **params):
+        # [FUNCTION DOC]
+        # Transforms X with every active transformer in parallel (applying weights)
+        #   and stacks the results; empty (n_samples, 0) output when all are dropped.
+        #   params are only allowed with metadata routing.
+        # Outputs: stacked transformed data.
         """Transform X separately by each transformer, concatenate results.
 
         Parameters
@@ -2095,6 +2431,18 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return self._hstack(Xs)
 
     def _hstack(self, Xs):
+        # [FUNCTION DOC]
+        # HELPER: Concatenates transformer outputs column-wise. Checks each output is
+        #   2-D. If the configured output container (pandas/polars) is supported by all
+        #   outputs, remembers their column names in _transformers_feature_names_out,
+        #   renames columns to unique temporary names on shallow copies and stacks with
+        #   the adapter; else uses scipy sparse hstack (CSR) if any output is sparse;
+        #   else array-API concatenation.
+        # Exceptions: ValueError if an output is not 2-D.
+        # Side effects: may set self._transformers_feature_names_out.
+        # KNOWN ISSUE: outputs are zipped with transformer_list, which still contains
+        #   'drop' entries, so the transformer name reported in the dimension error can
+        #   be wrong when some transformers are dropped.
         xp, _ = get_namespace(*Xs)
         # Check if Xs dimensions are valid
         for X, (name, _) in zip(Xs, self.transformer_list):
@@ -2129,6 +2477,12 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return xp.concat(Xs, axis=1)
 
     def _update_transformer_list(self, transformers):
+        # [FUNCTION DOC]
+        # HELPER: Replaces each non-'drop' entry of transformer_list, in order, with
+        #   the corresponding fitted transformer (in place, so 'passthrough' becomes a
+        #   fitted FunctionTransformer).
+        # Inputs: transformers - iterable of fitted transformers aligned with _iter
+        #   order.
         transformers = iter(transformers)
         self.transformer_list[:] = [
             (name, old if old == "drop" else next(transformers))
@@ -2137,6 +2491,10 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
 
     @property
     def n_features_in_(self):
+        # [FUNCTION DOC]
+        # Delegates to the first transformer's n_features_in_.
+        # KNOWN ISSUE: fails with AttributeError if the first entry is 'drop' (or an
+        #   unfitted 'passthrough' string).
         """Number of features seen during :term:`fit`."""
 
         # X is passed to all transformers so we just delegate to the first one
@@ -2144,27 +2502,43 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
 
     @property
     def feature_names_in_(self):
+        # [FUNCTION DOC]
+        # Delegates to the first transformer's feature_names_in_ (same caveat as
+        #   n_features_in_).
         """Names of features seen during :term:`fit`."""
         # X is passed to all transformers -- delegate to the first one
         return self.transformer_list[0][1].feature_names_in_
 
     def __sklearn_is_fitted__(self):
+        # [FUNCTION DOC]
+        # Calls check_is_fitted on every active transformer, letting NotFittedError
+        #   propagate; otherwise returns True.
         # Delegate whether feature union was fitted
         for _, transformer, _ in self._iter():
             check_is_fitted(transformer)
         return True
 
     def _sk_visual_block_(self):
+        # [FUNCTION DOC]
+        # Builds the parallel HTML representation block from names and transformers.
         names, transformers = zip(*self.transformer_list)
         return _VisualBlock("parallel", transformers, names=names)
 
     def __getitem__(self, name):
+        # [FUNCTION DOC]
+        # Returns the transformer with the given name.
+        # Exceptions: KeyError for non-string keys or unknown names.
         """Return transformer with name."""
         if not isinstance(name, str):
             raise KeyError("Only string keys are supported")
         return self.named_transformers[name]
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter adding every transformer (including
+        #   'drop'/'passthrough' entries) with mappings fit->fit,
+        #   fit_transform->fit_transform/fit/transform and transform->transform.
+        # Outputs: MetadataRouter.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -2194,6 +2568,11 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Sparse support if all non-drop/passthrough transformers support sparse;
+        #   array API support if all of them support it. Any error from a malformed
+        #   transformer_list is ignored.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         try:
             tags.input_tags.sparse = all(
@@ -2218,6 +2597,11 @@ class FeatureUnion(TransformerMixin, _BaseComposition):
 def make_union(
     *transformers, n_jobs=None, verbose=False, verbose_feature_names_out=True
 ):
+    # [FUNCTION DOC]
+    # Builds a FeatureUnion from positional transformers with auto-generated names.
+    # Inputs: *transformers; n_jobs, verbose, verbose_feature_names_out as in
+    #   FeatureUnion.
+    # Outputs: unfitted FeatureUnion.
     """Construct a :class:`FeatureUnion` from the given transformers.
 
     This is a shorthand for the :class:`FeatureUnion` constructor; it does not

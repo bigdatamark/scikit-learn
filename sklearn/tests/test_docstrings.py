@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Validates numpydoc docstrings of all public scikit-learn functions, estimators,
+# displays and their public methods/properties using numpydoc.validate, with a set
+# of sklearn-specific ignored error codes. Skipped entirely if numpydoc.validate is
+# unavailable (module-level importorskip). Importing enables experimental
+# estimators so they are discovered. Can also be run as a script with one import
+# path argument: prints the errors and exits with status 1, or prints a success
+# message.
+
 import re
 from inspect import signature
 from typing import Optional
@@ -17,6 +26,15 @@ numpydoc_validation = pytest.importorskip("numpydoc.validate")
 
 
 def get_all_methods():
+    # [FUNCTION DOC]
+    # HELPER: Generator of (class, method_name) pairs to validate. For each public
+    # estimator and display class, collects the names of public attributes that are
+    # callables or properties (skipping callback hook names for callback classes),
+    # appends None (meaning the class docstring itself), and yields them sorted by
+    # their string form.
+    # Outputs: yields tuples (class, str or None).
+    # KNOWN ISSUE: the callback check uses isinstance on the class object rather than
+    # issubclass, so it is never true and callback hooks are not actually skipped.
     estimators = all_estimators()
     displays = all_displays()
     for name, Klass in estimators + displays:
@@ -48,6 +66,10 @@ def get_all_methods():
 
 
 def get_all_functions_names():
+    # [FUNCTION DOC]
+    # HELPER: Generator over all public sklearn functions (from all_functions), yielding
+    # their fully qualified "module.name" strings, excluding those defined in
+    # sklearn.utils.fixes (vendored/backported code).
     functions = all_functions()
     for _, func in functions:
         # exclude functions from utils.fixex since they come from external packages
@@ -56,6 +78,13 @@ def get_all_functions_names():
 
 
 def filter_errors(errors, method, Klass=None):
+    # [FUNCTION DOC]
+    # HELPER: Filters numpydoc validation errors according to sklearn rules.
+    # Inputs: errors - iterable of (code, message); method - method name, "function",
+    # or None for a class docstring; Klass - owning class or None.
+    # Behavior: always drops RT02, GL01, GL02; drops PR02 and GL08 when the target is a
+    # property of Klass; drops EX01, SA01, ES01 unless method is None.
+    # Outputs: yields the remaining (code, message) tuples.
     """
     Ignore some errors based on the method type.
 
@@ -101,6 +130,18 @@ def filter_errors(errors, method, Klass=None):
 
 
 def repr_errors(res, Klass=None, method: Optional[str] = None) -> str:
+    # [FUNCTION DOC]
+    # HELPER: Builds a human-readable report: the source file, the object name plus its
+    # signature (or a note that the signature could not be parsed, e.g. a property),
+    # the raw docstring and a bullet list of errors.
+    # Inputs: res - numpydoc validate result dict (keys file, docstring, errors);
+    # Klass - class or None; method - method name or a descriptive string.
+    # Outputs: the report string.
+    # Exceptions: ValueError / NotImplementedError branches for missing method.
+    # KNOWN ISSUE: when method is None, hasattr(Klass, "__init__") is true even for
+    # None, so method becomes "__init__" and the ValueError/NotImplementedError
+    # branches are effectively unreachable; with Klass None this then builds a name
+    # "__init__" without error.
     """Pretty print original docstring and the obtained errors
 
     Parameters
@@ -157,6 +198,10 @@ def repr_errors(res, Klass=None, method: Optional[str] = None) -> str:
 
 @pytest.mark.parametrize("function_name", get_all_functions_names())
 def test_function_docstring(function_name, request):
+    # [FUNCTION DOC]
+    # Parametrized over every public function path; runs numpydoc validation, filters
+    # errors with method "function", and raises ValueError with a formatted report if
+    # any remain.
     """Check function docstrings using numpydoc."""
     res = numpydoc_validation.validate(function_name)
 
@@ -171,6 +216,10 @@ def test_function_docstring(function_name, request):
 @pytest.mark.no_check_spmatrix  # no __module__ for check_spmatrix classes
 @pytest.mark.parametrize("Klass, method", get_all_methods())
 def test_docstring(Klass, method, request):
+    # [FUNCTION DOC]
+    # Parametrized over (class, method) pairs from get_all_methods; validates the
+    # class docstring (method None) or the method/property docstring via its import
+    # path, filters errors, and raises ValueError with a report if any remain.
     base_import_path = Klass.__module__
     import_path = [base_import_path, Klass.__name__]
     if method is not None:

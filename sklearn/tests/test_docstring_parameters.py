@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Checks that docstrings of public sklearn objects document their parameters
+# (check_docstring_parameters) and that each estimator documents exactly its fitted
+# attributes. At import time walks all sklearn subpackages (ignoring FutureWarning)
+# to build PUBLIC_MODULES, excluding private, tests and externals modules; defines
+# ignore lists _DOCSTRING_IGNORES and _METHODS_IGNORE_NONE_Y.
+
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -71,6 +78,18 @@ _METHODS_IGNORE_NONE_Y = [
 
 
 def test_docstring_parameters():
+    # [FUNCTION DOC]
+    # For each public module (except conftest and utils.fixes): imports it, and for each
+    # public, non-abstract, non-deprecated sklearn class builds a numpydoc ClassDoc
+    # (raising RuntimeError if that emits a warning), checks __init__ parameters and
+    # every non-deprecated documented method (ignoring y for fit-like methods whose y
+    # defaults to None, and callback hooks). Then checks public functions defined in
+    # the module, except ignored or deprecated ones. Collects all mismatches and
+    # raises AssertionError listing them. Skipped without numpydoc.
+    # KNOWN ISSUE: the "XXX unreached code as of v0.22" comment is stale; the code is
+    # reached when numpydoc is installed.
+    # KNOWN ISSUE: the callback hook skip uses isinstance on a class instead of
+    # issubclass, so it never triggers.
     # Test module docstring formatting
 
     # Skip test if numpydoc is not found
@@ -161,10 +180,18 @@ def test_docstring_parameters():
 
 
 def _construct_searchcv_instance(SearchCV):
+    # [FUNCTION DOC]
+    # HELPER: Returns a search-CV estimator of the given class wrapping
+    # LogisticRegression with param grid C in [0.1, 1].
     return SearchCV(LogisticRegression(), {"C": [0.1, 1]})
 
 
 def _construct_compose_pipeline_instance(Estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns a minimal ColumnTransformer (passthrough on columns 0 and 1),
+    # Pipeline (single LogisticRegression step) or FeatureUnion (single
+    # FunctionTransformer), depending on the class name; returns None for other
+    # classes.
     # Minimal / degenerate instances: only useful to test the docstrings.
     if Estimator.__name__ == "ColumnTransformer":
         return Estimator(transformers=[("transformer", "passthrough", [0, 1])])
@@ -175,6 +202,9 @@ def _construct_compose_pipeline_instance(Estimator):
 
 
 def _construct_sparse_coder(Estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns the given SparseCoder-like class built with a fixed 5x3 float64
+    # dictionary (assumes n_features = 3).
     # XXX: hard-coded assumption that n_features=3
     dictionary = np.array(
         [[0, 1, 0], [-1, -1, 2], [1, 1, 1], [0, 1, 1], [0, 2, 1]],
@@ -190,6 +220,17 @@ def _construct_sparse_coder(Estimator):
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 @pytest.mark.parametrize("name, Estimator", all_estimators())
 def test_fit_docstring_attributes(name, Estimator):
+    # [FUNCTION DOC]
+    # Parametrized over all estimators. Builds an instance (special constructors for
+    # search CVs, compose/pipeline classes, SparseCoder, FrozenEstimator, otherwise
+    # the first instance from _construct_instances), adjusts parameters that would fail
+    # or warn on tiny data, sets max_iter to 2 (250 for TSNE) and random_state 0, then
+    # fits on text/dict data for vectorizers or a 20x3 binary classification set
+    # otherwise (adapted to estimator tags; 1D/2D label-only or 3D input estimators are
+    # fitted accordingly). Verifies every documented attribute whose description does
+    # not contain "only " exists after fit, and that every fitted attribute (public,
+    # trailing underscore, including working properties) is documented; raises
+    # AssertionError for undocumented ones. Skipped without numpydoc.
     pytest.importorskip("numpydoc")
     from numpydoc import docscrape
 
@@ -321,6 +362,12 @@ def test_fit_docstring_attributes(name, Estimator):
 
 
 def _get_all_fitted_attributes(estimator):
+    # [FUNCTION DOC]
+    # HELPER: Lists fitted attribute names of an estimator: instance dict keys plus
+    # class properties that can be accessed without raising AttributeError or a
+    # FutureWarning (turned into errors here), keeping names ending with "_" and not
+    # starting with "_".
+    # Outputs: list of str.
     "Get all the fitted attributes of an estimator including properties"
     # attributes
     fit_attr = list(estimator.__dict__.keys())

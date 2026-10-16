@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# NeighborhoodComponentsAnalysis: supervised linear metric learning that finds a
+# projection maximizing the expected leave-one-out accuracy of a stochastic nearest
+# neighbor classifier, optimized with SciPy L-BFGS-B.
+# Side effects at import: none.
 """
 Neighborhood Component Analysis
 """
@@ -34,6 +39,9 @@ from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 class NeighborhoodComponentsAnalysis(
     ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Transformer learning components_ (n_components, n_features); transform projects
+    # data by multiplying with components_ transposed.
     """Neighborhood Components Analysis.
 
     Neighborhood Component Analysis (NCA) is a machine learning algorithm for
@@ -213,6 +221,10 @@ class NeighborhoodComponentsAnalysis(
         verbose=0,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Stores hyper-parameters unchanged (n_components, init, warm_start, max_iter,
+        # tol,
+        # callback, verbose, random_state).
         self.n_components = n_components
         self.init = init
         self.warm_start = warm_start
@@ -224,6 +236,27 @@ class NeighborhoodComponentsAnalysis(
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Steps: validate X, y (at least 2 samples), check classification targets and
+        # label-encode y. Validate n_components <= n_features, warm-start
+        # dimensionality, and
+        # an array init (columns equal n_features, rows <= columns, rows equal
+        # n_components if
+        # set). Create random_state_. Build the (n_samples, n_samples) same-class
+        # boolean mask,
+        # initialize the flattened transformation via _initialize, and minimize the
+        # negated
+        # NCA objective with L-BFGS-B (gradient supplied, tol, maxiter, callback).
+        # Reshape the
+        # solution into components_. With verbose, warn on non-convergence and print
+        # time.
+        # Inputs: X - (n_samples, n_features); y - (n_samples,) labels.
+        # Outputs: self.
+        # Exceptions: ValueError for the dimension inconsistencies above or invalid
+        # targets.
+        # Side effects: sets components_, n_iter_, random_state_, n_features_in_; prints
+        # and
+        # ConvergenceWarning when verbose.
         """Fit the model according to the given training data.
 
         Parameters
@@ -346,6 +379,9 @@ class NeighborhoodComponentsAnalysis(
         return self
 
     def transform(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns X multiplied by components_ transposed.
+        # Outputs: array (n_samples, n_components). Exceptions: NotFittedError.
         """Apply the learned transformation to the given data.
 
         Parameters
@@ -370,6 +406,20 @@ class NeighborhoodComponentsAnalysis(
         return np.dot(X, self.components_.T)
 
     def _initialize(self, X, y, init):
+        # [FUNCTION DOC]
+        # HELPER: Chooses the starting transformation. Warm start reuses components_; an
+        # array init is used as is. Otherwise n_components defaults to n_features and
+        # "auto"
+        # picks lda if n_components <= min(n_features, n_classes-1), else pca if
+        # n_components
+        # < min(n_features, n_samples), else identity. identity: rectangular eye;
+        # random:
+        # standard normal from random_state_; pca: PCA components; lda: first
+        # n_components rows
+        # of LinearDiscriminantAnalysis scalings_ transposed.
+        # Inputs: X, y (encoded labels), init - str or array.
+        # Outputs: array (n_components, n_features).
+        # Side effects: consumes random_state_ randomness; prints progress when verbose.
         """Initialize the transformation.
 
         Parameters
@@ -437,6 +487,9 @@ class NeighborhoodComponentsAnalysis(
         return transformation
 
     def _callback(self, transformation):
+        # [FUNCTION DOC]
+        # HELPER: Optimizer callback; calls the user callback with the current flat
+        # transformation and n_iter_, then increments n_iter_.
         """Called after each iteration of the optimizer.
 
         Parameters
@@ -450,6 +503,26 @@ class NeighborhoodComponentsAnalysis(
         self.n_iter_ += 1
 
     def _loss_grad_lbfgs(self, transformation, X, same_class_mask, sign=1.0):
+        # [FUNCTION DOC]
+        # HELPER: Computes the NCA objective and gradient. Embed X with the current
+        # transformation, compute squared pairwise distances (diagonal set to infinity),
+        # row
+        # softmax of the negated distances gives p_ij. Loss is the sum over i of the
+        # probability mass on same-class points p_i. Gradient: with W = masked p_ij
+        # minus p_ij
+        # times p_i, symmetrize W + W^T, set its diagonal to minus the column sums of W,
+        # and
+        # the gradient is 2 times embedded-X transposed times that matrix times X.
+        # Inputs: transformation - flat (n_components*n_features,); X; same_class_mask;
+        # sign - multiplier (fit uses -1 to turn maximization into minimization).
+        # Outputs: (sign*loss float, sign*gradient flat array).
+        # Side effects: on the first call sets n_iter_ to 1 and prints a header when
+        # verbose;
+        # prints per-call progress when verbose.
+        # KNOWN ISSUE: n_iter_ is incremented both on the first loss evaluation and in
+        # every
+        # callback, so the final n_iter_ is one more than the number of optimizer
+        # iterations.
         """Compute the loss and the loss gradient w.r.t. `transformation`.
 
         Parameters
@@ -524,11 +597,15 @@ class NeighborhoodComponentsAnalysis(
         return sign * loss, sign * gradient.ravel()
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares that y is required.
         tags = super().__sklearn_tags__()
         tags.target_tags.required = True
         return tags
 
     @property
     def _n_features_out(self):
+        # [FUNCTION DOC]
+        # Number of output features (rows of components_), used for feature names.
         """Number of transformed output features."""
         return self.components_.shape[0]

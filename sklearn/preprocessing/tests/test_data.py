@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tests for the scalers, normalizers and transformers in sklearn.preprocessing._data:
+# StandardScaler, MinMaxScaler, MaxAbsScaler, RobustScaler, QuantileTransformer,
+# PowerTransformer, Normalizer, Binarizer, KernelCenterer and their function
+# counterparts (scale, minmax_scale, maxabs_scale, robust_scale, quantile_transform,
+# power_transform, normalize, add_dummy_feature). Covers sample weights, partial_fit,
+# sparse inputs, NaN handling, dtype preservation, array API support, clipping, feature
+# names and callbacks.
+# Side effects at import: loads iris and builds shared random datasets (X_2d with
+# 1000x30 samples, single-row/column variants) from a module-level RandomState(0) that
+# some tests keep drawing from.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -88,16 +99,27 @@ X_list_1col = X_1col.tolist()
 
 
 def toarray(a):
+    # [FUNCTION DOC]
+    # HELPER: Returns a.toarray() when a has that method (sparse input), else a
+    # unchanged.
     if hasattr(a, "toarray"):
         a = a.toarray()
     return a
 
 
 def _check_dim_1axis(a):
+    # [FUNCTION DOC]
+    # HELPER: Returns the length of the first axis of a after conversion to a numpy
+    # array.
     return np.asarray(a).shape[0]
 
 
 def assert_correct_incr(i, batch_start, batch_stop, n, chunk_size, n_samples_seen):
+    # [FUNCTION DOC]
+    # HELPER: Asserts the running n_samples_seen after batch i of an incremental fit: (i
+    # + 1) * chunk_size for full batches, or i * chunk_size plus the size of the final
+    # partial batch when batch_stop equals n.
+    # Exceptions: AssertionError on mismatch.
     if batch_stop != n:
         assert (i + 1) * chunk_size == n_samples_seen
     else:
@@ -105,6 +127,10 @@ def assert_correct_incr(i, batch_start, batch_stop, n, chunk_size, n_samples_see
 
 
 def test_raises_value_error_if_sample_weights_greater_than_1d():
+    # [FUNCTION DOC]
+    # Verifies StandardScaler.fit raises ValueError when sample_weight is 2d (shape
+    # (n_samples, 1)), for two small random shapes.
+    # Side effects: consumes the module-level rng.
     # Sample weights must be either scalar or 1D
 
     n_sampless = [2, 3]
@@ -123,6 +149,10 @@ def test_raises_value_error_if_sample_weights_greater_than_1d():
 
 
 def _yield_xw_x_sampleweight():
+    # [FUNCTION DOC]
+    # HELPER: Yields (Xw, X, sample_weight) triples where fitting Xw with integer-valued
+    # sample_weight should equal fitting X with the weighted rows repeated; includes
+    # dense values, zero columns and NaN entries.
     yield from (
         (
             [[1, 2, 3], [4, 5, 6]],
@@ -150,6 +180,10 @@ def _yield_xw_x_sampleweight():
 @pytest.mark.parametrize(["Xw", "X", "sample_weight"], _yield_xw_x_sampleweight())
 @pytest.mark.parametrize("array_constructor", ["array", "sparse_csr", "sparse_csc"])
 def test_standard_scaler_sample_weight(Xw, X, sample_weight, array_constructor):
+    # [FUNCTION DOC]
+    # Verifies weighted StandardScaler on Xw gives the same mean_, var_ and transform as
+    # unweighted fitting on the repeated-row X, for dense, CSR and CSC inputs (with_mean
+    # disabled for sparse).
     with_mean = not array_constructor.startswith("sparse")
     X = _convert_container(X, array_constructor)
     Xw = _convert_container(Xw, array_constructor)
@@ -179,6 +213,10 @@ def test_standard_scaler_sample_weight(Xw, X, sample_weight, array_constructor):
 def test_standard_scaler_sample_weight_array_api(
     Xw, X, sample_weight, namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies under array API dispatch that weighted and repeated-row fits give
+    # matching mean_ and var_ to the numpy reference and to each other, and that their
+    # transforms of a test array agree, for each namespace/device/dtype combination.
     # N.B. The sample statistics for Xw w/ sample_weight should match
     #      the statistics of X w/ uniform sample_weight.
     xp, device = _array_api_for_tests(namespace, device_name, dtype_name)
@@ -233,6 +271,12 @@ def test_standard_scaler_sample_weight_array_api(
 
 
 def test_standard_scaler_1d():
+    # [FUNCTION DOC]
+    # Verifies StandardScaler on single-row and single-column inputs: one row gives mean
+    # equal to the row, unit scale and zero output; one column gives mean/std of the
+    # column and standardized output; n_samples_seen_ and inverse_transform round trip;
+    # a constant column gets scale 1 and zero output.
+    # KNOWN ISSUE: the input list repeats X_list_1row and never includes X_list_1col.
     # Test scaling of dataset along single axis
     for X in [X_1row, X_1col, X_list_1row, X_list_1row]:
         scaler = StandardScaler()
@@ -272,6 +316,10 @@ def test_standard_scaler_1d():
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS + CSR_CONTAINERS)
 @pytest.mark.parametrize("add_sample_weight", [False, True])
 def test_standard_scaler_dtype(add_sample_weight, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies StandardScaler preserves the input float dtype (float16 only for dense)
+    # in transform while mean_ and scale_ stay float64, with and without unit sample
+    # weights, for dense, CSC and CSR inputs.
     # Ensure scaling does not affect dtype
     rng = np.random.RandomState(0)
     n_samples = 10
@@ -314,6 +362,11 @@ def test_standard_scaler_dtype(add_sample_weight, sparse_container):
 def test_standard_scaler_constant_features(
     scaler, add_sample_weight, sparse_container, dtype, constant
 ):
+    # [FUNCTION DOC]
+    # Verifies constant features (0, 1, 100) are not scaled by
+    # StandardScaler(with_mean=False) or RobustScaler(with_centering=False): scale_ is
+    # 1, var_ near 0 for StandardScaler, output is a copy equal to the input, and
+    # scale() agrees when unweighted. RobustScaler with weights is skipped.
     scaler = clone(scaler)  # Avoid side effects from previous tests.
     if isinstance(scaler, RobustScaler) and add_sample_weight:
         pytest.skip(f"{scaler.__class__.__name__} does not yet support sample_weight")
@@ -353,6 +406,12 @@ def test_standard_scaler_constant_features(
 def test_standard_scaler_near_constant_features(
     n_samples, sparse_container, average, dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies that features with variance below the float64 precision bound n*eps*var +
+    # n^2*eps^2*mean^2 are treated as constant (scale_ 1), that features whose two
+    # values are not representable as distinct have zero variance, and that other
+    # features get scale_ equal to sqrt(var_). Data uses scales 1e-30..1e19 around a
+    # given average.
     # Check that when the variance is too small (var << mean**2) the feature
     # is considered constant and not scaled.
 
@@ -401,6 +460,9 @@ def test_standard_scaler_near_constant_features(
 
 
 def test_scale_1d():
+    # [FUNCTION DOC]
+    # Verifies scale() on 1d list and array inputs gives zero mean and unit std, and
+    # that with_mean and with_std both False returns the input unchanged.
     # 1-d inputs
     X_list = [1.0, 3.0, 5.0, 0.0]
     X_arr = np.array(X_list)
@@ -414,6 +476,11 @@ def test_scale_1d():
 
 @skip_if_32bit
 def test_standard_scaler_numerical_stability():
+    # [FUNCTION DOC]
+    # Verifies numerical stability warnings of scale(): no warning for 8 copies of
+    # log(1e-5) or for tiny values, a 'close to 0' UserWarning for 10 copies of
+    # log(1e-5), and a 'too large values' warning for 1e100 values; all results are
+    # zeros. Skipped on 32-bit platforms.
     # Test numerical stability of scaling
     # np.log(1e-5) is taken because of its floating point representation
     # was empirically found to cause numerical problems with np.mean & np.std.
@@ -452,6 +519,11 @@ def test_standard_scaler_numerical_stability():
 
 
 def test_scaler_2d_arrays():
+    # [FUNCTION DOC]
+    # Verifies StandardScaler on a 2d array with a zero column: zero mean, unit std
+    # except the zero column, copy semantics for copy=True/False, inverse round trip;
+    # scale() along axis=1 with and without std; and a constant non-zero column also
+    # maps to zeros.
     # Test scaling of 2d array along first axis
     rng = np.random.RandomState(0)
     n_features = 5
@@ -504,6 +576,10 @@ def test_scaler_2d_arrays():
 
 
 def test_scaler_float16_overflow():
+    # [FUNCTION DOC]
+    # Verifies StandardScaler on 200000 float16 samples does not overflow (numpy
+    # overflow raised as error), produces finite output and matches the float64 result
+    # to 2 decimals.
     # Test if the scaler will not overflow on float16 numpy arrays
     rng = np.random.RandomState(0)
     # float16 has a maximum of 65500.0. On the worst case 5 * 200000 is 100000
@@ -529,6 +605,9 @@ def test_scaler_float16_overflow():
 
 
 def test_handle_zeros_in_scale():
+    # [FUNCTION DOC]
+    # Verifies _handle_zeros_in_scale with copy=True replaces zero and near-zero (1e-16)
+    # scales by 1 while leaving the input array unmodified.
     s1 = np.array([0, 1e-16, 1, 2, 3])
     s2 = _handle_zeros_in_scale(s1, copy=True)
 
@@ -537,6 +616,11 @@ def test_handle_zeros_in_scale():
 
 
 def test_minmax_scaler_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies MinMaxScaler.partial_fit over batches of several sizes matches fit on
+    # data_min_, data_max_, data_range_, scale_, min_ and n_samples_seen_, both for the
+    # full data and after one batch, and that n_samples_seen_ increments correctly per
+    # batch.
     # Test if partial_fit run over many batches of size 1 and 50
     # gives the same results as fit
     X = X_2d
@@ -585,6 +669,11 @@ def test_minmax_scaler_partial_fit():
 
 
 def test_standard_scaler_partial_fit():
+    # [FUNCTION DOC]
+    # Verifies StandardScaler.partial_fit over batches of several sizes matches fit for
+    # mean_ (with_std False, var_ None), for var_/scale_ after a single batch (zero var
+    # and unit scale for size 1), and for var_ and n_samples_seen_ after all batches,
+    # checking per-batch counts.
     # Test if partial_fit run over many batches of size 1 and 50
     # gives the same results as fit
     X = X_2d
@@ -637,6 +726,11 @@ def test_standard_scaler_partial_fit():
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_standard_scaler_partial_fit_numerical_stability(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies that sample-by-sample partial_fit on data with huge offsets and scales
+    # matches batch fit within 1e-6 relative tolerance, and that sparse row-by-row
+    # partial_fit with values 1e20 matches batch var_ and scale_ (reshaping 1d sparse
+    # rows to 2d).
     # Test if the incremental computation introduces significative errors
     # for large datasets with values of large magniture
     rng = np.random.RandomState(0)
@@ -685,6 +779,10 @@ def test_standard_scaler_partial_fit_numerical_stability(sparse_container):
 @pytest.mark.parametrize("sample_weight", [True, None])
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_partial_fit_sparse_input(sample_weight, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies an identity StandardScaler (no mean, no std) applied via partial_fit on
+    # sparse input keeps the data and sparsity, and inverse_transform returns the
+    # original, with and without random sample weights.
     # Check that sparsity is not destroyed
     X = sparse_container(np.array([[1.0], [0.0], [0.0], [5.0]]))
 
@@ -701,6 +799,11 @@ def test_partial_fit_sparse_input(sample_weight, sparse_container):
 
 @pytest.mark.parametrize("sample_weight", [True, None])
 def test_standard_scaler_transform_with_partial_fit(sample_weight):
+    # [FUNCTION DOC]
+    # Verifies, for incremental fits row by row on 100 rows (optionally weighted), that
+    # transform equals a fresh fit_transform on the rows so far, the input is not
+    # modified, inverse_transform round-trips, var_ and scale_ are non-negative, and
+    # n_samples_seen_ equals the count or sum of weights.
     # Check some postconditions after applying partial_fit and transform
     X = X_2d[:100, :]
 
@@ -742,6 +845,9 @@ def test_standard_scaler_transform_with_partial_fit(sample_weight):
 
 
 def test_standard_check_array_of_inverse_transform():
+    # [FUNCTION DOC]
+    # Verifies inverse_transform accepts an int32 array (it must be converted to float
+    # internally) without raising.
     # Check if StandardScaler inverse_transform is
     # converting the integer array to float
     x = np.array(
@@ -792,6 +898,9 @@ def test_standard_check_array_of_inverse_transform():
 def test_preprocessing_array_api_compliance(
     estimator, check, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Runs check_array_api_input_and_values for several preprocessing estimators across
+    # array namespaces, devices and dtypes.
     name = estimator.__class__.__name__
     check(
         name,
@@ -812,6 +921,10 @@ def test_preprocessing_array_api_compliance(
     ids=_get_check_estimator_ids,
 )
 def test_preprocessing_integer_array_api_on_float32_only_device(estimator):
+    # [FUNCTION DOC]
+    # Verifies that integer torch input on the float32-only MPS device yields float32
+    # output from fit_transform under array API dispatch. Skipped where torch/MPS is
+    # unavailable.
     xp, device = _array_api_for_tests("torch", device_name="mps", dtype_name="float32")
 
     # TODO: replace this torch/MPS-specific coverage by array-api-strict once
@@ -826,6 +939,9 @@ def test_preprocessing_integer_array_api_on_float32_only_device(estimator):
 
 
 def test_normalize_integer_array_api_on_float32_only_device():
+    # [FUNCTION DOC]
+    # Same as the previous test for the normalize function: integer input on MPS yields
+    # float32 output.
     xp, device = _array_api_for_tests("torch", device_name="mps", dtype_name="float32")
 
     # TODO: replace this torch/MPS-specific coverage by array-api-strict once
@@ -852,6 +968,9 @@ def test_normalize_integer_array_api_on_float32_only_device():
 def test_standard_scaler_array_api_compliance(
     check, sample_weight, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Runs check_array_api_input_and_values for StandardScaler with and without sample
+    # weights across namespaces, devices and dtypes.
     estimator = StandardScaler()
     name = estimator.__class__.__name__
     check(
@@ -865,6 +984,10 @@ def test_standard_scaler_array_api_compliance(
 
 
 def test_min_max_scaler_iris():
+    # [FUNCTION DOC]
+    # Verifies MinMaxScaler on iris maps each feature to the default and custom feature
+    # ranges, round-trips with inverse_transform, and raises ValueError when
+    # feature_range min exceeds max.
     X = iris.data
     scaler = MinMaxScaler()
     # default params
@@ -897,6 +1020,10 @@ def test_min_max_scaler_iris():
 
 
 def test_min_max_scaler_zero_variance_features():
+    # [FUNCTION DOC]
+    # Verifies MinMaxScaler with zero-variance features maps them to the range minimum,
+    # checks expected outputs on new data (including out-of-range values), a custom
+    # range, and the minmax_scale function equivalents.
     # Check min max scaler on toy data with zero variance features
     X = [[0.0, 1.0, +0.5], [0.0, 1.0, -0.1], [0.0, 1.0, +1.1]]
 
@@ -928,6 +1055,8 @@ def test_min_max_scaler_zero_variance_features():
 
 
 def test_minmax_scale_axis1():
+    # [FUNCTION DOC]
+    # Verifies minmax_scale with axis=1 scales each row of iris to [0, 1].
     X = iris.data
     X_trans = minmax_scale(X, axis=1)
     assert_array_almost_equal(np.min(X_trans, axis=1), 0)
@@ -935,6 +1064,11 @@ def test_minmax_scale_axis1():
 
 
 def test_min_max_scaler_1d():
+    # [FUNCTION DOC]
+    # Verifies MinMaxScaler on single-row inputs gives all zeros and on single-column
+    # inputs spans [0, 1], with n_samples_seen_ and inverse round trip; a constant
+    # column stays in [0, 1]; minmax_scale on a 1d array matches the explicit formula.
+    # KNOWN ISSUE: the input list repeats X_list_1row and never includes X_list_1col.
     # Test scaling of dataset along single axis
     for X in [X_1row, X_1col, X_list_1row, X_list_1row]:
         scaler = MinMaxScaler(copy=True)
@@ -975,6 +1109,13 @@ def test_min_max_scaler_1d():
 @pytest.mark.parametrize("sample_weight", [True, None])
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_scaler_without_centering(sample_weight, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies StandardScaler(with_mean=False) on dense vs sparse inputs with a zero
+    # column (optionally weighted): with_mean=True raises ValueError on sparse; outputs
+    # contain no NaN; mean_, var_, scale_, n_samples_seen_ agree; unweighted dense
+    # output has the expected column means and unit std (zero column stays 0); sparse
+    # output mean/variance match dense; copies are returned; inverse_transform round-
+    # trips for both; for CSR an identity scaler preserves the data array.
     rng = np.random.RandomState(42)
     X = rng.randn(4, 5)
     X[:, 0] = 0.0  # first feature is always of zero
@@ -1037,6 +1178,10 @@ def test_scaler_without_centering(sample_weight, sparse_container):
 @pytest.mark.parametrize("with_std", [True, False])
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS + CSR_CONTAINERS)
 def test_scaler_n_samples_seen_with_nan(with_mean, with_std, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies n_samples_seen_ is a per-feature count of non-NaN values ([3, 4, 2]) for
+    # all with_mean/with_std combinations and dense/sparse inputs (with_mean on sparse
+    # skipped).
     X = np.array(
         [[0, 1, 3], [np.nan, 6, 10], [5, 4, np.nan], [8, 0, np.nan]], dtype=np.float64
     )
@@ -1053,6 +1198,9 @@ def test_scaler_n_samples_seen_with_nan(with_mean, with_std, sparse_container):
 
 
 def _check_identity_scalers_attributes(scaler_1, scaler_2):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two identity StandardScalers both have mean_, var_ and scale_ set
+    # to None and equal n_samples_seen_.
     assert scaler_1.mean_ is scaler_2.mean_ is None
     assert scaler_1.var_ is scaler_2.var_ is None
     assert scaler_1.scale_ is scaler_2.scale_ is None
@@ -1061,6 +1209,10 @@ def _check_identity_scalers_attributes(scaler_1, scaler_2):
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_scaler_return_identity(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies StandardScaler with with_mean and with_std False is the identity on dense
+    # and sparse data, and that fit, partial_fit and refit leave mean_/var_/scale_ None
+    # and n_samples_seen_ equal between dense and sparse.
     # test that the scaler return identity when with_mean and with_std are
     # False
     X_dense = np.array([[0, 1, 3], [5, 6, 0], [8, 0, 10]], dtype=np.float64)
@@ -1087,6 +1239,13 @@ def test_scaler_return_identity(sparse_container):
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_scaler_int(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies StandardScaler(with_mean=False) converts integer input to float for dense
+    # and sparse data: no NaN, matching statistics, expected column means and unit std,
+    # sparse statistics match dense, copies returned, inverse round trip, and identity
+    # scaler preserves CSR data. Warnings during fit are swallowed.
+    # KNOWN ISSUE: the variance from mean_variance_axis is named X_sparse_scaled_std and
+    # compared to the dense std; this passes only because the std values are all 0 or 1.
     # test that scaler converts integer input to floating
     # for both sparse and dense matrices
     rng = np.random.RandomState(42)
@@ -1144,6 +1303,8 @@ def test_scaler_int(sparse_container):
 
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + CSC_CONTAINERS)
 def test_scaler_without_copy(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies fit with copy=False does not modify dense or sparse input data.
     # Check that StandardScaler.fit does not change input
     rng = np.random.RandomState(42)
     X = rng.randn(4, 5)
@@ -1161,6 +1322,9 @@ def test_scaler_without_copy(sparse_container):
 
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + CSC_CONTAINERS)
 def test_scale_sparse_with_mean_raise_exception(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies ValueError for centering sparse data: scale with with_mean=True, fit on
+    # sparse, transform of sparse after dense fit, and inverse_transform of sparse.
     rng = np.random.RandomState(42)
     X = rng.randn(4, 5)
     X_sparse = sparse_container(X)
@@ -1182,6 +1346,9 @@ def test_scale_sparse_with_mean_raise_exception(sparse_container):
 
 
 def test_scale_input_finiteness_validation():
+    # [FUNCTION DOC]
+    # Verifies scale() raises ValueError mentioning infinity when the input contains
+    # np.inf.
     # Check if non-finite inputs raise ValueError
     X = [[np.inf, 5, 6, 7, 8]]
     with pytest.raises(
@@ -1191,6 +1358,9 @@ def test_scale_input_finiteness_validation():
 
 
 def test_robust_scaler_error_sparse():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler(with_centering=True).fit on a sparse matrix raises
+    # ValueError 'Cannot center sparse matrices'.
     X_sparse = _sparse_random_array((1000, 10))
     scaler = RobustScaler(with_centering=True)
     err_msg = "Cannot center sparse matrices"
@@ -1204,6 +1374,11 @@ def test_robust_scaler_error_sparse():
     "X", [np.random.randn(10, 3), _sparse_random_array((10, 3), density=0.5)]
 )
 def test_robust_scaler_attributes(X, with_centering, with_scaling):
+    # [FUNCTION DOC]
+    # Verifies RobustScaler center_ and scale_ are ndarrays when the corresponding
+    # option is enabled and None otherwise, for dense and sparse inputs (centering on
+    # sparse skipped).
+    # Side effects: parametrization draws from the unseeded global numpy RNG at import.
     # check consistent type of attributes
     if with_centering and sparse.issparse(X):
         pytest.skip("RobustScaler cannot center sparse matrix")
@@ -1223,6 +1398,10 @@ def test_robust_scaler_attributes(X, with_centering, with_scaling):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_robust_scaler_col_zero_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies RobustScaler without centering on CSR data with an all-zero column gives
+    # scale_ 1 for that column and leaves it unchanged by transform. Uses the unseeded
+    # global RNG.
     # check that the scaler is working when there is not data materialized in a
     # column of a sparse matrix
     X = np.random.randn(10, 5)
@@ -1238,6 +1417,9 @@ def test_robust_scaler_col_zero_sparse(csr_container):
 
 
 def test_robust_scaler_2d_arrays():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler on a 2d array with a zero column gives zero per-column
+    # medians and zero std for the zero column.
     # Test robust scaling of 2d array along first axis
     rng = np.random.RandomState(0)
     X = rng.randn(4, 5)
@@ -1253,6 +1435,10 @@ def test_robust_scaler_2d_arrays():
 @pytest.mark.parametrize("density", [0, 0.05, 0.1, 0.5, 1])
 @pytest.mark.parametrize("strictly_signed", ["positive", "negative", "zeros", None])
 def test_robust_scaler_equivalence_dense_sparse(density, strictly_signed):
+    # [FUNCTION DOC]
+    # Verifies RobustScaler(with_centering=False) learns the same scale_ from sparse CSC
+    # data and its dense equivalent, across densities and sign patterns (positive,
+    # negative, all zeros, mixed).
     # Check the equivalence of the fitting with dense and sparse matrices
     X_sparse = _sparse_random_array((1000, 5), density=density).tocsc()
     if strictly_signed == "positive":
@@ -1274,6 +1460,9 @@ def test_robust_scaler_equivalence_dense_sparse(density, strictly_signed):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_robust_scaler_transform_one_row_csr(csr_container):
+    # [FUNCTION DOC]
+    # Verifies RobustScaler fitted on dense data transforms a one-row CSR matrix by
+    # dividing by scale_ and inverse_transform round-trips.
     # Check RobustScaler on transforming csr matrix with one row
     rng = np.random.RandomState(0)
     X = rng.randn(4, 5)
@@ -1288,6 +1477,9 @@ def test_robust_scaler_transform_one_row_csr(csr_container):
 
 
 def test_robust_scaler_iris():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler on iris yields zero medians, unit interquartile range, and
+    # an exact inverse.
     X = iris.data
     scaler = RobustScaler()
     X_trans = scaler.fit_transform(X)
@@ -1300,6 +1492,9 @@ def test_robust_scaler_iris():
 
 
 def test_robust_scaler_iris_quantiles():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler with quantile_range (10, 90) on iris yields zero medians,
+    # unit 10-90 percentile range and an exact inverse.
     X = iris.data
     scaler = RobustScaler(quantile_range=(10, 90))
     X_trans = scaler.fit_transform(X)
@@ -1313,6 +1508,10 @@ def test_robust_scaler_iris_quantiles():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_quantile_transform_iris(csc_container):
+    # [FUNCTION DOC]
+    # Verifies QuantileTransformer on iris round-trips via inverse_transform for uniform
+    # and normal output distributions, and for CSC input containing negative values
+    # (normal output).
     X = iris.data
     # uniform output distribution
     transformer = QuantileTransformer(n_quantiles=30)
@@ -1334,6 +1533,12 @@ def test_quantile_transform_iris(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_quantile_transform_check_error(csc_container):
+    # [FUNCTION DOC]
+    # Verifies QuantileTransformer error/warning paths: n_quantiles larger than
+    # subsample raises ValueError; negative sparse input raises at fit and at transform;
+    # inverse_transform with wrong feature count raises; scalar input raises 'Expected
+    # 2D array'; n_quantiles larger than n_samples warns exactly once and clips
+    # n_quantiles_ to n_samples.
     X = np.transpose(
         [
             [0, 25, 50, 0, 0, 0, 75, 0, 0, 100],
@@ -1392,6 +1597,11 @@ def test_quantile_transform_check_error(csc_container):
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_quantile_transform_sparse_ignore_zeros(csc_container):
+    # [FUNCTION DOC]
+    # Verifies ignore_implicit_zeros: warns and has no effect on dense input; on sparse
+    # inputs (including explicit stored zeros and negative values) produces the expected
+    # transformed values computed from stored entries only, inverse round-trips, and
+    # gives the same result with subsampling.
     X = np.array([[0, 1], [0, 0], [0, 2], [0, 2], [0, 1]])
     X_sparse = csc_container(X)
     transformer = QuantileTransformer(ignore_implicit_zeros=True, n_quantiles=5)
@@ -1457,6 +1667,10 @@ def test_quantile_transform_sparse_ignore_zeros(csc_container):
 
 
 def test_quantile_transform_dense_toy():
+    # [FUNCTION DOC]
+    # Verifies QuantileTransformer with 5 quantiles maps a 5-row dataset to evenly
+    # spaced values in [0, 1] per column, clips out-of-range test values to 0 and 1, and
+    # inverts exactly.
     X = np.array(
         [[0, 2, 2.6], [25, 4, 4.1], [50, 6, 2.3], [75, 8, 9.5], [100, 10, 0.1]]
     )
@@ -1489,6 +1703,10 @@ def test_quantile_transform_dense_toy():
 
 
 def test_quantile_transform_subsampling():
+    # [FUNCTION DOC]
+    # Verifies that subsampling (100000 of 1000000 samples) yields quantiles within 1e-2
+    # (dense) or 1e-1 (sparse) of the uniform CDF and that different random_state values
+    # give distinct approximations. Uses unseeded global RNG for dense data.
     # Test that subsampling the input yield to a consistent results We check
     # that the computed quantiles are almost mapped to a [0, 1] vector where
     # values are equally spaced. The infinite norm is checked to be smaller
@@ -1536,6 +1754,9 @@ def test_quantile_transform_subsampling():
 
 
 def test_quantile_transform_subsampling_disabled():
+    # [FUNCTION DOC]
+    # Verifies subsample=None uses all data: references_ are evenly spaced and
+    # quantiles_ equal numpy quantiles of the full data.
     """Check the behaviour of `QuantileTransformer` when `subsample=None`."""
     X = np.random.RandomState(0).normal(size=(200, 1))
 
@@ -1550,6 +1771,10 @@ def test_quantile_transform_subsampling_disabled():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_quantile_transform_sparse_toy(csc_container):
+    # [FUNCTION DOC]
+    # Verifies QuantileTransformer on sparse CSC toy data maps each column to [0, 1] and
+    # inverts exactly, both when fitted on the sparse data and when fitted on its dense
+    # version and applied to sparse.
     X = np.array(
         [
             [0.0, 2.0, 0.0],
@@ -1588,6 +1813,9 @@ def test_quantile_transform_sparse_toy(csc_container):
 
 
 def test_quantile_transform_axis1():
+    # [FUNCTION DOC]
+    # Verifies quantile_transform with axis=1 equals the transposed result of axis=0 on
+    # the transposed input.
     X = np.array([[0, 25, 50, 75, 100], [2, 4, 6, 8, 10], [2.6, 4.1, 2.3, 9.5, 0.1]])
 
     X_trans_a0 = quantile_transform(X.T, axis=0, n_quantiles=5)
@@ -1597,6 +1825,11 @@ def test_quantile_transform_axis1():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_quantile_transform_bounds(csc_container):
+    # [FUNCTION DOC]
+    # Verifies bound handling: constant and binary features map to themselves for dense
+    # and sparse inputs; transforming new data within the fit range maps correctly;
+    # values beyond the fitted min/max transform (and inverse-transform beyond
+    # references_) like the boundary values.
     # Lower and upper bounds are manually mapped. We checked that in the case
     # of a constant feature and binary feature, the bounds are properly mapped.
     X_dense = np.array([[0, 0], [0, 0], [1, 0]])
@@ -1634,6 +1867,9 @@ def test_quantile_transform_bounds(csc_container):
 
 
 def test_quantile_transform_and_inverse():
+    # [FUNCTION DOC]
+    # Verifies QuantileTransformer with 1000 quantiles round-trips iris and a small
+    # array containing a value below BOUNDS_THRESHOLD to 9 decimals.
     X_1 = iris.data
     X_2 = np.array([[0.0], [BOUNDS_THRESHOLD / 10], [1.5], [2], [3], [3], [4]])
     for X in [X_1, X_2]:
@@ -1644,6 +1880,9 @@ def test_quantile_transform_and_inverse():
 
 
 def test_quantile_transform_nan():
+    # [FUNCTION DOC]
+    # Verifies that an all-NaN column yields all-NaN quantiles_ while the other columns
+    # have no NaN quantiles.
     X = np.array([[np.nan, 0, 0, 1], [np.nan, np.nan, 0, 0.5], [np.nan, 1, 1, 0]])
 
     transformer = QuantileTransformer(n_quantiles=10, random_state=42)
@@ -1657,6 +1896,9 @@ def test_quantile_transform_nan():
 
 @pytest.mark.parametrize("array_type", ["array", "sparse"])
 def test_quantile_transformer_sorted_quantiles(array_type):
+    # [FUNCTION DOC]
+    # Non-regression for #15733: verifies fitted quantiles are monotonically non-
+    # decreasing on data with many ties, for dense and sparse inputs.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/15733
     # Taken from upstream bug report:
@@ -1676,6 +1918,11 @@ def test_quantile_transformer_sorted_quantiles(array_type):
 
 
 def test_quantile_transformer_sparse_subsampling():
+    # [FUNCTION DOC]
+    # Non-regression for #32585: on a very sparse CSC matrix with two similar columns,
+    # verifies with ignore_implicit_zeros and subsampling that quantiles are positive,
+    # not degenerate, and close between the columns; without ignoring zeros over 90% of
+    # quantiles are zero.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/32585
 
@@ -1723,6 +1970,9 @@ def test_quantile_transformer_sparse_subsampling():
 
 
 def test_robust_scaler_invalid_range():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler.fit raises 'Invalid quantile range' ValueError for ranges
+    # outside [0, 100] or with min greater than max.
     for range_ in [
         (-1, 90),
         (-2, -3),
@@ -1738,6 +1988,13 @@ def test_robust_scaler_invalid_range():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_scale_function_without_centering(csr_container):
+    # [FUNCTION DOC]
+    # Verifies scale(with_mean=False) on dense, CSR and CSC inputs gives no NaN and
+    # matching results, raises ValueError for sparse with axis=1, yields expected means
+    # and unit std, returns a copy, sparse mean/variance match dense, and the null
+    # scaling leaves CSR data unchanged.
+    # KNOWN ISSUE: the variance from mean_variance_axis is named X_csr_scaled_std and
+    # compared to the dense std, which only passes because the std values are 0 or 1.
     rng = np.random.RandomState(42)
     X = rng.randn(4, 5)
     X[:, 0] = 0.0  # first feature is always of zero
@@ -1774,6 +2031,8 @@ def test_scale_function_without_centering(csr_container):
 
 
 def test_robust_scale_axis1():
+    # [FUNCTION DOC]
+    # Verifies robust_scale with axis=1 on iris gives zero row medians and unit row IQR.
     X = iris.data
     X_trans = robust_scale(X, axis=1)
     assert_array_almost_equal(np.median(X_trans, axis=1), 0)
@@ -1783,6 +2042,8 @@ def test_robust_scale_axis1():
 
 
 def test_robust_scale_1d_array():
+    # [FUNCTION DOC]
+    # Verifies robust_scale on a 1d array gives zero median and unit IQR.
     X = iris.data[:, 1]
     X_trans = robust_scale(X)
     assert_array_almost_equal(np.median(X_trans), 0)
@@ -1792,6 +2053,10 @@ def test_robust_scale_1d_array():
 
 
 def test_robust_scaler_zero_variance_features():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler on toy data with zero-variance columns: expected outputs
+    # (constant columns to 0), inverse round trip, and expected transformation of new
+    # data.
     # Check RobustScaler on toy data with zero variance features
     X = [[0.0, 1.0, +0.5], [0.0, 1.0, -0.1], [0.0, 1.0, +1.1]]
 
@@ -1817,6 +2082,10 @@ def test_robust_scaler_zero_variance_features():
 
 
 def test_robust_scaler_unit_variance():
+    # [FUNCTION DOC]
+    # Verifies RobustScaler with unit_variance=True and range (1, 99), fitted on 1e6
+    # standard normals plus +-100 outliers, has center near 0, scale near 1, and
+    # transforms the clean data to unit std.
     # Check RobustScaler with unit_variance=True on standard normal data with
     # outliers
     rng = np.random.RandomState(42)
@@ -1836,6 +2105,10 @@ def test_robust_scaler_unit_variance():
 
 @pytest.mark.parametrize("sparse_container", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_maxabs_scaler_zero_variance_features(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler on toy data with zero-variance columns: expected outputs,
+    # inverse round trip, expected transform of new data (values may exceed 1),
+    # maxabs_scale equivalence, and identical results for sparse input.
     # Check MaxAbsScaler on toy data with zero variance features
     X = [[0.0, 1.0, +0.5], [0.0, 1.0, -0.3], [0.0, 1.0, +1.5], [0.0, 0.0, +0.0]]
 
@@ -1877,6 +2150,9 @@ def test_maxabs_scaler_zero_variance_features(sparse_container):
 
 
 def test_maxabs_scaler_large_negative_value():
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler divides by the maximum absolute value even when it comes
+    # from a large negative entry.
     # Check MaxAbsScaler on toy data with a large negative value
     X = [
         [0.0, 1.0, +0.5, -1.0],
@@ -1898,6 +2174,9 @@ def test_maxabs_scaler_large_negative_value():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_maxabs_scaler_transform_one_row_csr(csr_container):
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler on a single-row CSR matrix scales each entry to 1 and
+    # inverse_transform round-trips.
     # Check MaxAbsScaler on transforming csr matrix with one row
     X = csr_container([[0.5, 1.0, 1.0]])
     scaler = MaxAbsScaler()
@@ -1910,6 +2189,12 @@ def test_maxabs_scaler_transform_one_row_csr(csr_container):
 
 
 def test_maxabs_scaler_1d():
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler on single-row and single-column inputs gives max absolute
+    # value 1 per column, correct n_samples_seen_ and inverse round trip; a constant
+    # column scales to 1; maxabs_scale on a 1d array matches dividing by the max
+    # absolute value.
+    # KNOWN ISSUE: the input list repeats X_list_1row and never includes X_list_1col.
     # Test scaling of dataset along single axis
     for X in [X_1row, X_1col, X_list_1row, X_list_1row]:
         scaler = MaxAbsScaler(copy=True)
@@ -1943,6 +2228,12 @@ def test_maxabs_scaler_1d():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_maxabs_scaler_partial_fit(csr_container):
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler.partial_fit over several batch sizes, on dense and sparse
+    # batches, matches fit on max_abs_, scale_, n_samples_seen_ and transform, also
+    # after a single batch, and that n_samples_seen_ increments correctly.
+    # KNOWN ISSUE: the batch named X_csc is built with csr_container, so CSC partial_fit
+    # is never exercised.
     # Test if partial_fit run over many batches of size 1 and 50
     # gives the same results as fit
     X = X_2d[:100, :]
@@ -1999,6 +2290,11 @@ def test_maxabs_scaler_partial_fit(csr_container):
 
 
 def check_normalizer(norm, X_norm):
+    # [FUNCTION DOC]
+    # HELPER: Asserts normalized rows of a 4-row matrix: for 'l1' rows 0-2 have absolute
+    # sum 1, for 'l2' Euclidean norm 1, for 'max' max absolute value 1; row 3 (all
+    # zeros) stays at 0.
+    # Inputs: norm - 'l1', 'l2' or 'max'; X_norm - dense 2d array.
     """
     Convenient checking function for `test_normalizer_l1_l2_max` and
     `test_normalizer_l1_l2_max_non_csr`
@@ -2022,6 +2318,10 @@ def check_normalizer(norm, X_norm):
 @pytest.mark.parametrize("norm", ["l1", "l2", "max"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_normalizer_l1_l2_max(norm, csr_container):
+    # [FUNCTION DOC]
+    # Verifies Normalizer for each norm on dense, pruned CSR and unpruned CSR (explicit
+    # stored zeros in row 3) inputs: copy=True returns a new object, copy=False returns
+    # the same object, and rows are correctly normalized.
     rng = np.random.RandomState(0)
     X_dense = rng.randn(4, 5)
     X_sparse_unpruned = csr_container(X_dense)
@@ -2058,6 +2358,9 @@ def test_normalizer_l1_l2_max(norm, csr_container):
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + LIL_CONTAINERS
 )
 def test_normalizer_l1_l2_max_non_csr(norm, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies Normalizer on COO, CSC and LIL input returns a new CSR matrix (copy=False
+    # cannot be honoured) with correctly normalized rows.
     rng = np.random.RandomState(0)
     X_dense = rng.randn(4, 5)
 
@@ -2076,6 +2379,9 @@ def test_normalizer_l1_l2_max_non_csr(norm, sparse_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_normalizer_max_sign(csr_container):
+    # [FUNCTION DOC]
+    # Verifies the 'max' norm divides by a positive value: output signs equal input
+    # signs for mixed-sign dense, all-negative dense and all-negative CSR inputs.
     # check that we normalize by a positive number even for negative data
     rng = np.random.RandomState(0)
     X_dense = rng.randn(4, 5)
@@ -2097,6 +2403,11 @@ def test_normalizer_max_sign(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_normalize(csr_container):
+    # [FUNCTION DOC]
+    # Verifies normalize(): axis=0 on the transpose equals axis=1; dtype is preserved
+    # and rows have unit l1/l2 norm for dense and CSR in float32/float64; return_norm
+    # gives the expected norms for dense input; on CSR, return_norm raises
+    # NotImplementedError for l1/l2 but works for max.
     # Test normalize function
     # Only tests functionality not used by the tests for Normalizer.
     X = np.random.RandomState(37).randn(3, 2)
@@ -2145,6 +2456,11 @@ def test_normalize(csr_container):
     "constructor", [np.array, list] + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_binarizer(constructor):
+    # [FUNCTION DOC]
+    # Verifies Binarizer for array, list, CSC and CSR inputs: thresholds 2.0 and default
+    # 0 give the expected counts of 0s and 1s, sparsity is preserved, copy=True returns
+    # new objects and copy=False returns the same object (except for lists), a negative
+    # threshold works on dense input and raises ValueError on CSC input.
     X_ = np.array([[1, 0, 5], [2, 3, -1]])
     X = constructor(X_.copy())
 
@@ -2203,6 +2519,9 @@ def test_binarizer(constructor):
     yield_namespace_device_dtype_combinations(),
 )
 def test_binarizer_array_api_int(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies under array API dispatch that Binarizer with float threshold 2.5 on float
+    # and int32/int64 inputs matches the numpy result.
     # Checks that Binarizer works with integer elements and float threshold
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     for dtype_name_ in [dtype_name, "int32", "int64"]:
@@ -2215,6 +2534,10 @@ def test_binarizer_array_api_int(array_namespace, device_name, dtype_name):
 
 
 def test_center_kernel():
+    # [FUNCTION DOC]
+    # Verifies KernelCenterer on a linear kernel equals the kernel of StandardScaler-
+    # centered features for both fit-time and prediction-time kernels, and matches the
+    # closed-form centering formulas (Schölkopf et al., eq. B.3).
     # Test that KernelCenterer is equivalent to StandardScaler
     # in feature space
     rng = np.random.RandomState(0)
@@ -2259,11 +2582,22 @@ def test_center_kernel():
 
 
 def test_kernelcenterer_non_linear_kernel():
+    # [FUNCTION DOC]
+    # Verifies KernelCenterer on a non-linear kernel (explicit feature map phi) equals
+    # the kernel of centered feature maps for train and test kernels, and matches the
+    # closed-form centering formulas.
     """Check kernel centering for non-linear kernel."""
     rng = np.random.RandomState(0)
     X, X_test = rng.randn(100, 50), rng.randn(20, 50)
 
     def phi(X):
+        # [FUNCTION DOC]
+        # HELPER: Explicit feature map: stacks the positive part of X on top of the
+        # negated negative part (vertical stack, so the output has twice as many rows).
+        # Inputs: X - 2d array. Outputs: 2d array of shape (2 * n_rows, n_cols).
+        # KNOWN ISSUE: the stack is along rows (samples) rather than columns (features),
+        # so phi_X has 2 * n_samples rows; the test still passes because both kernels
+        # are built consistently from it.
         """Our mapping function phi."""
         return np.vstack(
             [
@@ -2313,6 +2647,9 @@ def test_kernelcenterer_non_linear_kernel():
 
 
 def test_cv_pipeline_precomputed():
+    # [FUNCTION DOC]
+    # Verifies a Pipeline of KernelCenterer and SVR is tagged pairwise and that
+    # cross_val_predict on a precomputed kernel recovers a constant target.
     # Cross-validate a regression on four coplanar points with the same
     # value. Use precomputed kernel to ensure Pipeline with KernelCenterer
     # is treated as a pairwise operation.
@@ -2333,6 +2670,9 @@ def test_cv_pipeline_precomputed():
 
 
 def test_fit_transform():
+    # [FUNCTION DOC]
+    # Verifies fit followed by transform equals fit_transform for StandardScaler,
+    # Normalizer and Binarizer.
     rng = np.random.RandomState(0)
     X = rng.random_sample((5, 4))
     for obj in (StandardScaler(), Normalizer(), Binarizer()):
@@ -2342,6 +2682,8 @@ def test_fit_transform():
 
 
 def test_add_dummy_feature():
+    # [FUNCTION DOC]
+    # Verifies add_dummy_feature prepends a column of ones to a list-of-lists input.
     X = [[1, 0], [0, 1], [0, 1]]
     X = add_dummy_feature(X)
     assert_array_equal(X, [[1, 1, 0], [1, 0, 1], [1, 0, 1]])
@@ -2351,6 +2693,9 @@ def test_add_dummy_feature():
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_add_dummy_feature_sparse(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies add_dummy_feature on COO, CSC and CSR inputs returns sparse output in the
+    # same format with a leading column of ones.
     X = sparse_container([[1, 0], [0, 1], [0, 1]])
     desired_format = X.format
     X = add_dummy_feature(X)
@@ -2359,6 +2704,10 @@ def test_add_dummy_feature_sparse(sparse_container):
 
 
 def test_fit_cold_start():
+    # [FUNCTION DOC]
+    # Verifies scalers with partial_fit (identity StandardScaler, MinMaxScaler,
+    # MaxAbsScaler) can be refitted with fit_transform on data with a different number
+    # of features (state is reset), with no exception.
     X = iris.data
     X_2d = X[:, :2]
 
@@ -2378,6 +2727,9 @@ def test_fit_cold_start():
 
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 def test_power_transformer_notfitted(method):
+    # [FUNCTION DOC]
+    # Verifies PowerTransformer.transform and inverse_transform raise NotFittedError
+    # before fit.
     pt = PowerTransformer(method=method)
     X = np.abs(X_1col)
     with pytest.raises(NotFittedError):
@@ -2390,6 +2742,9 @@ def test_power_transformer_notfitted(method):
 @pytest.mark.parametrize("standardize", [True, False])
 @pytest.mark.parametrize("X", [X_1col, X_2d])
 def test_power_transformer_inverse(method, standardize, X):
+    # [FUNCTION DOC]
+    # Verifies transform followed by inverse_transform recovers the input for both
+    # methods and standardize options (absolute values used for box-cox).
     # Make sure we get the original input when applying transform and then
     # inverse transform
     X = np.abs(X) if method == "box-cox" else X
@@ -2399,6 +2754,10 @@ def test_power_transformer_inverse(method, standardize, X):
 
 
 def test_power_transformer_1d():
+    # [FUNCTION DOC]
+    # Verifies box-cox on a single column matches scipy.stats.boxcox (optionally
+    # standardized) for the class and the function, inverse round-trips, lambdas_
+    # matches scipy's lambda and is an ndarray of length n_features.
     X = np.abs(X_1col)
 
     for standardize in [True, False]:
@@ -2423,6 +2782,10 @@ def test_power_transformer_1d():
 
 
 def test_power_transformer_2d():
+    # [FUNCTION DOC]
+    # Verifies box-cox on 30 columns matches scipy.stats.boxcox per column for class and
+    # function outputs (optionally standardized), lambdas_ match, inverse round-trips,
+    # and lambdas_ is an ndarray of length n_features.
     X = np.abs(X_2d)
 
     for standardize in [True, False]:
@@ -2450,6 +2813,9 @@ def test_power_transformer_2d():
 
 
 def test_power_transformer_boxcox_strictly_positive_exception():
+    # [FUNCTION DOC]
+    # Verifies box-cox raises 'strictly positive' ValueError for data with negatives or
+    # all zeros in transform, fit and power_transform.
     # Exceptions should be raised for negative arrays and zero arrays when
     # method is boxcox
 
@@ -2479,12 +2845,18 @@ def test_power_transformer_boxcox_strictly_positive_exception():
 
 @pytest.mark.parametrize("X", [X_2d, np.abs(X_2d), -np.abs(X_2d), np.zeros(X_2d.shape)])
 def test_power_transformer_yeojohnson_any_input(X):
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson power_transform runs without error on mixed, positive,
+    # negative and zero data.
     # Yeo-Johnson method should support any kind of input
     power_transform(X, method="yeo-johnson")
 
 
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 def test_power_transformer_shape_exception(method):
+    # [FUNCTION DOC]
+    # Verifies transform and inverse_transform raise the feature-count mismatch
+    # ValueError when given fewer columns than at fit.
     pt = PowerTransformer(method=method)
     X = np.abs(X_2d)
     pt.fit(X)
@@ -2503,6 +2875,9 @@ def test_power_transformer_shape_exception(method):
 
 
 def test_power_transformer_lambda_zero():
+    # [FUNCTION DOC]
+    # Verifies box-cox with lambdas_ forced to 0 (log transform) round-trips through
+    # transform and inverse_transform.
     X = np.abs(X_2d)[:, 0:1]
     pt = PowerTransformer(method="box-cox", standardize=False).fit(X)
 
@@ -2513,6 +2888,9 @@ def test_power_transformer_lambda_zero():
 
 
 def test_power_transformer_lambda_one():
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson with lambdas_ forced to 1 is the identity on non-negative
+    # data (transform called without fit after setting lambdas_).
     # Make sure lambda = 1 corresponds to the identity for yeo-johnson
     pt = PowerTransformer(method="yeo-johnson", standardize=False)
     X = np.abs(X_2d)[:, 0:1]
@@ -2533,6 +2911,11 @@ def test_power_transformer_lambda_one():
     ],
 )
 def test_optimization_power_transformer(method, lmbda):
+    # [FUNCTION DOC]
+    # Verifies lambda estimation: generate normal data, inverse-transform it with a
+    # preset lambda (clipped for box-cox validity), then fit_transform the result and
+    # check it recovers approximately the original normal data (small normalized error,
+    # mean ~0, std ~1).
     # Test the optimization procedure:
     # - set a predefined value for lambda
     # - apply inverse_transform to a normal dist (we get X_inv)
@@ -2561,6 +2944,9 @@ def test_optimization_power_transformer(method, lmbda):
 
 
 def test_invserse_box_cox():
+    # [FUNCTION DOC]
+    # Verifies box-cox inverse_transform returns NaN for an input outside the support of
+    # the inverse (lambda 0.5, value -2.1).
     # output nan if the input is invalid
     pt = PowerTransformer(method="box-cox", standardize=False).fit([[1.0], [2.0]])
     pt.lambdas_ = [0.5]
@@ -2569,6 +2955,9 @@ def test_invserse_box_cox():
 
 
 def test_yeo_johnson_darwin_example():
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson lambda on the Darwin data from the Yeo-Johnson paper is about
+    # 1.305.
     # test from original paper "A new family of power transformations to
     # improve normality or symmetry" by Yeo and Johnson.
     X = [6.1, -8.4, 1.0, 2.0, 0.7, 2.9, 3.5, 5.1, 1.8, 3.6, 7.0, 3.0, 9.3, 7.5, -6.0]
@@ -2579,6 +2968,9 @@ def test_yeo_johnson_darwin_example():
 
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 def test_power_transformer_nans(method):
+    # [FUNCTION DOC]
+    # Verifies NaNs do not affect the estimated lambda (equal to 5 decimals after
+    # appending and shuffling NaN rows) and that transform keeps NaN positions.
     # Make sure lambda estimation is not influenced by NaN values
     # and that transform() supports NaN silently
 
@@ -2603,6 +2995,9 @@ def test_power_transformer_nans(method):
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 @pytest.mark.parametrize("standardize", [True, False])
 def test_power_transformer_fit_transform(method, standardize):
+    # [FUNCTION DOC]
+    # Verifies fit().transform() equals fit_transform() for both methods and standardize
+    # options.
     # check that fit_transform() and fit().transform() return the same values
     X = X_1col
     if method == "box-cox":
@@ -2615,6 +3010,9 @@ def test_power_transformer_fit_transform(method, standardize):
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 @pytest.mark.parametrize("standardize", [True, False])
 def test_power_transformer_copy_True(method, standardize):
+    # [FUNCTION DOC]
+    # Verifies with copy=True that fit and fit_transform do not modify X and that
+    # transform, fit_transform and inverse_transform return new arrays.
     # Check that neither fit, transform, fit_transform nor inverse_transform
     # modify X inplace when copy=True
     X = X_1col
@@ -2643,6 +3041,9 @@ def test_power_transformer_copy_True(method, standardize):
 @pytest.mark.parametrize("method", ["box-cox", "yeo-johnson"])
 @pytest.mark.parametrize("standardize", [True, False])
 def test_power_transformer_copy_False(method, standardize):
+    # [FUNCTION DOC]
+    # Verifies with copy=False that fit leaves X unchanged while transform,
+    # fit_transform and inverse_transform operate in place and return the same object.
     # check that when copy=False fit doesn't change X inplace but transform,
     # fit_transform and inverse_transform do.
     X = X_1col.copy()
@@ -2671,6 +3072,10 @@ def test_power_transformer_copy_False(method, standardize):
 
 
 def test_power_transformer_box_cox_raise_all_nans_col():
+    # [FUNCTION DOC]
+    # Non-regression for gh-26303: verifies box-cox fit_transform raises 'Column must
+    # not be all nan.' when a column is all NaN.
+    # Side effects: draws from the module-level rng.
     """Check that box-cox raises informative when a column contains all nans.
 
     Non-regression test for gh-26303
@@ -2694,6 +3099,10 @@ def test_power_transformer_box_cox_raise_all_nans_col():
     ],
 )
 def test_standard_scaler_sparse_partial_fit_finite_variance(X_2):
+    # [FUNCTION DOC]
+    # Non-regression for #16448: verifies StandardScaler(with_mean=False) fitted on
+    # sparse data and then partially fitted on another sparse batch (random or all NaN)
+    # keeps a finite variance. X_1 uses an unseeded random sparse array.
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/16448
     X_1 = _sparse_random_array((5, 1), density=0.8)
@@ -2704,6 +3113,9 @@ def test_standard_scaler_sparse_partial_fit_finite_variance(X_2):
 
 @pytest.mark.parametrize("feature_range", [(0, 1), (-10, 10)])
 def test_minmax_scaler_clip(feature_range):
+    # [FUNCTION DOC]
+    # Verifies MinMaxScaler(clip=True) clips test values below the training min and
+    # above the training max to the feature_range bounds.
     # test behaviour of the parameter 'clip' in MinMaxScaler
     X = iris.data
     scaler = MinMaxScaler(feature_range=feature_range, clip=True).fit(X)
@@ -2722,6 +3134,9 @@ def test_minmax_scaler_clip(feature_range):
     "data_constructor", [np.array] + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_maxabs_scaler_clip(data_constructor):
+    # [FUNCTION DOC]
+    # Verifies MaxAbsScaler(clip=True) clips values beyond the training max absolute
+    # value to +-1 for dense, CSC and CSR inputs.
     # test behaviour of the parameter 'clip' in MaxAbsScaler
     X = data_constructor(iris.data)
     is_sparse = sparse.issparse(X)
@@ -2738,6 +3153,9 @@ def test_maxabs_scaler_clip(data_constructor):
 
 
 def test_standard_scaler_raise_error_for_1d_input():
+    # [FUNCTION DOC]
+    # Non-regression for #19518: verifies StandardScaler.inverse_transform raises
+    # 'Expected 2D array' for 1d input.
     """Check that `inverse_transform` from `StandardScaler` raises an error
     with 1D array.
     Non-regression test for:
@@ -2750,6 +3168,10 @@ def test_standard_scaler_raise_error_for_1d_input():
 
 
 def test_power_transformer_significantly_non_gaussian():
+    # [FUNCTION DOC]
+    # Non-regression for #14959: verifies default PowerTransformer on strongly non-
+    # Gaussian data gives no RuntimeWarning, no NaN, zero mean, unit std and output
+    # within (-2, 2).
     """Check that significantly non-Gaussian data before transforms correctly.
 
     For some explored lambdas, the transformed data may be constant and will
@@ -2785,6 +3207,9 @@ def test_power_transformer_significantly_non_gaussian():
     ],
 )
 def test_one_to_one_features(Transformer):
+    # [FUNCTION DOC]
+    # Verifies one-to-one transformers fitted on iris return the given input feature
+    # names from get_feature_names_out.
     """Check one-to-one transformers give correct feature names."""
     tr = Transformer().fit(iris.data)
     names_out = tr.get_feature_names_out(iris.feature_names)
@@ -2805,6 +3230,10 @@ def test_one_to_one_features(Transformer):
     ],
 )
 def test_one_to_one_features_pandas(Transformer):
+    # [FUNCTION DOC]
+    # Verifies one-to-one transformers fitted on a pandas DataFrame return the column
+    # names by default and when passed explicitly, and raise ValueError for mismatched
+    # names. Skipped without pandas.
     """Check one-to-one transformers give correct feature names."""
     pd = pytest.importorskip("pandas")
 
@@ -2824,6 +3253,9 @@ def test_one_to_one_features_pandas(Transformer):
 
 
 def test_kernel_centerer_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies KernelCenterer feature names are 'kernelcenterer<i>' for each column of
+    # the fitted kernel.
     """Test that kernel centerer `feature_names_out`."""
 
     rng = np.random.RandomState(0)
@@ -2838,6 +3270,10 @@ def test_kernel_centerer_feature_names_out():
 
 @pytest.mark.parametrize("standardize", [True, False])
 def test_power_transformer_constant_feature(standardize):
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson on constant features learns lambdas of 1 and outputs zeros
+    # when standardized or the unchanged input otherwise, via both fit_transform and
+    # transform.
     """Check that PowerTransformer leaves constant features unchanged."""
     X = [[-2, 0, 2], [-2, 0, 2], [-2, 0, 2]]
 
@@ -2863,6 +3299,10 @@ def test_power_transformer_constant_feature(standardize):
     ),
 )
 def test_yeo_johnson_inverse_transform_warning():
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson inverse_transform on a value outside the support (negative
+    # lambda from extremely skewed data) emits a 'Some values in column' UserWarning and
+    # returns NaN. Expected to fail on WASM.
     """Check if a warning is triggered when the inverse transformations of the
     Box-Cox and Yeo-Johnson transformers return NaN values."""
     trans = PowerTransformer(method="yeo-johnson")
@@ -2885,6 +3325,10 @@ def test_yeo_johnson_inverse_transform_warning():
     reason="scipy version 1.12 required for stable yeo-johnson",
 )
 def test_power_transformer_no_warnings():
+    # [FUNCTION DOC]
+    # Verifies yeo-johnson standardization of year-like values triggers no warnings on
+    # the full data and on a 5-sample subset (overflow regressions). Requires scipy >=
+    # 1.12.
     """Verify that PowerTransformer operates without raising any warnings on valid data.
 
     This test addresses numerical issues with floating point numbers (mostly
@@ -2907,6 +3351,10 @@ def test_power_transformer_no_warnings():
     )
 
     def _test_no_warnings(data):
+        # [FUNCTION DOC]
+        # HELPER: Fits and transforms data with standardized yeo-johnson while recording
+        # all warnings, and asserts none were raised, listing their messages otherwise.
+        # Inputs: data - 2d array.
         """Internal helper to test for unexpected warnings."""
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always")  # Ensure all warnings are captured
@@ -2924,6 +3372,11 @@ def test_power_transformer_no_warnings():
 
 
 def test_yeojohnson_for_different_scipy_version():
+    # [FUNCTION DOC]
+    # Intended to check the fitted yeo-johnson lambda on X_1col is consistent across
+    # scipy versions.
+    # KNOWN ISSUE: the comparison result is not asserted, so the test can never fail on
+    # the lambda value.
     """Check that the results are consistent across different SciPy versions."""
     pt = PowerTransformer(method="yeo-johnson").fit(X_1col)
     pt.lambdas_[0] == pytest.approx(0.99546157, rel=1e-7)
@@ -2931,6 +3384,10 @@ def test_yeojohnson_for_different_scipy_version():
 
 @pytest.mark.parametrize("TransformerClass", [PowerTransformer, QuantileTransformer])
 def test_transformer_inverse_transform_feature_names_warning(TransformerClass):
+    # [FUNCTION DOC]
+    # Non-regression for #31947: verifies inverse_transform on a numpy array after
+    # fitting on a DataFrame raises no warnings (all warnings turned into errors).
+    # Skipped without pandas.
     """Check that inverse_transform does not raise a warning about feature
     names when fitted on a DataFrame and transforming a NumPy array.
 
@@ -2949,6 +3406,9 @@ def test_transformer_inverse_transform_feature_names_warning(TransformerClass):
 
 @pytest.mark.parametrize("TransformerClass", [PowerTransformer, QuantileTransformer])
 def test_transformer_inverse_transform_shape_error(TransformerClass):
+    # [FUNCTION DOC]
+    # Verifies inverse_transform raises the feature-count mismatch ValueError when given
+    # 1 column after fitting on 2.
     """Check that an informative error is raised when the input shape is incorrect."""
     X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     transformer = TransformerClass().fit(X)
@@ -2962,6 +3422,11 @@ def test_transformer_inverse_transform_shape_error(TransformerClass):
 @pytest.mark.parametrize("fit_method", ["fit", "partial_fit"])
 @skip_callback_test_if_wasm
 def test_standard_scaler_callback_support(fit_method):
+    # [FUNCTION DOC]
+    # Verifies callback support: with a RecordingCallback attached, fit or partial_fit
+    # triggers setup, teardown, and one fit task begin/end hook each, and the
+    # fitted_estimator passed to on_fit_task_end transforms like the scaler. Skipped on
+    # WASM.
     """Check that the reconstruction attributes are correctly passed."""
     X = np.random.RandomState(0).random_sample((10, 2))
 

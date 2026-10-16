@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# NearestCentroid classifier: each class is represented by its centroid (mean for
+# euclidean, median for manhattan), optionally shrunk toward the global centroid
+# (nearest shrunken centroid). Probabilistic outputs come from the discriminant
+# analysis prediction mixin and are available for the euclidean metric only.
+# Side effects at import: none.
 """
 Nearest Centroid Classification
 """
@@ -26,6 +32,12 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 class NearestCentroid(
     DiscriminantAnalysisPredictionMixin, ClassifierMixin, BaseEstimator
 ):
+    # [CLASS DOC]
+    # Classifier storing centroids_, class_prior_, within_class_std_dev_ and
+    # deviations_.
+    # decision_function, predict_proba and predict_log_proba are exposed only when
+    # metric
+    # is euclidean (via available_if on _check_euclidean_metric).
     """Nearest centroid classifier.
 
     Each class is represented by its centroid, with test samples classified to
@@ -142,12 +154,41 @@ class NearestCentroid(
         shrink_threshold=None,
         priors="uniform",
     ):
+        # [FUNCTION DOC]
+        # Stores metric, shrink_threshold and priors unchanged.
         self.metric = metric
         self.shrink_threshold = shrink_threshold
         self.priors = priors
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # Steps: validate X (CSC for manhattan, CSR/CSC otherwise) and y; label-encode y
+        # (at
+        # least 2 classes). Set class_prior_ from empirical frequencies, uniform, or the
+        # given
+        # array; reject negatives and renormalize with a warning if not summing to 1.
+        # For
+        # each class compute the centroid (median for manhattan, using a sparse-aware
+        # median
+        # for sparse X; mean for euclidean). within_class_std_dev_ is the root of the
+        # summed
+        # squared residuals from the class centroids divided by (n_samples - n_classes);
+        # warn
+        # if any is zero. Reject data where all features are constant. deviations_ are
+        # (centroid - overall mean) divided by m_k times s, with m_k the root of (1/n_k
+        # -
+        # 1/n_samples) and s the std devs plus their median. If shrink_threshold, soft-
+        # threshold
+        # deviations_ toward 0 and rebuild centroids_ as overall mean plus
+        # m_k*s*deviations_.
+        # Inputs: X - (n_samples, n_features) dense or sparse; y - (n_samples,).
+        # Outputs: self.
+        # Exceptions: ValueError for fewer than two classes, negative priors, all-
+        # constant
+        # features.
+        # Side effects: sets classes_, class_prior_, centroids_, within_class_std_dev_,
+        # deviations_; UserWarnings.
         """
         Fit the NearestCentroid model according to the given training data.
 
@@ -273,6 +314,13 @@ class NearestCentroid(
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # If priors are uniform, validate X and return the class whose centroid is
+        # nearest
+        # under metric. Otherwise defer to the mixin's predict (argmax of
+        # decision_function,
+        # which accounts for priors).
+        # Outputs: array (n_queries,) of labels.
         """Perform classification on an array of test vectors `X`.
 
         The predicted class `C` for each sample in `X` is returned.
@@ -307,6 +355,13 @@ class NearestCentroid(
             return super().predict(X)
 
     def _decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Discriminant scores (ESL eq. 18.2): standardize X and centroids by the
+        # non-zero within-class std devs, and for each class score minus the squared
+        # distance
+        # to its centroid plus 2 times the log prior.
+        # Inputs: X - (n_queries, n_features). Outputs: float array (n_queries,
+        # n_classes).
         # return discriminant scores, see eq. (18.2) p. 652 of the ESL.
         check_is_fitted(self, "centroids_")
 
@@ -335,6 +390,8 @@ class NearestCentroid(
         return discriminant_score
 
     def _check_euclidean_metric(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate; True when metric is "euclidean".
         return self.metric == "euclidean"
 
     decision_function = available_if(_check_euclidean_metric)(
@@ -350,6 +407,11 @@ class NearestCentroid(
     )
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Declares sparse support and allow_nan when metric is nan_euclidean.
+        # KNOWN ISSUE: metric is constrained to "manhattan"/"euclidean", so the
+        # nan_euclidean
+        # branch (here and in fit/predict) can never be taken.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = self.metric == "nan_euclidean"
         tags.input_tags.sparse = True
