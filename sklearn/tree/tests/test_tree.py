@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Test suite for sklearn.tree: decision/extra tree classifiers and regressors on toy and
+# real datasets (iris, diabetes, digits, multilabel, synthetic sparse-like data), covering
+# criteria, splitters, stopping parameters, sample weights, sparse inputs, pickling,
+# pruning, monotonic/missing-value handling and low-level Tree checks.
+# Import-time side effects: loads iris, diabetes and digits and permutes them with a
+# fixed RandomState(1), builds module-level fixtures (X_small/y_small, toy X/y/T,
+# multilabel and sparse-like arrays from random_state 0) and the DATASETS registry.
+# Note: the X_sparse_* arrays are dense NumPy arrays with many zeros.
 """
 Testing for the tree module (sklearn.tree).
 """
@@ -204,6 +213,11 @@ DATASETS = {
 
 
 def assert_tree_equal(d, s, message):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two fitted Tree objects d and s are identical: node_count, children,
+    # feature and threshold on internal nodes, n_node_samples (sum and per node), impurity
+    # (almost equal) and leaf values (almost equal). message prefixes failure messages.
+    # Exceptions: AssertionError on any mismatch.
     assert s.node_count == d.node_count, (
         "{0}: inequal number of node ({1} != {2})".format(
             message, s.node_count, d.node_count
@@ -243,6 +257,9 @@ def assert_tree_equal(d, s, message):
 
 
 def test_classification_toy():
+    # [FUNCTION DOC]
+    # Fits each classifier tree on the 6-point toy set (default and max_features=1) and
+    # checks predictions on T equal true_result.
     # Check classification on a toy dataset.
     for name, Tree in CLF_TREES.items():
         clf = Tree(random_state=0)
@@ -255,6 +272,9 @@ def test_classification_toy():
 
 
 def test_weighted_classification_toy():
+    # [FUNCTION DOC]
+    # Same toy classification check with uniform sample weights of 1 and of 0.5, verifying
+    # weight scaling does not change predictions.
     # Check classification on a weighted toy dataset.
     for name, Tree in CLF_TREES.items():
         clf = Tree(random_state=0)
@@ -271,6 +291,12 @@ def test_weighted_classification_toy():
 @pytest.mark.parametrize("Tree", REG_TREES.values())
 @pytest.mark.parametrize("criterion", REG_CRITERIONS)
 def test_regression_toy(Tree, criterion):
+    # [FUNCTION DOC]
+    # For each regressor tree and regression criterion, fits on the toy set (targets
+    # shifted to be positive for poisson) and checks predictions on T match the targets,
+    # default and with max_features=1.
+    # KNOWN ISSUE: the max_features=1 model (clf) is fitted but the assertion re-checks the
+    # first model reg, so the second configuration is never verified.
     # Check regression on a toy dataset.
     if criterion == "poisson":
         # make target positive while not touching the original y and
@@ -292,6 +318,9 @@ def test_regression_toy(Tree, criterion):
 
 
 def test_xor():
+    # [FUNCTION DOC]
+    # Builds a 10x10 grid XOR-like labelling and checks classifier trees (default and
+    # max_features=1) reach training accuracy 1.0.
     # Check on an XOR problem
     y = np.zeros((10, 10))
     y[:5, :5] = 1
@@ -313,6 +342,9 @@ def test_xor():
 
 
 def test_iris():
+    # [FUNCTION DOC]
+    # For each classifier tree and criterion, checks training accuracy on iris exceeds 0.9
+    # with all features and 0.5 with max_features=2.
     # Check consistency on dataset iris.
     for (name, Tree), criterion in product(CLF_TREES.items(), CLF_CRITERIONS):
         clf = Tree(criterion=criterion, random_state=0)
@@ -335,6 +367,9 @@ def test_iris():
 @pytest.mark.parametrize("name, Tree", REG_TREES.items())
 @pytest.mark.parametrize("criterion", REG_CRITERIONS)
 def test_diabetes_overfit(name, Tree, criterion):
+    # [FUNCTION DOC]
+    # Checks fully grown regressor trees reach approximately zero training MSE on diabetes
+    # for every criterion (FutureWarning for friedman_mse ignored).
     # check consistency of overfitted trees on the diabetes dataset
     # since the trees will overfit, we expect an MSE of 0
     reg = Tree(criterion=criterion, random_state=0)
@@ -358,6 +393,9 @@ def test_diabetes_overfit(name, Tree, criterion):
     ],
 )
 def test_diabetes_underfit(Tree, criterion, metric, global_random_seed):
+    # [FUNCTION DOC]
+    # With max_features=6, checks the training loss (criterion-matching metric) strictly
+    # decreases as max_depth goes 1, 4, 7 and stays above 0.
     # check consistency of trees when the depth and the number of features are
     # limited
     kwargs = dict(criterion=criterion, max_features=6, random_state=global_random_seed)
@@ -371,6 +409,9 @@ def test_diabetes_underfit(Tree, criterion, metric, global_random_seed):
 
 
 def test_probability():
+    # [FUNCTION DOC]
+    # For depth-1 classifier trees on iris, checks predict_proba rows sum to 1, argmax
+    # matches predict, and predict_proba equals exp of predict_log_proba.
     # Predict probabilities using DecisionTreeClassifier.
 
     for name, Tree in CLF_TREES.items():
@@ -397,6 +438,9 @@ def test_probability():
 
 
 def test_arrayrepr():
+    # [FUNCTION DOC]
+    # Fits regressor trees on 10000 distinct points to exercise internal array resizing.
+    # Only checks that fitting does not fail (no assertions).
     # Check the array representation.
     # Check resize
     X = np.arange(10000)[:, np.newaxis]
@@ -408,6 +452,8 @@ def test_arrayrepr():
 
 
 def test_pure_set():
+    # [FUNCTION DOC]
+    # Checks classifiers and regressors fitted on a constant target predict that constant.
     # Check when y is pure.
     X = [[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1]]
     y = [1, 1, 1, 1, 1, 1]
@@ -424,6 +470,9 @@ def test_pure_set():
 
 
 def test_numerical_stability():
+    # [FUNCTION DOC]
+    # Fits regressor trees on nearly-duplicated float features with sign flips of X and y
+    # under numpy errstate raising on any floating point error; passes if nothing raises.
     # Check numerical stability.
     X = np.array(
         [
@@ -449,6 +498,10 @@ def test_numerical_stability():
 
 
 def test_importances():
+    # [FUNCTION DOC]
+    # On a make_classification set with 3 informative features, checks feature_importances_
+    # has length 10 with exactly 3 above 0.1; on iris, checks depth-first and best-first
+    # builders (max_leaf_nodes set) give identical importances.
     # Check variable importances.
     X, y = datasets.make_classification(
         n_samples=5000,
@@ -480,6 +533,8 @@ def test_importances():
 
 
 def test_importances_raises():
+    # [FUNCTION DOC]
+    # Checks accessing feature_importances_ on an unfitted tree raises ValueError.
     # Check if variable importance before fit raises ValueError.
     clf = DecisionTreeClassifier()
     with pytest.raises(ValueError):
@@ -487,6 +542,9 @@ def test_importances_raises():
 
 
 def test_importances_gini_equal_squared_error():
+    # [FUNCTION DOC]
+    # For a binary target with max_depth=5, checks a gini classifier and squared_error
+    # regressor give equal importances and identical tree structure.
     # Check that gini is equivalent to squared_error for binary output variable
 
     X, y = datasets.make_classification(
@@ -517,6 +575,9 @@ def test_importances_gini_equal_squared_error():
 
 
 def test_max_features():
+    # [FUNCTION DOC]
+    # Checks max_features_ resolution for sqrt, log2, ints, fractions (0.01 rounds up to 1),
+    # 1.0 and None on iris for all tree types.
     # Check max_features.
     for name, TreeEstimator in ALL_TREES.items():
         est = TreeEstimator(max_features="sqrt")
@@ -553,6 +614,11 @@ def test_max_features():
 
 
 def test_error():
+    # [FUNCTION DOC]
+    # Checks classifier error handling: NotFittedError for predict/predict_proba/apply before
+    # fit, ValueError for mismatched feature counts and inconsistent y length; Fortran-ordered
+    # input works. Also checks Poisson criterion rejects all-zero and negative targets with
+    # matching messages.
     # Test that it gives proper exception on deficient input.
     for name, TreeEstimator in CLF_TREES.items():
         # predict before fit
@@ -619,6 +685,9 @@ def test_error():
 
 
 def test_min_samples_split():
+    # [FUNCTION DOC]
+    # For all trees and both builders (max_leaf_nodes None/1000), checks internal nodes have
+    # at least 10 samples for min_samples_split=10 and 0.2 on iris.
     """Test min_samples_split parameter"""
     X = np.asfortranarray(iris.data, dtype=np.float32)
     y = iris.target
@@ -650,6 +719,9 @@ def test_min_samples_split():
 
 
 def test_min_samples_leaf():
+    # [FUNCTION DOC]
+    # For all trees and both builders, checks every leaf holds at least 5 training samples
+    # for min_samples_leaf=5 and 0.1 (by counting apply results per node).
     # Test if leaves contain more than leaf_count training examples
     X = np.asfortranarray(iris.data, dtype=np.float32)
     y = iris.target
@@ -683,6 +755,12 @@ def test_min_samples_leaf():
 
 
 def check_min_weight_fraction_leaf(name, datasets, sparse_container=None):
+    # [FUNCTION DOC]
+    # HELPER: For a named tree and dataset key (optionally converted with sparse_container),
+    # checks that, for both builders and fractions 0..0.5, every leaf's summed sample weight
+    # (random weights from module rng) is at least the fraction times total weight; then
+    # repeats with unit weights.
+    # Side effects: consumes the module-level rng.
     """Test if leaves contain at least min_weight_fraction_leaf of the
     training set"""
     X = DATASETS[datasets]["X"].astype(np.float32)
@@ -743,18 +821,26 @@ def check_min_weight_fraction_leaf(name, datasets, sparse_container=None):
 
 @pytest.mark.parametrize("name", ALL_TREES)
 def test_min_weight_fraction_leaf_on_dense_input(name):
+    # [FUNCTION DOC]
+    # Runs check_min_weight_fraction_leaf on dense iris for each tree.
     check_min_weight_fraction_leaf(name, "iris")
 
 
 @pytest.mark.parametrize("name", SPARSE_TREES)
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_min_weight_fraction_leaf_on_sparse_input(name, csc_container):
+    # [FUNCTION DOC]
+    # Runs check_min_weight_fraction_leaf on the multilabel data in CSC containers.
     check_min_weight_fraction_leaf(name, "multilabel", sparse_container=csc_container)
 
 
 def check_min_weight_fraction_leaf_with_min_samples_leaf(
     name, datasets, sparse_container=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Without sample weights, checks leaf sizes are at least the maximum of
+    # min_weight_fraction_leaf times n_samples and min_samples_leaf (int 5, or 0.1 as a
+    # fraction) for both builders.
     """Test the interaction between min_weight_fraction_leaf and
     min_samples_leaf when sample_weights is not provided in fit."""
     X = DATASETS[datasets]["X"].astype(np.float32)
@@ -815,6 +901,8 @@ def check_min_weight_fraction_leaf_with_min_samples_leaf(
 
 @pytest.mark.parametrize("name", ALL_TREES)
 def test_min_weight_fraction_leaf_with_min_samples_leaf_on_dense_input(name):
+    # [FUNCTION DOC]
+    # Runs the combined leaf constraint check on dense iris.
     check_min_weight_fraction_leaf_with_min_samples_leaf(name, "iris")
 
 
@@ -823,6 +911,8 @@ def test_min_weight_fraction_leaf_with_min_samples_leaf_on_dense_input(name):
 def test_min_weight_fraction_leaf_with_min_samples_leaf_on_sparse_input(
     name, csc_container
 ):
+    # [FUNCTION DOC]
+    # Runs the combined leaf constraint check on CSC multilabel data.
     check_min_weight_fraction_leaf_with_min_samples_leaf(
         name, "multilabel", sparse_container=csc_container
     )
@@ -838,6 +928,10 @@ def test_min_weight_fraction_leaf_with_min_samples_leaf_on_sparse_input(
     ],
 )
 def test_min_impurity_decrease(TreeEstimator, criterion, global_random_seed):
+    # [FUNCTION DOC]
+    # For every tree/criterion and both builders with several thresholds, checks that each
+    # split's weighted impurity decrease (parent minus children, weights normalised by
+    # n_samples) exceeds min_impurity_decrease up to 1e-10.
     # test if min_impurity_decrease ensure that a split is made only if
     # if the impurity decrease is at least that value
     X, y = datasets.make_classification(n_samples=100, random_state=global_random_seed)
@@ -874,6 +968,9 @@ def test_min_impurity_decrease(TreeEstimator, criterion, global_random_seed):
 
 
 def test_pickle():
+    # [FUNCTION DOC]
+    # Checks pickling round trips preserve estimator type, score and all Tree array/scalar
+    # attributes for every tree type (iris for classifiers, diabetes for regressors).
     """Test pickling preserves Tree properties and performance."""
     for name, TreeEstimator in ALL_TREES.items():
         if "Classifier" in name:
@@ -934,6 +1031,10 @@ def test_pickle():
     ],
 )
 def test_multioutput(Tree, criterion):
+    # [FUNCTION DOC]
+    # On a 2-output toy problem, checks predictions equal expected targets with shape
+    # (4, 2); for classifiers also checks predict_proba/predict_log_proba return one array
+    # per output with shapes (4, 2) and (4, 4). Targets shifted positive for poisson.
     # Check estimators on multi-output problems.
     X = [
         [-2, -1],
@@ -1001,6 +1102,9 @@ def test_multioutput(Tree, criterion):
 
 
 def test_classes_shape():
+    # [FUNCTION DOC]
+    # Checks n_classes_ and classes_ for single output (2, [-1, 1]) and two outputs
+    # ([2, 2], [[-1, 1], [-2, 2]]).
     # Test that n_classes_ and classes_ have proper shape.
     for name, TreeClassifier in CLF_TREES.items():
         # Classification, single output
@@ -1021,6 +1125,9 @@ def test_classes_shape():
 
 
 def test_unbalanced_iris():
+    # [FUNCTION DOC]
+    # Fits classifiers on the first 125 iris samples with balanced sample weights and checks
+    # training predictions are perfect.
     # Check class rebalancing.
     unbalanced_X = iris.data[:125]
     unbalanced_y = iris.target[:125]
@@ -1033,6 +1140,9 @@ def test_unbalanced_iris():
 
 
 def test_memory_layout():
+    # [FUNCTION DOC]
+    # For every tree and float64/float32, checks fit/predict reproduces iris labels for
+    # default, C, Fortran, contiguous, CSR, CSC and strided inputs.
     # Check that it works no matter the memory layout
     for (name, TreeEstimator), dtype in product(
         ALL_TREES.items(), [np.float64, np.float32]
@@ -1078,6 +1188,11 @@ def test_memory_layout():
 
 
 def test_sample_weight():
+    # [FUNCTION DOC]
+    # Checks zero-weight samples are ignored; that the depth-1 threshold moves from 149.5 to
+    # 49.5 when class-2 weights drop from 0.51 to 0.5; and that integer weights from bincount
+    # give the same internal thresholds as fitting on duplicated rows.
+    # Side effects: consumes the module-level rng.
     # Check sample weighting.
     # Test that zero-weighted samples are not taken into account
     X = np.arange(100)[:, np.newaxis]
@@ -1130,6 +1245,9 @@ def test_sample_weight():
 
 
 def test_sample_weight_invalid():
+    # [FUNCTION DOC]
+    # Checks a 2D sample_weight raises ValueError and a 0-d sample_weight raises TypeError
+    # with the expected message.
     # Check sample weighting raises errors.
     X = np.arange(100)[:, np.newaxis]
     y = np.ones(100)
@@ -1155,6 +1273,11 @@ def test_sample_weight_invalid():
 
 @pytest.mark.parametrize("name", CLF_TREES)
 def test_class_weights(name):
+    # [FUNCTION DOC]
+    # Checks class_weight semantics against sample weights: balanced has no effect on
+    # balanced iris; per-output dicts on a 3-output iris give equal importances to the
+    # balanced variants; a class weight dict matches equivalent sample weights; and
+    # class_weight and sample_weight combine multiplicatively.
     # Test that class_weights resemble sample_weights behavior.
     TreeClassifier = CLF_TREES[name]
 
@@ -1203,6 +1326,9 @@ def test_class_weights(name):
 
 @pytest.mark.parametrize("name", CLF_TREES)
 def test_class_weight_errors(name):
+    # [FUNCTION DOC]
+    # Checks a class_weight list whose length differs from the number of outputs raises
+    # ValueError.
     # Test if class_weight raises errors and warnings when expected.
     TreeClassifier = CLF_TREES[name]
     _y = np.vstack((y, np.array(y) * 2)).T
@@ -1215,6 +1341,8 @@ def test_class_weight_errors(name):
 
 
 def test_max_leaf_nodes():
+    # [FUNCTION DOC]
+    # Checks trees with max_leaf_nodes=k+1 and no depth limit end with exactly k+1 leaves.
     # Test greedy trees with max_depth + 1 leaves.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     k = 4
@@ -1224,6 +1352,8 @@ def test_max_leaf_nodes():
 
 
 def test_max_leaf_nodes_max_depth():
+    # [FUNCTION DOC]
+    # Checks max_depth=1 still bounds depth when max_leaf_nodes is also given.
     # Test precedence of max_leaf_nodes over max_depth.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     k = 4
@@ -1233,6 +1363,9 @@ def test_max_leaf_nodes_max_depth():
 
 
 def test_arrays_persist():
+    # [FUNCTION DOC]
+    # Non-regression: Tree attribute arrays fetched from a temporary fitted estimator must
+    # stay valid after it is garbage collected (first element within a sane range).
     # Ensure property arrays' memory stays alive when tree disappears
     # non-regression for #2726
     for attr in [
@@ -1251,6 +1384,8 @@ def test_arrays_persist():
 
 
 def test_only_constant_features():
+    # [FUNCTION DOC]
+    # Checks all-constant features yield a single-node tree (max_depth 0) for all trees.
     random_state = check_random_state(0)
     X = np.zeros((10, 20))
     y = random_state.randint(0, 2, (10,))
@@ -1262,6 +1397,9 @@ def test_only_constant_features():
 
 @pytest.mark.parametrize("tree_cls", ALL_TREES.values())
 def test_almost_constant_feature(tree_cls):
+    # [FUNCTION DOC]
+    # Checks a feature scaled below the 1e-7 constant threshold gets zero importance while
+    # the other feature is used.
     # Non regression test for
     # https://github.com/scikit-learn/scikit-learn/pull/32259
     # Make sure that almost constant features are discarded.
@@ -1282,6 +1420,9 @@ def test_almost_constant_feature(tree_cls):
 
 
 def test_behaviour_constant_feature_after_splits():
+    # [FUNCTION DOC]
+    # With one informative and four zero features, checks non-extra trees with
+    # max_features=1 build a depth-2 tree with 5 nodes (constant features are skipped).
     X = np.transpose(
         np.vstack(([[0, 0, 0, 0, 0, 1, 2, 4, 5, 6, 7]], np.zeros((4, 11))))
     )
@@ -1296,6 +1437,9 @@ def test_behaviour_constant_feature_after_splits():
 
 
 def test_with_only_one_non_constant_features():
+    # [FUNCTION DOC]
+    # With one non-informative non-constant feature among 1000 zero features, checks trees
+    # split once and predict 0.5 everywhere (probabilities or mean).
     X = np.hstack([np.array([[1.0], [1.0], [0.0], [0.0]]), np.zeros((4, 1000))])
 
     y = np.array([0.0, 1.0, 0.0, 1.0])
@@ -1313,6 +1457,8 @@ def test_with_only_one_non_constant_features():
 
 
 def test_big_input():
+    # [FUNCTION DOC]
+    # Checks values beyond float32 range raise ValueError mentioning float32.
     # Test if the warning for too large inputs is appropriate.
     X = np.repeat(10**40.0, 4).astype(np.float64).reshape(-1, 1)
     clf = DecisionTreeClassifier()
@@ -1321,6 +1467,9 @@ def test_big_input():
 
 
 def test_realloc():
+    # [FUNCTION DOC]
+    # Checks the internal _realloc_test helper raises MemoryError for an impossible
+    # reallocation.
     from sklearn.tree._utils import _realloc_test
 
     with pytest.raises(MemoryError):
@@ -1328,6 +1477,10 @@ def test_realloc():
 
 
 def test_huge_allocations():
+    # [FUNCTION DOC]
+    # Checks huge max_leaf_nodes raises an error (beyond address space) and MemoryError just
+    # below it (non-regression for errors swallowed by Cython).
+    # KNOWN ISSUE: the first check accepts any Exception, so it is weak.
     n_bits = 8 * struct.calcsize("P")
 
     X = np.random.randn(10, 2)
@@ -1349,6 +1502,11 @@ def test_huge_allocations():
 
 
 def check_sparse_input(tree, dataset, max_depth=None):
+    # [FUNCTION DOC]
+    # HELPER: For a tree name and dataset (subsampled to a fifth for digits/diabetes), fits
+    # on dense and on each COO/CSC/CSR container, asserts identical trees, then checks the
+    # sparse-fitted model predicts (and for classifiers predict_proba/log_proba) like the
+    # dense one on every float32 sparse format.
     TreeEstimator = ALL_TREES[tree]
     X = DATASETS[dataset]["X"]
     y = DATASETS[dataset]["y"]
@@ -1404,6 +1562,8 @@ def check_sparse_input(tree, dataset, max_depth=None):
     ),
 )
 def test_sparse_input(tree_type, dataset):
+    # [FUNCTION DOC]
+    # Runs check_sparse_input for all trees over several datasets (max_depth 3 for digits).
     max_depth = 3 if dataset == "digits" else None
     check_sparse_input(tree_type, dataset, max_depth)
 
@@ -1411,6 +1571,8 @@ def test_sparse_input(tree_type, dataset):
 @pytest.mark.parametrize("tree_type", sorted(set(SPARSE_TREES).intersection(REG_TREES)))
 @pytest.mark.parametrize("dataset", ["diabetes", "reg_small"])
 def test_sparse_input_reg_trees(tree_type, dataset):
+    # [FUNCTION DOC]
+    # Runs check_sparse_input for regression trees on diabetes and reg_small with depth 2.
     # Due to numerical instability of MSE and too strict test, we limit the
     # maximal depth
     check_sparse_input(tree_type, dataset, 2)
@@ -1420,6 +1582,9 @@ def test_sparse_input_reg_trees(tree_type, dataset):
 @pytest.mark.parametrize("dataset", ["sparse-pos", "sparse-neg", "sparse-mix", "zeros"])
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_sparse_parameters(tree_type, dataset, csc_container):
+    # [FUNCTION DOC]
+    # Checks dense and CSC fits give identical trees and predictions under max_features,
+    # min_samples_split, min_samples_leaf and best-first (max_leaf_nodes) settings.
     TreeEstimator = ALL_TREES[tree_type]
     X = DATASETS[dataset]["X"]
     X_sparse = csc_container(X)
@@ -1482,6 +1647,8 @@ def test_sparse_parameters(tree_type, dataset, csc_container):
 @pytest.mark.parametrize("dataset", ["sparse-pos", "sparse-neg", "sparse-mix", "zeros"])
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_sparse_criteria(tree_type, dataset, csc_container, criterion):
+    # [FUNCTION DOC]
+    # Checks dense and CSC fits give identical depth-3 trees for each criterion.
     TreeEstimator = ALL_TREES[tree_type]
     X = DATASETS[dataset]["X"]
     X_sparse = csc_container(X)
@@ -1503,6 +1670,12 @@ def test_sparse_criteria(tree_type, dataset, csc_container, criterion):
     "csc_container,csr_container", zip(CSC_CONTAINERS, CSR_CONTAINERS)
 )
 def test_explicit_sparse_zeros(tree_type, csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Builds CSC/CSR matrices containing explicitly stored zeros and checks sparse- and
+    # dense-fitted trees agree on structure, apply, decision_path and predict for all
+    # combinations of dense/sparse test inputs.
+    # KNOWN ISSUE: uses the module-level name tree (the sklearn.tree module) instead of
+    # tree_type, so the failure message is wrong and the predict_proba check never runs.
     TreeEstimator = ALL_TREES[tree_type]
     max_depth = 3
     n_features = 10
@@ -1578,6 +1751,8 @@ def test_explicit_sparse_zeros(tree_type, csc_container, csr_container):
 
 
 def check_raise_error_on_1d_input(name):
+    # [FUNCTION DOC]
+    # HELPER: Checks fitting on 1D X and predicting with a mis-shaped input raise ValueError.
     TreeEstimator = ALL_TREES[name]
 
     X = iris.data[:, 0].ravel()
@@ -1595,6 +1770,8 @@ def check_raise_error_on_1d_input(name):
 
 @pytest.mark.parametrize("name", ALL_TREES)
 def test_1d_input(name):
+    # [FUNCTION DOC]
+    # Runs check_raise_error_on_1d_input with warnings ignored.
     with ignore_warnings():
         check_raise_error_on_1d_input(name)
 
@@ -1602,6 +1779,9 @@ def test_1d_input(name):
 @pytest.mark.parametrize("name", ALL_TREES)
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS)
 def test_min_weight_leaf_split_level(name, sparse_container):
+    # [FUNCTION DOC]
+    # Checks min_weight_fraction_leaf=0.4 prevents a split that isolates a single 0.2-weight
+    # sample (depth 0), while the default allows it (depth 1), dense and CSC.
     TreeEstimator = ALL_TREES[name]
 
     X = np.array([[0], [0], [0], [0], [1]])
@@ -1621,6 +1801,8 @@ def test_min_weight_leaf_split_level(name, sparse_container):
 
 @pytest.mark.parametrize("name", ALL_TREES)
 def test_public_apply_all_trees(name):
+    # [FUNCTION DOC]
+    # Checks estimator.apply matches tree_.apply on float32 input.
     X_small32 = X_small.astype(np.float32, copy=False)
 
     est = ALL_TREES[name]()
@@ -1631,6 +1813,8 @@ def test_public_apply_all_trees(name):
 @pytest.mark.parametrize("name", SPARSE_TREES)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_public_apply_sparse_trees(name, csr_container):
+    # [FUNCTION DOC]
+    # Checks estimator.apply on dense input matches tree_.apply on float32 CSR input.
     X_small32 = csr_container(X_small.astype(np.float32, copy=False))
 
     est = ALL_TREES[name]()
@@ -1639,6 +1823,9 @@ def test_public_apply_sparse_trees(name, csr_container):
 
 
 def test_decision_path_hardcoded():
+    # [FUNCTION DOC]
+    # Checks decision_path for two iris samples with a stump, and that summing decision
+    # paths over samples with NaNs reproduces n_node_samples (non-regression).
     # 1st example
     X = iris.data
     y = iris.target
@@ -1659,6 +1846,9 @@ def test_decision_path_hardcoded():
 
 @pytest.mark.parametrize("name", ALL_TREES)
 def test_decision_path(name):
+    # [FUNCTION DOC]
+    # Checks decision_path shape, that each sample's leaf from apply is marked, that exactly
+    # one leaf is on each path, and that tree max_depth is at most the longest path.
     X = iris.data
     y = iris.target
     n_samples = X.shape[0]
@@ -1690,6 +1880,8 @@ def test_decision_path(name):
 @pytest.mark.parametrize("name", ALL_TREES)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_no_sparse_y_support(name, csr_container):
+    # [FUNCTION DOC]
+    # Checks sparse y raises TypeError.
     # Currently we don't support sparse y
     X, y = X_multilabel, csr_container(y_multilabel)
     TreeEstimator = ALL_TREES[name]
@@ -1698,6 +1890,10 @@ def test_no_sparse_y_support(name, csr_container):
 
 
 def test_mae():
+    # [FUNCTION DOC]
+    # Checks absolute_error impurities and leaf values (weighted medians) against the
+    # hand-computed values in the docstring for weighted, uniform and default weights, plus
+    # a second weighted dataset with max_depth=1.
     """Check MAE criterion produces correct results on small toy datasets:
 
     ## First toy dataset
@@ -1839,6 +2035,9 @@ def test_mae():
 
 
 def test_criterion_copy():
+    # [FUNCTION DOC]
+    # Checks copy, deepcopy and pickle round trips of every classification and regression
+    # criterion preserve type and constructor arguments (via __reduce__).
     # Let's check whether copy of our criterion has the same type
     # and properties as original
     n_outputs = 3
@@ -1846,6 +2045,8 @@ def test_criterion_copy():
     n_samples = 100
 
     def _pickle_copy(obj):
+        # [FUNCTION DOC]
+        # HELPER: Returns a copy of obj via pickle dumps/loads.
         return pickle.loads(pickle.dumps(obj))
 
     for copy_func in [copy.copy, copy.deepcopy, _pickle_copy]:
@@ -1868,6 +2069,9 @@ def test_criterion_copy():
 
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS)
 def test_empty_leaf_infinite_threshold(sparse_container):
+    # [FUNCTION DOC]
+    # With near-float32-max data (NaN/inf cleaned), checks no threshold is infinite and every
+    # leaf receives at least one training sample, dense and CSC.
     # try to make empty leaf by using near infinite value.
     data = np.random.RandomState(0).randn(100, 11) * 2e38
     data = xpx.nan_to_num(data.astype("float32"))
@@ -1890,6 +2094,9 @@ def test_empty_leaf_infinite_threshold(sparse_container):
 )
 @pytest.mark.parametrize("tree_cls", [DecisionTreeClassifier, ExtraTreeClassifier])
 def test_prune_tree_classifier_are_subtrees(dataset, tree_cls):
+    # [FUNCTION DOC]
+    # Checks cost_complexity_pruning_path alphas and impurities are non-decreasing and that
+    # trees pruned with increasing alphas are successive subtrees (classifiers).
     dataset = DATASETS[dataset]
     X, y = dataset["X"], dataset["y"]
     est = tree_cls(max_leaf_nodes=20, random_state=0)
@@ -1906,6 +2113,8 @@ def test_prune_tree_classifier_are_subtrees(dataset, tree_cls):
 @pytest.mark.parametrize("dataset", DATASETS.keys())
 @pytest.mark.parametrize("tree_cls", [DecisionTreeRegressor, ExtraTreeRegressor])
 def test_prune_tree_regression_are_subtrees(dataset, tree_cls):
+    # [FUNCTION DOC]
+    # Same pruning path and subtree checks for regression trees on all datasets.
     dataset = DATASETS[dataset]
     X, y = dataset["X"], dataset["y"]
 
@@ -1921,6 +2130,8 @@ def test_prune_tree_regression_are_subtrees(dataset, tree_cls):
 
 
 def test_prune_single_node_tree():
+    # [FUNCTION DOC]
+    # Checks pruning a single-node tree with large ccp_alpha leaves it unchanged.
     # single node tree
     clf1 = DecisionTreeClassifier(random_state=0)
     clf1.fit([[0], [1]], [0, 0])
@@ -1933,6 +2144,9 @@ def test_prune_single_node_tree():
 
 
 def assert_pruning_creates_subtree(estimator_cls, X, y, pruning_path):
+    # [FUNCTION DOC]
+    # HELPER: Fits one estimator per ccp_alpha in pruning_path (max_leaf_nodes=20) and
+    # asserts each tree is a subtree of the previous one.
     # generate trees with increasing alphas
     estimators = []
     for ccp_alpha in pruning_path:
@@ -1948,6 +2162,11 @@ def assert_pruning_creates_subtree(estimator_cls, X, y, pruning_path):
 
 
 def assert_is_subtree(tree, subtree):
+    # [FUNCTION DOC]
+    # HELPER: Asserts subtree has no more nodes and depth than tree, then walks both from the
+    # roots with a stack, checking value, impurity, sample counts match per node; leaves in
+    # subtree must have undefined threshold, internal nodes must match tree's threshold and
+    # their children are visited pairwise.
     assert tree.node_count >= subtree.node_count
     assert tree.max_depth >= subtree.max_depth
 
@@ -1991,6 +2210,9 @@ def assert_is_subtree(tree, subtree):
 @pytest.mark.parametrize("splitter", ["best", "random"])
 @pytest.mark.parametrize("sparse_container", [None] + CSC_CONTAINERS + CSR_CONTAINERS)
 def test_apply_path_readonly_all_trees(name, splitter, sparse_container):
+    # [FUNCTION DOC]
+    # Checks fit, predict and decision_path work on read-only memmapped dense or sparse
+    # inputs and match results on the in-memory array.
     dataset = DATASETS["clf_small"]
     X_small = dataset["X"].astype(np.float32, copy=False)
     if sparse_container is None:
@@ -2021,6 +2243,9 @@ def test_apply_path_readonly_all_trees(name, splitter, sparse_container):
 @pytest.mark.parametrize("criterion", ["squared_error", "friedman_mse", "poisson"])
 @pytest.mark.parametrize("Tree", REG_TREES.values())
 def test_balance_property(criterion, Tree):
+    # [FUNCTION DOC]
+    # Checks the sum of training predictions equals the sum of targets for mean-predicting
+    # criteria (squared_error, friedman_mse, poisson).
     # Test that sum(y_pred)=sum(y_true) on training set.
     # This works if the mean is predicted (should even be true for each leaf).
     # MAE predicts the median and is therefore excluded from this test.
@@ -2034,6 +2259,9 @@ def test_balance_property(criterion, Tree):
 
 @pytest.mark.parametrize("seed", range(3))
 def test_poisson_zero_nodes(seed):
+    # [FUNCTION DOC]
+    # Checks squared_error can predict exactly 0 while poisson predictions stay strictly
+    # positive, on a toy set and on a regression set with clipped excess zeros.
     # Test that sum(y)=0 and therefore y_pred=0 is forbidden on nodes.
     X = [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 2], [1, 2], [1, 3]]
     y = [0, 0, 0, 0, 1, 2, 3, 4]
@@ -2067,6 +2295,10 @@ def test_poisson_zero_nodes(seed):
 
 
 def test_poisson_vs_mse():
+    # [FUNCTION DOC]
+    # On a log-linear Poisson simulated dataset, checks the poisson tree's mean Poisson
+    # deviance beats the squared_error tree by 2x on test and beats a mean dummy by 25% on
+    # train and test.
     # For a Poisson distributed target, Poisson loss should give better results
     # than squared error measured in Poisson deviance as metric.
     # We have a similar test, test_poisson(), in
@@ -2111,6 +2343,8 @@ def test_poisson_vs_mse():
 @pytest.mark.parametrize("Tree", [DecisionTreeClassifier, ExtraTreeClassifier])
 @pytest.mark.parametrize("n_classes", [2, 4])
 def test_criterion_entropy_same_as_log_loss(Tree, n_classes):
+    # [FUNCTION DOC]
+    # Checks criterion entropy and log_loss build identical trees and predictions.
     """Test that criterion=entropy gives same as log_loss."""
     n_samples, n_features = 50, 5
     X, y = datasets.make_classification(
@@ -2133,6 +2367,9 @@ def test_criterion_entropy_same_as_log_loss(Tree, n_classes):
 
 
 def test_different_endianness_pickle():
+    # [FUNCTION DOC]
+    # Pickles a fitted classifier with every ndarray byte-swapped to non-native endianness
+    # (custom dispatch table) and checks the unpickled model scores identically.
     X, y = datasets.make_classification(random_state=0)
 
     clf = DecisionTreeClassifier(random_state=0, max_depth=3)
@@ -2140,9 +2377,14 @@ def test_different_endianness_pickle():
     score = clf.score(X, y)
 
     def reduce_ndarray(arr):
+        # [FUNCTION DOC]
+        # HELPER: Reducer returning the reduce tuple of a byte-swapped, non-native-endian view.
         return arr.byteswap().view(arr.dtype.newbyteorder()).__reduce__()
 
     def get_pickle_non_native_endianness():
+        # [FUNCTION DOC]
+        # HELPER: Pickles clf into an in-memory buffer using reduce_ndarray for arrays and
+        # returns the buffer rewound to the start.
         f = io.BytesIO()
         p = pickle.Pickler(f)
         p.dispatch_table = copyreg.dispatch_table.copy()
@@ -2158,6 +2400,8 @@ def test_different_endianness_pickle():
 
 
 def test_different_endianness_joblib_pickle():
+    # [FUNCTION DOC]
+    # Same endianness round trip using a joblib NumpyPickler subclass and joblib.load.
     X, y = datasets.make_classification(random_state=0)
 
     clf = DecisionTreeClassifier(random_state=0, max_depth=3)
@@ -2165,12 +2409,18 @@ def test_different_endianness_joblib_pickle():
     score = clf.score(X, y)
 
     class NonNativeEndiannessNumpyPickler(NumpyPickler):
+        # [CLASS DOC]
+        # HELPER: joblib NumpyPickler that byte-swaps every ndarray before saving.
         def save(self, obj):
+            # [FUNCTION DOC]
+            # Replaces ndarrays by non-native-endian equivalents, then delegates to the parent save.
             if isinstance(obj, np.ndarray):
                 obj = obj.byteswap().view(obj.dtype.newbyteorder())
             super().save(obj)
 
     def get_joblib_pickle_non_native_endianness():
+        # [FUNCTION DOC]
+        # HELPER: Dumps clf with the custom pickler into a rewound in-memory buffer.
         f = io.BytesIO()
         p = NonNativeEndiannessNumpyPickler(f)
 
@@ -2184,6 +2434,10 @@ def test_different_endianness_joblib_pickle():
 
 
 def get_different_bitness_node_ndarray(node_ndarray):
+    # [FUNCTION DOC]
+    # HELPER: Returns a copy of a Tree node structured array where the indexing fields
+    # (children, feature, n_node_samples) use the other platform's integer width (int32 on
+    # 64-bit, int64 on 32-bit).
     new_dtype_for_indexing_fields = np.int64 if _IS_32BIT else np.int32
 
     # field names in Node struct with SIZE_t types (see sklearn/tree/_tree.pxd)
@@ -2202,6 +2456,9 @@ def get_different_bitness_node_ndarray(node_ndarray):
 
 
 def get_different_alignment_node_ndarray(node_ndarray):
+    # [FUNCTION DOC]
+    # HELPER: Returns a copy of a node array with all field offsets shifted by 8 bytes,
+    # simulating a different struct alignment.
     new_dtype_dict = {
         name: dtype for name, (dtype, _) in node_ndarray.dtype.fields.items()
     }
@@ -2219,6 +2476,9 @@ def get_different_alignment_node_ndarray(node_ndarray):
 
 
 def reduce_tree_with_different_bitness(tree):
+    # [FUNCTION DOC]
+    # HELPER: Pickle reducer for Cython Tree emitting n_classes and the node array converted
+    # to the other platform's integer width.
     new_dtype = np.int64 if _IS_32BIT else np.int32
     tree_cls, (n_features, n_classes, n_outputs), state = tree.__reduce__()
     new_n_classes = n_classes.astype(new_dtype, casting="same_kind")
@@ -2230,6 +2490,8 @@ def reduce_tree_with_different_bitness(tree):
 
 
 def test_different_bitness_pickle():
+    # [FUNCTION DOC]
+    # Checks a classifier pickled with foreign-bitness Tree state loads and scores the same.
     X, y = datasets.make_classification(random_state=0)
 
     clf = DecisionTreeClassifier(random_state=0, max_depth=3)
@@ -2237,6 +2499,8 @@ def test_different_bitness_pickle():
     score = clf.score(X, y)
 
     def pickle_dump_with_different_bitness():
+        # [FUNCTION DOC]
+        # HELPER: Pickles clf to a rewound buffer using reduce_tree_with_different_bitness.
         f = io.BytesIO()
         p = pickle.Pickler(f)
         p.dispatch_table = copyreg.dispatch_table.copy()
@@ -2252,6 +2516,8 @@ def test_different_bitness_pickle():
 
 
 def test_different_bitness_joblib_pickle():
+    # [FUNCTION DOC]
+    # Same bitness conversion check with joblib's NumpyPickler and joblib.load.
     # Make sure that a platform specific pickle generated on a 64 bit
     # platform can be converted at pickle load time into an estimator
     # with Cython code that works with the host's native integer precision
@@ -2264,6 +2530,8 @@ def test_different_bitness_joblib_pickle():
     score = clf.score(X, y)
 
     def joblib_dump_with_different_bitness():
+        # [FUNCTION DOC]
+        # HELPER: Dumps clf with NumpyPickler and the bitness reducer into a rewound buffer.
         f = io.BytesIO()
         p = NumpyPickler(f)
         p.dispatch_table = copyreg.dispatch_table.copy()
@@ -2279,6 +2547,9 @@ def test_different_bitness_joblib_pickle():
 
 
 def test_check_n_classes():
+    # [FUNCTION DOC]
+    # Checks _check_n_classes accepts int32/int64 in either byte order, and raises ValueError
+    # for 2D arrays and float dtype.
     expected_dtype = np.dtype(np.int32) if _IS_32BIT else np.dtype(np.int64)
     allowed_dtypes = [np.dtype(np.int32), np.dtype(np.int64)]
     allowed_dtypes += [dt.newbyteorder() for dt in allowed_dtypes]
@@ -2297,6 +2568,9 @@ def test_check_n_classes():
 
 
 def test_check_value_ndarray():
+    # [FUNCTION DOC]
+    # Checks _check_value_ndarray accepts native and swapped float64, and raises for wrong
+    # shape, non C-contiguous arrays and float32 dtype.
     expected_dtype = np.dtype(np.float64)
     expected_shape = (5, 1, 2)
     value_ndarray = np.zeros(expected_shape, dtype=expected_dtype)
@@ -2330,6 +2604,11 @@ def test_check_value_ndarray():
 
 
 def test_check_node_ndarray():
+    # [FUNCTION DOC]
+    # Checks _check_node_ndarray rejects 2D, non-contiguous, and wrong field dtypes
+    # (integer threshold, float left_child).
+    # KNOWN ISSUE: the loop over valid variants (other bitness, alignment, byte order)
+    # validates node_ndarray every time instead of arr, so the variants are never checked.
     expected_dtype = NODE_DTYPE
 
     node_ndarray = np.zeros((5,), dtype=expected_dtype)
@@ -2385,6 +2664,8 @@ def test_check_node_ndarray():
     "Splitter", chain(DENSE_SPLITTERS.values(), SPARSE_SPLITTERS.values())
 )
 def test_splitter_serializable(Splitter):
+    # [FUNCTION DOC]
+    # Checks every dense and sparse splitter can be pickled and keeps max_features.
     """Check that splitters are serializable."""
     rng = np.random.RandomState(42)
     max_features = 10
@@ -2400,6 +2681,8 @@ def test_splitter_serializable(Splitter):
 
 
 def test_tree_deserialization_from_read_only_buffer(tmpdir):
+    # [FUNCTION DOC]
+    # Non-regression: a joblib-dumped tree loaded with mmap_mode r equals the original.
     """Check that Trees can be deserialized with read only buffers.
 
     Non-regression test for gh-25584.
@@ -2420,6 +2703,8 @@ def test_tree_deserialization_from_read_only_buffer(tmpdir):
 
 @pytest.mark.parametrize("Tree", ALL_TREES.values())
 def test_min_sample_split_1_error(Tree):
+    # [FUNCTION DOC]
+    # Checks min_samples_split=1.0 is accepted while integer 1 raises the range ValueError.
     """Check that an error is raised when min_sample_split=1.
 
     non-regression test for issue gh-25481.
@@ -2444,6 +2729,9 @@ def test_min_sample_split_1_error(Tree):
 @pytest.mark.filterwarnings("ignore:.*friedman_mse.*:FutureWarning")
 @pytest.mark.parametrize("criterion", REG_CRITERIONS)
 def test_missing_values_best_splitter_on_equal_nodes_no_missing(criterion):
+    # [FUNCTION DOC]
+    # For best splitter regressors without missing data at fit, checks a NaN at predict goes
+    # to the child with more samples, and to the right child on ties.
     """Check missing values goes to correct node during predictions."""
     X = np.array([[0, 1, 2, 3, 8, 9, 11, 12, 15]]).T
     y = np.array([0.1, 0.2, 0.3, 0.2, 1.4, 1.4, 1.5, 1.6, 2.6])
@@ -2474,6 +2762,11 @@ def test_missing_values_best_splitter_on_equal_nodes_no_missing(criterion):
 @pytest.mark.parametrize("seed", range(3))
 @pytest.mark.parametrize("criterion", REG_CRITERIONS)
 def test_missing_values_random_splitter_on_equal_nodes_no_missing(criterion, seed):
+    # [FUNCTION DOC]
+    # For ExtraTreeRegressor stumps across seeds, checks NaN prediction equals the value of
+    # the child with larger weighted sample count.
+    # KNOWN ISSUE: on equal counts it expects the right child, mirroring the best splitter
+    # convention without checking it separately.
     """Check missing values go to the correct node during predictions for ExtraTree.
 
     Since ETC use random splits, we use different seeds to verify that the
@@ -2508,6 +2801,8 @@ def test_missing_values_random_splitter_on_equal_nodes_no_missing(criterion, see
 
 @pytest.mark.parametrize("criterion", ["entropy", "gini"])
 def test_missing_values_best_splitter_three_classes(criterion):
+    # [FUNCTION DOC]
+    # Checks NaN-only class at fit time is predicted for NaN inputs, others by threshold.
     """Test when missing values are uniquely present in a class among 3 classes."""
     missing_values_class = 0
     X = np.array([[np.nan] * 4 + [0, 1, 2, 3, 8, 9, 11, 12]]).T
@@ -2523,6 +2818,8 @@ def test_missing_values_best_splitter_three_classes(criterion):
 
 @pytest.mark.parametrize("criterion", ["entropy", "gini"])
 def test_missing_values_best_splitter_to_left(criterion):
+    # [FUNCTION DOC]
+    # Checks NaNs that were all class 0 at fit time are predicted as class 0.
     """Missing values spanning only one class at fit-time must make missing
     values at predict-time be classified has belonging to this class."""
     X = np.array([[np.nan] * 4 + [0, 1, 2, 3, 4, 5]]).T
@@ -2539,6 +2836,8 @@ def test_missing_values_best_splitter_to_left(criterion):
 
 @pytest.mark.parametrize("criterion", ["entropy", "gini"])
 def test_missing_values_best_splitter_to_right(criterion):
+    # [FUNCTION DOC]
+    # Checks NaNs sharing class 1 with high values are predicted as class 1.
     """Missing values and non-missing values sharing one class at fit-time
     must make missing values at predict-time be classified has belonging
     to this class."""
@@ -2556,6 +2855,9 @@ def test_missing_values_best_splitter_to_right(criterion):
 
 @pytest.mark.parametrize("criterion", ["entropy", "gini"])
 def test_missing_values_best_splitter_missing_both_classes_has_nan(criterion):
+    # [FUNCTION DOC]
+    # With one NaN per class, checks NaN goes to the right child (class 1) as the
+    # implementation evaluates right first.
     """Check behavior of missing value when there is one missing value in each class."""
     X = np.array([[1, 2, 3, 5, np.nan, 10, 20, 30, 60, np.nan]]).T
     y = np.array([0] * 5 + [1] * 5)
@@ -2579,6 +2881,8 @@ def test_missing_values_best_splitter_missing_both_classes_has_nan(criterion):
     ],
 )
 def test_missing_value_errors(sparse_container, tree):
+    # [FUNCTION DOC]
+    # Checks regressors raise ValueError on sparse CSR input containing NaN.
     """Check unsupported configurations for missing values."""
 
     X = np.array([[1, 2, 3, 5, np.nan, 10, 20, 30, 60, np.nan]]).T
@@ -2592,6 +2896,8 @@ def test_missing_value_errors(sparse_container, tree):
 
 @pytest.mark.parametrize("Tree", REG_TREES.values())
 def test_missing_values_poisson(Tree):
+    # [FUNCTION DOC]
+    # Smoke test: poisson trees fit diabetes with injected NaNs and predict non-negative.
     """Smoke test for poisson regression and missing values."""
     X, y = diabetes.data.copy(), diabetes.target
 
@@ -2607,6 +2913,9 @@ def test_missing_values_poisson(Tree):
 
 
 def make_friedman1_classification(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Generates make_friedman1 data and thresholds y at 14 to make a binary target.
+    # Inputs/Outputs: forwards all arguments; returns (X, boolean y).
     X, y = datasets.make_friedman1(*args, **kwargs)
     y = y > 14
     return X, y
@@ -2631,6 +2940,9 @@ def make_friedman1_classification(*args, **kwargs):
 def test_missing_values_is_resilience(
     make_data, Tree, sample_weight_train, global_random_seed, tolerance
 ):
+    # [FUNCTION DOC]
+    # With 10% NaNs, checks native missing value handling scores within tolerance of (or
+    # better than) mean imputation plus tree, with and without unit sample weights.
     """Check that trees can deal with missing values have decent performance."""
     n_samples, n_features = 5_000, 10
     X, y = make_data(
@@ -2675,6 +2987,9 @@ def test_missing_values_is_resilience(
 # handling of missing values.
 @pytest.mark.parametrize("Tree, expected_score", zip(CLF_TREES.values(), [0.85, 0.53]))
 def test_missing_value_is_predictive(Tree, expected_score, global_random_seed):
+    # [FUNCTION DOC]
+    # Checks trees learn when only the missingness of one feature predicts y (mean 5-fold
+    # CV score above a per-tree threshold).
     """Check the tree learns when only the missing value is predictive."""
     rng = np.random.RandomState(0)
     n_samples = 500
@@ -2711,6 +3026,8 @@ def test_missing_value_is_predictive(Tree, expected_score, global_random_seed):
     ],
 )
 def test_sample_weight_non_uniform(make_data, Tree):
+    # [FUNCTION DOC]
+    # With NaNs present, checks zero sample weights on half the rows equal dropping them.
     """Check sample weight is correctly handled with missing values."""
     rng = np.random.RandomState(0)
     n_samples, n_features = 1000, 10
@@ -2733,6 +3050,9 @@ def test_sample_weight_non_uniform(make_data, Tree):
 
 
 def test_deterministic_pickle():
+    # [FUNCTION DOC]
+    # Checks two identically fitted trees pickle to identical bytes (no uninitialised
+    # memory in the state).
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/27268
     # Uninitialised memory would lead to the two pickle strings being different.
@@ -2761,6 +3081,10 @@ def test_deterministic_pickle():
 )
 @pytest.mark.parametrize("criterion", REG_CRITERIONS)
 def test_regression_tree_missing_values_toy(Tree, X, criterion, global_random_seed):
+    # [FUNCTION DOC]
+    # On 6-sample 1D inputs with NaNs, checks impurities are non-negative, single-sample
+    # leaves have zero impurity, and (for greedy trees) the first two impurities match a
+    # reference tree fitted without missing values.
     """Check that regression trees correctly handle missing values in impurity
     calculations.
 
@@ -2799,6 +3123,8 @@ def test_regression_tree_missing_values_toy(Tree, X, criterion, global_random_se
 
 
 def test_regression_extra_tree_missing_values_toy(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks ExtraTreeRegressor impurities stay non-negative with 20% NaNs.
     rng = np.random.RandomState(global_random_seed)
     n_samples = 100
     X = np.arange(n_samples, dtype=np.float64).reshape(-1, 1)
@@ -2813,6 +3139,9 @@ def test_regression_extra_tree_missing_values_toy(global_random_seed):
 
 
 def test_classification_tree_missing_values_toy():
+    # [FUNCTION DOC]
+    # Reproduces a known forest regression with fixed bootstrap indices and seed, checking
+    # impurities are non-negative and zero for single-sample leaves.
     """Check that we properly handle missing values in classification trees using a toy
     dataset.
 
@@ -2860,6 +3189,9 @@ def test_classification_tree_missing_values_toy():
 
 
 def test_build_pruned_tree_py():
+    # [FUNCTION DOC]
+    # Checks _build_pruned_tree_py keeps only the root when only it is marked and the whole
+    # stump when the leaves are marked, comparing node counts and values.
     """Test pruning a tree with the Python caller of the Cythonized prune tree."""
     tree = DecisionTreeClassifier(random_state=0, max_depth=1)
     tree.fit(iris.data, iris.target)
@@ -2891,6 +3223,8 @@ def test_build_pruned_tree_py():
 
 
 def test_build_pruned_tree_infinite_loop():
+    # [FUNCTION DOC]
+    # Checks marking only one child raises ValueError instead of looping forever.
     """Test pruning a tree does not result in an infinite loop."""
 
     # Create a tree with root and two children
@@ -2909,6 +3243,10 @@ def test_build_pruned_tree_infinite_loop():
 
 
 def test_absolute_errors_precomputation_function(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks _py_precompute_absolute_errors prefix (and reversed suffix) absolute errors and
+    # weighted medians against a naive weighted-percentile computation for several sizes,
+    # weightings and index orders.
     """
     Test the main bit of logic of the MAE(RegressionCriterion) class
     (used by DecisionTreeRegressor(criterion="absolute_error")).
@@ -2920,6 +3258,10 @@ def test_absolute_errors_precomputation_function(global_random_seed):
     """
 
     def compute_prefix_abs_errors_naive(y, w):
+        # [FUNCTION DOC]
+        # HELPER: For each prefix of y, computes the weighted median (averaged) and the weighted
+        # sum of absolute deviations from it.
+        # Outputs: (errors array, medians array), both of length len(y).
         y = y.ravel().copy()
         medians = [
             _weighted_percentile(y[:i], w[:i], 50, average=True)
@@ -2932,6 +3274,9 @@ def test_absolute_errors_precomputation_function(global_random_seed):
         return np.array(errors), np.array(medians)
 
     def assert_same_results(y, w, indices, reverse=False):
+        # [FUNCTION DOC]
+        # HELPER: Runs the Cython precomputation over indices (forward or reverse) and asserts
+        # it matches the naive computation on the correspondingly ordered data (atol 1e-11).
         n = y.shape[0]
         args = (n - 1, -1) if reverse else (0, n)
         abs_errors, medians = _py_precompute_absolute_errors(y, w, indices, *args, n)
@@ -2964,6 +3309,9 @@ def test_absolute_errors_precomputation_function(global_random_seed):
 
 
 def test_absolute_error_accurately_predicts_weighted_median(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks a no-split absolute_error tree's root value equals the weighted median of a
+    # large lognormal sample with many zero weights.
     """
     Test that the weighted-median computed under-the-hood when
     building a tree with criterion="absolute_error" is correct.
@@ -2985,6 +3333,9 @@ def test_absolute_error_accurately_predicts_weighted_median(global_random_seed):
 
 
 def test_splitting_with_missing_values():
+    # [FUNCTION DOC]
+    # Checks across 20 seeds (feature visit orders) that the stump on data with NaNs always
+    # has impurities [0.25, 0, 0].
     # Non regression test for https://github.com/scikit-learn/scikit-learn/issues/32178
     X = (
         np.vstack([[0, 0, 0, 0, 1, 2, 3, 4], [1, 2, 1, 2, 1, 2, 1, 2]])
@@ -3005,6 +3356,9 @@ def test_splitting_with_missing_values():
 
 
 def test_missing_values_and_constant_toy():
+    # [FUNCTION DOC]
+    # Checks a feature constant except for NaNs is still split on missingness, producing a
+    # 3-node tree with perfect predictions.
     # Non regression test for https://github.com/scikit-learn/scikit-learn/issues/32272
     # This test ensures that a feature with constant non-missing values plus some
     # missing values is correctly identified as splittable (not constant).
@@ -3020,6 +3374,9 @@ def test_missing_values_and_constant_toy():
 
 
 def test_friedman_mse_deprecation():
+    # [FUNCTION DOC]
+    # Checks constructing a regressor with friedman_mse emits a FutureWarning (the
+    # deprecation is raised in the constructor).
     with pytest.warns(FutureWarning, match="friedman_mse"):
         _ = DecisionTreeRegressor(criterion="friedman_mse")
 
@@ -3033,6 +3390,9 @@ def test_friedman_mse_deprecation():
     ids=["multiple-non-missing", "single-non-missing"],
 )
 def test_random_splitter_missing_values_uses_non_missing_min_max(X, y):
+    # [FUNCTION DOC]
+    # Checks ExtraTreeRegressor thresholds are finite and within the non-missing range when
+    # the first sample is NaN.
     """
     Check random-split thresholds are finite when the first sample is missing.
 
