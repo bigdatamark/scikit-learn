@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Uniform extraction of prediction scores ("response values") from fitted
+# estimators for scorers and displays: picks the response method, validates
+# pos_label, and post-processes classifier outputs into the compressed shapes
+# expected by metrics.
 """Utilities to get the response values of a classifier or a regressor.
 
 It allows to make uniform checks and validation.
@@ -14,6 +19,15 @@ from sklearn.utils.validation import _check_response_method, check_is_fitted
 
 
 def _process_predict_proba(*, y_pred, target_type, classes, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: Post-processes predict_proba/predict_log_proba output. Binary: selects
+    # the column whose class equals pos_label, returning shape (n_samples,).
+    # Multilabel: a list of per-output (n_samples, 2) arrays is turned into an
+    # (n_samples, n_outputs) array of positive-class columns (last column of each);
+    # an array is returned as is. Multiclass: unchanged.
+    # Inputs (keyword-only): y_pred, target_type, classes, pos_label (see docstring).
+    # Exceptions: ValueError when binary and y_pred has fewer than 2 columns;
+    # IndexError if pos_label is not among classes.
     """Get the response values when the response method is `predict_proba`.
 
     This function process the `y_pred` array in the binary and multi-label cases.
@@ -74,6 +88,13 @@ def _process_predict_proba(*, y_pred, target_type, classes, pos_label):
 
 
 def _process_decision_function(*, y_pred, target_type, classes, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: For binary targets, negates the scores when pos_label equals classes[0]
+    # (scores are oriented towards classes[1]); otherwise returns y_pred unchanged.
+    # Outputs: ndarray.
+    # KNOWN ISSUE: the docstring says multilabel predictions are stacked when the
+    # positive label is not classes[1]; the code never does this and returns
+    # multilabel scores unchanged.
     """Get the response values when the response method is `decision_function`.
 
     This function process the `y_pred` array in the binary and multi-label cases.
@@ -121,6 +142,19 @@ def _get_response_values(
     pos_label=None,
     return_response_method_used=False,
 ):
+    # [FUNCTION DOC]
+    # Resolves the prediction method via _check_response_method (first available of
+    # the given names). For classifiers: reads classes_, infers target type; for binary
+    # targets validates pos_label against classes (defaulting to the last class);
+    # calls the method on X and post-processes probabilities or decision scores as
+    # above ('predict' output is untouched). For non-classifiers: calls the method and
+    # sets pos_label to None.
+    # Outputs: (y_pred, pos_label) or (y_pred, pos_label, method name) when
+    # return_response_method_used.
+    # Exceptions: ValueError for an invalid binary pos_label or single-column binary
+    # probabilities; AttributeError from _check_response_method when no method exists;
+    # NotFittedError-like errors from the estimator itself.
+    # Note: pos_label is passed through unvalidated for multiclass/multilabel.
     """Compute the response values of a classifier, an outlier detector, a regressor
     or a clusterer.
 
@@ -239,6 +273,13 @@ def _get_response_values(
 def _get_response_values_binary(
     estimator, X, response_method, pos_label=None, return_response_method_used=False
 ):
+    # [FUNCTION DOC]
+    # Binary-classifier wrapper of _get_response_values. Checks the estimator is
+    # fitted, is a classifier and has exactly 2 classes; maps response_method 'auto'
+    # to trying predict_proba then decision_function; delegates.
+    # Outputs: same as _get_response_values.
+    # Exceptions: NotFittedError if unfitted; ValueError if not a classifier or not
+    # exactly two classes, plus any from the delegate.
     """Compute the response values of a binary classifier.
 
     Parameters

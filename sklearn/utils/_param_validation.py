@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Parameter validation framework: constraint classes (types, intervals, options,
+# array-likes, random states, cv objects, ...), the conversion of shorthand
+# constraint specs into constraint objects, the validate_parameter_constraints
+# checker used by estimators, the validate_params decorator for public functions,
+# and test helpers generating valid/invalid values. Import-time side effect:
+# registers float as a virtual subclass of RealNotInt.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -18,6 +25,9 @@ from sklearn.utils.validation import _is_arraylike_not_scalar
 
 
 class InvalidParameterError(ValueError, TypeError):
+    # [CLASS DOC]
+    # Exception raised when a parameter has an invalid type or value; subclasses both
+    # ValueError and TypeError so existing except clauses keep working.
     """Custom exception to be raised when the parameter of a class/method/function
     does not have a valid type or value.
     """
@@ -26,6 +36,19 @@ class InvalidParameterError(ValueError, TypeError):
 
 
 def validate_parameter_constraints(parameter_constraints, params, caller_name):
+    # [FUNCTION DOC]
+    # For each (name, value) in params: skip names with no entry in
+    # parameter_constraints or whose entry is the string "no_validation"; otherwise
+    # convert each constraint spec with make_constraint and accept the value as soon as
+    # one constraint is satisfied. If none is, build a message from the non-hidden
+    # constraints ("A", "A or B", "A, B or C") and raise.
+    # Inputs: parameter_constraints - dict name -> list of constraint specs (or
+    # "no_validation"); params - dict name -> value; caller_name - str for messages.
+    # Outputs: None.
+    # Exceptions: InvalidParameterError when no constraint matches; ValueError from
+    # make_constraint on unknown specs.
+    # KNOWN ISSUE: if every constraint of a parameter is Hidden, the filtered list is
+    # empty and building the message raises IndexError instead.
     """Validate types and values of given parameters.
 
     Parameters
@@ -102,6 +125,17 @@ def validate_parameter_constraints(parameter_constraints, params, caller_name):
 
 
 def make_constraint(constraint):
+    # [FUNCTION DOC]
+    # Maps a constraint spec to a _Constraint: "array-like", "sparse matrix",
+    # "random_state", the builtin callable, None, any type (-> _InstancesOf), existing
+    # Interval/StrOptions/Options/HasMethods/MissingValues objects (returned as is),
+    # "boolean", "verbose", "cv_object", Hidden (unwrapped recursively and flagged
+    # hidden), and "nan" or a float NaN.
+    # Inputs: constraint - spec object. Outputs: _Constraint instance.
+    # Exceptions: ValueError for unknown specs (including other _Constraint subclasses
+    # such as _NanConstraint instances).
+    # Side effects: for Hidden wrapping an existing constraint object, sets hidden=True
+    # on that shared object.
     """Convert the constraint into the appropriate Constraint object.
 
     Parameters
@@ -148,6 +182,12 @@ def make_constraint(constraint):
 
 
 def validate_params(parameter_constraints, *, prefer_skip_nested_validation):
+    # [FUNCTION DOC]
+    # Decorator factory validating a function's arguments against
+    # parameter_constraints at each call.
+    # Inputs: parameter_constraints - dict as for validate_parameter_constraints;
+    # prefer_skip_nested_validation - bool, keyword-only.
+    # Outputs: decorator.
     """Decorator to validate types and values of functions and methods.
 
     Parameters
@@ -179,6 +219,10 @@ def validate_params(parameter_constraints, *, prefer_skip_nested_validation):
     """
 
     def decorator(func):
+        # [FUNCTION DOC]
+        # HELPER: Attaches the constraints dict to func as _skl_parameter_constraints and
+        # returns the wrapping function (functools.wraps preserves metadata).
+        # Side effects: sets an attribute on func.
         # The dict of parameter constraints is set as an attribute of the function
         # to make it possible to dynamically introspect the constraints for
         # automatic testing.
@@ -186,6 +230,18 @@ def validate_params(parameter_constraints, *, prefer_skip_nested_validation):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: If the global skip_parameter_validation config is set, calls func
+            # directly. Otherwise binds args/kwargs to the signature, applies defaults, drops
+            # *args/**kwargs and self/cls entries, validates the rest, then calls func inside a
+            # config_context where skip_parameter_validation equals
+            # prefer_skip_nested_validation. An InvalidParameterError raised inside func has
+            # the caller name in its message replaced by func's qualname and is re-raised
+            # (chained).
+            # Exceptions: InvalidParameterError; TypeError from signature binding.
+            # Side effects: temporarily changes global config during the call.
+            # KNOWN ISSUE: global_skip_validation is always False when used in the
+            # config_context (the True case returned earlier), so that term is dead.
             global_skip_validation = get_config()["skip_parameter_validation"]
             if global_skip_validation:
                 return func(*args, **kwargs)
@@ -234,6 +290,11 @@ def validate_params(parameter_constraints, *, prefer_skip_nested_validation):
 
 
 class RealNotInt(Real):
+    # [CLASS DOC]
+    # Abstract numeric type for real numbers that are not integers: float (and NumPy
+    # floating types via the float registration and Real ABC) are instances, int is
+    # not. Used as an Interval type.
+    # KNOWN ISSUE: docstring typo "isintance".
     """A type that represents reals that are not instances of int.
 
     Behaves like float, but also works with values extracted from numpy arrays.
@@ -246,6 +307,10 @@ RealNotInt.register(float)
 
 
 def _type_name(t):
+    # [FUNCTION DOC]
+    # HELPER: Human-readable type name: bare qualname for builtins, "float" for Real,
+    # "int" for Integral, otherwise "module.qualname".
+    # Inputs: t - type. Outputs: str.
     """Convert type into human readable string."""
     module = t.__module__
     qualname = t.__qualname__
@@ -259,13 +324,20 @@ def _type_name(t):
 
 
 class _Constraint(ABC):
+    # [CLASS DOC]
+    # Abstract base of all constraints: has a hidden flag (excluded from error
+    # messages) and requires is_satisfied_by and __str__.
     """Base class for the constraint objects."""
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Initialises hidden to False.
         self.hidden = False
 
     @abstractmethod
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # Abstract: return True if val satisfies the constraint.
         """Whether or not a value satisfies the constraint.
 
         Parameters
@@ -281,10 +353,14 @@ class _Constraint(ABC):
 
     @abstractmethod
     def __str__(self):
+        # [FUNCTION DOC]
+        # Abstract: human-readable description used in error messages.
         """A human readable representational string of the constraint."""
 
 
 class _InstancesOf(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by instances of a given type.
     """Constraint representing instances of a given type.
 
     Parameters
@@ -294,42 +370,66 @@ class _InstancesOf(_Constraint):
     """
 
     def __init__(self, type):
+        # [FUNCTION DOC]
+        # Stores the type.
         super().__init__()
         self.type = type
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # isinstance check against the stored type.
         return isinstance(val, self.type)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "an instance of '<type name>'".
         return f"an instance of {_type_name(self.type)!r}"
 
 
 class _NoneConstraint(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied only by None.
     """Constraint representing the None singleton."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # Identity check against None.
         return val is None
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "None".
         return "None"
 
 
 class _NanConstraint(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by real, non-integral NaN scalars.
     """Constraint representing the indicator `np.nan`."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if val is a non-integral Real and is NaN.
         return (
             not isinstance(val, Integral) and isinstance(val, Real) and math.isnan(val)
         )
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "numpy.nan".
         return "numpy.nan"
 
 
 class _PandasNAConstraint(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by pandas.NA; used inside MissingValues.
     """Constraint representing the indicator `pd.NA`."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if pandas is importable and val is an instance of pd.NA's type and is NA;
+        # False if pandas is missing.
+        # Side effects: may import pandas.
         try:
             import pandas as pd
 
@@ -338,10 +438,15 @@ class _PandasNAConstraint(_Constraint):
             return False
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "pandas.NA".
         return "pandas.NA"
 
 
 class Options(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by values of a given type belonging to a finite set; some
+    # options can be flagged as deprecated in the description.
     """Constraint representing a finite set of instances of a given type.
 
     Parameters
@@ -357,6 +462,10 @@ class Options(_Constraint):
     """
 
     def __init__(self, type, options, *, deprecated=None):
+        # [FUNCTION DOC]
+        # Stores type, options and deprecated (defaults to empty set).
+        # Inputs: type - type; options - set; deprecated - set or None, keyword-only.
+        # Exceptions: ValueError if deprecated is not a subset of options.
         super().__init__()
         self.type = type
         self.options = options
@@ -366,9 +475,13 @@ class Options(_Constraint):
             raise ValueError("The deprecated options must be a subset of the options.")
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if val is an instance of type and is in options.
         return isinstance(val, self.type) and val in self.options
 
     def _mark_if_deprecated(self, option):
+        # [FUNCTION DOC]
+        # HELPER: repr of the option, suffixed with " (deprecated)" if deprecated.
         """Add a deprecated mark to an option if needed."""
         option_str = f"{option!r}"
         if option in self.deprecated:
@@ -376,6 +489,9 @@ class Options(_Constraint):
         return option_str
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "a <type> among {opt1, opt2, ...}" with deprecated marks.
+        # Note: order follows set iteration, so it can vary between runs for strings.
         options_str = (
             f"{', '.join([self._mark_if_deprecated(o) for o in self.options])}"
         )
@@ -383,6 +499,8 @@ class Options(_Constraint):
 
 
 class StrOptions(Options):
+    # [CLASS DOC]
+    # Options specialised to str values.
     """Constraint representing a finite set of strings.
 
     Parameters
@@ -396,10 +514,16 @@ class StrOptions(Options):
     """
 
     def __init__(self, options, *, deprecated=None):
+        # [FUNCTION DOC]
+        # Calls Options with type str.
+        # Inputs: options - set of str; deprecated - set of str or None.
         super().__init__(type=str, options=options, deprecated=deprecated)
 
 
 class Interval(_Constraint):
+    # [CLASS DOC]
+    # Constraint for numbers of a given type (Integral, Real or RealNotInt) within an
+    # interval with optional (infinite) bounds and configurable closedness.
     """Constraint representing a typed interval.
 
     Parameters
@@ -436,6 +560,9 @@ class Interval(_Constraint):
     """
 
     def __init__(self, type, left, right, *, closed):
+        # [FUNCTION DOC]
+        # Stores type, left, right and closed (keyword-only), then validates them.
+        # Exceptions: as _check_params.
         super().__init__()
         self.type = type
         self.left = left
@@ -445,6 +572,14 @@ class Interval(_Constraint):
         self._check_params()
 
     def _check_params(self):
+        # [FUNCTION DOC]
+        # HELPER: Validates the interval definition: type must be Integral, Real or
+        # RealNotInt; closed one of left/right/both/neither. For Integral, bounds must be
+        # ints or None and a None bound cannot be on a closed side. For real types bounds
+        # must be Real or None. If both bounds set, right must be strictly greater than left.
+        # Exceptions: ValueError or TypeError.
+        # KNOWN ISSUE: message says "right can't be less than left" but equality is also
+        # rejected.
         if self.type not in (Integral, Real, RealNotInt):
             raise ValueError(
                 "type must be either numbers.Integral, numbers.Real or RealNotInt."
@@ -484,6 +619,12 @@ class Interval(_Constraint):
             )
 
     def __contains__(self, val):
+        # [FUNCTION DOC]
+        # Membership test ignoring the type: NaN (non-integral) is never contained; None
+        # bounds become -inf/+inf; the value must not be below/above a bound, with the
+        # bound itself allowed only on closed sides.
+        # Inputs: val - number. Outputs: bool.
+        # Exceptions: TypeError from np.isnan for non-numeric val.
         if not isinstance(val, Integral) and np.isnan(val):
             return False
 
@@ -500,12 +641,17 @@ class Interval(_Constraint):
         return True
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if val is an instance of the interval's type and lies in the interval.
         if not isinstance(val, self.type):
             return False
 
         return val in self
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns e.g. "an int in the range [0, inf)" or "a float in the range (0.0, 1.0]";
+        # for non-Integral types bounds given as Real are shown as floats.
         type_str = "an int" if self.type is Integral else "a float"
         left_bracket = "[" if self.closed in ("left", "both") else "("
         left_bound = "-inf" if self.left is None else self.left
@@ -525,36 +671,57 @@ class Interval(_Constraint):
 
 
 class _ArrayLikes(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by non-scalar array-likes (see _is_arraylike_not_scalar).
     """Constraint representing array-likes"""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # Delegates to _is_arraylike_not_scalar.
         return _is_arraylike_not_scalar(val)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "an array-like".
         return "an array-like"
 
 
 class _SparseMatrices(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by scipy sparse matrices or arrays.
     """Constraint representing sparse matrices."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # Delegates to scipy issparse.
         return issparse(val)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "a sparse array or matrix".
         return "a sparse array or matrix"
 
 
 class _Callables(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by callables.
     """Constraint representing callables."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # Delegates to callable.
         return callable(val)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "a callable".
         return "a callable"
 
 
 class _RandomStates(_Constraint):
+    # [CLASS DOC]
+    # Composite constraint for random_state: int in [0, 2**32 - 1], RandomState
+    # instance, or None.
     """Constraint representing random states.
 
     Convenience class for
@@ -562,6 +729,8 @@ class _RandomStates(_Constraint):
     """
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Builds the three sub-constraints.
         super().__init__()
         self._constraints = [
             Interval(Integral, 0, 2**32 - 1, closed="both"),
@@ -570,9 +739,13 @@ class _RandomStates(_Constraint):
         ]
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if any sub-constraint is satisfied.
         return any(c.is_satisfied_by(val) for c in self._constraints)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Joins sub-constraint descriptions as "A, B or C".
         return (
             f"{', '.join([str(c) for c in self._constraints[:-1]])} or"
             f" {self._constraints[-1]}"
@@ -580,6 +753,8 @@ class _RandomStates(_Constraint):
 
 
 class _Booleans(_Constraint):
+    # [CLASS DOC]
+    # Composite constraint for Python bool or numpy.bool_.
     """Constraint representing boolean likes.
 
     Convenience class for
@@ -587,6 +762,8 @@ class _Booleans(_Constraint):
     """
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Builds the two instance-of sub-constraints.
         super().__init__()
         self._constraints = [
             _InstancesOf(bool),
@@ -594,9 +771,13 @@ class _Booleans(_Constraint):
         ]
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if any sub-constraint is satisfied.
         return any(c.is_satisfied_by(val) for c in self._constraints)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Joins sub-constraint descriptions as "A or B".
         return (
             f"{', '.join([str(c) for c in self._constraints[:-1]])} or"
             f" {self._constraints[-1]}"
@@ -604,6 +785,8 @@ class _Booleans(_Constraint):
 
 
 class _VerboseHelper(_Constraint):
+    # [CLASS DOC]
+    # Composite constraint for verbose: int >= 0, bool, or numpy.bool_.
     """Helper constraint for the verbose parameter.
 
     Convenience class for
@@ -611,6 +794,8 @@ class _VerboseHelper(_Constraint):
     """
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Builds the three sub-constraints.
         super().__init__()
         self._constraints = [
             Interval(Integral, 0, None, closed="left"),
@@ -619,9 +804,13 @@ class _VerboseHelper(_Constraint):
         ]
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if any sub-constraint is satisfied.
         return any(c.is_satisfied_by(val) for c in self._constraints)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Joins sub-constraint descriptions as "A, B or C".
         return (
             f"{', '.join([str(c) for c in self._constraints[:-1]])} or"
             f" {self._constraints[-1]}"
@@ -629,6 +818,9 @@ class _VerboseHelper(_Constraint):
 
 
 class MissingValues(_Constraint):
+    # [CLASS DOC]
+    # Composite constraint for missing_values markers: any int, any real (non-NaN via
+    # the interval), NaN, pandas.NA, and, unless numeric_only, any str or None.
     """Helper constraint for the `missing_values` parameters.
 
     Convenience for
@@ -649,6 +841,9 @@ class MissingValues(_Constraint):
     """
 
     def __init__(self, numeric_only=False):
+        # [FUNCTION DOC]
+        # Stores numeric_only (bool, default False) and builds the sub-constraint list,
+        # appending str and None constraints when numeric_only is False.
         super().__init__()
 
         self.numeric_only = numeric_only
@@ -664,9 +859,13 @@ class MissingValues(_Constraint):
             self._constraints.extend([_InstancesOf(str), _NoneConstraint()])
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if any sub-constraint is satisfied.
         return any(c.is_satisfied_by(val) for c in self._constraints)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Joins sub-constraint descriptions as "A, B, ... or Z".
         return (
             f"{', '.join([str(c) for c in self._constraints[:-1]])} or"
             f" {self._constraints[-1]}"
@@ -674,6 +873,9 @@ class MissingValues(_Constraint):
 
 
 class HasMethods(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by objects exposing callable attributes with all the given
+    # method names (duck typing).
     """Constraint representing objects that expose specific methods.
 
     It is useful for parameters following a protocol and where we don't want to impose
@@ -690,15 +892,23 @@ class HasMethods(_Constraint):
         prefer_skip_nested_validation=True,
     )
     def __init__(self, methods):
+        # [FUNCTION DOC]
+        # Validated by validate_params (methods must be str or list); a single str is
+        # wrapped in a list and stored in methods.
+        # Exceptions: InvalidParameterError for other types.
         super().__init__()
         if isinstance(methods, str):
             methods = [methods]
         self.methods = methods
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if every named attribute of val exists and is callable.
         return all(callable(getattr(val, method, None)) for method in self.methods)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "an object implementing 'a'" or "... 'a', 'b' and 'c'".
         if len(self.methods) == 1:
             methods = f"{self.methods[0]!r}"
         else:
@@ -710,16 +920,25 @@ class HasMethods(_Constraint):
 
 
 class _IterablesNotString(_Constraint):
+    # [CLASS DOC]
+    # Constraint satisfied by iterables except str.
     """Constraint representing iterables that are not strings."""
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if val is an Iterable instance and not a str.
         return isinstance(val, Iterable) and not isinstance(val, str)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns "an iterable".
         return "an iterable"
 
 
 class _CVObjects(_Constraint):
+    # [CLASS DOC]
+    # Composite constraint for cv: int >= 2, object with split and get_n_splits,
+    # non-string iterable, or None.
     """Constraint representing cv objects.
 
     Convenient class for
@@ -732,6 +951,8 @@ class _CVObjects(_Constraint):
     """
 
     def __init__(self):
+        # [FUNCTION DOC]
+        # Builds the four sub-constraints.
         super().__init__()
         self._constraints = [
             Interval(Integral, 2, None, closed="left"),
@@ -741,9 +962,13 @@ class _CVObjects(_Constraint):
         ]
 
     def is_satisfied_by(self, val):
+        # [FUNCTION DOC]
+        # True if any sub-constraint is satisfied.
         return any(c.is_satisfied_by(val) for c in self._constraints)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Joins sub-constraint descriptions as "A, B, C or D".
         return (
             f"{', '.join([str(c) for c in self._constraints[:-1]])} or"
             f" {self._constraints[-1]}"
@@ -751,6 +976,9 @@ class _CVObjects(_Constraint):
 
 
 class Hidden:
+    # [CLASS DOC]
+    # Wrapper marking a constraint spec as internal so it is accepted but omitted from
+    # error messages (unwrapped by make_constraint).
     """Class encapsulating a constraint not meant to be exposed to the user.
 
     Parameters
@@ -760,10 +988,23 @@ class Hidden:
     """
 
     def __init__(self, constraint):
+        # [FUNCTION DOC]
+        # Stores the wrapped constraint spec.
         self.constraint = constraint
 
 
 def generate_invalid_param_val(constraint):
+    # [FUNCTION DOC]
+    # HELPER (testing): Returns a value violating the constraint: a "not a or b" string
+    # for StrOptions, an ndarray for MissingValues, -1 for verbose, an object without
+    # methods for HasMethods, a str for non-string iterables and cv objects. For
+    # Integral intervals returns left - 1 or right + 1; for real intervals left - 1e-6
+    # or right + 1e-6, or -inf / +inf for unbounded intervals open on that side, or NaN
+    # for the fully closed unbounded interval.
+    # Exceptions: NotImplementedError for unbounded Integral intervals and any other
+    # constraint type.
+    # KNOWN ISSUE: the "left" / "neither" branch for +inf is partly dead: "neither" is
+    # already handled by the preceding check.
     """Return a value that does not satisfy the constraint.
 
     Raises a NotImplementedError if there exists no invalid value for this constraint.
@@ -826,6 +1067,18 @@ def generate_invalid_param_val(constraint):
 
 
 def generate_valid_param(constraint):
+    # [FUNCTION DOC]
+    # HELPER (testing): Returns a value satisfying the constraint: small ndarray,
+    # 2x2 CSR array, RandomState(42), identity lambda, None, an instance of the type
+    # (ndarray special-cased, 1 for Integral/Real), True, 1 for verbose, NaN or
+    # "missing" for MissingValues, an object with no-op methods for HasMethods, a list
+    # for iterables, 5 for cv, the first iterated option for Options. For Interval:
+    # 0 if unbounded, right - 1 or left + 1 if half-bounded, midpoint for bounded Real,
+    # otherwise left + 1.
+    # Exceptions: ValueError for unknown constraint types.
+    # KNOWN ISSUE: Interval choices can be invalid, e.g. left + 1 for an Integral
+    # interval [0, 1) or for bounds closer than 1, and int results for RealNotInt
+    # intervals; _InstancesOf(RealNotInt) tries to instantiate an abstract class.
     """Return a value that does satisfy a constraint.
 
     This is only useful for testing purpose.
