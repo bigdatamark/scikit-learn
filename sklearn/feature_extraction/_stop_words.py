@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Defines ENGLISH_STOP_WORDS, an immutable frozenset of lowercase English stop words
+# (Glasgow IR Group list) used by the text vectorizers when stop_words="english".
+# No functions or classes; pure data.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 

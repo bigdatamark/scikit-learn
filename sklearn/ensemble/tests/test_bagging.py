@@ -1260,8 +1260,6 @@ def test_bagging_with_metadata_routing(model):
     # [FUNCTION DOC]
     # Smoke test with metadata routing enabled that bagging works with a random forest
     # base estimator.
-    # KNOWN ISSUE: decorator order applies config_context to the function at definition,
-    # it works but the parametrize instances are shared mutable objects.
     """Make sure that metadata routing works with non-default estimator."""
     model.fit(iris.data, iris.target)
 

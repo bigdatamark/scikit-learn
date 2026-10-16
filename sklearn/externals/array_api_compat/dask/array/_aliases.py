@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Dask-specific array API aliases: NumPy dtypes and can_cast/result_type re-exported
+# for dask, renamed elementwise functions (acos, concat, pow, ...), generic
+# common._aliases implementations bound to dask.array (or to numpy for dtype-level
+# helpers such as isdtype, finfo, matmul), and Dask-specific wrappers for astype,
+# arange, asarray, clip, sort, argsort and count_nonzero. Devices are not really
+# supported: functions validate the device with _helpers._check_device and ignore it.
+# Imports dask.array and numpy at import time.
 # pyright: reportPrivateUsage=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false
@@ -55,6 +63,14 @@ def astype(
     copy: py_bool = True,
     device: Device | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # astype honouring copy semantics that dask ignores. Validates device, returns x itself
+    # when copy is False and the dtype already matches, otherwise casts lazily and adds an
+    # explicit .copy() when copy is True.
+    # Inputs: x - dask array; dtype; copy - default True; device - None, "cpu" or
+    # _DASK_DEVICE.
+    # Outputs: dask array.
+    # Exceptions: ValueError for unsupported devices.
     """
     Array API compatibility wrapper for astype().
 
@@ -86,6 +102,13 @@ def arange(
     device: Device | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # arange that passes start/stop/step positionally (dask rejects stop/step keywords).
+    # When stop is None the single argument is treated as stop and start becomes 0.
+    # Inputs: start; stop - optional; step - default 1; dtype - optional; device -
+    # validated and ignored; kwargs forwarded to dask.array.arange.
+    # Outputs: 1-D dask array.
+    # Exceptions: ValueError for unsupported devices.
     """
     Array API compatibility wrapper for arange().
 
@@ -150,6 +173,16 @@ def asarray(
     copy: py_bool | None = None,
     **kwargs: object,
 ) -> Array:
+    # [FUNCTION DOC]
+    # asarray with copy semantics. For dask input: casts if dtype differs (ValueError if
+    # copy is False), then copies only if copy is truthy. For other input: copy False
+    # raises ValueError; otherwise materializes with numpy.array(copy=True) and wraps it
+    # with dask.array.from_array (default chunking).
+    # Inputs: obj - array-like; dtype - optional; device - validated; copy - None/bool;
+    # kwargs - accepted but ignored.
+    # Outputs: dask array.
+    # Exceptions: ValueError for unsupported devices or impossible no-copy requests.
+    # KNOWN ISSUE: extra kwargs are silently ignored rather than forwarded.
     """
     Array API compatibility wrapper for asarray().
 
@@ -204,6 +237,16 @@ def clip(
     min: float | Array | None = None,
     max: float | Array | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # clip with optional bounds. Computes the broadcast shape of x and the bounds (scalars
+    # count as shape ()), broadcasts any non-None bound to it as a dask array, returns
+    # positive(x) when both bounds are None, otherwise applies maximum and/or minimum and
+    # casts back to x.dtype with the module's astype (which copies).
+    # Inputs: x - dask array; min, max - None, Python scalar or array.
+    # Outputs: dask array of x's dtype with the broadcast shape.
+    # Exceptions: ValueError from broadcast_shapes for incompatible shapes.
+    # KNOWN ISSUE: unknown (NaN) dask shapes are not handled, and NumPy scalar bounds are
+    # not recognised as scalars by _isscalar (they work only because they have .shape).
     """
     Array API compatibility wrapper for clip().
 
@@ -212,6 +255,8 @@ def clip(
     """
 
     def _isscalar(a: float | Array | None, /) -> TypeIs[float | None]:
+        # [FUNCTION DOC]
+        # HELPER: Returns True when a is None or a Python int/float (bool included).
         return a is None or isinstance(a, (int, float))
 
     min_shape = () if _isscalar(min) else min.shape
@@ -237,6 +282,13 @@ def clip(
 
 
 def _ensure_single_chunk(x: Array, axis: int) -> tuple[Array, Callable[[Array], Array]]:
+    # [FUNCTION DOC]
+    # HELPER: Ensures x has a single chunk along axis (negative axis normalised). If it
+    # already has fewer than 2 blocks there, returns x and an identity function; otherwise
+    # rechunks to one chunk on axis and "auto" elsewhere, and returns a restore function
+    # that applies a default rechunk() to the eventual output.
+    # Inputs: x - dask array; axis - int.
+    # Outputs: (rechunked array, restore callable).
     """
     Make sure that Array is not broken into multiple chunks along axis.
 
@@ -272,6 +324,12 @@ def sort(
     descending: py_bool = False,
     stable: py_bool = True,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Sort along axis by rechunking that axis into a single chunk and mapping the namespace
+    # of x._meta's sort (with descending and stable) over each block, then rechunking back.
+    # Inputs: x - dask array; axis - default -1; descending, stable - bools.
+    # Outputs: sorted dask array, same dtype and meta.
+    # Side effects: none on x, but may be memory-intensive at compute time.
     """
     Array API compatibility layer around the lack of sort() in Dask.
 
@@ -307,6 +365,10 @@ def argsort(
     descending: py_bool = False,
     stable: py_bool = True,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Argsort along axis, implemented like sort but mapping the meta namespace's argsort;
+    # the output dtype is obtained by running argsort on x._meta.
+    # Inputs: as sort. Outputs: dask array of indices.
     """
     Array API compatibility layer around the lack of argsort() in Dask.
 
@@ -342,6 +404,11 @@ def count_nonzero(
     axis: int | None = None,
     keepdims: py_bool = False,
 ) -> Array:
+    # [FUNCTION DOC]
+    # count_nonzero adding keepdims: reshapes to all-ones shape when axis is None, else
+    # expands the reduced axis.
+    # Inputs: x - dask array; axis - None or int; keepdims - default False.
+    # Outputs: dask integer array.
     result = da.count_nonzero(x, axis)
     if keepdims:
         if axis is None:
@@ -366,4 +433,6 @@ __all__ = [
 __all__ += _aliases.__all__
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__

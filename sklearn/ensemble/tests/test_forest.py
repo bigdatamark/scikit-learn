@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Tests for the forest estimators (RandomForest/ExtraTrees classifiers and
+# regressors, RandomTreesEmbedding): accuracy on toy/iris/regression data,
+# criteria, feature importances (incl. theoretical MDI values), OOB scoring,
+# parallelism and joblib backends, pickling, multi-output, hyper-parameter effects,
+# sparse/memory-layout input, class weights, warm start, max_samples, missing
+# values and deprecations. Import-time side effects: builds module-level datasets
+# (toy X/y, permuted iris, X_large, X_reg, float32 hastie data), estimator registries,
+# and registers a custom joblib parallel backend named "testing".
 """
 Testing for the forest module (sklearn.ensemble.forest).
 """
@@ -121,6 +130,10 @@ REG_CRITERIONS = ("squared_error", "absolute_error", "friedman_mse", "poisson")
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_classification_toy(name):
+    # [FUNCTION DOC]
+    # Parametrized over forest classifiers. Verifies predictions on the toy dataset
+    # match true_result with default and max_features=1, the ensemble length is 10, and
+    # apply returns leaf indices of shape (n_samples, n_estimators).
     """Check classification on a toy dataset."""
     ForestClassifier = FOREST_CLASSIFIERS[name]
 
@@ -142,6 +155,9 @@ def test_classification_toy(name):
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 @pytest.mark.parametrize("criterion", ("gini", "log_loss"))
 def test_iris_criterion(name, criterion):
+    # [FUNCTION DOC]
+    # Parametrized over classifiers and gini/log_loss. Verifies iris training accuracy
+    # exceeds 0.9 (default max_features) and 0.5 (max_features=2).
     # Check consistency on dataset iris.
     ForestClassifier = FOREST_CLASSIFIERS[name]
 
@@ -165,6 +181,10 @@ def test_iris_criterion(name, criterion):
     "criterion", ("squared_error", "friedman_mse", "absolute_error")
 )
 def test_regression_criterion(name, criterion):
+    # [FUNCTION DOC]
+    # Parametrized over regressors and criteria (friedman_mse FutureWarning ignored).
+    # Verifies training R^2 on X_reg exceeds 0.93 with default and 0.92 with
+    # max_features=6.
     # Check consistency on regression dataset.
     ForestRegressor = FOREST_REGRESSORS[name]
 
@@ -191,6 +211,11 @@ def test_regression_criterion(name, criterion):
 
 
 def test_poisson_vs_mse():
+    # [FUNCTION DOC]
+    # Verifies on a synthetic log-linear Poisson target that a poisson-criterion forest
+    # has lower test Poisson deviance than a squared-error forest (whose predictions are
+    # clipped to 1e-6) and is below 0.8 times the deviance of a mean dummy on train and
+    # test.
     """Test that random forest with poisson criterion performs better than
     mse for a poisson target.
 
@@ -245,6 +270,9 @@ def test_poisson_vs_mse():
 
 @pytest.mark.parametrize("criterion", ("poisson", "squared_error"))
 def test_balance_property_random_forest(criterion):
+    # [FUNCTION DOC]
+    # Parametrized over poisson and squared_error. Verifies that without bootstrap the
+    # sum of training predictions equals the sum of the targets.
     """ "Test that sum(y_pred)==sum(y_true) on the training set."""
     rng = np.random.RandomState(42)
     n_train, n_test, n_features = 500, 500, 10
@@ -265,6 +293,8 @@ def test_balance_property_random_forest(criterion):
 
 @pytest.mark.parametrize("name", FOREST_REGRESSORS)
 def test_regressor_attributes(name):
+    # [FUNCTION DOC]
+    # Verifies forest regressors have no classes_ / n_classes_ before or after fit.
     # Regression models should not have a classes_ attribute.
     r = FOREST_REGRESSORS[name](random_state=0)
     assert not hasattr(r, "classes_")
@@ -277,6 +307,9 @@ def test_regressor_attributes(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_probability(name):
+    # [FUNCTION DOC]
+    # Verifies predict_proba rows sum to 1 and equal exp(predict_log_proba) for shallow
+    # forests on iris.
     # Predict probabilities.
     ForestClassifier = FOREST_CLASSIFIERS[name]
     with np.errstate(divide="ignore"):
@@ -301,6 +334,12 @@ def test_probability(name):
     ),
 )
 def test_importances(dtype, name, criterion):
+    # [FUNCTION DOC]
+    # Parametrized over dtype and estimator/criterion. Verifies exactly the first three
+    # (informative) features of X_large have importance above 0.1, that importances are
+    # unchanged when n_jobs is changed after fit, are non-negative with integer sample
+    # weights, and change by less than a tolerance (0.01, 0.05 for absolute_error
+    # regressors) when the sample weights are scaled.
     tolerance = 0.01
     if name in FOREST_REGRESSORS and criterion == "absolute_error":
         tolerance = 0.05
@@ -343,14 +382,24 @@ def test_importances(dtype, name, criterion):
 
 
 def test_importances_asymptotic():
+    # [FUNCTION DOC]
+    # Verifies that importances of totally randomized trees (ExtraTreesClassifier with
+    # max_features=1, 500 trees, log_loss) converge to the theoretical MDI values of
+    # Louppe et al. 2013 on a small boolean dataset: unnormalised importances must sum to
+    # the target entropy and be within 0.01 mean absolute difference of the exact values.
     # Check whether variable importances of totally randomized trees
     # converge towards their theoretical values (See Louppe et al,
     # Understanding variable importances in forests of randomized trees, 2013).
 
     def binomial(k, n):
+        # [FUNCTION DOC]
+        # HELPER: Binomial coefficient C(n, k), returning 0 when k is outside [0, n].
         return 0 if k < 0 or k > n else comb(int(n), int(k), exact=True)
 
     def entropy(samples):
+        # [FUNCTION DOC]
+        # HELPER: Shannon entropy (base 2) of a non-negative integer label array computed
+        # from its bincount frequencies. Outputs: float (0.0 for an empty array).
         n_samples = len(samples)
         entropy = 0.0
 
@@ -362,6 +411,13 @@ def test_importances_asymptotic():
         return entropy
 
     def mdi_importance(X_m, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Exact MDI importance of feature X_m: for every subset size k and every
+        # subset B of the other features and every value assignment b of B, weight the
+        # information gain of splitting on X_m within the samples matching B=b by
+        # P(B=b) / (C(k, p) * (p - k)), and sum.
+        # Inputs: X_m - feature index; X - discrete feature matrix; y - integer labels.
+        # Outputs: float importance.
         n_samples, n_features = X.shape
 
         features = list(range(n_features))
@@ -453,6 +509,9 @@ def test_importances_asymptotic():
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_unfitted_feature_importances(name):
+    # [FUNCTION DOC]
+    # Verifies accessing feature_importances_ on an unfitted forest raises NotFittedError
+    # with the standard message.
     err_msg = (
         "This {} instance is not fitted yet. Call 'fit' with "
         "appropriate arguments before using this estimator.".format(name)
@@ -491,6 +550,13 @@ def test_unfitted_feature_importances(name):
 def test_forest_classifier_oob(
     ForestClassifier, X, y, X_type, lower_bound_accuracy, oob_score
 ):
+    # [FUNCTION DOC]
+    # Parametrized over classifiers, dense/CSR/CSC input, four datasets (binary,
+    # multiclass, shifted iris labels, multilabel) and oob_score True or a micro-F1
+    # callable. Verifies OOB attributes are absent before fit, the OOB score is within
+    # 0.11 of the test score (and above a lower bound for the default scorer), and
+    # oob_decision_function_ has shape (n_train, n_classes[, n_outputs]) while
+    # oob_prediction_ is absent.
     """Check that OOB score is close to score on a test set."""
     X = _convert_container(X, constructor_name=X_type)
     X_train, X_test, y_train, y_test = train_test_split(
@@ -551,6 +617,12 @@ def test_forest_classifier_oob(
 )
 @pytest.mark.parametrize("oob_score", [True, explained_variance_score])
 def test_forest_regressor_oob(ForestRegressor, X, y, X_type, lower_bound_r2, oob_score):
+    # [FUNCTION DOC]
+    # Regressor counterpart: single/two-target data, OOB score within 0.1 of the test
+    # score (and above a lower bound for R^2), oob_prediction_ present with the expected
+    # shape, oob_decision_function_ absent.
+    # KNOWN ISSUE: the multi-output expected shape uses y.ndim instead of y.shape[1]; it
+    # only works because there are exactly 2 targets.
     """Check that forest-based regressor provide an OOB score close to the
     score on a test set."""
     X = _convert_container(X, constructor_name=X_type)
@@ -592,6 +664,9 @@ def test_forest_regressor_oob(ForestRegressor, X, y, X_type, lower_bound_r2, oob
 
 @pytest.mark.parametrize("ForestEstimator", FOREST_CLASSIFIERS_REGRESSORS.values())
 def test_forest_oob_warning(ForestEstimator):
+    # [FUNCTION DOC]
+    # Verifies a single-tree forest with oob_score warns "Some inputs do not have OOB
+    # scores".
     """Check that a warning is raised when not enough estimator and the OOB
     estimates will be inaccurate."""
     estimator = ForestEstimator(
@@ -606,6 +681,8 @@ def test_forest_oob_warning(ForestEstimator):
 
 @pytest.mark.parametrize("ForestEstimator", FOREST_CLASSIFIERS_REGRESSORS.values())
 def test_forest_oob_score_requires_bootstrap(ForestEstimator):
+    # [FUNCTION DOC]
+    # Verifies oob_score=True with bootstrap=False raises ValueError at fit.
     """Check that we raise an error if OOB score is requested without
     activating bootstrapping.
     """
@@ -619,6 +696,8 @@ def test_forest_oob_score_requires_bootstrap(ForestEstimator):
 
 @pytest.mark.parametrize("ForestClassifier", FOREST_CLASSIFIERS.values())
 def test_classifier_error_oob_score_multiclass_multioutput(ForestClassifier):
+    # [FUNCTION DOC]
+    # Verifies OOB scoring on a multiclass-multioutput target raises ValueError.
     """Check that we raise an error with when requesting OOB score with
     multiclass-multioutput classification target.
     """
@@ -635,6 +714,11 @@ def test_classifier_error_oob_score_multiclass_multioutput(ForestClassifier):
 
 @pytest.mark.parametrize("ForestRegressor", FOREST_REGRESSORS.values())
 def test_forest_multioutput_integral_regression_target(ForestRegressor):
+    # [FUNCTION DOC]
+    # Verifies integer-valued 2-output regression targets are not treated as
+    # multiclass-multioutput and that oob_prediction_ for the first quarter of samples
+    # equals a manual average over trees for which the sample was out of bag (indices
+    # regenerated from each tree's random_state).
     """Check that multioutput regression with integral values is not interpreted
     as a multiclass-multioutput target and OOB score can be computed.
     """
@@ -665,6 +749,9 @@ def test_forest_multioutput_integral_regression_target(ForestRegressor):
 
 @pytest.mark.parametrize("oob_score", [True, False])
 def test_random_trees_embedding_raise_error_oob(oob_score):
+    # [FUNCTION DOC]
+    # Verifies RandomTreesEmbedding rejects an oob_score argument (TypeError) and that
+    # _set_oob_score_and_attributes raises NotImplementedError.
     with pytest.raises(TypeError, match="got an unexpected keyword argument"):
         RandomTreesEmbedding(oob_score=oob_score)
     with pytest.raises(NotImplementedError, match="OOB score not supported"):
@@ -673,6 +760,9 @@ def test_random_trees_embedding_raise_error_oob(oob_score):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_gridsearch(name):
+    # [FUNCTION DOC]
+    # Smoke test that a forest classifier can be grid-searched over n_estimators and
+    # max_depth on iris.
     # Check that base trees can be grid-searched.
     forest = FOREST_CLASSIFIERS[name]()
     clf = GridSearchCV(forest, {"n_estimators": (1, 2), "max_depth": (1, 2)})
@@ -681,6 +771,9 @@ def test_gridsearch(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_parallel(name):
+    # [FUNCTION DOC]
+    # Verifies a forest fitted with n_jobs=3 has 10 trees and gives the same predictions
+    # whether predict runs with n_jobs 1 or 2.
     """Check parallel computations in classification"""
     if name in FOREST_CLASSIFIERS:
         X = iris.data
@@ -704,6 +797,8 @@ def test_parallel(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_pickle(name):
+    # [FUNCTION DOC]
+    # Verifies a fitted forest survives pickling: same class and identical score.
     # Check pickability.
     if name in FOREST_CLASSIFIERS:
         X = iris.data[::2]
@@ -726,6 +821,10 @@ def test_pickle(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_multioutput(name):
+    # [FUNCTION DOC]
+    # Verifies multi-output fit/predict on a toy dataset reproduces the targets, and for
+    # classifiers predict_proba / predict_log_proba return per-output lists with shapes
+    # (4, 2) and (4, 4).
     # Check estimators on multi-output problems.
 
     X_train = [
@@ -778,6 +877,8 @@ def test_multioutput(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_multioutput_string(name):
+    # [FUNCTION DOC]
+    # Same as test_multioutput with string class labels for classifiers.
     # Check estimators on multi-output problems with string outputs.
 
     X_train = [
@@ -834,6 +935,9 @@ def test_multioutput_string(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_classes_shape(name):
+    # [FUNCTION DOC]
+    # Verifies n_classes_ and classes_ for single-output (2, [-1, 1]) and two-output
+    # ([2, 2], [[-1, 1], [-2, 2]]) targets.
     # Test that n_classes_ and classes_ have proper shape.
     ForestClassifier = FOREST_CLASSIFIERS[name]
 
@@ -852,6 +956,8 @@ def test_classes_shape(name):
 
 
 def test_random_trees_dense_type():
+    # [FUNCTION DOC]
+    # Verifies RandomTreesEmbedding with sparse_output=False returns a dense ndarray.
     # Test that the `sparse_output` parameter of RandomTreesEmbedding
     # works by returning a dense array.
 
@@ -865,6 +971,9 @@ def test_random_trees_dense_type():
 
 
 def test_random_trees_dense_equal():
+    # [FUNCTION DOC]
+    # Verifies dense and sparse outputs of RandomTreesEmbedding are equal for the same
+    # seed.
     # Test that the `sparse_output` parameter of RandomTreesEmbedding
     # works by returning the same array for both argument values.
 
@@ -884,6 +993,10 @@ def test_random_trees_dense_equal():
 
 
 def test_random_hasher():
+    # [FUNCTION DOC]
+    # Verifies RandomTreesEmbedding fit_transform equals fit then transform, has exactly
+    # one active leaf per tree per sample, and that circles become linearly separable
+    # after a 2-component TruncatedSVD (LinearSVC accuracy 1.0).
     # test random forest hashing on circles dataset
     # make sure that it is linearly separable.
     # even after projected to two SVD dimensions
@@ -908,6 +1021,8 @@ def test_random_hasher():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_random_hasher_sparse_data(csc_container):
+    # [FUNCTION DOC]
+    # Verifies RandomTreesEmbedding gives the same output for dense and CSC input.
     X, y = datasets.make_multilabel_classification(random_state=0)
     hasher = RandomTreesEmbedding(n_estimators=30, random_state=1)
     X_transformed = hasher.fit_transform(X)
@@ -916,6 +1031,9 @@ def test_random_hasher_sparse_data(csc_container):
 
 
 def test_parallel_train():
+    # [FUNCTION DOC]
+    # Verifies RandomForestClassifier predict_proba is identical across fits with n_jobs
+    # 1, 2, 3, 8, 16 and 32 and a fixed seed.
     rng = check_random_state(12321)
     n_samples, n_features = 80, 30
     X_train = rng.randn(n_samples, n_features)
@@ -935,6 +1053,12 @@ def test_parallel_train():
 
 
 def test_distribution():
+    # [FUNCTION DOC]
+    # Verifies the distribution of ExtraTrees structures: with one 4-valued feature,
+    # exactly 5 distinct trees occur with the expected frequencies (compact tree > 0.3,
+    # others < 0.2); with a 2-valued and a 3-valued feature and max_features=1, exactly
+    # 8 distinct trees occur. Trees are encoded as strings of (feature, threshold).
+    # KNOWN ISSUE: the second dataset uses the unseeded global numpy RNG.
     rng = check_random_state(12321)
 
     # Single variable with 4 values
@@ -990,6 +1114,11 @@ def test_distribution():
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_max_leaf_nodes_max_depth(name):
+    # [FUNCTION DOC]
+    # Verifies with max_depth=1 the single tree has depth 1 both with and without
+    # max_leaf_nodes=4.
+    # KNOWN ISSUE: the comment claims max_leaf_nodes takes precedence over max_depth,
+    # but the assertion shows max_depth is still respected.
     X, y = hastie_X, hastie_y
 
     # Test precedence of max_leaf_nodes over max_depth.
@@ -1005,6 +1134,9 @@ def test_max_leaf_nodes_max_depth(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_min_samples_split(name):
+    # [FUNCTION DOC]
+    # Verifies internal nodes have at least min_samples_split samples for an integer
+    # (10) and a fractional (0.5) min_samples_split on the 20-sample hastie data.
     X, y = hastie_X, hastie_y
     ForestEstimator = FOREST_ESTIMATORS[name]
 
@@ -1025,6 +1157,9 @@ def test_min_samples_split(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_min_samples_leaf(name):
+    # [FUNCTION DOC]
+    # Verifies every leaf holds at least min_samples_leaf samples for an integer (5) and
+    # fractional (0.25) setting, by counting apply() results.
     X, y = hastie_X, hastie_y
 
     # Test if leaves contain more than leaf_count training examples
@@ -1049,6 +1184,10 @@ def test_min_samples_leaf(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_min_weight_fraction_leaf(name):
+    # [FUNCTION DOC]
+    # Verifies for fractions from 0 to 0.5 that each leaf's total sample weight is at
+    # least min_weight_fraction_leaf times the total weight (bootstrap disabled for
+    # random forests so that weights are not resampled).
     X, y = hastie_X, hastie_y
 
     # Test if leaves contain at least min_weight_fraction_leaf of the
@@ -1084,6 +1223,10 @@ def test_min_weight_fraction_leaf(name):
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_sparse_input(name, sparse_container):
+    # [FUNCTION DOC]
+    # Parametrized over estimators and COO/CSC/CSR containers. Verifies sparse and
+    # dense input give the same apply, predict, feature_importances_, probabilities and
+    # transform outputs as applicable.
     X, y = datasets.make_multilabel_classification(random_state=0, n_samples=50)
 
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1117,6 +1260,9 @@ def test_sparse_input(name, sparse_container):
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 @pytest.mark.parametrize("dtype", (np.float64, np.float32))
 def test_memory_layout(name, dtype):
+    # [FUNCTION DOC]
+    # Verifies predictions reproduce iris targets for C/F-ordered, contiguous, sparse
+    # (when the splitter supports it) and strided inputs in float32/float64.
     # Test that it works no matter the memory layout
     est = FOREST_ESTIMATORS[name](random_state=0, bootstrap=False)
 
@@ -1146,6 +1292,8 @@ def test_memory_layout(name, dtype):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_1d_input(name):
+    # [FUNCTION DOC]
+    # Verifies 1d X raises ValueError at fit and, after fitting on 2d data, at predict.
     X = iris.data[:, 0]
     X_2d = iris.data[:, 0].reshape((-1, 1))
     y = iris.target
@@ -1166,6 +1314,12 @@ def test_1d_input(name):
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 @pytest.mark.parametrize("n_classes", [2, 3, 4])
 def test_validate_y_class_weight(name, n_classes, global_random_seed):
+    # [FUNCTION DOC]
+    # Parametrized over classifiers and number of classes. Calls the private
+    # _validate_y_class_weight directly (setting _n_samples and n_outputs_ manually) and
+    # verifies expanded class weights for a dict, "balanced" (weighted frequencies),
+    # "balanced_subsample" without bootstrap (same as balanced), and with bootstrap
+    # (None).
     ForestClassifier = FOREST_CLASSIFIERS[name]
     clf = ForestClassifier(random_state=0)
     # toy dataset with n_classes
@@ -1207,6 +1361,11 @@ def test_validate_y_class_weight(name, n_classes, global_random_seed):
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 @pytest.mark.parametrize("bootstrap", [True, False])
 def test_class_weights_forest(name, bootstrap, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies class_weight behaves like sample_weight: balanced weights on balanced iris
+    # give unit weights and identical importances; multi-output dict weights multiply
+    # (2*2*1); multi-output balanced is neutral; a class-1 weight of 100 equals the same
+    # sample_weight; and class_weight and sample_weight combine multiplicatively.
     # Check class_weights resemble sample_weights behavior.
     ForestClassifier = FOREST_CLASSIFIERS[name]
     clf = ForestClassifier(random_state=global_random_seed, bootstrap=bootstrap)
@@ -1267,6 +1426,9 @@ def test_class_weights_forest(name, bootstrap, global_random_seed):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_class_weight_balanced_and_bootstrap_multi_output(name):
+    # [FUNCTION DOC]
+    # Smoke test that balanced, per-output dict and balanced_subsample class weights
+    # fit on a two-output toy target.
     # Test class_weight works for multi-output"""
     ForestClassifier = FOREST_CLASSIFIERS[name]
     _y = np.vstack((y, np.array(y) * 2)).T
@@ -1283,6 +1445,12 @@ def test_class_weight_balanced_and_bootstrap_multi_output(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_class_weight_errors(name):
+    # [FUNCTION DOC]
+    # Verifies a warm-start refit with a changed (multi-output) target and the same
+    # n_estimators warns that no new trees are fitted, and that a class_weight list of
+    # wrong length for multi-output raises ValueError.
+    # KNOWN ISSUE: the comment says it tests a class_weight warning, but the asserted
+    # warning is the generic warm-start one.
     # Test if class_weight raises errors and warnings when expected.
     ForestClassifier = FOREST_CLASSIFIERS[name]
     _y = np.vstack((y, np.array(y) * 2)).T
@@ -1305,6 +1473,9 @@ def test_class_weight_errors(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_warm_start(name):
+    # [FUNCTION DOC]
+    # Verifies warm-starting from 5 to 10 trees gives the right sizes, the same set of
+    # tree seeds and identical apply() output as a 10-tree fit.
     # Test if fitting incrementally with warm start gives a forest of the
     # right size and the same results as a normal fit.
     X, y = hastie_X, hastie_y
@@ -1334,6 +1505,9 @@ def test_warm_start(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_warm_start_clear(name):
+    # [FUNCTION DOC]
+    # Verifies that refitting with warm_start=False discards the old forest and matches
+    # a fresh fit with the same seed.
     # Test if fit clears state and grows a new forest when warm_start==False.
     X, y = hastie_X, hastie_y
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1352,6 +1526,8 @@ def test_warm_start_clear(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_warm_start_smaller_n_estimators(name):
+    # [FUNCTION DOC]
+    # Verifies warm-start refit with fewer estimators raises ValueError.
     # Test if warm start second fit with smaller n_estimators raises error.
     X, y = hastie_X, hastie_y
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1364,6 +1540,9 @@ def test_warm_start_smaller_n_estimators(name):
 
 @pytest.mark.parametrize("name", FOREST_ESTIMATORS)
 def test_warm_start_equal_n_estimators(name):
+    # [FUNCTION DOC]
+    # Verifies warm-start refit with the same n_estimators warns and leaves the forest
+    # unchanged even after changing random_state.
     # Test if warm start with equal n_estimators does nothing and returns the
     # same forest and raises a warning.
     X, y = hastie_X, hastie_y
@@ -1390,6 +1569,10 @@ def test_warm_start_equal_n_estimators(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_warm_start_oob(name):
+    # [FUNCTION DOC]
+    # Verifies a warm-started forest grown from 5 to 15 trees with oob_score enabled
+    # matches the OOB score of a 15-tree fit, and that enabling oob_score without adding
+    # trees still computes it.
     # Test that the warm start computes oob score when asked.
     X, y = hastie_X, hastie_y
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1441,6 +1624,9 @@ def test_warm_start_oob(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_oob_not_computed_twice(name):
+    # [FUNCTION DOC]
+    # Verifies with a mock wrapper that _set_oob_score_and_attributes is called only
+    # once across a fit and a warm-start refit that adds no trees.
     # Check that oob_score is not computed twice when warm_start=True.
     X, y = hastie_X, hastie_y
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1461,6 +1647,9 @@ def test_oob_not_computed_twice(name):
 
 
 def test_dtype_convert(n_classes=15):
+    # [FUNCTION DOC]
+    # Verifies string labels are kept as classes_ and predicted exactly on an identity
+    # matrix. Inputs: n_classes - plain default argument (15).
     classifier = RandomForestClassifier(random_state=0, bootstrap=False)
 
     X = np.eye(n_classes)
@@ -1473,6 +1662,10 @@ def test_dtype_convert(n_classes=15):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_decision_path(name):
+    # [FUNCTION DOC]
+    # Verifies decision_path returns an indicator matrix of shape (n_samples,
+    # total_nodes), node pointers whose differences equal each tree's node count, and
+    # that each sample's leaf from apply is marked in the indicator.
     X, y = hastie_X, hastie_y
     n_samples = X.shape[0]
     ForestEstimator = FOREST_ESTIMATORS[name]
@@ -1497,6 +1690,8 @@ def test_decision_path(name):
 
 
 def test_min_impurity_decrease():
+    # [FUNCTION DOC]
+    # Verifies min_impurity_decrease is forwarded to every tree of all four forests.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     all_estimators = [
         RandomForestClassifier,
@@ -1515,6 +1710,9 @@ def test_min_impurity_decrease():
 
 
 def test_poisson_y_positive_check():
+    # [FUNCTION DOC]
+    # Verifies the poisson criterion raises ValueError for negative targets and for an
+    # all-zero target.
     est = RandomForestRegressor(criterion="poisson")
     X = np.zeros((3, 3))
 
@@ -1536,11 +1734,18 @@ def test_poisson_y_positive_check():
 
 
 class MyBackend(DEFAULT_JOBLIB_BACKEND):
+    # [CLASS DOC]
+    # HELPER: joblib backend subclass of the default backend that counts start_call
+    # invocations, used to check which backend the forests use.
     def __init__(self, *args, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Initialises the call counter to 0 and forwards arguments to the parent.
         self.count = 0
         super().__init__(*args, **kwargs)
 
     def start_call(self):
+        # [FUNCTION DOC]
+        # HELPER: Increments count, then delegates to the parent start_call.
         self.count += 1
         return super().start_call()
 
@@ -1553,6 +1758,9 @@ joblib.register_parallel_backend("testing", MyBackend)
 @pytest.mark.thread_unsafe
 @skip_if_no_parallel
 def test_backend_respected():
+    # [FUNCTION DOC]
+    # Verifies fit dispatches through the active "testing" backend (count > 0) while
+    # predict_proba, which requires shared memory (threading), does not (count == 0).
     clf = RandomForestClassifier(n_estimators=10, n_jobs=2)
 
     with joblib.parallel_backend("testing") as (ba, n_jobs):
@@ -1568,6 +1776,8 @@ def test_backend_respected():
 
 
 def test_forest_feature_importances_sum():
+    # [FUNCTION DOC]
+    # Verifies feature_importances_ sum to 1 within 1e-7.
     X, y = make_classification(
         n_samples=15, n_informative=3, random_state=1, n_classes=3
     )
@@ -1578,6 +1788,9 @@ def test_forest_feature_importances_sum():
 
 
 def test_forest_degenerate_feature_importances():
+    # [FUNCTION DOC]
+    # Regression test (#13636): forests of single-node trees on constant data have all
+    # zero feature importances.
     # build a forest of single node trees. See #13636
     X = np.zeros((10, 10))
     y = np.ones((10,))
@@ -1587,6 +1800,9 @@ def test_forest_degenerate_feature_importances():
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_max_samples_geq_one(name):
+    # [FUNCTION DOC]
+    # Regression test (#28507): max_samples=1.5 (float) and the equivalent integer give
+    # the same bootstrap size and score.
     # Check that `max_samples >= 1.0` and `max_samples >= n_samples `
     # is allowed, issue #28507
     X, y = hastie_X, hastie_y
@@ -1606,6 +1822,8 @@ def test_max_samples_geq_one(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS_REGRESSORS)
 def test_max_samples_bootstrap(name):
+    # [FUNCTION DOC]
+    # Verifies setting max_samples with bootstrap=False raises ValueError.
     # Check invalid `max_samples` values
     est = FOREST_CLASSIFIERS_REGRESSORS[name](bootstrap=False, max_samples=0.5)
     err_msg = (
@@ -1619,6 +1837,8 @@ def test_max_samples_bootstrap(name):
 
 @pytest.mark.parametrize("name", FOREST_REGRESSORS)
 def test_max_samples_boundary_regressors(name):
+    # [FUNCTION DOC]
+    # Verifies regressors with max_samples=1.0 and None give the same test MSE.
     X_train, X_test, y_train, y_test = train_test_split(
         X_reg, y_reg, train_size=0.7, test_size=0.3, random_state=0
     )
@@ -1641,6 +1861,8 @@ def test_max_samples_boundary_regressors(name):
 
 @pytest.mark.parametrize("name", FOREST_CLASSIFIERS)
 def test_max_samples_boundary_classifiers(name):
+    # [FUNCTION DOC]
+    # Verifies classifiers with max_samples=1.0 and None give the same probabilities.
     X_train, X_test, y_train, _ = train_test_split(
         X_large, y_large, random_state=0, stratify=y_large
     )
@@ -1660,6 +1882,8 @@ def test_max_samples_boundary_classifiers(name):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_forest_y_sparse(csr_container):
+    # [FUNCTION DOC]
+    # Verifies a sparse multilabel-indicator y raises ValueError.
     X = [[1, 2, 3]]
     y = csr_container([[4, 5, 6]])
     est = RandomForestClassifier()
@@ -1670,6 +1894,9 @@ def test_forest_y_sparse(csr_container):
 
 @pytest.mark.parametrize("ForestClass", [RandomForestClassifier, RandomForestRegressor])
 def test_little_tree_with_small_max_samples(ForestClass):
+    # [FUNCTION DOC]
+    # Verifies a single-tree forest with max_samples=2 grows fewer nodes than one
+    # without restriction.
     rng = np.random.RandomState(1)
 
     X = rng.randn(10000, 2)
@@ -1701,6 +1928,9 @@ def test_little_tree_with_small_max_samples(ForestClass):
 
 @pytest.mark.parametrize("Forest", FOREST_REGRESSORS)
 def test_mse_criterion_object_segfault_smoke_test(Forest):
+    # [FUNCTION DOC]
+    # Regression test (#12623): fitting with a shared MSE criterion object and n_jobs=2
+    # must not segfault.
     # This is a smoke test to ensure that passing a mutable criterion
     # does not cause a segfault when fitting with concurrent threads.
     # Non-regression test for:
@@ -1716,6 +1946,9 @@ def test_mse_criterion_object_segfault_smoke_test(Forest):
 
 
 def test_random_trees_embedding_feature_names_out():
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out of RandomTreesEmbedding lists
+    # "randomtreesembedding_<tree>_<leaf>" for leaf nodes only.
     """Check feature names out for Random Trees Embedding."""
     random_state = np.random.RandomState(0)
     X = np.abs(random_state.randn(100, 4))
@@ -1743,6 +1976,10 @@ def test_random_trees_embedding_feature_names_out():
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_read_only_buffer(csr_container, monkeypatch):
+    # [FUNCTION DOC]
+    # Regression test (#25333): with Parallel patched to memmap inputs above 100 bytes,
+    # cross-validating a parallel forest on read-only CSR data must work.
+    # Side effects: monkeypatches sklearn.ensemble._forest.Parallel for the test.
     """RandomForestClassifier must work on readonly sparse data.
 
     Non-regression test for: https://github.com/scikit-learn/scikit-learn/issues/25333
@@ -1763,6 +2000,9 @@ def test_read_only_buffer(csr_container, monkeypatch):
 
 @pytest.mark.parametrize("class_weight", ["balanced_subsample", None])
 def test_round_samples_to_one_when_samples_too_low(class_weight):
+    # [FUNCTION DOC]
+    # Regression test (gh-24037): a tiny fractional max_samples is rounded up to one
+    # sample and fitting succeeds, with and without balanced_subsample.
     """Check low max_samples works and is rounded to one.
 
     Non-regression test for gh-24037.
@@ -1778,6 +2018,11 @@ def test_round_samples_to_one_when_samples_too_low(class_weight):
 @pytest.mark.parametrize("bootstrap", [True, False])
 @pytest.mark.parametrize("ForestClass", FOREST_CLASSIFIERS_REGRESSORS.values())
 def test_estimators_samples(ForestClass, bootstrap, seed):
+    # [FUNCTION DOC]
+    # Parametrized over forests, bootstrap and seed. Verifies estimators_samples_ is a
+    # stable list of int32 arrays, one per tree, of size n/2 with duplicates when
+    # bootstrapping or covering all samples otherwise, and that refitting a clone of the
+    # first tree on its samples reproduces the tree values.
     """Estimators_samples_ property should be consistent.
 
     Tests consistency across fits and whether or not the seed for the random generator
@@ -1841,6 +2086,9 @@ def test_estimators_samples(ForestClass, bootstrap, seed):
     ],
 )
 def test_missing_values_is_resilient(Forest, criterion):
+    # [FUNCTION DOC]
+    # Parametrized over forests and criteria. Verifies a forest trained on data with 5%
+    # NaNs scores at least 80% of the score of a forest trained without missing values.
     """Check that forest can deal with missing values and has decent performance."""
     rng = np.random.RandomState(0)
     n_samples, n_features = 500, 5
@@ -1885,6 +2133,10 @@ def test_missing_values_is_resilient(Forest, criterion):
     ],
 )
 def test_missing_value_is_predictive(Forest, criterion, global_random_seed):
+    # [FUNCTION DOC]
+    # Parametrized over forests and criteria. Verifies that when NaN presence in a
+    # feature encodes the target (5% noise), the forest scores at least 0.3 higher than
+    # one trained without that feature.
     """Check that the forest learns when missing values are only present for
     a predictive feature."""
     rng = np.random.RandomState(global_random_seed)
@@ -1930,5 +2182,8 @@ def test_missing_value_is_predictive(Forest, criterion, global_random_seed):
 # TODO(1.11): remove test with the deprecation of friedman_mse criterion
 @pytest.mark.parametrize("Forest", FOREST_REGRESSORS.values())
 def test_friedman_mse_deprecation(Forest):
+    # [FUNCTION DOC]
+    # Verifies constructing a forest regressor with criterion="friedman_mse" emits a
+    # FutureWarning.
     with pytest.warns(FutureWarning, match="friedman_mse"):
         _ = Forest(criterion="friedman_mse")

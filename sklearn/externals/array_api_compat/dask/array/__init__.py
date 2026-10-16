@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Array-API-compatible dask.array namespace. clone_module copies the public names of
+# dask.array into this package and returns them as the initial __all__; the wrappers in
+# ._aliases then override them, and __array_namespace_info__ and __array_api_version__
+# ("2025.12") are added. __all__ is the sorted union of dask.array's names, the
+# _aliases names, and the version/info/linalg/fft names.
+# Side effects at import: imports dask.array (ImportError if missing) and eagerly
+# imports the .linalg and .fft submodules.
 from typing import Final
 
 from ..._internal import clone_module
@@ -23,4 +31,6 @@ __all__ = sorted(
 )
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Package __dir__ hook returning __all__.
     return __all__

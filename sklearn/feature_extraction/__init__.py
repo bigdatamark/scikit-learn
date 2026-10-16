@@ -1,3 +1,9 @@
+# [PACKAGE DOC]
+# Package for turning raw data (dicts, text, images) into numerical feature arrays.
+# Exposes DictVectorizer, FeatureHasher, the image graph helpers grid_to_graph and
+# img_to_graph, and the image and text submodules. Import side effect: eagerly
+# imports the image and text submodules (and therefore scipy.sparse and the hashing
+# extension module).
 """Feature extraction from raw data."""
 
 # Authors: The scikit-learn developers
