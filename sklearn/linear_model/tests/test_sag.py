@@ -1,4 +1,5 @@
-# [MODULE DOC] Tests for the SAG / SAGA solvers (sklearn.linear_model._sag) as used by
+# [MODULE DOC]
+# Tests for the SAG / SAGA solvers (sklearn.linear_model._sag) as used by
 #   LogisticRegression and Ridge. The module contains pure-Python reference
 #   implementations of SAG (dense, `sag`) and of the lazy-update "just in time" variant
 #   (`sag_sparse`), plus loss/derivative helpers, and checks that the fitted
@@ -341,8 +342,9 @@ def get_step_size(X, alpha, fit_intercept, classification=True):
 
 
 def test_classifier_matching():
-    # [FUNCTION DOC] Verifies that LogisticRegression with solver "sag" (80 epochs) and
-    #   "saga" (300 epochs), C = 1/(alpha*n_samples), tol 1e-11, matches both reference
+    # [FUNCTION DOC]
+    # Verifies that LogisticRegression with solver "sag" (80 epochs) and "saga" (300
+    #   epochs), C = 1/(alpha*n_samples), tol 1e-11, matches both reference
     #   implementations (sag_sparse and sag with log_dloss on labels mapped to {-1, +1})
     #   to 9 decimals on coefficients and intercept, on 20 well-separated two-blob
     #   samples.
@@ -400,9 +402,10 @@ def test_classifier_matching():
 
 
 def test_regressor_matching():
-    # [FUNCTION DOC] Verifies that Ridge(solver="sag", alpha=alpha*n_samples) fitted on
-    #   a noiseless linear problem (10 x 5) matches sag_sparse and sag with
-    #   squared_dloss, comparing coef_ and intercept_ with assert_allclose.
+    # [FUNCTION DOC]
+    # Verifies that Ridge(solver="sag", alpha=alpha*n_samples) fitted on a noiseless
+    #   linear problem (10 x 5) matches sag_sparse and sag with squared_dloss, comparing
+    #   coef_ and intercept_ with assert_allclose.
     n_samples = 10
     n_features = 5
 
@@ -453,9 +456,10 @@ def test_regressor_matching():
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_pobj_matches_logistic_regression(csr_container):
-    # [FUNCTION DOC] Verifies that the primal logistic objective (get_pobj with
-    #   log_loss) of LogisticRegression fitted with sag on dense input, sag on CSR
-    #   input, and the default solver agree to 4 decimals (no intercept, 20 iterations).
+    # [FUNCTION DOC]
+    # Verifies that the primal logistic objective (get_pobj with log_loss) of
+    #   LogisticRegression fitted with sag on dense input, sag on CSR input, and the
+    #   default solver agree to 4 decimals (no intercept, 20 iterations).
     """tests if the sag pobj matches log reg"""
     n_samples = 100
     alpha = 1.0
@@ -495,9 +499,10 @@ def test_sag_pobj_matches_logistic_regression(csr_container):
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_pobj_matches_ridge_regression(csr_container):
-    # [FUNCTION DOC] Verifies that the primal ridge objective (get_pobj with
-    #   squared_loss) of Ridge fitted with sag on dense input, sag on CSR input, and
-    #   lsqr agree to 4 decimals (no intercept).
+    # [FUNCTION DOC]
+    # Verifies that the primal ridge objective (get_pobj with squared_loss) of Ridge
+    #   fitted with sag on dense input, sag on CSR input, and lsqr agree to 4 decimals
+    #   (no intercept).
     # KNOWN ISSUE: Ridge minimizes the summed (not mean) squared loss with this alpha,
     #   so the objective computed here is not the one each solver optimizes; the check
     #   still holds since the problem is noiseless and all solutions are near the same
@@ -547,9 +552,9 @@ def test_sag_pobj_matches_ridge_regression(csr_container):
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_regressor_computed_correctly(csr_container):
-    # [FUNCTION DOC] Verifies that Ridge(solver="sag") on dense data matches the
-    #   sag_sparse reference (coef to 3 decimals, intercept to 1 decimal) on a linear
-    #   problem with offset 2.
+    # [FUNCTION DOC]
+    # Verifies that Ridge(solver="sag") on dense data matches the sag_sparse reference
+    #   (coef to 3 decimals, intercept to 1 decimal) on a linear problem with offset 2.
     # KNOWN ISSUE: clf2 (CSR fit) and the sparse=True reference results spweights2 /
     #   spintercept2 are computed but never asserted (assertions commented out pending
     #   issue #4710), so the sparse path is not checked; the comment also ends with a
@@ -614,11 +619,11 @@ def test_sag_regressor_computed_correctly(csr_container):
 
 
 def test_get_auto_step_size():
-    # [FUNCTION DOC] Verifies get_auto_step_size for "squared" and "log" losses, with
-    #   and without intercept, for SAG and SAGA, against hand-computed formulas (SAGA
-    #   uses 1 / (2L + min(2*n_samples*alpha, L))), after checking row_norms gives the
-    #   expected maximum squared row norm. Also checks a ValueError for an unknown loss
-    #   name.
+    # [FUNCTION DOC]
+    # Verifies get_auto_step_size for "squared" and "log" losses, with and without
+    #   intercept, for SAG and SAGA, against hand-computed formulas (SAGA uses 1 / (2L +
+    #   min(2*n_samples*alpha, L))), after checking row_norms gives the expected maximum
+    #   squared row norm. Also checks a ValueError for an unknown loss name.
     X = np.array([[1, 2, 3], [2, 3, 4], [2, 3, 2]], dtype=np.float64)
     alpha = 1.2
     fit_intercept = False
@@ -671,9 +676,10 @@ def test_get_auto_step_size():
 @pytest.mark.parametrize("seed", range(3))  # locally tested with 1000 seeds
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_regressor(seed, csr_container):
-    # [FUNCTION DOC] Verifies that Ridge(solver="sag") on dense and CSR 1-feature data
-    #   reaches R^2 > 0.98 on a noiseless line and > 0.45 with added standard normal
-    #   noise. Parametrized over 3 seeds and CSR container types.
+    # [FUNCTION DOC]
+    # Verifies that Ridge(solver="sag") on dense and CSR 1-feature data reaches R^2 >
+    #   0.98 on a noiseless line and > 0.45 with added standard normal noise.
+    #   Parametrized over 3 seeds and CSR container types.
     """tests if the sag regressor performs well"""
     xmin, xmax = -5, 5
     n_samples = 300
@@ -723,10 +729,10 @@ def test_sag_regressor(seed, csr_container):
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_classifier_computed_correctly(csr_container):
-    # [FUNCTION DOC] Verifies binary LogisticRegression(solver="sag") on dense and CSR
-    #   input matches sag_sparse (with sparse=False and sparse=True intercept decay
-    #   respectively): coef to 2 decimals and intercept to 1 decimal, labels encoded as
-    #   {-1, +1}.
+    # [FUNCTION DOC]
+    # Verifies binary LogisticRegression(solver="sag") on dense and CSR input matches
+    #   sag_sparse (with sparse=False and sparse=True intercept decay respectively):
+    #   coef to 2 decimals and intercept to 1 decimal, labels encoded as {-1, +1}.
     """tests if the binary classifier is computed correctly"""
     alpha = 0.1
     n_samples = 50
@@ -783,10 +789,10 @@ def test_sag_classifier_computed_correctly(csr_container):
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_sag_multiclass_computed_correctly(csr_container):
-    # [FUNCTION DOC] Verifies OneVsRestClassifier(LogisticRegression(solver="sag")) on
-    #   3-class blobs, dense and CSR, matches per-class sag_sparse references (one-vs-
-    #   rest {-1,+1} labels): coef with rtol 1e-2, intercept with rtol 1e-1 (dense) or
-    #   5e-1 (CSR).
+    # [FUNCTION DOC]
+    # Verifies OneVsRestClassifier(LogisticRegression(solver="sag")) on 3-class blobs,
+    #   dense and CSR, matches per-class sag_sparse references (one-vs-rest {-1,+1}
+    #   labels): coef with rtol 1e-2, intercept with rtol 1e-1 (dense) or 5e-1 (CSR).
     """tests if the multiclass classifier is computed correctly"""
     alpha = 0.1
     n_samples = 20
@@ -861,9 +867,10 @@ def test_sag_multiclass_computed_correctly(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_classifier_results(csr_container):
-    # [FUNCTION DOC] Verifies that LogisticRegression(solver="sag") on dense and CSR
-    #   input perfectly predicts the training labels (signs of a random linear function,
-    #   10 samples, 20 features).
+    # [FUNCTION DOC]
+    # Verifies that LogisticRegression(solver="sag") on dense and CSR input perfectly
+    #   predicts the training labels (signs of a random linear function, 10 samples, 20
+    #   features).
     """tests if classifier results match target"""
     alpha = 0.1
     n_features = 20
@@ -895,9 +902,10 @@ def test_classifier_results(csr_container):
 @pytest.mark.filterwarnings("ignore:The max_iter was reached")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_binary_classifier_class_weight(csr_container):
-    # [FUNCTION DOC] Verifies class_weight support of binary sag LogisticRegression: the
-    #   dense and CSR fits match sag_sparse run with sample weights derived from
-    #   compute_class_weight (coef to 2 decimals, intercept to 1 decimal).
+    # [FUNCTION DOC]
+    # Verifies class_weight support of binary sag LogisticRegression: the dense and CSR
+    #   fits match sag_sparse run with sample weights derived from compute_class_weight
+    #   (coef to 2 decimals, intercept to 1 decimal).
     """tests binary classifier with classweights for each class"""
     alpha = 0.1
     n_samples = 50
@@ -959,8 +967,9 @@ def test_binary_classifier_class_weight(csr_container):
 
 
 def test_classifier_single_class():
-    # [FUNCTION DOC] Verifies LogisticRegression(solver="sag") raises ValueError when y
-    #   contains a single class.
+    # [FUNCTION DOC]
+    # Verifies LogisticRegression(solver="sag") raises ValueError when y contains a
+    #   single class.
     """tests if ValueError is thrown with only one class"""
     X = [[1, 2], [3, 4]]
     y = [1, 1]
@@ -971,9 +980,9 @@ def test_classifier_single_class():
 
 
 def test_step_size_alpha_error():
-    # [FUNCTION DOC] Verifies that LogisticRegression and Ridge with sag raise
-    #   ZeroDivisionError when the step size times scaled alpha equals 1 (all-zero X, no
-    #   intercept, alpha 1).
+    # [FUNCTION DOC]
+    # Verifies that LogisticRegression and Ridge with sag raise ZeroDivisionError when
+    #   the step size times scaled alpha equals 1 (all-zero X, no intercept, alpha 1).
     X = [[0, 0], [0, 0]]
     y = [1, -1]
     fit_intercept = False
@@ -994,9 +1003,10 @@ def test_step_size_alpha_error():
 
 @pytest.mark.parametrize("solver", ["sag", "saga"])
 def test_sag_classifier_raises_error(solver):
-    # [FUNCTION DOC] Non-regression test: after fitting with warm_start, the
-    #   coefficients are set to NaN and refitting must raise ValueError about floating-
-    #   point under/overflow, for both sag and saga.
+    # [FUNCTION DOC]
+    # Non-regression test: after fitting with warm_start, the coefficients are set to
+    #   NaN and refitting must raise ValueError about floating-point under/overflow, for
+    #   both sag and saga.
     # Following #13316, the error handling behavior changed in cython sag. This
     # is simply a non-regression test to make sure numerical errors are
     # properly raised.

@@ -1,3 +1,18 @@
+# [MODULE DOC]
+# Tests for Ridge, RidgeClassifier, RidgeCV, RidgeClassifierCV, ridge_regression and
+#   private helpers of sklearn.linear_model._ridge (closed-form solvers, the _RidgeGCV
+#   efficient leave-one-out machinery, _X_CenterStackOp, _check_gcv_mode). Covers
+#   convergence of every solver to known solutions, sample_weight and class_weight
+#   semantics, sparse vs dense consistency, dtype preservation, positive constraints,
+#   GCV vs explicit LOO-CV equivalence, regularization limits, Array API support, and
+#   metadata routing. Module-level side effects at import time: loads the diabetes
+#   dataset and keeps a random subset of 200 samples (X_diabetes, y_diabetes) shuffled
+#   with a module-global RandomState(0) named `rng`, and loads iris (iris, X_iris,
+#   y_iris). Module constants: SOLVERS (solvers tested everywhere) and the tuples of
+#   solvers supporting sparse X with/without intercept.
+# KNOWN ISSUE: the module-global `rng` is reused by several tests
+#   (test_ridge_regression_sample_weights, test_ridgecv_alphas_validation,
+#   test_ridgecv_alphas_scalar), so the data they draw depends on test execution order.
 import warnings
 from itertools import product
 
@@ -86,15 +101,39 @@ X_iris, y_iris = iris.data, iris.target
 
 
 def _accuracy_callable(y_test, y_pred, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Score function for make_scorer computing the fraction of exactly equal
+    #   entries between y_test and y_pred; extra keyword arguments are ignored.
+    # Outputs: float in [0, 1].
     return np.mean(y_test == y_pred)
 
 
 def _mean_squared_error_callable(y_test, y_pred):
+    # [FUNCTION DOC]
+    # HELPER: Score function returning the mean of squared differences between y_test
+    #   and y_pred (an error, not negated).
     return ((y_test - y_pred) ** 2).mean()
 
 
 @pytest.fixture(params=["long", "wide"])
 def ols_ridge_dataset(global_random_seed, request):
+    # [FUNCTION DOC]
+    # HELPER: Pytest fixture, parametrized "long" (12 x 4) or "wide" (4 x 12), building
+    #   a well-conditioned low-rank-based design whose last column is constant 1
+    #   (intercept) and returning analytically known solutions.
+    # Steps: generate X with make_low_rank_matrix (effective rank = min dim) seeded by
+    #   global_random_seed, set last column to 1, take its SVD and assert all singular
+    #   values > 1e-3. Long case: draw coef_ols uniformly in [-10, 10] and set y = X
+    #   coef_ols plus a component in the left null space of X (U2 times squared normal
+    #   draws) so the OLS solution is unchanged. Wide case: draw y uniformly and set
+    #   coef_ols to the minimum-norm solution V S^-1 U' y. coef_ridge solves the normal
+    #   equations (X'X + D) w = X'y with D = identity except 0 for the intercept entry
+    #   (alpha=1). Asserts OLS residual norm < ridge residual norm.
+    # Inputs: global_random_seed - seed fixture; request - pytest request with param.
+    # Outputs: tuple (X, y, coef_ols, coef_ridge); coefficients have n_features entries,
+    #   the last being the intercept.
+    # KNOWN ISSUE: the docstring describes a "type" parameter (it is request.param) and
+    #   gives coef_ridge shape (5,), which matches neither 4 nor 12 features.
     """Dataset with OLS and Ridge solutions, well conditioned X.
 
     The construction is based on the SVD decomposition of X = U S V'.
@@ -167,6 +206,14 @@ def ols_ridge_dataset(global_random_seed, request):
 @pytest.mark.parametrize("solver", SOLVERS)
 @pytest.mark.parametrize("fit_intercept", [True, False])
 def test_ridge_regression(solver, fit_intercept, ols_ridge_dataset, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies every solver in SOLVERS reproduces the known ridge solution (alpha=1)
+    #   from ols_ridge_dataset: intercept, coef_ and R^2 score match the reference, with
+    #   and without unit sample_weight, and solver_ equals the requested solver. With
+    #   fit_intercept=False the data are centered so the expected intercept is 0.
+    # KNOWN ISSUE: the Ridge params always use fit_intercept=True regardless of the
+    #   fit_intercept parametrization; the False case only differs by pre-centering X
+    #   and y.
     """Test that Ridge converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -215,6 +262,10 @@ def test_ridge_regression(solver, fit_intercept, ols_ridge_dataset, global_rando
 def test_ridge_regression_hstacked_X(
     solver, fit_intercept, ols_ridge_dataset, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies that fitting on 0.5*[X, X] with alpha/2 yields the duplicated coefficient
+    #   vector [coef, coef] and the same intercept as the reference fit on X with alpha,
+    #   for all solvers (singular design for long X). Uses atol 1e-8 on coefficients.
     """Test that Ridge converges for all solvers to correct solution on hstacked data.
 
     We work with a simple constructed data set with known solution.
@@ -255,6 +306,9 @@ def test_ridge_regression_hstacked_X(
 def test_ridge_regression_vstacked_X(
     solver, fit_intercept, ols_ridge_dataset, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies that fitting on vertically stacked [X; X], [y; y] with 2*alpha recovers
+    #   the reference ridge solution for all solvers (singular for wide X).
     """Test that Ridge converges for all solvers to correct solution on vstacked data.
 
     We work with a simple constructed data set with known solution.
@@ -297,6 +351,14 @@ def test_ridge_regression_vstacked_X(
 def test_ridge_regression_unpenalized(
     solver, fit_intercept, ols_ridge_dataset, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies alpha=0 Ridge recovers the OLS solution for all solvers. When
+    #   fit_intercept the intercept column is dropped from X. For long X or no
+    #   intercept, intercept and coef must match; for wide X with intercept, it only
+    #   checks that predictions interpolate y and that the found solution has larger
+    #   norm than the minimum-norm one, then xfails (Ridge does not return the minimum-
+    #   norm solution).
+    # KNOWN ISSUE: the assertions after pytest.xfail are unreachable.
     """Test that unpenalized Ridge = OLS converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -352,6 +414,12 @@ def test_ridge_regression_unpenalized(
 def test_ridge_regression_unpenalized_hstacked_X(
     solver, fit_intercept, ols_ridge_dataset, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Same as test_ridge_regression_unpenalized but on 0.5*[X, X]; expects coefficients
+    # [coef, coef]. Skips the coefficient check for cholesky (bad for singular X) after
+    #   checking the intercept; for wide X with intercept checks interpolation and norm,
+    #   then xfails.
+    # KNOWN ISSUE: the assertions after pytest.xfail are unreachable.
     """Test that unpenalized Ridge = OLS converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -407,6 +475,11 @@ def test_ridge_regression_unpenalized_hstacked_X(
 def test_ridge_regression_unpenalized_vstacked_X(
     solver, fit_intercept, ols_ridge_dataset, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Same as test_ridge_regression_unpenalized but on [X; X], [y; y]; expects the
+    #   original OLS solution; xfails on the wide-with-intercept case after checking
+    #   interpolation and norm.
+    # KNOWN ISSUE: the assertions after pytest.xfail are unreachable.
     """Test that unpenalized Ridge = OLS converges for all solvers to correct solution.
 
     We work with a simple constructed data set with known solution.
@@ -469,6 +542,14 @@ def test_ridge_regression_sample_weights(
     ols_ridge_dataset,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Verifies sample_weight handling via the identity: weighted least squares on [X;
+    #   X],
+    # [y; y] with weights w and (1 - w) (scaled by alpha) equals the unweighted problem
+    #   on X; so Ridge(alpha) fitted with these weights must recover the reference
+    #   alpha=1 ridge solution. Runs dense and CSR input, skipping solver/container
+    #   combinations that do not support sparse X with/without intercept.
+    # Side effects: draws weights from the module-global rng.
     """Test that Ridge with sample weights gives correct results.
 
     We use the following trick:
@@ -512,6 +593,10 @@ def test_ridge_regression_sample_weights(
 
 
 def test_primal_dual_relationship():
+    # [FUNCTION DOC]
+    # Verifies that _solve_cholesky on X (primal) and _solve_cholesky_kernel on the
+    #   linear kernel X X' (dual) give the same coefficients after mapping the dual
+    #   coefficients back with X', for alpha 1e-2 on the diabetes subset.
     y = y_diabetes.reshape(-1, 1)
     coef = _solve_cholesky(X_diabetes, y, alpha=[1e-2])
     K = np.dot(X_diabetes, X_diabetes.T)
@@ -521,6 +606,9 @@ def test_primal_dual_relationship():
 
 
 def test_ridge_regression_convergence_fail():
+    # [FUNCTION DOC]
+    # Verifies ridge_regression with sparse_cg, tol=0 on a random 5 x 10 problem emits a
+    #   ConvergenceWarning saying sparse_cg did not converge.
     rng = np.random.RandomState(0)
     y = rng.randn(5)
     X = rng.randn(5, 10)
@@ -532,6 +620,10 @@ def test_ridge_regression_convergence_fail():
 
 
 def test_ridge_shapes_type():
+    # [FUNCTION DOC]
+    # Verifies coef_ / intercept_ shapes and types: 1D y gives coef_ (n_features,) and a
+    #   Python float intercept_; y of shape (n, 1) gives coef_ (n_features,) and
+    #   intercept_ array (1,); two targets give coef_ (2, n_features), intercept_ (2,).
     # Test shape of coef_ and intercept_
     rng = np.random.RandomState(0)
     n_samples, n_features = 5, 10
@@ -562,6 +654,9 @@ def test_ridge_shapes_type():
 
 
 def test_ridge_intercept():
+    # [FUNCTION DOC]
+    # Verifies with two targets y and 1 + y that the second intercept equals the first
+    #   plus 1 and the first equals the single-target intercept (GH #708).
     # Test intercept with multiple targets GH issue #708
     rng = np.random.RandomState(0)
     n_samples, n_features = 5, 10
@@ -580,6 +675,11 @@ def test_ridge_intercept():
 
 
 def test_ridge_vs_lstsq():
+    # [FUNCTION DOC]
+    # Verifies Ridge(alpha=0, fit_intercept=False) and LinearRegression give the same
+    #   coefficients on a 5 x 4 random problem.
+    # KNOWN ISSUE: the fit-and-compare block is repeated twice identically; the second
+    #   repetition adds no coverage.
     # On alpha=0., Ridge and OLS yield the same solution.
 
     rng = np.random.RandomState(0)
@@ -601,6 +701,11 @@ def test_ridge_vs_lstsq():
 
 
 def test_ridge_individual_penalties():
+    # [FUNCTION DOC]
+    # Verifies per-target alpha arrays: Ridge with alpha = [0..4] for 5 targets matches
+    #   separate single-target cholesky fits for all solvers (svd, sparse_cg, lsqr,
+    #   cholesky, sag, saga), and a length mismatch between alphas and targets raises
+    #   ValueError.
     # Tests the ridge object using individual penalties
 
     rng = np.random.RandomState(42)
@@ -635,6 +740,11 @@ def test_ridge_individual_penalties():
 @pytest.mark.parametrize("n_col", [(), (1,), (3,)])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_X_CenterStackOp(n_col, csr_container):
+    # [FUNCTION DOC]
+    # Verifies the _X_CenterStackOp linear operator (implicitly centered sparse X with
+    #   an extra sqrt(sample_weight) column) matches the explicit dense matrix
+    # [X - sqrt_sw X_mean, sqrt_sw] for both matvec/matmat (dot) and the transpose
+    #   product, for right-hand sides with 0, 1 or 3 extra columns.
     rng = np.random.RandomState(0)
     X = rng.randn(11, 8)
     X_m = rng.randn(8)
@@ -651,6 +761,10 @@ def test_X_CenterStackOp(n_col, csr_container):
 @pytest.mark.parametrize("uniform_weights", [True, False])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_compute_gram(shape, uniform_weights, csr_container):
+    # [FUNCTION DOC]
+    # Verifies _RidgeGCV._compute_gram on sparse weighted X equals the Gram matrix of
+    #   the explicitly weighted-mean-centered and sqrt-weighted X, for several shapes
+    #   and uniform/chi-square weights.
     rng = np.random.RandomState(0)
     X = rng.randn(*shape)
     if uniform_weights:
@@ -671,6 +785,9 @@ def test_compute_gram(shape, uniform_weights, csr_container):
 @pytest.mark.parametrize("uniform_weights", [True, False])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_compute_covariance(shape, uniform_weights, csr_container):
+    # [FUNCTION DOC]
+    # Verifies _RidgeGCV._compute_covariance on sparse weighted X equals X_c' X_c of the
+    #   explicitly centered and sqrt-weighted X, for several shapes and weightings.
     rng = np.random.RandomState(0)
     X = rng.randn(*shape)
     if uniform_weights:
@@ -701,6 +818,20 @@ def _make_sparse_offset_regression(
     positive=False,
     random_state=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Generates a regression problem with sparse, non-centered X.
+    # Steps: call make_regression (always requesting coef) with the given sizes, bias,
+    #   noise, shuffle and random_state; add X_offset to all entries; build a Bernoulli
+    #   mask with probability proportion_nonzero (from a RandomState seeded with
+    #   random_state); zero masked-out entries of X and subtract their contribution from
+    #   y so y stays consistent with the sparse X. If positive, add X times (|c| + 1 -
+    #   c) to y and set c to |c| + 1, making all true coefficients positive.
+    # Inputs: n_samples, n_features, proportion_nonzero, n_informative, n_targets, bias,
+    #   X_offset, noise, shuffle, coef (return coefficients), positive, random_state.
+    # Outputs: (X, y) or (X, y, c) if coef; X dense ndarray (n_samples, n_features), y
+    #   of shape (n_samples,) or (n_samples, n_targets).
+    # KNOWN ISSUE: if random_state is a RandomState instance, the mask RandomState is
+    #   built from that instance, so it is not independent of make_regression's draws.
     X, y, c = make_regression(
         n_samples=n_samples,
         n_features=n_features,
@@ -750,6 +881,12 @@ def _make_sparse_offset_regression(
 def test_solver_consistency(
     solver, proportion_nonzero, n_samples, dtype, sparse_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies that each solver (cholesky, sag, sparse_cg, lsqr, saga, and RidgeCV with
+    #   a single alpha) on min-max scaled sparse-offset data, in float32 or float64 and
+    #   dense or CSR (only sparse_cg/ridgecv for CSR), matches a float64 svd Ridge
+    #   reference for coef_ and intercept_ within 1e-3. sag/saga use tol 1e-7 and
+    #   max_iter 100000.
     alpha = 1.0
     noise = 50.0 if proportion_nonzero > 0.9 else 500.0
     X, y = _make_sparse_offset_regression(
@@ -794,6 +931,9 @@ def test_solver_consistency(
 
 
 def test_ridge_gcv_integer_arrays():
+    # [FUNCTION DOC]
+    # Verifies RidgeCV (GCV) on integer X and y gives the same coef_ and cv_results_ as
+    #   on float64 copies, and cv_results_ is float64.
     n_samples, n_features = 20, 10
     rng = np.random.RandomState(0)
     X = rng.randint(0, 5, size=(n_samples, n_features))
@@ -831,6 +971,11 @@ def test_ridge_gcv_integer_arrays():
 def test_ridge_gcv_vs_ridge_loo_cv(
     gcv_mode, dtype, X_container, X_shape, y_shape, fit_intercept, noise
 ):
+    # [FUNCTION DOC]
+    # Verifies efficient GCV (RidgeCV with gcv_mode svd/eigen) gives the same alpha_,
+    #   coef_ and intercept_ as explicit leave-one-out RidgeCV(cv=n_samples) with MSE
+    #   scoring, for tall/wide X, dense/CSR, float32/64, 1D/2D targets and with/without
+    #   intercept. svd mode is skipped for sparse X. atol 1e-5 (float32) or 1e-10.
     if gcv_mode == "svd" and (X_container in CSR_CONTAINERS):
         pytest.skip("`svd` mode not supported for sparse X.")
     n_samples, n_features = X_shape
@@ -873,6 +1018,12 @@ def test_ridge_gcv_vs_ridge_loo_cv(
 
 
 def _ridge_regularization_limits(alpha, X, y, fit_intercept):
+    # [FUNCTION DOC]
+    # HELPER: Expected (coef, intercept) in the limit of tiny or huge alpha.
+    # Inputs: alpha - float; X, y - training data; fit_intercept - bool.
+    # Outputs: if alpha is close to 0, coef_ and intercept_ of LinearRegression fitted
+    #   on (X, y); otherwise zeros(n_features) and mean(y) (or 0.0 without intercept).
+    # Side effects: fits a LinearRegression.
     "Expected coef and intercept when alpha near 0 or inf"
     if np.isclose(alpha, 0):
         # Ridge should recover LinearRegression for near-zero alpha.
@@ -893,6 +1044,11 @@ def _ridge_regularization_limits(alpha, X, y, fit_intercept):
 def test_regularization_limits_ridge(
     alpha, solver, fit_intercept, X_shape, X_container
 ):
+    # [FUNCTION DOC]
+    # Verifies Ridge with alpha 1e-16 recovers LinearRegression and with alpha 1e16
+    #   recovers zero coefficients and mean(y) intercept, for
+    #   svd/cholesky/lsqr/sparse_cg, tall/wide, dense/CSR (skipping svd on sparse and
+    #   cholesky on sparse with intercept), atol 1e-10.
     "Check regularization limits of Ridge (alpha near 0 or inf)"
     sparse_X = X_container in CSR_CONTAINERS
     if solver == "svd" and sparse_X:
@@ -928,6 +1084,12 @@ def test_regularization_limits_ridge(
 def test_regularization_limits_ridge_classifier_gcv(
     alpha, gcv_mode, fit_intercept, X_shape, dtype, X_container
 ):
+    # [FUNCTION DOC]
+    # Verifies RidgeClassifierCV (GCV) reproduces the regularization limits computed on
+    #   {-1, +1} encoded labels for tall/square/wide, dense/CSR, float32/64; xfails the
+    #   small-alpha limit on tall and square X.
+    # KNOWN ISSUE: gcv_mode is only parametrized with "ignored", so the branch expecting
+    #   a FutureWarning for svd on sparse X is dead code.
     "Check regularization limits of RidgeClassifierCV (alpha near 0 or inf)"
     sparse_X = X_container in CSR_CONTAINERS
     alphas = [alpha]
@@ -983,6 +1145,11 @@ def test_regularization_limits_ridge_classifier_gcv(
 def test_regularization_limits_ridge_gcv(
     alpha, gcv_mode, fit_intercept, X_shape, dtype, X_container
 ):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV with a single alpha (1e-16 or 1e16) in gcv_mode svd/eigen
+    #   reproduces the regularization limits on regression data; for svd mode with
+    #   sparse X a FutureWarning (svd not supported) is expected and the fit still
+    #   checked.
     "Check regularization limits of _RidgeGCV (alpha near 0 or inf)"
     sparse_X = X_container in CSR_CONTAINERS
     alphas = [alpha]
@@ -1011,6 +1178,9 @@ def test_regularization_limits_ridge_gcv(
 
 
 def test_ridge_loo_cv_asym_scoring():
+    # [FUNCTION DOC]
+    # Verifies GCV and explicit LOO RidgeCV agree (alpha_, coef_, intercept_ within rtol
+    #   1e-3) with an asymmetric scorer ("explained_variance").
     # checking on asymmetric scoring
     scoring = "explained_variance"
     n_samples, n_features = 10, 5
@@ -1057,6 +1227,11 @@ def test_ridge_loo_cv_asym_scoring():
 def test_ridge_gcv_sample_weights(
     gcv_mode, X_container, fit_intercept, n_features, y_shape, noise
 ):
+    # [FUNCTION DOC]
+    # Verifies GCV with integer sample weights equals grouped K-fold CV on data where
+    #   each sample is repeated weight times: compares alpha_, per-sample errors from
+    #   cv_results_ (vs summed squared errors of cross_val_predict per group), coef_ and
+    #   intercept_ (rtol 1e-3). svd mode is skipped for sparse X.
     if gcv_mode == "svd" and (X_container in CSR_CONTAINERS):
         pytest.skip("`svd` mode not supported for sparse X.")
     alphas = [1e-3, 0.1, 1.0, 10.0, 1e3]
@@ -1126,6 +1301,10 @@ def test_ridge_gcv_sample_weights(
 )
 @pytest.mark.parametrize("gcv_mode", ["auto", "svd", "eigen"])
 def test_check_gcv_mode_choice(sparse_container, X_shape, gcv_mode):
+    # [FUNCTION DOC]
+    # Verifies _check_gcv_mode: "svd" is kept for dense X; for sparse X "svd" warns
+    #   (FutureWarning) and falls back to the eigen mode; "auto"/"eigen" give "gram"
+    #   when n_samples <= n_features and "cov" otherwise.
     n, p = X_shape
     X, _ = make_regression(n_samples=n, n_features=p)
     sparse_X = sparse_container is not None
@@ -1146,6 +1325,18 @@ def test_check_gcv_mode_choice(sparse_container, X_shape, gcv_mode):
 
 
 def _test_ridge_loo(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Shared check for dense or sparse X (used via test_dense_sparse). Fits
+    #   _RidgeGCV on the diabetes subset (intercept only for dense) and checks RidgeCV
+    #   selects the same alpha_ with a make_scorer MSE scorer, a custom negated-MSE
+    #   score function, and the "neg_mean_squared_error" scorer; for dense input checks
+    #   unit sample_weight gives the same alpha_; finally checks predictions for two
+    #   identical targets equal the single-target predictions.
+    # Inputs: sparse_container - None for dense or a CSR constructor.
+    # Outputs: list containing the selected alpha_.
+    # KNOWN ISSUE: the reference _RidgeGCV uses fit_intercept=True for dense X while the
+    #   compared RidgeCV models use fit_intercept=False, and test_dense_sparse compares
+    #   the dense (intercept) and sparse (no intercept) alphas against each other.
     # test that can work with both dense or sparse matrices
     n_samples = X_diabetes.shape[0]
 
@@ -1171,6 +1362,8 @@ def _test_ridge_loo(sparse_container):
 
     # check that we get same best alpha with custom score_func
     def func(x, y):
+        # [FUNCTION DOC]
+        # HELPER: Score function returning the negated mean squared error of (x, y).
         return -mean_squared_error(x, y)
 
     scoring = make_scorer(func)
@@ -1203,6 +1396,10 @@ def _test_ridge_loo(sparse_container):
 
 
 def _test_ridge_cv(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Shared check that RidgeCV with default (GCV) and with KFold(5) fits and
+    #   predicts on dense or sparse diabetes data and yields 1D coef_ and a np.float64
+    #   intercept_. Outputs: None.
     X = X_diabetes if sparse_container is None else sparse_container(X_diabetes)
     ridge_cv = RidgeCV()
     ridge_cv.fit(X, y_diabetes)
@@ -1228,6 +1425,9 @@ def _test_ridge_cv(sparse_container):
     ],
 )
 def test_ridge_gcv_cv_results_not_stored(ridge, make_dataset):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV and RidgeClassifierCV do not set cv_results_ when
+    #   store_cv_results=False.
     # Check that `cv_results_` is not stored when store_cv_results is False
     X, y = make_dataset(n_samples=6, random_state=42)
     ridge = clone(ridge)
@@ -1241,6 +1441,9 @@ def test_ridge_gcv_cv_results_not_stored(ridge, make_dataset):
 )
 @pytest.mark.parametrize("cv", [None, 3])
 def test_ridge_best_score(ridge, make_dataset, cv):
+    # [FUNCTION DOC]
+    # Verifies best_score_ exists and is a float for RidgeCV/RidgeClassifierCV with GCV
+    #   (cv=None) and with 3-fold CV.
     # check that the best_score_ is store
     X, y = make_dataset(n_samples=6, random_state=42)
     ridge = clone(ridge)  # Avoid side effects from shared instances
@@ -1251,6 +1454,12 @@ def test_ridge_best_score(ridge, make_dataset, cv):
 
 
 def test_ridge_cv_individual_penalties():
+    # [FUNCTION DOC]
+    # Verifies alpha_per_target=True: selected alphas equal per-target RidgeCV choices
+    #   and coef_ equals Ridge fitted with those alphas; checks shapes of alpha_,
+    #   best_score_ and cv_results_ for multiple alphas, a single alpha and a single
+    #   target; works with scoring="r2"; and raises ValueError when combined with an
+    #   explicit cv (LeaveOneOut or 6).
     # Tests the ridge_cv object optimizing individual penalties for each target
 
     rng = np.random.RandomState(42)
@@ -1322,6 +1531,10 @@ def test_ridge_cv_individual_penalties():
 
 
 def _test_ridge_diabetes(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Fits Ridge(fit_intercept=False) on dense or sparse diabetes data and
+    #   returns the training R^2 rounded to 5 decimals (compared across containers by
+    #   test_dense_sparse).
     X = X_diabetes if sparse_container is None else sparse_container(X_diabetes)
     ridge = Ridge(fit_intercept=False)
     ridge.fit(X, y_diabetes)
@@ -1329,6 +1542,10 @@ def _test_ridge_diabetes(sparse_container):
 
 
 def _test_multi_ridge_diabetes(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Checks that Ridge on two identical targets gives coef_ of shape (2,
+    #   n_features) and predictions equal (3 decimals) to the single-target fit, for
+    #   dense or sparse X. Outputs: None.
     # simulate several responses
     X = X_diabetes if sparse_container is None else sparse_container(X_diabetes)
     Y = np.vstack((y_diabetes, y_diabetes)).T
@@ -1344,6 +1561,10 @@ def _test_multi_ridge_diabetes(sparse_container):
 
 
 def _test_ridge_classifiers(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Checks RidgeClassifier and RidgeClassifierCV (GCV and KFold(5)) on dense
+    #   or sparse iris give coef_ of shape (n_classes, n_features) and training accuracy
+    #   above 0.79 (>= 0.8 for the KFold variant). Outputs: None.
     n_classes = np.unique(y_iris).shape[0]
     n_features = X_iris.shape[1]
     X = X_iris if sparse_container is None else sparse_container(X_iris)
@@ -1365,6 +1586,10 @@ def _test_ridge_classifiers(sparse_container):
 @pytest.mark.parametrize("cv", [None, KFold(5)])
 @pytest.mark.parametrize("sparse_container", [None] + CSR_CONTAINERS)
 def test_ridge_classifier_with_scoring(sparse_container, scoring, cv):
+    # [FUNCTION DOC]
+    # Smoke test (non-regression #14672): RidgeClassifierCV fits and predicts on iris
+    #   for scoring None, "accuracy" or a callable wrapped with make_scorer, with GCV or
+    #   KFold(5), dense or CSR.
     # non-regression test for #14672
     # check that RidgeClassifierCV works with all sort of scoring and
     # cross-validation
@@ -1378,10 +1603,15 @@ def test_ridge_classifier_with_scoring(sparse_container, scoring, cv):
 @pytest.mark.parametrize("cv", [None, KFold(5)])
 @pytest.mark.parametrize("sparse_container", [None] + CSR_CONTAINERS)
 def test_ridge_regression_custom_scoring(sparse_container, cv):
+    # [FUNCTION DOC]
+    # Verifies a constant custom scorer (always 0.42) is used by RidgeClassifierCV:
+    #   best_score_ is 0.42 and ties keep the first alpha in alphas.
     # check that custom scoring is working as expected
     # check the tie breaking strategy (keep the first alpha tried)
 
     def _dummy_score(y_test, y_pred, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Constant score function returning 0.42 regardless of input.
         return 0.42
 
     X = X_iris if sparse_container is None else sparse_container(X_iris)
@@ -1394,6 +1624,9 @@ def test_ridge_regression_custom_scoring(sparse_container, cv):
 
 
 def _test_tolerance(sparse_container):
+    # [FUNCTION DOC]
+    # HELPER: Checks that Ridge with tol 1e-5 achieves a training R^2 at least as high
+    #   as with tol 1e-3 on dense or sparse diabetes data. Outputs: None.
     X = X_diabetes if sparse_container is None else sparse_container(X_diabetes)
 
     ridge = Ridge(tol=1e-5, fit_intercept=False)
@@ -1410,6 +1643,16 @@ def _test_tolerance(sparse_container):
 def check_array_api_attributes(
     name, estimator, array_namespace, device_name, dtype_name, rtol=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Array API check used by test_ridge_array_api_compliance: fits the
+    #   estimator on iris in NumPy with the given dtype, then fits a clone on arrays of
+    #   the requested namespace/device under array_api_dispatch, and asserts coef_ and
+    #   intercept_ have the same shape, the input dtype, and values close to the NumPy
+    #   fit (dtype-dependent atol, optional rtol).
+    # Inputs: name - unused estimator name; estimator - unfitted estimator (fitted in
+    #   place on NumPy data); array_namespace, device_name, dtype_name - Array API
+    #   target; rtol - optional relative tolerance.
+    # Side effects: fits the passed estimator in place.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     X_iris_np = X_iris.astype(dtype_name)
@@ -1469,6 +1712,10 @@ def check_array_api_attributes(
 def test_ridge_array_api_compliance(
     estimator, check, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Runs the generic array API input/value check and check_array_api_attributes for
+    #   Ridge(svd), RidgeClassifier(svd), RidgeCV(svd/eigen) and RidgeClassifierCV
+    #   across all namespace/device/dtype combinations.
     name = estimator.__class__.__name__
     check(
         name,
@@ -1489,6 +1736,12 @@ def test_ridge_array_api_compliance(
 def test_ridge_classifier_multilabel_array_api(
     estimator, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies multilabel RidgeClassifier/RidgeClassifierCV under Array API dispatch
+    #   predicts the same labels with the same shape and classes_ as the NumPy fit.
+    # KNOWN ISSUE: the parametrized estimator instance is fitted in place (no clone), so
+    #   ridge_np and ridge_xp are the same object and the shared instance is mutated
+    #   across parametrizations.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     X, y = make_multilabel_classification(random_state=0)
     X_np = X.astype(dtype_name)
@@ -1510,6 +1763,10 @@ def test_ridge_classifier_multilabel_array_api(
     yield_namespace_device_dtype_combinations(),
 )
 def test_ridge_per_target_alpha_array_api(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Non-regression test (#34003): Ridge(svd) with an array of per-target alphas, given
+    #   as a NumPy array or as an array of the target namespace/device, works under
+    #   Array API dispatch and predicts like the NumPy fit.
     """Check that passing an array for alpha works with array API dispatch.
 
     Non-regression test for issue #34003.
@@ -1542,6 +1799,11 @@ def test_ridge_per_target_alpha_array_api(array_namespace, device_name, dtype_na
     "array_namespace", yield_namespaces(include_numpy_namespaces=False)
 )
 def test_array_api_error_and_warnings_for_solver_parameter(array_namespace):
+    # [FUNCTION DOC]
+    # Verifies, for non-NumPy namespaces under Array API dispatch, that every solver
+    #   except auto and svd raises ValueError, that solver="auto" with positive=True
+    #   raises ValueError, and that the default solver="auto" emits a UserWarning about
+    #   falling back to svd.
     xp, _ = _array_api_for_tests(array_namespace, device_name=None)
 
     X_iris_xp = xp.asarray(X_iris[:5])
@@ -1585,6 +1847,10 @@ def test_array_api_error_and_warnings_for_solver_parameter(array_namespace):
 
 @pytest.mark.parametrize("array_namespace", sorted(_NUMPY_NAMESPACE_NAMES))
 def test_array_api_numpy_namespace_no_warning(array_namespace):
+    # [FUNCTION DOC]
+    # Verifies that NumPy-like namespaces under Array API dispatch emit no "Results
+    #   might be different" UserWarning (turned into an error) and support
+    #   positive=True.
     xp, _ = _array_api_for_tests(array_namespace, device_name=None)
 
     X_iris_xp = xp.asarray(X_iris[:5])
@@ -1620,6 +1886,10 @@ def test_array_api_numpy_namespace_no_warning(array_namespace):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_dense_sparse(test_func, csr_container):
+    # [FUNCTION DOC]
+    # Runs each shared helper (_test_ridge_loo, _test_ridge_cv, _test_ridge_diabetes,
+    #   _test_multi_ridge_diabetes, _test_ridge_classifiers, _test_tolerance) on dense
+    #   and CSR input and, when both return values, asserts they match to 3 decimals.
     # test dense matrix
     ret_dense = test_func(None)
     # test sparse matrix
@@ -1630,6 +1900,10 @@ def test_dense_sparse(test_func, csr_container):
 
 
 def test_class_weights():
+    # [FUNCTION DOC]
+    # Verifies RidgeClassifier class_weight: a tiny weight on class 1 flips the
+    #   prediction of a probe point, "balanced" works with negative labels, and
+    #   "balanced" equals None on a balanced dataset (same coef_ and intercept_).
     # Test class weights.
     X = np.array([[-1.0, -1.0], [-1.0, 0], [-0.8, -1.0], [1.0, 1.0], [1.0, 0.0]])
     y = [1, 1, 1, -1, -1]
@@ -1666,6 +1940,10 @@ def test_class_weights():
 
 @pytest.mark.parametrize("reg", (RidgeClassifier, RidgeClassifierCV))
 def test_class_weight_vs_sample_weight(reg):
+    # [FUNCTION DOC]
+    # Verifies, for RidgeClassifier and RidgeClassifierCV on iris, that "balanced"
+    #   weights have no effect on balanced data, that class_weight equals equivalent
+    #   sample_weight, and that class_weight and sample_weight multiply.
     """Check class_weights resemble sample_weights behavior."""
 
     # Iris is balanced, so no effect expected for using 'balanced' weights
@@ -1694,6 +1972,10 @@ def test_class_weight_vs_sample_weight(reg):
 
 
 def test_class_weights_cv():
+    # [FUNCTION DOC]
+    # Verifies RidgeClassifierCV with a tiny weight on class 1 predicts -1 for a probe
+    #   point.
+    # KNOWN ISSUE: the first fit with class_weight=None has no assertion.
     # Test class weights for cross validated ridge classifier.
     X = np.array([[-1.0, -1.0], [-1.0, 0], [-0.8, -1.0], [1.0, 1.0], [1.0, 0.0]])
     y = [1, 1, 1, -1, -1]
@@ -1712,6 +1994,10 @@ def test_class_weights_cv():
     "scoring", [None, "neg_mean_squared_error", _mean_squared_error_callable]
 )
 def test_ridgecv_store_cv_results(scoring):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV(store_cv_results=True) cv_results_ shapes are (n_samples,
+    #   n_alphas) for 1D y and (n_samples, n_targets, n_alphas) for 2D y, for several
+    #   scorings, and that store_cv_results with cv=3 raises ValueError.
     rng = np.random.RandomState(42)
 
     n_samples = 8
@@ -1742,6 +2028,9 @@ def test_ridgecv_store_cv_results(scoring):
 
 @pytest.mark.parametrize("scoring", [None, "accuracy", _accuracy_callable])
 def test_ridge_classifier_cv_store_cv_results(scoring):
+    # [FUNCTION DOC]
+    # Verifies RidgeClassifierCV cv_results_ shape is (n_samples, n_targets, n_alphas)
+    #   for binary (n_targets=1) and multilabel (3 columns) targets.
     x = np.array([[-1.0, -1.0], [-1.0, 0], [-0.8, -1.0], [1.0, 1.0], [1.0, 0.0]])
     y = np.array([1, 1, 1, -1, -1])
 
@@ -1771,6 +2060,9 @@ def test_ridge_classifier_cv_store_cv_results(scoring):
 
 @pytest.mark.parametrize("Estimator", [RidgeCV, RidgeClassifierCV])
 def test_ridgecv_alphas_conversion(Estimator):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV/RidgeClassifierCV do not mutate or convert the alphas tuple in
+    #   __init__ (identity preserved) and that fitting still works with it.
     rng = np.random.RandomState(0)
     alphas = (0.1, 1.0, 10.0)
 
@@ -1793,6 +2085,9 @@ def test_ridgecv_alphas_conversion(Estimator):
 @pytest.mark.parametrize("cv", [None, 3])
 @pytest.mark.parametrize("Estimator", [RidgeCV, RidgeClassifierCV])
 def test_ridgecv_alphas_zero(cv, Estimator):
+    # [FUNCTION DOC]
+    # Verifies alphas containing 0.0 raise ValueError only with GCV (cv=None); with cv=3
+    #   fitting succeeds.
     """Check alpha=0.0 raises error only when `cv=None`."""
     rng = np.random.RandomState(0)
     alphas = (0.0, 1.0, 10.0)
@@ -1813,6 +2108,10 @@ def test_ridgecv_alphas_zero(cv, Estimator):
 
 
 def test_ridgecv_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies RidgeCV with KFold(5) and sample_weight selects the same alpha and
+    #   coefficients as GridSearchCV over Ridge with the same sample_weight, for
+    #   n_samples > n_features and the opposite.
     rng = np.random.RandomState(0)
     alphas = (0.1, 1.0, 10.0)
 
@@ -1837,6 +2136,9 @@ def test_ridgecv_sample_weight():
 
 
 def test_raises_value_error_if_sample_weights_greater_than_1d():
+    # [FUNCTION DOC]
+    # Verifies Ridge accepts 1D and scalar sample_weight but raises ValueError for 2D
+    #   column or row shaped weights.
     # Sample weights must be either scalar or 1D
 
     n_sampless = [2, 3]
@@ -1861,9 +2163,13 @@ def test_raises_value_error_if_sample_weights_greater_than_1d():
         ridge.fit(X, y, sample_weights_OK_2)
 
         def fit_ridge_not_ok():
+            # [FUNCTION DOC]
+            # HELPER: Fits the enclosing ridge with column-shaped (2D) sample weights.
             ridge.fit(X, y, sample_weights_not_OK)
 
         def fit_ridge_not_ok_2():
+            # [FUNCTION DOC]
+            # HELPER: Fits the enclosing ridge with row-shaped (2D) sample weights.
             ridge.fit(X, y, sample_weights_not_OK_2)
 
         err_msg = "Sample weights must be 1D array or scalar"
@@ -1881,6 +2187,9 @@ def test_raises_value_error_if_sample_weights_greater_than_1d():
     COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS + DOK_CONTAINERS + LIL_CONTAINERS,
 )
 def test_sparse_design_with_sample_weights(n_samples, n_features, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies Ridge without intercept gives the same coef_ (6 decimals) on dense input
+    #   and on COO/CSC/CSR/DOK/LIL sparse input with sample weights.
     # Sample weights must work with sparse matrices
     rng = np.random.RandomState(42)
 
@@ -1898,6 +2207,8 @@ def test_sparse_design_with_sample_weights(n_samples, n_features, sparse_contain
 
 
 def test_ridgecv_int_alphas():
+    # [FUNCTION DOC]
+    # Smoke test: RidgeCV accepts integer alphas.
     X = np.array([[-1.0, -1.0], [-1.0, 0], [-0.8, -1.0], [1.0, 1.0], [1.0, 0.0]])
     y = [1, 1, 1, -1, -1]
 
@@ -1924,6 +2235,10 @@ def test_ridgecv_int_alphas():
     ],
 )
 def test_ridgecv_alphas_validation(Estimator, params, err_type, err_msg):
+    # [FUNCTION DOC]
+    # Verifies alpha validation errors: negative alphas raise ValueError naming the
+    #   offending index, and a string alpha raises TypeError.
+    # Side effects: draws data from the module-global rng.
     """Check the `alphas` validation in RidgeCV and RidgeClassifierCV."""
 
     n_samples, n_features = 5, 5
@@ -1936,6 +2251,9 @@ def test_ridgecv_alphas_validation(Estimator, params, err_type, err_msg):
 
 @pytest.mark.parametrize("Estimator", [RidgeCV, RidgeClassifierCV])
 def test_ridgecv_alphas_scalar(Estimator):
+    # [FUNCTION DOC]
+    # Backward-compatibility smoke test: RidgeCV/RidgeClassifierCV accept a scalar
+    #   alphas.
     """Check the case when `alphas` is a scalar.
     This case was supported in the past when `alphas` where converted
     into array in `__init__`.
@@ -1953,6 +2271,9 @@ def test_ridgecv_alphas_scalar(Estimator):
 
 
 def test_sparse_cg_max_iter():
+    # [FUNCTION DOC]
+    # Verifies sparse_cg with max_iter=1 still fits and returns coef_ with n_features
+    #   entries.
     reg = Ridge(solver="sparse_cg", max_iter=1)
     reg.fit(X_diabetes, y_diabetes)
     assert reg.coef_.shape[0] == X_diabetes.shape[1]
@@ -1960,6 +2281,9 @@ def test_sparse_cg_max_iter():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_n_iter():
+    # [FUNCTION DOC]
+    # Verifies n_iter_ equals max_iter for each target for sag, saga and lsqr (with tol
+    #   1e-12), and is None for sparse_cg, svd and cholesky.
     # Test that self.n_iter_ is correct.
     n_targets = 2
     X, y = X_diabetes, y_diabetes
@@ -1983,6 +2307,10 @@ def test_n_iter():
 def test_ridge_fit_intercept_sparse(
     solver, with_sample_weight, global_random_seed, csr_container
 ):
+    # [FUNCTION DOC]
+    # Verifies lsqr, sparse_cg, lbfgs (positive) and auto give the same intercept_ and
+    #   coef_ on CSR input as the dense fit (auto is compared with dense sparse_cg),
+    #   with and without sample weights.
     """Check that ridge finds the same coefs and intercept on dense and sparse input
     in the presence of sample weights.
 
@@ -2021,6 +2349,9 @@ def test_ridge_fit_intercept_sparse(
 @pytest.mark.parametrize("solver", ["saga", "svd", "cholesky"])
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_ridge_fit_intercept_sparse_error(solver, csr_container):
+    # [FUNCTION DOC]
+    # Verifies saga, svd and cholesky raise ValueError ("does not support") when fitting
+    #   an intercept on CSR input.
     X, y = _make_sparse_offset_regression(n_features=20, random_state=0)
     X_csr = csr_container(X)
     sparse_ridge = Ridge(solver=solver)
@@ -2034,6 +2365,10 @@ def test_ridge_fit_intercept_sparse_error(solver, csr_container):
 def test_ridge_fit_intercept_sparse_sag(
     with_sample_weight, global_random_seed, csr_container
 ):
+    # [FUNCTION DOC]
+    # Verifies sag on CSR input with intercept matches the dense fit (rtol 1e-4) with a
+    #   large max_iter and emits no UserWarning, and that with max_iter=None and tol
+    #   1e-3 a UserWarning about sag requirements is raised.
     X, y = _make_sparse_offset_regression(
         n_features=5, n_samples=20, random_state=global_random_seed, X_offset=5.0
     )
@@ -2068,6 +2403,11 @@ def test_ridge_fit_intercept_sparse_sag(
 def test_ridge_regression_check_arguments_validity(
     return_intercept, sample_weight, container, solver
 ):
+    # [FUNCTION DOC]
+    # Verifies ridge_regression recovers known coefficients (and intercept 10000 when
+    #   return_intercept) on 1000 x 3 noiseless data for dense/CSR input, with and
+    #   without unit sample_weight, for all solvers except svd; solvers other than
+    #   sag/auto must raise ValueError when return_intercept=True.
     """check if all combinations of arguments give valid estimations"""
 
     # test excludes 'svd' solver because it raises exception for sparse inputs
@@ -2126,6 +2466,9 @@ def test_ridge_regression_check_arguments_validity(
     "solver", ["svd", "sparse_cg", "cholesky", "lsqr", "sag", "saga", "lbfgs"]
 )
 def test_dtype_match(solver):
+    # [FUNCTION DOC]
+    # Verifies each solver preserves float32/float64 in coef_ and predictions and that
+    #   float32 and float64 coefficients agree (rtol 1e-4, atol 5e-4).
     rng = np.random.RandomState(0)
     alpha = 1.0
     positive = solver == "lbfgs"
@@ -2160,6 +2503,9 @@ def test_dtype_match(solver):
 
 
 def test_dtype_match_cholesky():
+    # [FUNCTION DOC]
+    # Verifies dtype preservation of the cholesky solver with per-target alphas and two
+    #   targets, and float32/float64 agreement to 5 decimals.
     # Test different alphas in cholesky solver to ensure full coverage.
     # This test is separated from test_dtype_match for clarity.
     rng = np.random.RandomState(0)
@@ -2194,6 +2540,9 @@ def test_dtype_match_cholesky():
 )
 @pytest.mark.parametrize("seed", range(1))
 def test_ridge_regression_dtype_stability(solver, seed):
+    # [FUNCTION DOC]
+    # Verifies ridge_regression returns the input dtype for float32 and float64 and both
+    #   agree (atol 1e-3 for sparse_cg, 1e-5 otherwise) for every solver.
     random_state = np.random.RandomState(seed)
     n_samples, n_features = 6, 5
     X = random_state.randn(n_samples, n_features)
@@ -2226,6 +2575,8 @@ def test_ridge_regression_dtype_stability(solver, seed):
 
 
 def test_ridge_sag_with_X_fortran():
+    # [FUNCTION DOC]
+    # Smoke test: sag accepts a non-contiguous Fortran-ordered X (converted internally).
     # check that Fortran array are converted when using SAG solver
     X, y = make_regression(random_state=42)
     # for the order of X and y to not be C-ordered arrays
@@ -2244,6 +2595,11 @@ def test_ridge_sag_with_X_fortran():
     ],
 )
 def test_ridgeclassifier_multilabel(Classifier, params):
+    # [FUNCTION DOC]
+    # Verifies RidgeClassifier/RidgeClassifierCV accept a two-column multilabel target
+    #   where both columns are identical and predict identical columns.
+    # KNOWN ISSUE: the trailing Ridge(solver="sag") fit is an unrelated smoke check with
+    #   no assertion.
     """Check that multilabel classification is supported and give meaningful
     results."""
     X, y = make_multilabel_classification(n_classes=1, random_state=0)
@@ -2261,6 +2617,9 @@ def test_ridgeclassifier_multilabel(Classifier, params):
 @pytest.mark.parametrize("fit_intercept", [True, False])
 @pytest.mark.parametrize("alpha", [1e-3, 1e-2, 0.1, 1.0])
 def test_ridge_positive_regression_test(solver, fit_intercept, alpha):
+    # [FUNCTION DOC]
+    # Verifies Ridge(positive=True) with auto or lbfgs yields only non-negative
+    #   coefficients, even when the true coefficients include a negative one.
     """Test that positive Ridge finds true positive coefficients."""
     X = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
     coef = np.array([1, -10])
@@ -2280,6 +2639,9 @@ def test_ridge_positive_regression_test(solver, fit_intercept, alpha):
 @pytest.mark.parametrize("fit_intercept", [True, False])
 @pytest.mark.parametrize("alpha", [1e-3, 1e-2, 0.1, 1.0])
 def test_ridge_ground_truth_positive_test(fit_intercept, alpha):
+    # [FUNCTION DOC]
+    # Verifies Ridge with positive=True and False give the same coefficients (atol 1e-6)
+    #   when the true coefficients are all positive and noise is tiny.
     """Test that Ridge w/wo positive converges to the same solution.
 
     Ridge with positive=True and positive=False must give the same
@@ -2308,6 +2670,9 @@ def test_ridge_ground_truth_positive_test(fit_intercept, alpha):
     "solver", ["svd", "cholesky", "lsqr", "sparse_cg", "sag", "saga"]
 )
 def test_ridge_positive_error_test(solver):
+    # [FUNCTION DOC]
+    # Verifies Ridge(positive=True) raises ValueError for solvers other than lbfgs, and
+    #   ridge_regression raises ValueError saying only lbfgs can be used.
     """Test input validation for positive argument in Ridge."""
     alpha = 0.1
     X = np.array([[1, 2], [3, 4]])
@@ -2326,12 +2691,24 @@ def test_ridge_positive_error_test(solver):
 
 @pytest.mark.parametrize("alpha", [1e-3, 1e-2, 0.1, 1.0])
 def test_positive_ridge_loss(alpha):
+    # [FUNCTION DOC]
+    # Verifies the unconstrained Ridge solution has loss no higher than the positive
+    #   one, and that the positive solution has loss no higher than 100 small positive
+    #   random perturbations of it.
+    # KNOWN ISSUE: the alpha parameter is overwritten with 0.10, so the parametrization
+    #   over alpha runs the same test four times.
     """Check ridge loss consistency when positive argument is enabled."""
     X, y = make_regression(n_samples=300, n_features=300, random_state=42)
     alpha = 0.10
     n_checks = 100
 
     def ridge_loss(model, random_state=None, noise_scale=1e-8):
+        # [FUNCTION DOC]
+        # HELPER: Ridge objective 0.5*||y - X coef - intercept||^2 +
+        #   0.5*alpha*||coef||^2 using the enclosing X, y and alpha.
+        # Inputs: model - fitted Ridge; random_state - if given, coef_ is perturbed by
+        #   uniform noise in [0, noise_scale); noise_scale - default 1e-8.
+        # Outputs: float loss.
         intercept = model.intercept_
         if random_state is not None:
             rng = np.random.RandomState(random_state)
@@ -2364,6 +2741,11 @@ def test_positive_ridge_loss(alpha):
 
 @pytest.mark.parametrize("alpha", [1e-3, 1e-2, 0.1, 1.0])
 def test_lbfgs_solver_consistency(alpha):
+    # [FUNCTION DOC]
+    # Verifies _solve_lbfgs (positive=False, tol 1e-16) matches _solve_svd on a 300 x
+    #   300 regression problem (atol 1e-4).
+    # KNOWN ISSUE: the svd result is stored in a variable named coef_cholesky
+    #   (misleading), and the docstring misspells LBFGS.
     """Test that LBGFS gets almost the same coef of svd when positive=False."""
     X, y = make_regression(n_samples=300, n_features=300, random_state=42)
     y = np.expand_dims(y, 1)
@@ -2380,6 +2762,9 @@ def test_lbfgs_solver_consistency(alpha):
 
 
 def test_lbfgs_solver_error():
+    # [FUNCTION DOC]
+    # Verifies lbfgs with positive=True and max_iter=1 on an ill-scaled target emits a
+    #   ConvergenceWarning.
     """Test that LBFGS solver raises ConvergenceWarning."""
     X = np.array([[1, -1], [1, 1]])
     y = np.array([-1e10, 1e10])
@@ -2403,6 +2788,12 @@ def test_lbfgs_solver_error():
 def test_ridge_sample_weight_consistency(
     fit_intercept, sparse_container, data, solver, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies sample_weight semantics for all solvers (plus lbfgs with positive), dense
+    #   or CSR, tall or wide: unit weights equal no weights; zero weights equal removing
+    #   the samples; scaling both weights and alpha by pi leaves the solution unchanged
+    #   (xfail for sag/saga without intercept); doubling weights equals duplicating
+    #   samples. Skips unsupported sparse configurations.
     """Test that the impact of sample_weight is consistent.
 
     Note that this test is stricter than the common test
@@ -2505,6 +2896,11 @@ def test_ridge_sample_weight_consistency(
 def test_ridge_cv_results_predictions(
     gcv_mode, X_shape, with_sample_weight, fit_intercept, n_targets
 ):
+    # [FUNCTION DOC]
+    # Non-regression test (#13998): verifies cv_results_ of RidgeCV (GCV,
+    #   scoring="neg_mean_squared_error") holds LOO predictions on the original scale by
+    #   comparing with explicit LeaveOneOut Ridge(svd) predictions for each alpha, with
+    #   and without sample weights and intercept, 1 or 2 targets (rtol 1e-6).
     """Check that the predictions stored in `cv_results_` are on the original scale.
 
     The GCV approach works on scaled data: centered by an offset and scaled by the
@@ -2564,6 +2960,10 @@ def test_ridge_cv_results_predictions(
 @pytest.mark.parametrize("gcv_mode", ["svd", "eigen"])
 @pytest.mark.parametrize("X_shape", [(50, 10), (10, 50)], ids=["tall", "wide"])
 def test_ridge_cv_multioutput_sample_weight(gcv_mode, X_shape, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV with multioutput y, unit sample weights and MSE scoring reports
+    #   best_score_ equal to the negated MSE of explicit LOO predictions of Ridge at the
+    #   selected alpha.
     """Check that `RidgeCV` works properly with multioutput and sample_weight
     when `scoring != None`.
 
@@ -2599,6 +2999,14 @@ def test_ridge_cv_multioutput_sample_weight(gcv_mode, X_shape, global_random_see
 
 @pytest.mark.parametrize("X_shape", [(50, 10), (10, 50)], ids=["tall", "wide"])
 def test_ridge_cv_custom_multioutput_scorer(X_shape):
+    # [FUNCTION DOC]
+    # Verifies RidgeCV with a custom multioutput scorer (weighting the first target
+    #   twice) reports best_score_ equal to that score computed from explicit LOO
+    #   predictions.
+    # KNOWN ISSUE: custom_error returns a negated error and the scorer negates it again,
+    #   so the scorer returns a positive weighted MSE (greater is worse) and RidgeCV
+    #   selects the alpha with the largest error; the docstring also says the second
+    #   target is weighted more while the weights [2, 1] favour the first.
     """Check that `RidgeCV` works properly with a custom multioutput scorer."""
     n_samples, n_features = X_shape
     X, y = make_regression(
@@ -2606,6 +3014,10 @@ def test_ridge_cv_custom_multioutput_scorer(X_shape):
     )
 
     def custom_error(y_true, y_pred):
+        # [FUNCTION DOC]
+        # HELPER: Computes per-target mean squared errors; for multioutput returns the
+        #   negated weighted average with weights [2, 1]; for single output returns the
+        #   negated mean error (not expected to be reached).
         errors = (y_true - y_pred) ** 2
         mean_errors = np.mean(errors, axis=0)
         if mean_errors.ndim == 1:
@@ -2616,6 +3028,9 @@ def test_ridge_cv_custom_multioutput_scorer(X_shape):
         return -mean_errors  # pragma: no cover
 
     def custom_multioutput_scorer(estimator, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Scorer callable (estimator, X, y) returning the negation of
+        #   custom_error on the estimator's predictions.
         """Multioutput score that give twice more importance to the second target."""
         return -custom_error(y, estimator.predict(X))
 
@@ -2638,6 +3053,9 @@ def test_ridge_cv_custom_multioutput_scorer(X_shape):
 @pytest.mark.parametrize("metaestimator", [RidgeCV, RidgeClassifierCV])
 @config_context(enable_metadata_routing=True)
 def test_metadata_routing_with_default_scoring(metaestimator):
+    # [FUNCTION DOC]
+    # Verifies get_metadata_routing on RidgeCV/RidgeClassifierCV with default scoring
+    #   does not recurse infinitely when metadata routing is enabled.
     """Test that `RidgeCV` or `RidgeClassifierCV` with default `scoring`
     argument (`None`), don't enter into `RecursionError` when metadata is routed.
     """
@@ -2653,6 +3071,9 @@ def test_metadata_routing_with_default_scoring(metaestimator):
 )
 @config_context(enable_metadata_routing=True)
 def test_set_score_request_with_default_scoring(metaestimator, make_dataset):
+    # [FUNCTION DOC]
+    # Regression test (PR #29634): fitting RidgeCV/RidgeClassifierCV with sample_weight
+    #   and default scoring under metadata routing raises no UnsetMetadataPassedError.
     """Test that `set_score_request` is set within `RidgeCV.fit()` and
     `RidgeClassifierCV.fit()` when using the default scoring and no
     UnsetMetadataPassedError is raised. Regression test for the fix in PR #29634."""
