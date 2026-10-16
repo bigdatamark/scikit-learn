@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for estimator pretty printing (sklearn.utils._pprint._EstimatorPrettyPrinter and
+# BaseEstimator.__repr__): full and changed-only reprs, nested estimators, depth limits,
+# element-count ellipsis, character-count (N_CHAR_MAX) ellipsis, builtin PrettyPrinter
+# compatibility, kwargs-based estimators and repr call counts. Defines simplified copies
+# of several estimator constructors (with frozen, older defaults) so expected reprs stay
+# stable.
 import re
 from pprint import PrettyPrinter
 
@@ -14,6 +21,9 @@ from sklearn.utils._pprint import _EstimatorPrettyPrinter
 
 # Constructors excerpted to test pprinting
 class LogisticRegression(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down LogisticRegression with only a constructor (old default
+    # values) and a no-op fit, used as a repr target.
     def __init__(
         self,
         C=1.0,
@@ -31,6 +41,11 @@ class LogisticRegression(BaseEstimator):
         warm_start=False,
         n_jobs=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores every constructor argument unchanged as an attribute of the
+        # same name.
+        # Inputs: the listed hyperparameters with their old defaults.
+        # Side effects: sets one attribute per parameter.
         self.C = C
         self.l1_ratio = l1_ratio
         self.dual = dual
@@ -47,21 +62,37 @@ class LogisticRegression(BaseEstimator):
         self.n_jobs = n_jobs
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: No-op fit. Inputs: X, y - ignored. Outputs: self.
         return self
 
 
 class StandardScaler(TransformerMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down StandardScaler (copy, with_mean, with_std) used as a
+    # pipeline step in repr tests.
     def __init__(self, copy=True, with_mean=True, with_std=True):
+        # [FUNCTION DOC]
+        # HELPER: Stores copy, with_mean and with_std (all default True) as attributes.
         self.with_mean = with_mean
         self.with_std = with_std
         self.copy = copy
 
     def transform(self, X, copy=None):
+        # [FUNCTION DOC]
+        # HELPER: Stub transform. Inputs: X, copy - ignored. Outputs: self.
+        # Note: returns self rather than transformed data; it is never used for actual
+        # data transformation in these tests.
         return self
 
 
 class RFE(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down RFE used to build deeply nested estimators.
     def __init__(self, estimator, n_features_to_select=None, step=1, verbose=0):
+        # [FUNCTION DOC]
+        # HELPER: Stores estimator, n_features_to_select (default None), step (default
+        # 1) and verbose (default 0) as attributes.
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
         self.step = step
@@ -69,6 +100,9 @@ class RFE(BaseEstimator):
 
 
 class GridSearchCV(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down GridSearchCV holding an estimator and param_grid; used to
+    # test reprs of nested estimators and parameter grids.
     def __init__(
         self,
         estimator,
@@ -83,6 +117,9 @@ class GridSearchCV(BaseEstimator):
         error_score="raise-deprecating",
         return_train_score=False,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments (old defaults such as iid="warn",
+        # cv="warn", error_score="raise-deprecating") as attributes.
         self.estimator = estimator
         self.param_grid = param_grid
         self.scoring = scoring
@@ -97,6 +134,9 @@ class GridSearchCV(BaseEstimator):
 
 
 class CountVectorizer(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down CountVectorizer used to test ellipsis of a large vocabulary
+    # dict.
     def __init__(
         self,
         input="content",
@@ -117,6 +157,9 @@ class CountVectorizer(BaseEstimator):
         binary=False,
         dtype=np.int64,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments (including vocabulary and dtype) as
+        # attributes.
         self.input = input
         self.encoding = encoding
         self.decode_error = decode_error
@@ -137,12 +180,18 @@ class CountVectorizer(BaseEstimator):
 
 
 class Pipeline(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down Pipeline holding a list of (name, estimator) steps.
     def __init__(self, steps, memory=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores steps and memory (default None) as attributes.
         self.steps = steps
         self.memory = memory
 
 
 class SVC(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down SVC with old defaults (e.g. gamma="auto_deprecated").
     def __init__(
         self,
         C=1.0,
@@ -160,6 +209,8 @@ class SVC(BaseEstimator):
         decision_function_shape="ovr",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments as attributes.
         self.kernel = kernel
         self.degree = degree
         self.gamma = gamma
@@ -177,6 +228,8 @@ class SVC(BaseEstimator):
 
 
 class PCA(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down PCA.
     def __init__(
         self,
         n_components=None,
@@ -187,6 +240,8 @@ class PCA(BaseEstimator):
         iterated_power="auto",
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments as attributes.
         self.n_components = n_components
         self.copy = copy
         self.whiten = whiten
@@ -197,6 +252,8 @@ class PCA(BaseEstimator):
 
 
 class NMF(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down NMF.
     def __init__(
         self,
         n_components=None,
@@ -211,6 +268,8 @@ class NMF(BaseEstimator):
         verbose=0,
         shuffle=False,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments as attributes.
         self.n_components = n_components
         self.init = init
         self.solver = solver
@@ -225,6 +284,8 @@ class NMF(BaseEstimator):
 
 
 class SimpleImputer(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Stripped-down SimpleImputer whose missing_values defaults to NaN.
     def __init__(
         self,
         missing_values=np.nan,
@@ -233,6 +294,8 @@ class SimpleImputer(BaseEstimator):
         verbose=0,
         copy=True,
     ):
+        # [FUNCTION DOC]
+        # HELPER: Stores all constructor arguments as attributes.
         self.missing_values = missing_values
         self.strategy = strategy
         self.fill_value = fill_value
@@ -242,6 +305,9 @@ class SimpleImputer(BaseEstimator):
 
 @config_context(print_changed_only=False)
 def test_basic():
+    # [FUNCTION DOC]
+    # With print_changed_only=False, checks the default LogisticRegression repr wraps
+    # over several lines exactly as expected.
     # Basic pprint test
     lr = LogisticRegression()
     expected = """
@@ -255,6 +321,10 @@ LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
 
 
 def test_changed_only():
+    # [FUNCTION DOC]
+    # Checks changed-only reprs: only non-default params shown (wrapping when long), a
+    # float NaN missing_values counts as the default NaN, and array-valued params of
+    # LogisticRegressionCV do not raise (issue 13583).
     # Make sure the changed_only param is correctly used when True (default)
     lr = LogisticRegression(C=99)
     expected = """LogisticRegression(C=99)"""
@@ -291,6 +361,9 @@ LogisticRegression(C=99, class_weight=0.4, fit_intercept=False, tol=1234,
 
 @config_context(print_changed_only=False)
 def test_pipeline():
+    # [FUNCTION DOC]
+    # With print_changed_only=False, checks the full multi-line repr of a pipeline made
+    # by make_pipeline (real Pipeline, including transform_input and verbose).
     # Render a pipeline object
     pipeline = make_pipeline(StandardScaler(), LogisticRegression(C=999))
     expected = """
@@ -312,6 +385,9 @@ Pipeline(memory=None,
 
 @config_context(print_changed_only=False)
 def test_deeply_nested():
+    # [FUNCTION DOC]
+    # With print_changed_only=False, checks the repr of seven nested RFE estimators
+    # around a LogisticRegression matches the expected indentation.
     # Render a deeply nested estimator
     rfe = RFE(RFE(RFE(RFE(RFE(RFE(RFE(LogisticRegression())))))))
     expected = """
@@ -358,6 +434,9 @@ RFE(estimator=RFE(estimator=RFE(estimator=RFE(estimator=RFE(estimator=RFE(estima
     ],
 )
 def test_print_estimator_max_depth(print_changed_only, expected):
+    # [FUNCTION DOC]
+    # Checks _EstimatorPrettyPrinter(depth=1) abbreviates nested estimators to "..."
+    # both with and without print_changed_only.
     with config_context(print_changed_only=print_changed_only):
         pp = _EstimatorPrettyPrinter(depth=1)
 
@@ -367,6 +446,9 @@ def test_print_estimator_max_depth(print_changed_only, expected):
 
 @config_context(print_changed_only=False)
 def test_gridsearch():
+    # [FUNCTION DOC]
+    # With print_changed_only=False, checks the repr of a GridSearchCV over SVC with a
+    # list-of-dicts param_grid.
     # render a gridsearch
     param_grid = [
         {"kernel": ["rbf"], "gamma": [1e-3, 1e-4], "C": [1, 10, 100, 1000]},
@@ -394,6 +476,10 @@ GridSearchCV(cv=5, error_score='raise-deprecating',
 
 @config_context(print_changed_only=False)
 def test_gridsearch_pipeline():
+    # [FUNCTION DOC]
+    # With print_changed_only=False and a compact printer, checks the repr of a
+    # GridSearchCV over a PCA/SVC Pipeline whose grid contains estimators, after
+    # replacing the chi2 function address with a placeholder.
     # render a pipeline inside a gridsearch
     pp = _EstimatorPrettyPrinter(compact=True, indent=1, indent_at_name=True)
 
@@ -461,6 +547,9 @@ GridSearchCV(cv=3, error_score='raise-deprecating',
 
 @config_context(print_changed_only=False)
 def test_n_max_elements_to_show():
+    # [FUNCTION DOC]
+    # With n_max_elements_to_show=30, checks a vocabulary dict and a param_grid list of
+    # 30 elements are printed fully, while 31 elements are truncated with "...".
     n_max_elements_to_show = 30
     pp = _EstimatorPrettyPrinter(
         compact=True,
@@ -552,6 +641,13 @@ GridSearchCV(cv='warn', error_score='raise-deprecating',
 
 @config_context(print_changed_only=False)
 def test_bruteforce_ellipsis():
+    # [FUNCTION DOC]
+    # With print_changed_only=False, checks __repr__ with N_CHAR_MAX inserts the "..."
+    # ellipsis between left and right parts when they are on different lines or the same
+    # line, keeps the full right line, and omits the ellipsis when N_CHAR_MAX equals the
+    # non-blank character count or when adding it would not shorten the repr.
+    # KNOWN ISSUE: the comment before the N_CHAR_MAX = n_nonblank - 4 case says "- 10",
+    # which does not match the code.
     # Check that the bruteforce ellipsis (used when the number of non-blank
     # characters exceeds N_CHAR_MAX) renders correctly.
 
@@ -622,6 +718,9 @@ LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
 
 
 def test_builtin_prettyprinter():
+    # [FUNCTION DOC]
+    # Non-regression: checks the standard library PrettyPrinter can print an estimator
+    # without error.
     # non regression test than ensures we can still use the builtin
     # PrettyPrinter class for estimators (as done e.g. by joblib).
     # Used to be a bug
@@ -630,26 +729,43 @@ def test_builtin_prettyprinter():
 
 
 def test_kwargs_in_init():
+    # [FUNCTION DOC]
+    # Non-regression for issue 17206: checks changed-only and full reprs of an estimator
+    # whose extra parameters arrive through **kwargs.
     # Make sure the changed_only=True mode is OK when an argument is passed as
     # kwargs.
     # Non-regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/17206
 
     class WithKWargs(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: LightGBM-like estimator storing extra **kwargs parameters in
+        # _other_params and exposing them through get_params/set_params.
         # Estimator with a kwargs argument. These need to hack around
         # set_params and get_params. Here we mimic what LightGBM does.
         def __init__(self, a="willchange", b="unchanged", **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Stores a and b, initializes _other_params to an empty dict and
+            # applies kwargs via set_params.
+            # Side effects: sets a, b, _other_params and one attribute per kwarg.
             self.a = a
             self.b = b
             self._other_params = {}
             self.set_params(**kwargs)
 
         def get_params(self, deep=True):
+            # [FUNCTION DOC]
+            # HELPER: Returns BaseEstimator.get_params(deep) updated with _other_params.
+            # Outputs: dict of parameter names to values.
             params = super().get_params(deep=deep)
             params.update(self._other_params)
             return params
 
         def set_params(self, **params):
+            # [FUNCTION DOC]
+            # HELPER: Sets each given parameter as an attribute and records it in
+            # _other_params.
+            # Outputs: self. Side effects: mutates attributes and _other_params.
             for key, value in params.items():
                 setattr(self, key, value)
                 self._other_params[key] = value
@@ -666,22 +782,37 @@ def test_kwargs_in_init():
 
 
 def test_complexity_print_changed_only():
+    # [FUNCTION DOC]
+    # Non-regression for issue 18490: counts DummyEstimator.__repr__ calls when printing
+    # a nested estimator/pipeline with print_changed_only False and True and checks the
+    # counts are equal.
     # Make sure `__repr__` is called the same amount of times
     # whether `print_changed_only` is True or False
     # Non-regression test for
     # https://github.com/scikit-learn/scikit-learn/issues/18490
 
     class DummyEstimator(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer that counts its __repr__ calls in the class attribute
+        # nb_times_repr_called.
         nb_times_repr_called = 0
 
         def __init__(self, estimator=None):
+            # [FUNCTION DOC]
+            # HELPER: Stores estimator (default None).
             self.estimator = estimator
 
         def __repr__(self):
+            # [FUNCTION DOC]
+            # HELPER: Increments the class-level repr counter then returns the
+            # BaseEstimator repr.
+            # Side effects: mutates DummyEstimator.nb_times_repr_called.
             DummyEstimator.nb_times_repr_called += 1
             return super().__repr__()
 
         def transform(self, X, copy=None):  # pragma: no cover
+            # [FUNCTION DOC]
+            # HELPER: Identity transform (never called). Outputs: X.
             return X
 
     estimator = DummyEstimator(

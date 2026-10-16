@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._plotting helpers: the validation methods of
+# _BinaryClassifierCurveDisplayMixin (plot params, response values, from_predictions and
+# from_cv_results params, legend labels, curve kwargs), score name formatting, interval
+# max/min ratio, style kwarg aliasing, _despine and estimator_name deprecation. The
+# pyplot fixture provides matplotlib where needed.
 import numpy as np
 import pytest
 
@@ -19,6 +25,9 @@ from sklearn.utils._testing import assert_allclose
     "name, expected_name_out", [(None, "TestEstimator"), ("CustomName", "CustomName")]
 )
 def test_validate_plot_params(pyplot, ax, name, expected_name_out):
+    # [FUNCTION DOC]
+    # Checks _validate_plot_params returns the estimator_name when name is None (else
+    # the given name) and returns the provided Axes unchanged when one is passed.
     """Check `_validate_plot_params` returns the correct values."""
     display = _BinaryClassifierCurveDisplayMixin()
     display.estimator_name = "TestEstimator"
@@ -38,6 +47,11 @@ def test_validate_plot_params(pyplot, ax, name, expected_name_out):
     "response_method", ["auto", "predict_proba", "decision_function"]
 )
 def test_validate_and_get_response_values(pyplot, pos_label, name, response_method):
+    # [FUNCTION DOC]
+    # Fits LogisticRegression on 4 samples with labels 0/2 and checks
+    # _validate_and_get_response_values returns the same predictions and pos_label as
+    # _get_response_values_binary for each response_method/pos_label, and a name
+    # defaulting to the estimator class name.
     """Check `_validate_and_get_response_values` returns the correct values."""
     X = np.array([[0, 0], [1, 1], [2, 2], [3, 3]])
     y = np.array([0, 0, 2, 2])
@@ -75,6 +89,9 @@ def test_validate_and_get_response_values(pyplot, pos_label, name, response_meth
     ],
 )
 def test_validate_from_predictions_params_errors(pyplot, y_true, error_message):
+    # [FUNCTION DOC]
+    # Checks _validate_from_predictions_params raises ValueError for a multiclass
+    # target, mismatched lengths, and labels {0, 2} without a pos_label.
     """Check `_validate_from_predictions_params` raises the correct errors."""
     y_pred = np.array([0.1, 0.2, 0.3, 0.4])
     sample_weight = np.ones(4)
@@ -97,6 +114,9 @@ def test_validate_from_predictions_params_errors(pyplot, y_true, error_message):
     ],
 )
 def test_validate_from_predictions_params_returns(pyplot, name, pos_label, y_true):
+    # [FUNCTION DOC]
+    # Checks _validate_from_predictions_params returns pos_label defaulting to 1 (or the
+    # given value) and name defaulting to "Classifier".
     """Check `_validate_from_predictions_params` returns the correct values."""
     y_pred = np.array([0.1, 0.2, 0.3, 0.4])
     pos_label_out, name_out = (
@@ -173,6 +193,9 @@ def test_validate_from_predictions_params_returns(pyplot, name, pos_label, y_tru
     ],
 )
 def test_validate_from_cv_results_params(pyplot, params, err_msg):
+    # [FUNCTION DOC]
+    # Checks _validate_from_cv_results_params raises ValueError for cv_results missing
+    # "indices", X of wrong length, non-binary y, and sample_weight of wrong length.
     """Check parameter validation is performed correctly."""
     with pytest.raises(ValueError, match=err_msg):
         _BinaryClassifierCurveDisplayMixin()._validate_from_cv_results_params(**params)
@@ -188,6 +211,9 @@ def test_validate_from_cv_results_params(pyplot, params, err_msg):
     ],
 )
 def test_get_legend_label(curve_legend_metric, curve_name, expected_label):
+    # [FUNCTION DOC]
+    # Checks _get_legend_label combines curve name and metric as "name (AUC = x)", uses
+    # either alone when the other is None, and returns None when both are None.
     """Check `_get_legend_label` returns the correct label."""
     legend_metric_name = "AUC"
     label = _BinaryClassifierCurveDisplayMixin._get_legend_label(
@@ -200,6 +226,10 @@ def test_get_legend_label(curve_legend_metric, curve_name, expected_label):
 @pytest.mark.parametrize("curve_kwargs", [{"alpha": 1.0}, None])
 @pytest.mark.parametrize("kwargs", [{}, {"alpha": 1.0}])
 def test_validate_curve_kwargs_deprecate_kwargs(curve_kwargs, kwargs):
+    # [FUNCTION DOC]
+    # Checks _validate_curve_kwargs raises ValueError when both curve_kwargs and legacy
+    # kwargs are given, emits FutureWarning when only legacy kwargs are given, and is
+    # silent otherwise.
     """Check `_validate_curve_kwargs` deprecates kwargs correctly."""
     n_curves = 1
     name = None
@@ -234,6 +264,11 @@ def test_validate_curve_kwargs_deprecate_kwargs(curve_kwargs, kwargs):
 
 
 def test_validate_curve_kwargs_error():
+    # [FUNCTION DOC]
+    # Checks _validate_curve_kwargs raises ValueError when a list of curve_kwargs has
+    # the wrong length, and when several names are given with a single legend entry.
+    # KNOWN ISSUE: the second call inside the last pytest.raises block (with
+    # curve_kwargs as a dict) is unreachable because the first call already raises.
     """Check `_validate_curve_kwargs` performs parameter validation correctly."""
     n_curves = 3
     legend_metric = {"mean": 0.8, "std": 0.1}
@@ -273,6 +308,10 @@ def test_validate_curve_kwargs_error():
 def test_validate_curve_kwargs_single_legend(
     name, legend_metric, legend_metric_name, curve_kwargs
 ):
+    # [FUNCTION DOC]
+    # With 3 curves and a single kwargs dict, checks the output is a list of 3 dicts
+    # where only the first has a label (name and/or "metric = mean +/- std" formatted to
+    # 2 decimals) and an optional color is propagated to all.
     """Check `_validate_curve_kwargs` returns correct kwargs for single legend entry."""
     n_curves = 3
     curve_kwargs_out = _BinaryClassifierCurveDisplayMixin._validate_curve_kwargs(
@@ -314,6 +353,10 @@ def test_validate_curve_kwargs_single_legend(
 )
 @pytest.mark.parametrize("legend_metric_name", ["AUC", "AP"])
 def test_validate_curve_kwargs_multi_legend(name, legend_metric, legend_metric_name):
+    # [FUNCTION DOC]
+    # With one kwargs dict per curve, checks per-curve labels built from a single name,
+    # a list of names and/or the per-curve metric values (2 decimals), and that per-
+    # curve colors are preserved.
     """Check `_validate_curve_kwargs` returns correct kwargs for multi legend entry."""
     n_curves = 3
     curve_kwargs = [{"color": "red"}, {"color": "yellow"}, {"color": "blue"}]
@@ -354,6 +397,10 @@ def test_validate_curve_kwargs_multi_legend(name, legend_metric, legend_metric_n
 @pytest.mark.parametrize("curve_kwargs", [None, {"color": "red"}])
 @pytest.mark.parametrize("n_curves", [1, 3])
 def test_validate_curve_kwargs_default_kwargs(n_curves, curve_kwargs):
+    # [FUNCTION DOC]
+    # Checks default_curve_kwargs apply for a single curve, default_multi_curve_kwargs
+    # apply (and override defaults) for several curves, and user curve_kwargs override
+    # both.
     """Check default kwargs are incorporated correctly."""
     curve_kwargs_out = _BinaryClassifierCurveDisplayMixin._validate_curve_kwargs(
         n_curves=n_curves,
@@ -384,10 +431,15 @@ def test_validate_curve_kwargs_default_kwargs(n_curves, curve_kwargs):
 
 
 def metric():
+    # [FUNCTION DOC]
+    # HELPER: Dummy scorer callable whose name ("metric") is used to derive a score
+    # name.
     pass  # pragma: no cover
 
 
 def neg_metric():
+    # [FUNCTION DOC]
+    # HELPER: Dummy scorer callable whose "neg_" prefixed name tests prefix handling.
     pass  # pragma: no cover
 
 
@@ -413,6 +465,10 @@ def neg_metric():
     ],
 )
 def test_validate_score_name(score_name, scoring, negate_score, expected_score_name):
+    # [FUNCTION DOC]
+    # Checks _validate_score_name keeps an explicit score_name, otherwise derives a
+    # capitalized name from a scoring string or callable name, adding or removing a
+    # "Negative"/"neg_" prefix according to negate_score, defaulting to "Score".
     """Check that we return the right score name."""
     assert (
         _validate_score_name(score_name, scoring, negate_score) == expected_score_name
@@ -439,6 +495,9 @@ def test_validate_score_name(score_name, scoring, negate_score, expected_score_n
     ],
 )
 def test_interval_max_min_ratio(data, lower_bound, upper_bound):
+    # [FUNCTION DOC]
+    # Checks _interval_max_min_ratio for geometric (positive and negative), linear and
+    # roughly log-spaced inputs falls inside the expected bounds.
     assert lower_bound < _interval_max_min_ratio(data) < upper_bound
 
 
@@ -487,6 +546,10 @@ def test_interval_max_min_ratio(data, lower_bound, upper_bound):
     ],
 )
 def test_validate_style_kwargs(default_kwargs, user_kwargs, expected):
+    # [FUNCTION DOC]
+    # Checks _validate_style_kwargs merges defaults with user kwargs, expanding
+    # matplotlib aliases (c, ls, lw, ec, fc, mec, mfcalt, ms) to full names so user
+    # values override defaults.
     """Check the behaviour of `validate_style_kwargs` with various type of entries."""
     result = _validate_style_kwargs(default_kwargs, user_kwargs)
     assert result == expected, (
@@ -500,12 +563,17 @@ def test_validate_style_kwargs(default_kwargs, user_kwargs, expected):
     [({}, {"ls": 2, "linestyle": 3}), ({}, {"c": "r", "color": "blue"})],
 )
 def test_validate_style_kwargs_error(default_kwargs, user_kwargs):
+    # [FUNCTION DOC]
+    # Checks TypeError when user kwargs give both an alias and its full name.
     """Check that `validate_style_kwargs` raises TypeError"""
     with pytest.raises(TypeError):
         _validate_style_kwargs(default_kwargs, user_kwargs)
 
 
 def test_despine(pyplot):
+    # [FUNCTION DOC]
+    # Checks _despine hides top/right spines and sets bottom/left spine bounds to (0,
+    # 1).
     ax = pyplot.gca()
     _despine(ax)
     assert ax.spines["top"].get_visible() is False
@@ -517,6 +585,10 @@ def test_despine(pyplot):
 @pytest.mark.parametrize("estimator_name", ["my_est_name", "deprecated"])
 @pytest.mark.parametrize("name", [None, "my_name"])
 def test_deprecate_estimator_name(estimator_name, name):
+    # [FUNCTION DOC]
+    # Checks _deprecate_estimator_name returns name when estimator_name is the
+    # "deprecated" sentinel, warns FutureWarning and returns estimator_name when only it
+    # is given, and raises ValueError when both are given.
     """Check `_deprecate_estimator_name` behaves correctly"""
     version = "1.7"
     version_remove = "1.9"
