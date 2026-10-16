@@ -1,3 +1,8 @@
+# [PACKAGE DOC]
+# Public package for neural-network based models. Re-exports MLPClassifier and
+# MLPRegressor (multilayer perceptrons from _multilayer_perceptron) and
+# BernoulliRBM (restricted Boltzmann machine from _rbm); __all__ lists these three.
+# Import-time side effects: imports those submodules only; no global state.
 """Models based on neural networks."""
 
 # Authors: The scikit-learn developers

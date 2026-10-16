@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for the KDTree binary search tree (KDTree64/KDTree32 Cython classes).
+# Covers: KDTree alias, rejection of ragged object arrays, joblib memmap
+# (read-only buffer) compatibility, and float32 vs float64 numerical consistency
+# for query, query_radius and kernel_density. Data comes from
+# get_dataset_for_binary_tree in test_ball_tree. Module constants: DIMENSION (unused
+# here), METRICS (metric name -> extra params), KD_TREE_CLASSES (both dtypes).
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_equal
@@ -17,11 +24,16 @@ KD_TREE_CLASSES = [
 
 
 def test_KDTree_is_KDTree64_subclass():
+    # [FUNCTION DOC]
+    # Verifies that the public KDTree name is (a subclass of) the float64 KDTree64.
     assert issubclass(KDTree, KDTree64)
 
 
 @pytest.mark.parametrize("BinarySearchTree", KD_TREE_CLASSES)
 def test_array_object_type(BinarySearchTree):
+    # [FUNCTION DOC]
+    # Verifies that building a tree from a ragged object-dtype array raises
+    # ValueError ("setting an array element with a sequence"), for both tree dtypes.
     """Check that we do not accept object dtype array."""
     X = np.array([(1, 2, 3), (2, 5), (5, 5, 1, 2)], dtype=object)
     with pytest.raises(ValueError, match="setting an array element with a sequence"):
@@ -33,6 +45,10 @@ def test_array_object_type(BinarySearchTree):
 @pytest.mark.thread_unsafe
 @pytest.mark.parametrize("BinarySearchTree", KD_TREE_CLASSES)
 def test_kdtree_picklable_with_joblib(BinarySearchTree):
+    # [FUNCTION DOC]
+    # Verifies that tree.query works inside joblib Parallel with max_nbytes=1, which
+    # forces read-only memmapping of the pickled tree (regression for #21685/#21228).
+    # Passes if no exception is raised; no explicit assertion. Spawns 2 workers.
     """Make sure that KDTree queries work when joblib memmaps.
 
     Non-regression test for #21685 and #21228."""
@@ -48,6 +64,11 @@ def test_kdtree_picklable_with_joblib(BinarySearchTree):
 
 @pytest.mark.parametrize("metric", METRICS)
 def test_kd_tree_numerical_consistency(global_random_seed, metric):
+    # [FUNCTION DOC]
+    # Builds KDTree64 and KDTree32 on float64/float32 copies of the same 50-feature
+    # data for each metric, and checks query (k=4), query_radius (r=2.38) with and
+    # without distances give identical indices and distances close at rtol=1e-5,
+    # with output distance dtypes matching the tree dtype.
     # Results on float64 and float32 versions of a dataset must be
     # numerically close.
     X_64, X_32, Y_64, Y_32 = get_dataset_for_binary_tree(
@@ -87,6 +108,9 @@ def test_kd_tree_numerical_consistency(global_random_seed, metric):
 
 @pytest.mark.parametrize("metric", METRICS)
 def test_kernel_density_numerical_consistency(global_random_seed, metric):
+    # [FUNCTION DOC]
+    # Checks kernel_density (gaussian, h=0.1, breadth_first) gives close results
+    # (rtol=1e-5) between KDTree64 and KDTree32 and that output dtypes match the tree.
     # Test consistency with respect to the `kernel_density` method
     X_64, X_32, Y_64, Y_32 = get_dataset_for_binary_tree(random_seed=global_random_seed)
 

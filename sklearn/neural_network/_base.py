@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# HELPER: Activation functions, their derivatives and loss functions used by the
+# MLP estimators. All activations/derivatives operate in place on dense numpy
+# arrays. Exposes registries: ACTIVATIONS (name -> in-place activation),
+# DERIVATIVES (name -> in-place derivative; no softmax/exp entries since those are
+# only used on output layers) and LOSS_FUNCTIONS (name -> loss).
 """Utilities for the neural network modules"""
 
 # Authors: The scikit-learn developers
@@ -9,6 +15,9 @@ from scipy.special import xlogy
 
 
 def inplace_identity(X):
+    # [FUNCTION DOC]
+    # HELPER: Identity activation; intentionally does nothing.
+    # Inputs: X - array. Outputs: None. Side effects: none.
     """Simply leave the input array unchanged.
 
     Parameters
@@ -21,6 +30,11 @@ def inplace_identity(X):
 
 
 def inplace_exp(X):
+    # [FUNCTION DOC]
+    # HELPER: Replaces each element of X with its exponential, writing into X.
+    # Outputs: None. Side effects: mutates X. May overflow to inf for large values.
+    # KNOWN ISSUE: docstring advertises sparse matrices, but writing the ufunc output
+    # into a sparse matrix is not supported; effectively dense arrays only.
     """Compute the exponential inplace.
 
     Parameters
@@ -32,6 +46,10 @@ def inplace_exp(X):
 
 
 def inplace_logistic(X):
+    # [FUNCTION DOC]
+    # HELPER: Replaces each element of X with the logistic sigmoid 1/(1+exp(-x))
+    # (scipy expit), writing into X. Outputs: None. Side effects: mutates X.
+    # KNOWN ISSUE: docstring claims sparse support; only dense arrays work.
     """Compute the logistic function inplace.
 
     Parameters
@@ -43,6 +61,10 @@ def inplace_logistic(X):
 
 
 def inplace_tanh(X):
+    # [FUNCTION DOC]
+    # HELPER: Replaces each element of X with tanh(x), in place.
+    # Outputs: None. Side effects: mutates X.
+    # KNOWN ISSUE: docstring claims sparse support; only dense arrays work.
     """Compute the hyperbolic tan function inplace.
 
     Parameters
@@ -54,6 +76,10 @@ def inplace_tanh(X):
 
 
 def inplace_relu(X):
+    # [FUNCTION DOC]
+    # HELPER: Replaces each element of X with max(x, 0), in place.
+    # Outputs: None. Side effects: mutates X.
+    # KNOWN ISSUE: docstring claims sparse support; only dense arrays work.
     """Compute the rectified linear unit function inplace.
 
     Parameters
@@ -65,6 +91,13 @@ def inplace_relu(X):
 
 
 def inplace_softmax(X):
+    # [FUNCTION DOC]
+    # HELPER: Row-wise softmax in place: subtract each row's maximum (numerical
+    # stability), exponentiate into X, then divide each row by its sum.
+    # Inputs: X - 2D float array (n_samples, n_classes).
+    # Outputs: None. Side effects: mutates X so each row sums to 1.
+    # KNOWN ISSUE: docstring claims sparse support; row max/broadcast subtraction
+    # would not work on sparse matrices.
     """Compute the K-way softmax function inplace.
 
     Parameters
@@ -88,6 +121,9 @@ ACTIVATIONS = {
 
 
 def inplace_identity_derivative(Z, delta):
+    # [FUNCTION DOC]
+    # HELPER: Backprop through identity; the derivative is 1 so delta is left as is.
+    # Outputs: None. Side effects: none.
     """Apply the derivative of the identity function: do nothing.
 
     Parameters
@@ -103,6 +139,10 @@ def inplace_identity_derivative(Z, delta):
 
 
 def inplace_logistic_derivative(Z, delta):
+    # [FUNCTION DOC]
+    # HELPER: Multiplies delta element-wise by Z*(1-Z), the sigmoid derivative written
+    # in terms of the activation output Z. Inputs: Z, delta - same-shape dense arrays.
+    # Outputs: None. Side effects: mutates delta.
     """Apply the derivative of the logistic sigmoid function.
 
     It exploits the fact that the derivative is a simple function of the output
@@ -122,6 +162,9 @@ def inplace_logistic_derivative(Z, delta):
 
 
 def inplace_tanh_derivative(Z, delta):
+    # [FUNCTION DOC]
+    # HELPER: Multiplies delta element-wise by (1 - Z squared), the tanh derivative in
+    # terms of its output Z. Outputs: None. Side effects: mutates delta.
     """Apply the derivative of the hyperbolic tanh function.
 
     It exploits the fact that the derivative is a simple function of the output
@@ -140,6 +183,9 @@ def inplace_tanh_derivative(Z, delta):
 
 
 def inplace_relu_derivative(Z, delta):
+    # [FUNCTION DOC]
+    # HELPER: Sets delta to 0 wherever the ReLU output Z equals 0 (derivative 0 there,
+    # 1 elsewhere). Outputs: None. Side effects: mutates delta.
     """Apply the derivative of the relu function.
 
     It exploits the fact that the derivative is a simple function of the output
@@ -166,6 +212,13 @@ DERIVATIVES = {
 
 
 def squared_loss(y_true, y_pred, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Half mean squared error: per output column, the (optionally
+    # sample_weight-weighted) average over samples of squared residuals, then mean
+    # over columns, times 0.5.
+    # Inputs: y_true, y_pred - arrays of matching shape (n_samples,) or
+    # (n_samples, n_outputs); sample_weight - optional (n_samples,) weights.
+    # Outputs: float. Exceptions: numpy errors on shape mismatch or zero weight sum.
     """Compute the squared loss for regression.
 
     Parameters
@@ -190,6 +243,15 @@ def squared_loss(y_true, y_pred, sample_weight=None):
 
 
 def poisson_loss(y_true, y_pred, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Half Poisson deviance (without the factor 2): per column, weighted
+    # average over samples of y_true*log(y_true/y_pred) - y_true + y_pred (xlogy gives
+    # 0 when y_true is 0), then summed over columns.
+    # Inputs: y_true non-negative, y_pred positive arrays; optional sample_weight.
+    # Outputs: float; inf/nan if y_pred has zeros.
+    # KNOWN ISSUE: docstring calls it "half of the" deviance but the expression is the
+    # unit deviance divided by 2 only implicitly (no factor 2 is ever applied), and
+    # columns are summed rather than averaged unlike squared_loss.
     """Compute (half of the) Poisson deviance loss for regression.
 
     Parameters
@@ -217,6 +279,15 @@ def poisson_loss(y_true, y_pred, sample_weight=None):
 
 
 def log_loss(y_true, y_prob, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Multiclass cross-entropy. Clips y_prob to [eps, 1-eps] (eps of y_prob's
+    # dtype); if y_prob or y_true has a single column, expands it to two columns
+    # (1-p, p). Returns minus the per-column weighted sample average of
+    # y_true*log(y_prob), summed over classes.
+    # Inputs: y_true - 2D indicator array (n_samples, n_classes or 1); y_prob - 2D
+    # float array same shape; sample_weight - optional (n_samples,).
+    # Outputs: float. Exceptions: IndexError if inputs are 1D (shape[1] accessed).
+    # Side effects: none (clip returns a copy).
     """Compute Logistic loss for classification.
 
     Parameters
@@ -248,6 +319,12 @@ def log_loss(y_true, y_prob, sample_weight=None):
 
 
 def binary_log_loss(y_true, y_prob, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Element-wise binary cross-entropy for multilabel outputs: clip y_prob to
+    # [eps, 1-eps], compute y*log(p) + (1-y)*log(1-p), take weighted average over
+    # samples per column, sum over columns, negate.
+    # Inputs: y_true, y_prob - same-shape arrays (n_samples, n_labels); optional
+    # sample_weight. Outputs: float. Side effects: none.
     """Compute binary logistic loss for classification.
 
     This is identical to log_loss in binary classification case,
