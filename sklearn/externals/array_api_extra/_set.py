@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Public delegation layer for set operations: isin, nunique, setdiff1d, union1d.
 """Delegation layer for set functions."""
 
 from . import _agnostic
@@ -17,6 +19,11 @@ def isin(
     kind: str | None = None,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp. NumPy: native isin with kind. JAX: native isin with method=kind (None
+    #   becomes "auto"). CuPy, PyTorch, Dask: native isin (kind ignored). Others:
+    #   generic flatten + in1d + reshape (kind ignored).
+    # Outputs: bool array shaped like a.
     """
     Determine whether each element in `a` is present in `b`.
 
@@ -71,6 +78,12 @@ def isin(
 
 
 def nunique(x: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Number of distinct elements as a 0-D array. JAX arrays: unique_counts with a
+    #   static size equal to x.size (padding with zero counts) and counts the positive
+    #   entries, making it jit-safe. NumPy, CuPy and PyTorch with data-dependent shapes:
+    #   size of unique_counts output as an array on x's device. Otherwise the generic
+    #   implementation.
     """
     Count the number of unique elements in an array.
 
@@ -120,6 +133,11 @@ def setdiff1d(
     assume_unique: bool = False,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp from both inputs (Python scalars allowed). NumPy, CuPy and JAX convert
+    #   scalars with asarrays and use native setdiff1d; others use the generic unique +
+    #   in1d implementation.
+    # Outputs: 1-D array of values of x1 not in x2 (sorted unique unless assume_unique).
     """
     Find the set difference of two arrays.
 
@@ -170,6 +188,10 @@ def setdiff1d(
 
 
 def union1d(a: Array, b: Array, /, *, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp; NumPy, CuPy, Dask and JAX use native union1d, others the generic
+    #   unique-of-concatenation.
+    # Outputs: sorted 1-D array of unique values present in either input.
     """
     Find the union of two arrays.
 

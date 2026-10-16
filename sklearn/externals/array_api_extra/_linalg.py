@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Public delegation layer for linear algebra helpers (kron).
 """Delegation layer for linear algebra functions."""
 
 from . import _agnostic
@@ -14,6 +16,11 @@ def kron(
     *,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp, converts Python-scalar operands to arrays with asarrays, then uses
+    #   native kron on CuPy, JAX, NumPy and PyTorch, otherwise the generic broadcasting
+    #   implementation.
+    # Outputs: Kronecker product array.
     """
     Kronecker product of two arrays.
 

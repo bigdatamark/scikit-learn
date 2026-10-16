@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Public delegation layer for shape manipulation functions: atleast_nd, broadcast_shapes
+#   (deprecated), expand_dims (deprecated) and pad.
 """Delegation layer for manipulation functions."""
 
 from collections.abc import Sequence
@@ -11,6 +14,11 @@ __all__ = ["atleast_nd", "broadcast_shapes", "expand_dims", "pad"]
 
 
 def atleast_nd(x: Array, /, *, ndim: int, xp: ArrayNamespace | None = None) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp; for ndim 1 or 2 on NumPy, JAX, Dask, CuPy or PyTorch calls the native
+    #   atleast_1d/atleast_2d; otherwise recursively prepends axes generically until
+    #   x.ndim >= ndim.
+    # Outputs: x or a reshaped view.
     """
     Recursively expand the dimension of an array to at least `ndim`.
 
@@ -66,6 +74,13 @@ def atleast_nd(x: Array, /, *, ndim: int, xp: ArrayNamespace | None = None) -> A
 def broadcast_shapes(
     *shapes: tuple[float | None, ...], xp: ArrayNamespace | None = None
 ) -> tuple[int | None, ...]:
+    # [FUNCTION DOC]
+    # Deprecated (DeprecationWarning on every call via the decorator). When xp is given,
+    #   every size is an int and xp is NumPy, CuPy, JAX or PyTorch, uses native
+    #   broadcast_shapes; otherwise the generic implementation that also supports
+    #   None/NaN unknown sizes.
+    # Outputs: broadcast shape tuple. Exceptions: ValueError for incompatible shapes
+    #   (backend-specific type natively).
     """
     Compute the shape of the broadcasted arrays.
 
@@ -131,6 +146,12 @@ def broadcast_shapes(
 def expand_dims(
     a: Array, /, *, axis: int | tuple[int, ...] = (0,), xp: ArrayNamespace | None = None
 ) -> Array:
+    # [FUNCTION DOC]
+    # Deprecated. Infers xp, turns an int axis into a 1-tuple, validates every axis lies
+    #   in [-ndim, ndim) where ndim = a.ndim + len(axis), normalises negatives modulo
+    #   ndim, rejects duplicates, then uses native expand_dims with the tuple on NumPy,
+    #   Dask and JAX, else inserts the axes one by one in ascending order.
+    # Exceptions: IndexError for out-of-range axes; ValueError for duplicates.
     """
     Expand the shape of an array.
 
@@ -230,6 +251,16 @@ def pad(
     constant_values: complex = 0,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Constant-mode padding. Infers xp; any mode other than "constant" raises
+    #   NotImplementedError. NumPy, CuPy, JAX and sparse use native pad. PyTorch
+    #   normalises pad_width on the host and calls torch.nn.functional.pad with the
+    #   pairs flattened in reverse axis order (last axis first). Others use the generic
+    #   allocate-and-assign implementation.
+    # Inputs: x; pad_width - int, (before, after) or one pair per axis; mode;
+    #   constant_values; xp.
+    # Outputs: padded array. Exceptions: NotImplementedError for other modes; ValueError
+    #   in the generic path for malformed pairs.
     """
     Pad the input array.
 

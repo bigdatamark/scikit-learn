@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Public delegation layer for partition and argpartition, with a dedicated PyTorch
+#   implementation based on kthvalue and masked scatter.
 """Delegation layer for sorting functions."""
 
 from . import _agnostic
@@ -15,6 +18,21 @@ def partition(
     *,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Validates a is at least 1-D (TypeError otherwise); axis None recurses on the
+    #   flattened array with axis 0; requires 0 <= kth < size of axis (eager shape).
+    #   NumPy, CuPy and JAX use native partition. PyTorch: moves axis to the end if
+    #   needed, finds the (kth+1)-th smallest value per row with kthvalue, then fills an
+    #   empty output so that per row the elements smaller than it come first, then those
+    #   equal, then those greater (each group in original order) using rank masks, and
+    #   moves the axis back. Other backends fall back to a full sort.
+    # Outputs: array with the kth element in sorted position along axis.
+    # Exceptions: TypeError for 0-D a; ValueError for kth out of range; TypeError from
+    #   eager_shape for unknown sizes.
+    # KNOWN ISSUE: in the PyTorch branch ranks are created with arange without a device
+    #   (fails for GPU tensors), and NaN values belong to none of the three groups,
+    #   leaving uninitialised entries in the output. Negative kth values (accepted by
+    #   NumPy) are rejected.
     """
     Return a partitioned copy of an array.
 
@@ -116,6 +134,15 @@ def argpartition(
     *,
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Index counterpart of partition. Same validation plus NotImplementedError for
+    #   sparse (no argsort). NumPy, CuPy and JAX use native argpartition; PyTorch uses
+    #   the same kthvalue + three-group mask scheme but scatters the source positions
+    #   (ranks) instead of values; others fall back to a full argsort.
+    # Outputs: integer index array of a's shape.
+    # Exceptions: NotImplementedError for sparse; TypeError for 0-D a; ValueError for
+    #   kth out of range.
+    # KNOWN ISSUE: same PyTorch device and NaN problems as partition.
     """
     Perform an indirect partition along the given axis.
 

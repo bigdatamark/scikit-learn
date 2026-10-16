@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# Public delegation layer for searchsorted.
 """Delegation layer for searching functions."""
 
 from typing import Literal
@@ -17,6 +19,15 @@ def searchsorted(
     side: Literal["left", "right"] = "left",
     xp: ArrayNamespace | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Infers xp and validates side. When x1 is at most 1-D, or on PyTorch (which
+    #   supports batched search natively), calls xp.searchsorted (reshaping a 0-D x2 for
+    #   1-D x1) and casts to the default integral dtype. Otherwise (N-D x1 on other
+    #   backends) uses the generic vectorised bisection.
+    # Outputs: integer indices shaped like x2. Exceptions: ValueError for side not in
+    #   {left, right}.
+    # KNOWN ISSUE: the reshape of a 0-D x2 to shape () is a no-op, so that branch has no
+    #   effect.
     """
     Find indices where elements should be inserted to maintain order.
 
