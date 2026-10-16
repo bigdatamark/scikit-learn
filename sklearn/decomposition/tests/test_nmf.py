@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for NMF, MiniBatchNMF, non_negative_factorization and _nmf internals
+# (_initialize_nmf, _beta_divergence, _special_sparse_dot): non-negativity,
+# reconstruction quality, transform consistency, sparse input, beta losses,
+# regularization, monotone objective decrease, dtype handling, n_components
+# inference, custom init validation and warnings.
+# Many tests are parametrized over (NMF cd, NMF mu, MiniBatchNMF).
 import re
 import sys
 from io import StringIO
@@ -25,6 +32,9 @@ from sklearn.utils.fixes import CSC_CONTAINERS, CSR_CONTAINERS
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_convergence_warning(Estimator, solver):
+    # [FUNCTION DOC]
+    # Checks fitting with max_iter=1 and n_components="auto" on a 2x2 ones matrix
+    # emits ConvergenceWarning with the max-iterations message, for each estimator.
     convergence_warning = (
         "Maximum number of iterations 1 reached. Increase it to improve convergence."
     )
@@ -34,6 +44,9 @@ def test_convergence_warning(Estimator, solver):
 
 
 def test_initialize_nn_output():
+    # [FUNCTION DOC]
+    # Checks _initialize_nmf produces no negative entries in W or H for init random,
+    # nndsvd, nndsvda and nndsvdar on positive 10x10 data.
     # Test that initialization does not return negative values
     rng = np.random.mtrand.RandomState(42)
     data = np.abs(rng.randn(10, 10))
@@ -47,6 +60,12 @@ def test_initialize_nn_output():
     r" the initialization",
 )
 def test_parameter_checking():
+    # [FUNCTION DOC]
+    # Checks non-common parameter validation: cd solver with beta_loss=1 raises
+    # ValueError; negative input to fit, transform and _initialize_nmf raises the
+    # "Negative values" ValueError; nndsvd-family inits with n_components larger than
+    # min(n_samples, n_features) raise ValueError in NMF, MiniBatchNMF and
+    # _initialize_nmf.
     # Here we only check for invalid parameter values that are not already
     # automatically tested in the common tests.
 
@@ -78,6 +97,9 @@ def test_parameter_checking():
 
 
 def test_initialize_close():
+    # [FUNCTION DOC]
+    # Checks that the nndsvd initialization's reconstruction error (Frobenius norm of
+    # W H minus A) does not exceed the Frobenius norm of A minus its mean.
     # Test NNDSVD error
     # Test that _initialize_nmf error is less than the standard deviation of
     # the entries in the matrix.
@@ -90,6 +112,9 @@ def test_initialize_close():
 
 
 def test_initialize_variants():
+    # [FUNCTION DOC]
+    # Checks nndsvda and nndsvdar initializations equal plain nndsvd wherever nndsvd
+    # is non-zero (they only fill zeros), for both W and H.
     # Test NNDSVD variants correctness
     # Test that the variants 'nndsvda' and 'nndsvdar' differ from basic
     # 'nndsvd' only where the basic version has zeros.
@@ -116,6 +141,10 @@ def test_initialize_variants():
 @pytest.mark.parametrize("alpha_W", (0.0, 1.0))
 @pytest.mark.parametrize("alpha_H", (0.0, 1.0, "same"))
 def test_nmf_fit_nn_output(Estimator, solver, init, alpha_W, alpha_H):
+    # [FUNCTION DOC]
+    # Checks fit_transform output and components_ contain no negative values for
+    # every estimator/solver, init option and combination of alpha_W and alpha_H, on
+    # a small 5x2 matrix.
     # Test that the decomposition does not contain negative values
     A = np.c_[5.0 - np.arange(1, 6), 5.0 + np.arange(1, 6)]
     model = Estimator(
@@ -135,6 +164,9 @@ def test_nmf_fit_nn_output(Estimator, solver, init, alpha_W, alpha_H):
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_nmf_fit_close(Estimator, solver):
+    # [FUNCTION DOC]
+    # Checks a 5-component fit (nndsvdar init, 600 iterations) on random positive
+    # 6x5 data reaches reconstruction_err_ below 0.1, for each estimator.
     rng = np.random.mtrand.RandomState(42)
     # Test that the fit is not too far away
     pnmf = Estimator(
@@ -149,6 +181,10 @@ def test_nmf_fit_close(Estimator, solver):
 
 
 def test_nmf_true_reconstruction():
+    # [FUNCTION DOC]
+    # Builds X exactly as the product of sparse non-negative W_true (15x5) and
+    # H_true (5x10) and checks NMF (mu, beta_loss=1) and MiniBatchNMF (batch_size 3)
+    # reach reconstruction_err_ below 0.1 and reproduce X (MiniBatchNMF with atol 1).
     # Test that the fit is not too far away from an exact solution
     # (by construction)
     n_samples = 15
@@ -198,6 +234,9 @@ def test_nmf_true_reconstruction():
 
 @pytest.mark.parametrize("solver", ["cd", "mu"])
 def test_nmf_transform(solver):
+    # [FUNCTION DOC]
+    # Checks NMF fit_transform and a subsequent transform give close W (atol 0.1)
+    # for cd and mu solvers.
     # Test that fit_transform is equivalent to fit.transform for NMF
     # Test that NMF.transform returns close values
     rng = np.random.mtrand.RandomState(42)
@@ -215,6 +254,9 @@ def test_nmf_transform(solver):
 
 
 def test_minibatch_nmf_transform():
+    # [FUNCTION DOC]
+    # Checks MiniBatchNMF with fresh_restarts=True gives the same W from
+    # fit_transform and transform.
     # Test that fit_transform is equivalent to fit.transform for MiniBatchNMF
     # Only guaranteed with fresh restarts
     rng = np.random.mtrand.RandomState(42)
@@ -235,6 +277,9 @@ def test_minibatch_nmf_transform():
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_nmf_transform_custom_init(Estimator, solver):
+    # [FUNCTION DOC]
+    # Smoke test: fit_transform with init="custom" and user W/H followed by transform
+    # runs without error for each estimator.
     # Smoke test that checks if NMF.transform works with custom initialization
     random_state = np.random.RandomState(0)
     A = np.abs(random_state.randn(6, 5))
@@ -252,6 +297,9 @@ def test_nmf_transform_custom_init(Estimator, solver):
 
 @pytest.mark.parametrize("solver", ("cd", "mu"))
 def test_nmf_inverse_transform(solver):
+    # [FUNCTION DOC]
+    # Checks inverse_transform of NMF fit_transform output reconstructs A to 2
+    # decimals with a full-rank (4-component) model, for cd and mu.
     # Test that NMF.inverse_transform returns close values
     random_state = np.random.RandomState(0)
     A = np.abs(random_state.randn(6, 4))
@@ -268,6 +316,9 @@ def test_nmf_inverse_transform(solver):
 
 
 def test_mbnmf_inverse_transform():
+    # [FUNCTION DOC]
+    # Checks MiniBatchNMF inverse_transform of fit_transform output is close to the
+    # input (rtol 1e-3, atol 1e-2) with fresh restarts and nndsvdar init.
     # Test that MiniBatchNMF.transform followed by MiniBatchNMF.inverse_transform
     # is close to the identity
     rng = np.random.RandomState(0)
@@ -285,6 +336,8 @@ def test_mbnmf_inverse_transform():
 
 @pytest.mark.parametrize("Estimator", [NMF, MiniBatchNMF])
 def test_n_components_greater_n_features(Estimator):
+    # [FUNCTION DOC]
+    # Smoke test: fitting with 15 components on 10-feature data does not fail.
     # Smoke test for the case of more components than features.
     rng = np.random.mtrand.RandomState(42)
     A = np.abs(rng.randn(30, 10))
@@ -299,6 +352,10 @@ def test_n_components_greater_n_features(Estimator):
 @pytest.mark.parametrize("alpha_W", (0.0, 1.0))
 @pytest.mark.parametrize("alpha_H", (0.0, 1.0, "same"))
 def test_nmf_sparse_input(Estimator, solver, sparse_container, alpha_W, alpha_H):
+    # [FUNCTION DOC]
+    # Checks dense and sparse (CSC/CSR) versions of data with zero columns give the
+    # same W and H for each estimator and regularization setting (random init,
+    # 100 iterations, tol 0).
     # Test that sparse matrices are accepted as input
     rng = np.random.mtrand.RandomState(42)
     A = np.abs(rng.randn(10, 10))
@@ -332,6 +389,9 @@ def test_nmf_sparse_input(Estimator, solver, sparse_container, alpha_W, alpha_H)
 )
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_nmf_sparse_transform(Estimator, solver, csc_container):
+    # [FUNCTION DOC]
+    # Regression test for issue #2124: fit_transform and transform agree
+    # (atol 0.1) on sparse CSC input containing a zero entry.
     # Test that transform works on sparse data.  Issue #2124
     rng = np.random.mtrand.RandomState(42)
     A = np.abs(rng.randn(3, 2))
@@ -349,6 +409,10 @@ def test_nmf_sparse_transform(Estimator, solver, csc_container):
 @pytest.mark.parametrize("alpha_W", (0.0, 1.0))
 @pytest.mark.parametrize("alpha_H", (0.0, 1.0, "same"))
 def test_non_negative_factorization_consistency(init, solver, alpha_W, alpha_H):
+    # [FUNCTION DOC]
+    # Checks non_negative_factorization and the NMF class produce the same W both
+    # for fitting and for transform (update_H=False with the fitted H), across init,
+    # solver and regularization settings.
     # Test that the function is called in the same way, either directly
     # or through the NMF class
     max_iter = 500
@@ -396,6 +460,10 @@ def test_non_negative_factorization_consistency(init, solver, alpha_W, alpha_H):
 
 
 def test_non_negative_factorization_checking():
+    # [FUNCTION DOC]
+    # Checks non_negative_factorization custom-init validation: negative H or W
+    # raises ValueError naming the input, and an all-zero H raises the "full of
+    # zeros" ValueError.
     # Note that the validity of parameter types and range of possible values
     # for scalar numerical or str parameters is already checked in the common
     # tests. Here we only check for problems that cannot be captured by simple
@@ -416,6 +484,16 @@ def test_non_negative_factorization_checking():
 
 
 def _beta_divergence_dense(X, W, H, beta):
+    # [FUNCTION DOC]
+    # HELPER: Reference dense implementation of the beta-divergence between X and
+    # W H. beta 2: half the squared Frobenius norm of the difference. Otherwise only
+    # entries where X is non-zero are used, with W H clipped below at 1e-9:
+    # beta 1 (generalized KL): sum of X log(X / WH) plus sum(WH) minus sum(X);
+    # beta 0 (Itakura-Saito): sum of X/WH minus X.size minus sum of log(X/WH);
+    # other beta: (sum X^beta + (beta-1) sum WH^beta - beta sum X WH^(beta-1)) divided
+    # by beta (beta-1), where the WH^beta term uses all entries.
+    # Inputs: X - dense non-negative 2D array; W, H - factor arrays; beta - float.
+    # Outputs: float divergence.
     """Compute the beta-divergence of X and W.H for dense array only.
 
     Used as a reference for testing nmf._beta_divergence.
@@ -447,6 +525,9 @@ def _beta_divergence_dense(X, W, H, beta):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_beta_divergence(csr_container):
+    # [FUNCTION DOC]
+    # Checks nmf._beta_divergence on dense and CSR input matches
+    # _beta_divergence_dense (7 decimals) for beta in 0, 0.5, 1, 1.5, 2, 3.
     # Compare _beta_divergence with the reference _beta_divergence_dense
     n_samples = 20
     n_features = 10
@@ -471,6 +552,10 @@ def test_beta_divergence(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_special_sparse_dot(csr_container):
+    # [FUNCTION DOC]
+    # Checks _special_sparse_dot: with sparse X it returns W H only at X's non-zero
+    # positions, matching the dense product there, with identical sparsity
+    # structure (indices, indptr, shape) to X.
     # Test the function that computes np.dot(W, H), only where X is non zero.
     n_samples = 10
     n_features = 5
@@ -500,6 +585,11 @@ def test_special_sparse_dot(csr_container):
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_nmf_multiplicative_update_sparse(csr_container):
+    # [FUNCTION DOC]
+    # For several beta_loss values, checks mu-solver non_negative_factorization from
+    # the same custom init gives the same W and H on dense and CSR input, and that
+    # perturbing beta_loss by 1e-5 changes the result by at most 1e-4 (continuity).
+    # Convergence warnings are ignored.
     # Compare sparse and dense input in multiplicative update NMF
     # Also test continuity of the results with respect to beta_loss parameter
     n_samples = 20
@@ -579,6 +669,10 @@ def test_nmf_multiplicative_update_sparse(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_nmf_negative_beta_loss(csr_container):
+    # [FUNCTION DOC]
+    # Checks the mu solver raises ValueError ("solver may diverge") for beta_loss
+    # <= 0 when X has zeros but produces no NaN once X is shifted by 1e-9; for
+    # positive beta_loss values it produces no NaN on dense and CSR input with zeros.
     # Test that an error is raised if beta_loss < 0 and X contains zeros.
     # Test that the output has not NaN values when the input contains zeros.
     n_samples = 6
@@ -591,6 +685,11 @@ def test_nmf_negative_beta_loss(csr_container):
     X_csr = csr_container(X)
 
     def _assert_nmf_no_nan(X, beta_loss):
+        # [FUNCTION DOC]
+        # HELPER: Runs non_negative_factorization (mu solver, random init, 1000
+        # iterations) on X with the given beta_loss and asserts W and H contain no NaN.
+        # Inputs: X - dense or sparse non-negative data; beta_loss - float.
+        # Exceptions: propagates ValueError from non_negative_factorization.
         W, H, _ = non_negative_factorization(
             X,
             init="random",
@@ -616,6 +715,9 @@ def test_nmf_negative_beta_loss(csr_container):
 
 @pytest.mark.parametrize("beta_loss", [-0.5, 0.0])
 def test_minibatch_nmf_negative_beta_loss(beta_loss):
+    # [FUNCTION DOC]
+    # Checks MiniBatchNMF.fit raises the "solver may diverge" ValueError for
+    # beta_loss <= 0 when X contains zeros.
     """Check that an error is raised if beta_loss < 0 and X contains zeros."""
     rng = np.random.RandomState(0)
     X = rng.normal(size=(6, 5))
@@ -633,6 +735,11 @@ def test_minibatch_nmf_negative_beta_loss(beta_loss):
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_nmf_regularization(Estimator, solver):
+    # [FUNCTION DOC]
+    # Checks regularization effects for each estimator: pure L1 (alpha_W 0.5,
+    # alpha_H defaulting to "same") yields more near-zero entries in W and H than no
+    # regularization; pure L2 yields a smaller sum of squared Frobenius norms of W
+    # and H.
     # Test the effect of L1 and L2 regularizations
     n_samples = 6
     n_features = 5
@@ -704,6 +811,11 @@ def test_nmf_regularization(Estimator, solver):
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 @pytest.mark.parametrize("solver", ("cd", "mu"))
 def test_nmf_decreasing(solver):
+    # [FUNCTION DOC]
+    # Checks the regularized objective (beta divergence plus L1/L2 penalties scaled
+    # by n_features for W and n_samples for H) strictly decreases over 30 successive
+    # single-iteration non_negative_factorization calls, for supported
+    # solver/beta_loss pairs (cd only with beta_loss 2).
     # test that the objective function is decreasing at each iteration
     n_samples = 20
     n_features = 15
@@ -756,6 +868,9 @@ def test_nmf_decreasing(solver):
 
 
 def test_nmf_underflow():
+    # [FUNCTION DOC]
+    # Regression test for an underflow in _beta_divergence: with beta=1, replacing a
+    # zero entry of X by 1e-323 gives almost the same divergence.
     # Regression test for an underflow issue in _beta_divergence
     rng = np.random.RandomState(0)
     n_samples, n_features, n_components = 10, 2, 2
@@ -784,6 +899,9 @@ def test_nmf_underflow():
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_nmf_dtype_match(Estimator, solver, dtype_in, dtype_out):
+    # [FUNCTION DOC]
+    # Checks dtype handling: float32 and float64 inputs are preserved and integer
+    # inputs produce float64 for transform, fit_transform and components_.
     # Check that NMF preserves dtype (float32 and float64)
     X = np.random.RandomState(0).randn(20, 15).astype(dtype_in, copy=False)
     np.abs(X, out=X)
@@ -806,6 +924,8 @@ def test_nmf_dtype_match(Estimator, solver, dtype_in, dtype_out):
     [[NMF, {"solver": "cd"}], [NMF, {"solver": "mu"}], [MiniBatchNMF, {}]],
 )
 def test_nmf_float32_float64_consistency(Estimator, solver):
+    # [FUNCTION DOC]
+    # Checks float32 and float64 fits of the same data give close W (atol 1e-5).
     # Check that the result of NMF is the same between float32 and float64
     X = np.random.RandomState(0).randn(50, 7)
     np.abs(X, out=X)
@@ -819,6 +939,9 @@ def test_nmf_float32_float64_consistency(Estimator, solver):
 
 @pytest.mark.parametrize("Estimator", [NMF, MiniBatchNMF])
 def test_nmf_custom_init_dtype_error(Estimator):
+    # [FUNCTION DOC]
+    # Checks a TypeError ("should have the same dtype as X") when custom H has a
+    # different dtype than X, for estimator fit and non_negative_factorization.
     # Check that an error is raise if custom H and/or W don't have the same
     # dtype as X.
     rng = np.random.RandomState(0)
@@ -835,6 +958,10 @@ def test_nmf_custom_init_dtype_error(Estimator):
 
 @pytest.mark.parametrize("beta_loss", [-0.5, 0, 0.5, 1, 1.5, 2, 2.5])
 def test_nmf_minibatchnmf_equivalence(beta_loss):
+    # [FUNCTION DOC]
+    # Checks MiniBatchNMF with batch_size equal to n_samples, forget_factor 0 and
+    # no early stopping gives the same W as NMF with the mu solver, for several
+    # beta_loss values.
     # Test that MiniBatchNMF is equivalent to NMF when batch_size = n_samples and
     # forget_factor 0.0 (stopping criterion put aside)
     rng = np.random.mtrand.RandomState(42)
@@ -862,6 +989,14 @@ def test_nmf_minibatchnmf_equivalence(beta_loss):
 
 
 def test_minibatch_nmf_partial_fit():
+    # [FUNCTION DOC]
+    # Checks fit with max_iter=2 and batch_size=10 (fresh_restarts off) matches
+    # repeated partial_fit calls from the same custom init: same n_steps_ and
+    # components_.
+    # KNOWN ISSUE: the partial_fit loop slices X[j : j + batch_size] for j in
+    # range(batch_size), i.e. overlapping windows over the first 19 rows instead of
+    # consecutive batches (j * batch_size); the equality only holds if the test is
+    # weaker than intended.
     # Check fit / partial_fit equivalence. Applicable only with fresh restarts.
     rng = np.random.mtrand.RandomState(42)
     X = np.abs(rng.randn(100, 5))
@@ -897,6 +1032,8 @@ def test_minibatch_nmf_partial_fit():
 
 
 def test_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns "nmf0".."nmf2" for a 3-component NMF.
     """Check feature names out for NMF."""
     random_state = np.random.RandomState(0)
     X = np.abs(random_state.randn(10, 4))
@@ -907,6 +1044,10 @@ def test_feature_names_out():
 
 
 def test_minibatch_nmf_verbose():
+    # [FUNCTION DOC]
+    # Coverage-only test: fits MiniBatchNMF with verbose=1 while redirecting stdout
+    # to a StringIO; no assertions are made on the output.
+    # Side effects: temporarily replaces sys.stdout (restored in a finally block).
     # Check verbose mode of MiniBatchNMF for better coverage.
     A = np.random.RandomState(0).random_sample((100, 10))
     nmf = MiniBatchNMF(tol=1e-2, random_state=0, verbose=1)
@@ -920,6 +1061,9 @@ def test_minibatch_nmf_verbose():
 
 @pytest.mark.parametrize("Estimator", [NMF, MiniBatchNMF])
 def test_nmf_n_components_auto(Estimator):
+    # [FUNCTION DOC]
+    # Checks n_components="auto" with custom W/H infers _n_components from H's
+    # number of rows.
     # Check that n_components is correctly inferred
     # from the provided custom initialization.
     rng = np.random.RandomState(0)
@@ -937,6 +1081,9 @@ def test_nmf_n_components_auto(Estimator):
 
 
 def test_nmf_non_negative_factorization_n_components_auto():
+    # [FUNCTION DOC]
+    # Checks non_negative_factorization with n_components="auto" and custom init
+    # returns W and H with the shapes of the given initial arrays.
     # Check that n_components is correctly inferred from the provided
     # custom initialization.
     rng = np.random.RandomState(0)
@@ -951,6 +1098,9 @@ def test_nmf_non_negative_factorization_n_components_auto():
 
 
 def test_nmf_n_components_auto_no_h_update():
+    # [FUNCTION DOC]
+    # Checks non_negative_factorization with n_components="auto" and update_H=False
+    # keeps H unchanged and returns W of shape (n_samples, H rows).
     # Tests that non_negative_factorization does not fail when setting
     # n_components="auto" also tests that the inferred n_component
     # value is the right one.
@@ -965,6 +1115,9 @@ def test_nmf_n_components_auto_no_h_update():
 
 
 def test_nmf_w_h_not_used_warning():
+    # [FUNCTION DOC]
+    # Checks RuntimeWarnings: user W/H ignored when init is not custom (with H only,
+    # and with W and H), and W ignored when update_H=False.
     # Check that warnings are raised if user provided W and H are not used
     # and initialization overrides value of W or H
     rng = np.random.RandomState(0)
@@ -996,6 +1149,9 @@ def test_nmf_w_h_not_used_warning():
 
 
 def test_nmf_custom_init_shape_error():
+    # [FUNCTION DOC]
+    # Checks custom W with a wrong first or second dimension raises ValueError with
+    # an informative message.
     # Check that an informative error is raised when custom initialization does not
     # have the right shape
     rng = np.random.RandomState(0)
@@ -1014,6 +1170,9 @@ def test_nmf_custom_init_shape_error():
 @pytest.mark.parametrize("shape", ((30, 10), (10, 30)), ids=("tall", "wide"))
 @pytest.mark.parametrize("solver", ("cd", "mu"))
 def test_nmf_smoke(init, shape, solver):
+    # [FUNCTION DOC]
+    # Smoke test: NMF fit_transform with every init and solver on tall and wide data
+    # returns W and components_ of the expected shapes.
     """Smoke test NMF with all inits, solvers on tall/wide arrays."""
     rng = np.random.RandomState(0)
     X = np.abs(rng.random_sample(shape))

@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.decomposition.PCA and its private _assess_dimension and
+# _infer_dimension helpers: all svd solvers, dense and sparse input, whitening,
+# solver equivalence, explained/singular values, n_components inference (int,
+# float ratio, None, "mle"), probabilistic scores, noise variance, automatic
+# solver selection, dtype handling and Array API compliance.
+# Module-level state: loads iris, defines PCA_SOLVERS and the sparse test sizes
+# SPARSE_M x SPARSE_N (1000 x 300).
 import os
 import re
 import warnings
@@ -35,6 +43,12 @@ SPARSE_MAX_COMPONENTS = min(SPARSE_M, SPARSE_N)
 
 
 def _check_fitted_pca_close(pca1, pca2, rtol=1e-7, atol=1e-12):
+    # [FUNCTION DOC]
+    # HELPER: Asserts two fitted PCA models are equivalent: components_,
+    # explained_variance_, singular_values_, mean_ and noise_variance_ close within
+    # rtol/atol, and identical n_components_, n_samples_ and n_features_in_.
+    # Inputs: pca1, pca2 - fitted PCA; rtol (default 1e-7), atol (default 1e-12).
+    # Exceptions: AssertionError on mismatch.
     assert_allclose(pca1.components_, pca2.components_, rtol=rtol, atol=atol)
     assert_allclose(
         pca1.explained_variance_, pca2.explained_variance_, rtol=rtol, atol=atol
@@ -51,6 +65,10 @@ def _check_fitted_pca_close(pca1, pca2, rtol=1e-7, atol=1e-12):
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 @pytest.mark.parametrize("n_components", range(1, iris.data.shape[1]))
 def test_pca(svd_solver, n_components):
+    # [FUNCTION DOC]
+    # On iris for each solver and n_components 1..3: checks transform width,
+    # fit then transform equals fit_transform equals a later transform, and
+    # get_covariance times get_precision is the identity.
     X = iris.data
     pca = PCA(n_components=n_components, svd_solver=svd_solver)
 
@@ -78,6 +96,11 @@ def test_pca(svd_solver, n_components):
 def test_pca_sparse(
     global_random_seed, svd_solver, sparse_container, n_components, density, scale
 ):
+    # [FUNCTION DOC]
+    # Checks that PCA fitted on sparse (CSR/CSC) random data, scaled per column,
+    # matches PCA fitted on the dense equivalent (via _check_fitted_pca_close) for
+    # arpack and covariance_eigh, and that transforms of new sparse/dense data agree
+    # across both models, over several densities, n_components and scales.
     """Check that the results are the same for sparse and dense input."""
 
     # Set atol in addition of the default rtol to account for the very wide range of
@@ -123,6 +146,10 @@ def test_pca_sparse(
 
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + CSC_CONTAINERS)
 def test_pca_sparse_fit_transform(global_random_seed, sparse_container):
+    # [FUNCTION DOC]
+    # Checks on sparse input with arpack that fit and fit_transform yield equivalent
+    # models and that fit_transform output equals transform of both models, also on
+    # new sparse data.
     rng = np.random.default_rng(global_random_seed)
     shp = (SPARSE_M, SPARSE_N)
     X = sparse_container(_sparse_random_array(shp, rng=rng, density=0.01))
@@ -145,6 +172,9 @@ def test_pca_sparse_fit_transform(global_random_seed, sparse_container):
 @pytest.mark.parametrize("svd_solver", ["randomized", "full"])
 @pytest.mark.parametrize("sparse_container", CSR_CONTAINERS + CSC_CONTAINERS)
 def test_sparse_pca_solver_error(global_random_seed, svd_solver, sparse_container):
+    # [FUNCTION DOC]
+    # Checks the randomized and full solvers raise TypeError for sparse input with
+    # the message listing the supported solvers.
     rng = np.random.RandomState(global_random_seed)
     X = sparse_container(_sparse_random_array((SPARSE_M, SPARSE_N), rng=rng))
     pca = PCA(n_components=30, svd_solver=svd_solver)
@@ -160,6 +190,9 @@ def test_sparse_pca_solver_error(global_random_seed, svd_solver, sparse_containe
 def test_sparse_pca_auto_arpack_singular_values_consistency(
     global_random_seed, sparse_container
 ):
+    # [FUNCTION DOC]
+    # Checks "auto" and "arpack" solvers give the same singular_values_ (rtol 5e-3)
+    # on sparse input with 10 components.
     """Check that "auto" and "arpack" solvers are equivalent for sparse inputs."""
     rng = np.random.RandomState(global_random_seed)
     X = sparse_container(_sparse_random_array((SPARSE_M, SPARSE_N), rng=rng))
@@ -169,6 +202,10 @@ def test_sparse_pca_auto_arpack_singular_values_consistency(
 
 
 def test_no_empty_slice_warning():
+    # [FUNCTION DOC]
+    # Checks fitting 10 components on 10x12 data emits no RuntimeWarning (empty-slice
+    # numpy warnings were seen in 0.16).
+    # Side effects: uses the unseeded global numpy random state.
     # test if we avoid numpy warnings for computing over empty arrays
     n_components = 10
     n_features = n_components + 2  # anything > n_comps triggered it in 0.16
@@ -182,6 +219,11 @@ def test_no_empty_slice_warning():
 @pytest.mark.parametrize("copy", [True, False])
 @pytest.mark.parametrize("solver", PCA_SOLVERS)
 def test_whitening(solver, copy):
+    # [FUNCTION DOC]
+    # On low-rank correlated data with highly varying feature variances: checks that
+    # whitened PCA (30 components) gives outputs with unit std and zero mean, that
+    # fit_transform matches transform, and that unwhitened outputs keep varying
+    # variances (std of stds about 74.1), for each solver and copy setting.
     # Check that PCA output has unit-variance
     rng = np.random.RandomState(0)
     n_samples = 100
@@ -248,6 +290,16 @@ def test_pca_solver_equivalence(
     global_random_seed,
     global_dtype,
 ):
+    # [FUNCTION DOC]
+    # Compares the full solver with each of covariance_eigh, arpack and randomized
+    # on tall/wide, full-rank/rank-deficient data, with and without whitening:
+    # finiteness and dtype of outputs, equality of explained variance (ratios),
+    # components and transforms restricted to components above a variance threshold,
+    # and compatibility of inverse_transform reconstructions (exact recovery when
+    # square, same low-rank approximation when fewer components than rank,
+    # otherwise the same fixed point after another transform). Randomized uses 10
+    # components with 50 power iterations; arpack uses min dimension minus one.
+    # Tolerances depend on global_dtype.
     if data_shape == "tall":
         n_samples, n_features = 100, 30
     else:
@@ -385,6 +437,10 @@ def test_pca_solver_equivalence(
 )
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_explained_variance_empirical(X, svd_solver):
+    # [FUNCTION DOC]
+    # Checks explained_variance_ equals the sample variance (ddof 1) of the
+    # transformed data and approximates the top-2 eigenvalues of the empirical
+    # covariance, on random tall, correlated tall and random wide data.
     pca = PCA(n_components=2, svd_solver=svd_solver, random_state=0)
     X_pca = pca.fit_transform(X)
     assert_allclose(pca.explained_variance_, np.var(X_pca, ddof=1, axis=0))
@@ -396,6 +452,9 @@ def test_pca_explained_variance_empirical(X, svd_solver):
 
 @pytest.mark.parametrize("svd_solver", ["arpack", "randomized"])
 def test_pca_singular_values_consistency(svd_solver):
+    # [FUNCTION DOC]
+    # Checks arpack/randomized singular_values_ match the full solver (rtol 5e-3)
+    # for 2 components.
     rng = np.random.RandomState(0)
     n_samples, n_features = 100, 80
     X = rng.randn(n_samples, n_features)
@@ -411,6 +470,10 @@ def test_pca_singular_values_consistency(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_singular_values(svd_solver):
+    # [FUNCTION DOC]
+    # Checks singular_values_ match the Frobenius norm and per-column 2-norms of the
+    # transformed data, then rebuilds data with prescribed singular values (3.142,
+    # 2.718, 1.0) and checks they are recovered, for each solver.
     rng = np.random.RandomState(0)
     n_samples, n_features = 100, 80
     X = rng.randn(n_samples, n_features)
@@ -441,6 +504,9 @@ def test_pca_singular_values(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_check_projection(svd_solver):
+    # [FUNCTION DOC]
+    # Checks that a point near the offset of 10 shifted rows projects (after
+    # normalization) almost entirely on the first component, for each solver.
     # Test that the projection of data is correct
     rng = np.random.RandomState(0)
     n, p = 100, 3
@@ -456,6 +522,11 @@ def test_pca_check_projection(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_check_projection_list(svd_solver):
+    # [FUNCTION DOC]
+    # Checks fit_transform on a list-of-lists 2x2 identity input with 1 component
+    # returns values with mean 0 and std about 0.71, for each solver.
+    # KNOWN ISSUE: "assert X_trans.shape, (2, 1)" asserts a non-empty tuple and is
+    # always true; the shape is not actually compared.
     # Test that the projection of data is correct
     X = [[1.0, 0.0], [0.0, 1.0]]
     pca = PCA(n_components=1, svd_solver=svd_solver, random_state=0)
@@ -468,6 +539,9 @@ def test_pca_check_projection_list(svd_solver):
 @pytest.mark.parametrize("svd_solver", ["full", "arpack", "randomized"])
 @pytest.mark.parametrize("whiten", [False, True])
 def test_pca_inverse(svd_solver, whiten):
+    # [FUNCTION DOC]
+    # Checks inverse_transform(transform(X)) recovers nearly rank-2 data with a large
+    # mean (rtol 5e-6), with and without whitening, for full, arpack and randomized.
     # Test that the projection of data can be inverted
     rng = np.random.RandomState(0)
     n, p = 50, 3
@@ -503,6 +577,11 @@ def test_pca_inverse(svd_solver, whiten):
     ],
 )
 def test_pca_validation(svd_solver, data, n_components, err_msg):
+    # [FUNCTION DOC]
+    # Checks solver-specific n_components validation errors (0 for arpack and
+    # randomized, n_components equal to the min dimension for arpack, 3 > 2 for auto
+    # resolving to full) on a 2x3 matrix and its transpose, plus an extra explicit
+    # arpack check with n_components equal to the smallest dimension.
     # Ensures that solver-specific extreme inputs for the n_components
     # parameter raise errors
     smallest_d = 2  # The smallest dimension
@@ -534,6 +613,10 @@ def test_pca_validation(svd_solver, data, n_components, err_msg):
 )
 @pytest.mark.parametrize("data", [iris.data, iris.data.T])
 def test_n_components_none(data, solver, n_components_):
+    # [FUNCTION DOC]
+    # Checks n_components=None yields n_components_ equal to min(data.shape) for
+    # full and randomized and min(data.shape) - 1 for arpack, on iris and its
+    # transpose.
     pca = PCA(svd_solver=solver)
     pca.fit(data)
     assert pca.n_components_ == n_components_
@@ -541,6 +624,9 @@ def test_n_components_none(data, solver, n_components_):
 
 @pytest.mark.parametrize("svd_solver", ["auto", "full"])
 def test_n_components_mle(svd_solver):
+    # [FUNCTION DOC]
+    # Checks n_components="mle" works with auto and full solvers and selects 1
+    # component on isotropic random 600x10 data.
     # Ensure that n_components == 'mle' doesn't raise error for auto/full
     rng = np.random.RandomState(0)
     n_samples, n_features = 600, 10
@@ -552,6 +638,8 @@ def test_n_components_mle(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", ["arpack", "randomized"])
 def test_n_components_mle_error(svd_solver):
+    # [FUNCTION DOC]
+    # Checks n_components="mle" raises ValueError for arpack and randomized.
     # Ensure that n_components == 'mle' will raise an error for unsupported
     # solvers
     rng = np.random.RandomState(0)
@@ -566,6 +654,9 @@ def test_n_components_mle_error(svd_solver):
 
 
 def test_pca_dim():
+    # [FUNCTION DOC]
+    # Checks "mle" dimensionality selection keeps n_components == "mle" as given and
+    # sets n_components_ to 1 for data with one dominant shifted cluster.
     # Check automated dimensionality setting
     rng = np.random.RandomState(0)
     n, p = 100, 5
@@ -577,6 +668,10 @@ def test_pca_dim():
 
 
 def test_infer_dim_1():
+    # [FUNCTION DOC]
+    # Checks _assess_dimension log-likelihoods for ranks 1..4 on data with one
+    # dominant latent direction: the rank-2 likelihood (index 1) is within 0.01 n of
+    # the maximum.
     # TODO: explain what this is testing
     # Or at least use explicit variable names...
     n, p = 1000, 5
@@ -594,6 +689,8 @@ def test_infer_dim_1():
 
 
 def test_infer_dim_2():
+    # [FUNCTION DOC]
+    # Checks _infer_dimension returns more than 1 for data with two shifted clusters.
     # TODO: explain what this is testing
     # Or at least use explicit variable names...
     n, p = 1000, 5
@@ -608,6 +705,9 @@ def test_infer_dim_2():
 
 
 def test_infer_dim_3():
+    # [FUNCTION DOC]
+    # Checks _infer_dimension returns more than 2 for data with three shifted
+    # clusters.
     n, p = 100, 5
     rng = np.random.RandomState(0)
     X = rng.randn(n, p) * 0.1
@@ -629,6 +729,10 @@ def test_infer_dim_3():
     ],  # row < col
 )
 def test_infer_dim_by_explained_variance(X, n_components, n_components_validated):
+    # [FUNCTION DOC]
+    # Checks a float n_components is kept as given and converted to the number of
+    # components reaching that explained variance ratio (iris 0.95 -> 2, 0.01 -> 1,
+    # wide random 0.5 -> 2).
     pca = PCA(n_components=n_components, svd_solver="full")
     pca.fit(X)
     assert pca.n_components == pytest.approx(n_components)
@@ -637,6 +741,10 @@ def test_infer_dim_by_explained_variance(X, n_components, n_components_validated
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_score(svd_solver):
+    # [FUNCTION DOC]
+    # Checks the probabilistic PCA score on Gaussian data with std 0.1 is close to
+    # the analytic Gaussian log-likelihood, higher than on noisier data, and higher
+    # than the score of a whitened model, for each solver.
     # Test that probabilistic PCA scoring yields a reasonable score
     n, p = 1000, 3
     rng = np.random.RandomState(0)
@@ -658,6 +766,9 @@ def test_pca_score(svd_solver):
 
 
 def test_pca_score3():
+    # [FUNCTION DOC]
+    # Checks held-out score is maximized at n_components=1 among 0..2 for data
+    # with one latent factor plus isotropic noise.
     # Check that probabilistic PCA selects the right model
     n, p = 200, 3
     rng = np.random.RandomState(0)
@@ -674,6 +785,9 @@ def test_pca_score3():
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_sanity_noise_variance(svd_solver):
+    # [FUNCTION DOC]
+    # Sanity check (issues #7568, #8541, #8544): on digits with 30 components,
+    # every explained_variance_ is at least noise_variance_, for each solver.
     # Sanity check for the noise_variance_. For more details see
     # https://github.com/scikit-learn/scikit-learn/issues/7568
     # https://github.com/scikit-learn/scikit-learn/issues/8541
@@ -686,6 +800,8 @@ def test_pca_sanity_noise_variance(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", ["arpack", "randomized"])
 def test_pca_score_consistency_solvers(svd_solver):
+    # [FUNCTION DOC]
+    # Checks arpack/randomized score on digits matches the full solver (rtol 5e-6).
     # Check the consistency of score between solvers
     X, _ = datasets.load_digits(return_X_y=True)
     pca_full = PCA(n_components=30, svd_solver="full", random_state=0)
@@ -698,6 +814,10 @@ def test_pca_score_consistency_solvers(svd_solver):
 # arpack raises ValueError for n_components == min(n_samples,  n_features)
 @pytest.mark.parametrize("svd_solver", ["full", "randomized"])
 def test_pca_zero_noise_variance_edge_cases(svd_solver):
+    # [FUNCTION DOC]
+    # Checks noise_variance_ is exactly 0 when n_components equals the min dimension
+    # (for X and its transpose) and that score runs without division by zero
+    # (gh-12489), for full and randomized.
     # ensure that noise_variance_ is 0 in edge cases
     # when n_components == min(n_samples, n_features)
     n, p = 100, 3
@@ -734,6 +854,10 @@ def test_pca_zero_noise_variance_edge_cases(svd_solver):
     ],
 )
 def test_pca_svd_solver_auto(n_samples, n_features, n_components, expected_solver):
+    # [FUNCTION DOC]
+    # Checks the "auto" solver policy picks the expected solver (_fit_svd_solver)
+    # for several shape/n_components cases and gives the same components_ as
+    # explicitly using that solver.
     data = np.random.RandomState(0).uniform(size=(n_samples, n_features))
     pca_auto = PCA(n_components=n_components, random_state=0)
     pca_test = PCA(
@@ -747,6 +871,9 @@ def test_pca_svd_solver_auto(n_samples, n_features, n_components, expected_solve
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_deterministic_output(svd_solver):
+    # [FUNCTION DOC]
+    # Checks 20 fits with a shared RandomState give the same first transformed row,
+    # for each solver.
     rng = np.random.RandomState(0)
     X = rng.rand(10, 10)
 
@@ -759,11 +886,18 @@ def test_pca_deterministic_output(svd_solver):
 
 @pytest.mark.parametrize("svd_solver", PCA_SOLVERS)
 def test_pca_dtype_preservation(svd_solver, global_random_seed):
+    # [FUNCTION DOC]
+    # Runs check_pca_float_dtype_preservation and check_pca_int_dtype_upcast_to_double
+    # for each solver.
     check_pca_float_dtype_preservation(svd_solver, global_random_seed)
     check_pca_int_dtype_upcast_to_double(svd_solver)
 
 
 def check_pca_float_dtype_preservation(svd_solver, seed):
+    # [FUNCTION DOC]
+    # HELPER: Asserts PCA keeps float32 and float64 for components_ and transform
+    # output and that float32 and float64 components agree (rtol/atol 1e-3).
+    # Inputs: svd_solver - str; seed - int for data and random_state.
     # Ensure that PCA does not upscale the dtype when input is float32
     X = np.random.RandomState(seed).rand(1000, 4)
     X_float64 = X.astype(np.float64, copy=False)
@@ -788,6 +922,10 @@ def check_pca_float_dtype_preservation(svd_solver, seed):
 
 
 def check_pca_int_dtype_upcast_to_double(svd_solver):
+    # [FUNCTION DOC]
+    # HELPER: Asserts int32 and int64 inputs are upcast to float64 for components_
+    # and transform output and that both give close components (rtol 1e-4).
+    # Inputs: svd_solver - str.
     # Ensure that all int types will be upcast to float64
     X_i64 = np.random.RandomState(0).randint(0, 1000, (1000, 4))
     X_i64 = X_i64.astype(np.int64, copy=False)
@@ -805,6 +943,10 @@ def check_pca_int_dtype_upcast_to_double(svd_solver):
 
 
 def test_pca_n_components_mostly_explained_variance_ratio():
+    # [FUNCTION DOC]
+    # Regression test for #15669: on iris, a float n_components equal to the
+    # second-largest cumulative explained variance ratio yields n_components_ equal
+    # to n_features.
     # when n_components is the second highest cumulative sum of the
     # explained_variance_ratio_, then n_components_ should equal the
     # number of features in the dataset #15669
@@ -817,6 +959,9 @@ def test_pca_n_components_mostly_explained_variance_ratio():
 
 
 def test_assess_dimension_bad_rank():
+    # [FUNCTION DOC]
+    # Checks _assess_dimension raises ValueError for rank 0 and 5 (outside
+    # [1, n_features - 1]).
     # Test error when tested rank not in [1, n_features - 1]
     spectrum = np.array([1, 1e-30, 1e-30, 1e-30])
     n_samples = 10
@@ -826,6 +971,10 @@ def test_assess_dimension_bad_rank():
 
 
 def test_small_eigenvalues_mle():
+    # [FUNCTION DOC]
+    # Checks _assess_dimension gives finite log-likelihood for rank 1 and -inf for
+    # ranks 2 and 3 when trailing eigenvalues are tiny, and _infer_dimension
+    # returns 1.
     # Test rank associated with tiny eigenvalues are given a log-likelihood of
     # -inf. The inferred rank will be 1
     spectrum = np.array([1, 1e-30, 1e-30, 1e-30])
@@ -839,6 +988,9 @@ def test_small_eigenvalues_mle():
 
 
 def test_mle_redundant_data():
+    # [FUNCTION DOC]
+    # Checks "mle" selects 1 component when only one feature is informative and the
+    # others are repeated/redundant copies.
     # Test 'mle' with pathological X: only one relevant feature should give a
     # rank of 1
     X, _ = datasets.make_classification(
@@ -854,6 +1006,8 @@ def test_mle_redundant_data():
 
 
 def test_fit_mle_too_few_samples():
+    # [FUNCTION DOC]
+    # Checks "mle" with fewer samples than features raises ValueError.
     # Tests that an error is raised when the number of samples is smaller
     # than the number of features during an mle fit
     X, _ = datasets.make_classification(n_samples=20, n_features=21, random_state=42)
@@ -867,6 +1021,9 @@ def test_fit_mle_too_few_samples():
 
 
 def test_mle_simple_case():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #16730: "mle" returns n_dim - 1 when the last
+    # column is the mean of the others.
     # non-regression test for issue
     # https://github.com/scikit-learn/scikit-learn/issues/16730
     n_samples, n_dim = 1000, 10
@@ -878,6 +1035,9 @@ def test_mle_simple_case():
 
 
 def test_assess_dimension_rank_one():
+    # [FUNCTION DOC]
+    # Checks on a rank-1 ones matrix that trailing singular values are ~0,
+    # _assess_dimension is finite for rank 1 and -inf for ranks 2..5.
     # Make sure assess_dimension works properly on a matrix of rank 1
     n_samples, n_features = 9, 6
     X = np.ones((n_samples, n_features))  # rank 1 matrix
@@ -891,6 +1051,10 @@ def test_assess_dimension_rank_one():
 
 
 def test_pca_randomized_svd_n_oversamples():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #20589: randomized PCA with n_oversamples equal
+    # to n_features recovers the same first component (up to sign) as full and
+    # arpack on 1000x100 random data.
     """Check that exposing and setting `n_oversamples` will provide accurate results
     even when `X` as a large number of features.
 
@@ -917,6 +1081,8 @@ def test_pca_randomized_svd_n_oversamples():
 
 
 def test_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns "pca0" and "pca1".
     """Check feature names out for PCA."""
     pca = PCA(n_components=2).fit(iris.data)
 
@@ -926,6 +1092,10 @@ def test_feature_names_out():
 
 @pytest.mark.parametrize("copy", [True, False])
 def test_variance_correctness(copy):
+    # [FUNCTION DOC]
+    # Checks total variance implied by explained_variance_ divided by
+    # explained_variance_ratio_ equals the summed per-feature sample variance.
+    # KNOWN ISSUE: the copy parameter is parametrized but never used.
     """Check the accuracy of PCA's internal variance calculation"""
     rng = np.random.RandomState(0)
     X = rng.randn(1000, 200)
@@ -938,6 +1108,14 @@ def test_variance_correctness(copy):
 def check_array_api_get_precision(
     name, estimator, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Array API check: fits the estimator on iris as numpy and, under
+    # array_api_dispatch, a clone on the namespace/device array, then asserts
+    # get_precision and get_covariance have shape (4, 4), the input dtype, and match
+    # the numpy results (rtol 2e-4 for float32 else 2e-7).
+    # Inputs: name - estimator name (unused); estimator - PCA instance (fitted in
+    # place); array_namespace, device_name, dtype_name - Array API target.
+    # Side effects: fits the passed estimator.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     iris_np = iris.data.astype(dtype_name)
     iris_xp = xp.asarray(iris_np, device=device)
@@ -1000,6 +1178,9 @@ def check_array_api_get_precision(
 def test_pca_array_api_compliance(
     estimator, check, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Runs check_array_api_input_and_values and check_array_api_get_precision on a
+    # clone of each PCA configuration for every namespace/device/dtype combination.
     name = estimator.__class__.__name__
     estimator = clone(estimator)
     check(
@@ -1035,6 +1216,14 @@ def test_pca_array_api_compliance(
 def test_pca_mle_array_api_compliance(
     estimator, check, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Array API compliance for PCA with "mle": runs check_array_api_get_precision,
+    # then compares numpy and Array API fits on make_classification data: device of
+    # components_ and explained_variance_, dtypes, number of features, explained
+    # variance of the shared components, and that any extra components trimmed on
+    # one side have variance equal to the last numpy component within atol.
+    # Side effects: the check fits the parametrized estimator instance directly
+    # (it is not cloned first, unlike test_pca_array_api_compliance).
     name = estimator.__class__.__name__
     check(
         name,
@@ -1100,6 +1289,11 @@ def test_pca_mle_array_api_compliance(
     os.environ.get("SCIPY_ARRAY_API") != "1", reason="SCIPY_ARRAY_API not set to 1."
 )
 def test_array_api_error_and_warnings_on_unsupported_params():
+    # [FUNCTION DOC]
+    # Checks Array API restrictions (requires SCIPY_ARRAY_API=1 and
+    # array_api_strict): arpack raises ValueError, randomized with LU normalizer
+    # raises ValueError, and randomized with "auto" normalizer warns about falling
+    # back to QR.
     xp = pytest.importorskip("array_api_strict")
     iris_xp = xp.asarray(iris.data)
 

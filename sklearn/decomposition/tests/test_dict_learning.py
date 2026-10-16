@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for dictionary learning: DictionaryLearning, MiniBatchDictionaryLearning,
+# SparseCoder, dict_learning, dict_learning_online, sparse_encode and the private
+# _update_dict. Covers output shapes, positivity constraints, reconstruction,
+# parallel and read-only/memmapped data, partial_fit, verbosity, dtype
+# preservation, float32/float64 consistency and feature names.
+# Module-level state: rng_global (RandomState(0)) and a shared random X of shape
+# (n_samples=10, n_features=8) used by most tests.
 import itertools
 import warnings
 from functools import partial
@@ -41,6 +49,11 @@ X = rng_global.randn(n_samples, n_features)
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_sparse_encode_shapes_omp():
+    # [FUNCTION DOC]
+    # Checks sparse_encode returns codes of shape (n_samples, n_components) for every
+    # algorithm (omp, lasso_lars, lasso_cd, lars, threshold), n_jobs 1 and 2, and
+    # n_components/n_samples in {1, 5} x {1, 9}. Marked thread-unsafe.
+    # KNOWN ISSUE: the name suggests only omp is tested, but all algorithms are.
     rng = np.random.RandomState(0)
     algorithms = ["omp", "lasso_lars", "lasso_cd", "lars", "threshold"]
     for n_components, n_samples in itertools.product([1, 5], [1, 9]):
@@ -52,6 +65,9 @@ def test_sparse_encode_shapes_omp():
 
 
 def test_dict_learning_shapes():
+    # [FUNCTION DOC]
+    # Checks DictionaryLearning components_ shape for 5 and 1 components and the
+    # transform output shape for 1 component.
     n_components = 5
     dico = DictionaryLearning(n_components, random_state=0).fit(X)
     assert dico.components_.shape == (n_components, n_features)
@@ -63,13 +79,24 @@ def test_dict_learning_shapes():
 
 
 def test_dict_learning_overcomplete():
+    # [FUNCTION DOC]
+    # Checks an overcomplete dictionary (12 atoms > 8 features) has the right shape.
     n_components = 12
     dico = DictionaryLearning(n_components, random_state=0).fit(X)
     assert dico.components_.shape == (n_components, n_features)
 
 
 def test_max_iter():
+    # [FUNCTION DOC]
+    # Builds a multi-scale Ricker wavelet dictionary and a piecewise-constant signal
+    # and checks SparseCoder with lasso_cd emits ConvergenceWarning with
+    # transform_max_iter=1 but converges silently with transform_max_iter=500.
     def ricker_function(resolution, center, width):
+        # [FUNCTION DOC]
+        # HELPER: Samples a Ricker (Mexican hat) wavelet of given width centered at
+        # center on resolution evenly spaced points 0..resolution-1.
+        # Inputs: resolution - int; center, width - floats.
+        # Outputs: 1D float array of length resolution.
         """Discrete sub-sampled Ricker (Mexican hat) wavelet"""
         x = np.linspace(0, resolution - 1, resolution)
         x = (
@@ -80,6 +107,11 @@ def test_max_iter():
         return x
 
     def ricker_matrix(width, resolution, n_components):
+        # [FUNCTION DOC]
+        # HELPER: Builds a dictionary of n_components Ricker wavelets of the same width
+        # with centers evenly spaced over the signal, each row normalized to unit L2 norm.
+        # Inputs: width - float; resolution, n_components - ints.
+        # Outputs: array of shape (n_components, resolution).
         """Dictionary of Ricker (Mexican hat) wavelets"""
         centers = np.linspace(0, resolution - 1, n_components)
         D = np.empty((n_components, resolution))
@@ -126,6 +158,9 @@ def test_max_iter():
 
 
 def test_dict_learning_lars_positive_parameter():
+    # [FUNCTION DOC]
+    # Checks dict_learning with the default lars method and positive_code=True
+    # raises ValueError (positive constraint not supported for lars).
     n_components = 5
     alpha = 1
     err_msg = "Positive constraint not supported for 'lars' coding method."
@@ -144,6 +179,10 @@ def test_dict_learning_lars_positive_parameter():
 @pytest.mark.parametrize("positive_code", [False, True])
 @pytest.mark.parametrize("positive_dict", [False, True])
 def test_dict_learning_positivity(transform_algorithm, positive_code, positive_dict):
+    # [FUNCTION DOC]
+    # Checks DictionaryLearning (cd fit) respects positive_dict and positive_code:
+    # all non-negative when constrained, some negative entries otherwise, for
+    # transform algorithms lasso_lars, lasso_cd and threshold.
     n_components = 5
     dico = DictionaryLearning(
         n_components,
@@ -167,6 +206,9 @@ def test_dict_learning_positivity(transform_algorithm, positive_code, positive_d
 
 @pytest.mark.parametrize("positive_dict", [False, True])
 def test_dict_learning_lars_dict_positivity(positive_dict):
+    # [FUNCTION DOC]
+    # Checks positive_dict with the lars transform algorithm: components are all
+    # non-negative when constrained and have a negative entry otherwise.
     n_components = 5
     dico = DictionaryLearning(
         n_components,
@@ -183,6 +225,9 @@ def test_dict_learning_lars_dict_positivity(positive_dict):
 
 
 def test_dict_learning_lars_code_positivity():
+    # [FUNCTION DOC]
+    # Checks transform raises ValueError when positive_code=True with the lars
+    # transform algorithm.
     n_components = 5
     dico = DictionaryLearning(
         n_components,
@@ -199,6 +244,10 @@ def test_dict_learning_lars_code_positivity():
 
 
 def test_dict_learning_reconstruction():
+    # [FUNCTION DOC]
+    # Checks an overcomplete dictionary with omp (tiny alpha) reconstructs X via
+    # code times components_ and inverse_transform; with lasso_lars to 2 decimals;
+    # and inverse_transform with a wrong code width raises ValueError.
     n_components = 12
     dico = DictionaryLearning(
         n_components, transform_algorithm="omp", transform_alpha=0.001, random_state=0
@@ -224,6 +273,9 @@ def test_dict_learning_reconstruction():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_dict_learning_reconstruction_parallel():
+    # [FUNCTION DOC]
+    # Regression test: reconstruction with omp and lasso_lars still works with
+    # n_jobs=4. Marked thread-unsafe.
     # regression test that parallel reconstruction works with n_jobs>1
     n_components = 12
     dico = DictionaryLearning(
@@ -245,6 +297,9 @@ def test_dict_learning_reconstruction_parallel():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_dict_learning_lassocd_readonly_data():
+    # [FUNCTION DOC]
+    # Checks lasso_cd with n_jobs=4 works on read-only memmapped X and reconstructs
+    # it to 2 decimals (convergence warnings ignored). Marked thread-unsafe.
     n_components = 12
     with TempMemmap(X) as X_read_only:
         dico = DictionaryLearning(
@@ -262,6 +317,9 @@ def test_dict_learning_lassocd_readonly_data():
 
 
 def test_dict_learning_nonzero_coefs():
+    # [FUNCTION DOC]
+    # Checks transform_n_nonzero_coefs=3 yields exactly 3 non-zero coefficients for
+    # one sample with lars and omp transform algorithms.
     n_components = 4
     dico = DictionaryLearning(
         n_components,
@@ -278,6 +336,10 @@ def test_dict_learning_nonzero_coefs():
 
 
 def test_dict_learning_split():
+    # [FUNCTION DOC]
+    # Checks split_sign: the split code's positive half minus negative half equals
+    # the unsplit code, and inverse_transform gives the same reconstruction for both.
+    # Side effects: sets split_sign directly on the fitted estimator.
     n_components = 5
     dico = DictionaryLearning(
         n_components, transform_algorithm="threshold", random_state=0
@@ -297,6 +359,9 @@ def test_dict_learning_split():
 
 
 def test_dict_learning_online_shapes():
+    # [FUNCTION DOC]
+    # Checks dict_learning_online output shapes with return_code True (code and
+    # dictionary, product shaped like X) and False (dictionary only).
     rng = np.random.RandomState(0)
     n_components = 8
 
@@ -326,6 +391,9 @@ def test_dict_learning_online_shapes():
 
 
 def test_dict_learning_online_lars_positive_parameter():
+    # [FUNCTION DOC]
+    # Checks dict_learning_online with default lars method and positive_code=True
+    # raises ValueError.
     err_msg = "Positive constraint not supported for 'lars' coding method."
     with pytest.raises(ValueError, match=err_msg):
         dict_learning_online(X, batch_size=4, max_iter=10, positive_code=True)
@@ -344,6 +412,8 @@ def test_dict_learning_online_lars_positive_parameter():
 def test_minibatch_dictionary_learning_positivity(
     transform_algorithm, positive_code, positive_dict
 ):
+    # [FUNCTION DOC]
+    # MiniBatchDictionaryLearning counterpart of test_dict_learning_positivity.
     n_components = 8
     dico = MiniBatchDictionaryLearning(
         n_components,
@@ -369,6 +439,8 @@ def test_minibatch_dictionary_learning_positivity(
 
 @pytest.mark.parametrize("positive_dict", [False, True])
 def test_minibatch_dictionary_learning_lars(positive_dict):
+    # [FUNCTION DOC]
+    # Checks positive_dict for MiniBatchDictionaryLearning with lars transform.
     n_components = 8
 
     dico = MiniBatchDictionaryLearning(
@@ -390,6 +462,8 @@ def test_minibatch_dictionary_learning_lars(positive_dict):
 @pytest.mark.parametrize("positive_code", [False, True])
 @pytest.mark.parametrize("positive_dict", [False, True])
 def test_dict_learning_online_positivity(positive_code, positive_dict):
+    # [FUNCTION DOC]
+    # Checks dict_learning_online (cd) honours positive_dict and positive_code.
     rng = np.random.RandomState(0)
     n_components = 8
 
@@ -414,6 +488,12 @@ def test_dict_learning_online_positivity(positive_code, positive_dict):
 
 
 def test_dict_learning_online_verbosity():
+    # [FUNCTION DOC]
+    # Coverage test: runs MiniBatchDictionaryLearning (tol-based and
+    # max_no_improvement stopping, verbose 1 and 2) and dict_learning_online
+    # (verbose 1 and 2) with stdout redirected; only asserts the shape of the last
+    # estimator's components_.
+    # Side effects: temporarily replaces sys.stdout (restored in finally).
     # test verbosity for better coverage
     n_components = 5
     import sys
@@ -467,6 +547,8 @@ def test_dict_learning_online_verbosity():
 
 
 def test_dict_learning_online_estimator_shapes():
+    # [FUNCTION DOC]
+    # Checks MiniBatchDictionaryLearning components_ shape with 5 atoms.
     n_components = 5
     dico = MiniBatchDictionaryLearning(
         n_components, batch_size=4, max_iter=5, random_state=0
@@ -476,6 +558,8 @@ def test_dict_learning_online_estimator_shapes():
 
 
 def test_dict_learning_online_overcomplete():
+    # [FUNCTION DOC]
+    # Checks overcomplete MiniBatchDictionaryLearning components_ shape (12 atoms).
     n_components = 12
     dico = MiniBatchDictionaryLearning(
         n_components, batch_size=4, max_iter=5, random_state=0
@@ -484,6 +568,9 @@ def test_dict_learning_online_overcomplete():
 
 
 def test_dict_learning_online_initialization():
+    # [FUNCTION DOC]
+    # Checks max_iter=0 with dict_init leaves components_ equal to the initial
+    # dictionary.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)
@@ -494,6 +581,8 @@ def test_dict_learning_online_initialization():
 
 
 def test_dict_learning_online_readonly_initialization():
+    # [FUNCTION DOC]
+    # Checks fitting with a read-only (non-writeable) dict_init does not fail.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)
@@ -509,6 +598,13 @@ def test_dict_learning_online_readonly_initialization():
 
 
 def test_dict_learning_online_partial_fit():
+    # [FUNCTION DOC]
+    # Checks fit (10 epochs, batch_size 1, no shuffle, no early stopping) and 10
+    # passes of per-sample partial_fit give the same components_ (2 decimals) and
+    # both report n_steps_ == 100 (partial_fit ignores max_iter, #17433); also checks
+    # the learned dictionary produces non-zero codes.
+    # KNOWN ISSUE: the initial V is divided by its squared row norms rather than the
+    # norms, so rows are not unit-normalized (same pattern in other tests here).
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -539,6 +635,8 @@ def test_dict_learning_online_partial_fit():
 
 
 def test_sparse_encode_shapes():
+    # [FUNCTION DOC]
+    # Checks sparse_encode output shape for every algorithm with 12 atoms.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -551,6 +649,9 @@ def test_sparse_encode_shapes():
 @pytest.mark.parametrize("algo", ["lasso_lars", "lasso_cd", "threshold"])
 @pytest.mark.parametrize("positive", [False, True])
 def test_sparse_encode_positivity(algo, positive):
+    # [FUNCTION DOC]
+    # Checks sparse_encode positive flag: non-negative codes when True, some negative
+    # codes otherwise, for lasso_lars, lasso_cd and threshold.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -564,6 +665,8 @@ def test_sparse_encode_positivity(algo, positive):
 
 @pytest.mark.parametrize("algo", ["lars", "omp"])
 def test_sparse_encode_unavailable_positivity(algo):
+    # [FUNCTION DOC]
+    # Checks sparse_encode with positive=True raises ValueError for lars and omp.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -575,6 +678,9 @@ def test_sparse_encode_unavailable_positivity(algo):
 
 
 def test_sparse_encode_input():
+    # [FUNCTION DOC]
+    # Checks sparse_encode gives the same codes for C-ordered and Fortran-ordered X
+    # for every algorithm.
     n_components = 100
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -587,6 +693,9 @@ def test_sparse_encode_input():
 
 
 def test_sparse_encode_error():
+    # [FUNCTION DOC]
+    # Checks default sparse_encode with alpha=0.001 gives non-zero codes and a
+    # reconstruction error (Frobenius) below 0.1.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -597,6 +706,9 @@ def test_sparse_encode_error():
 
 
 def test_sparse_encode_error_default_sparsity():
+    # [FUNCTION DOC]
+    # Checks omp with n_nonzero_coefs=None on 100x64 data and a 2-atom dictionary
+    # returns shape (100, 2) (warnings ignored).
     rng = np.random.RandomState(0)
     X = rng.randn(100, 64)
     D = rng.randn(2, 64)
@@ -605,6 +717,9 @@ def test_sparse_encode_error_default_sparsity():
 
 
 def test_sparse_coder_estimator():
+    # [FUNCTION DOC]
+    # Checks SparseCoder with lasso_lars gives non-zero codes, reconstruction error
+    # below 0.1, and inverse_transform equals code times dictionary.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.randn(n_components, n_features)  # random init
@@ -620,6 +735,10 @@ def test_sparse_coder_estimator():
 
 
 def test_sparse_coder_estimator_clone():
+    # [FUNCTION DOC]
+    # Checks clone of a SparseCoder is a new object with an equal but distinct
+    # dictionary array, and both transform float32 data identically.
+    # Side effects: test data comes from the unseeded global numpy random state.
     n_components = 12
     rng = np.random.RandomState(0)
     V = rng.normal(size=(n_components, n_features))  # random init
@@ -639,6 +758,10 @@ def test_sparse_coder_estimator_clone():
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_sparse_coder_parallel_mmap():
+    # [FUNCTION DOC]
+    # Non-regression test for issue #5956: SparseCoder omp with n_jobs=2 on >2MB
+    # float32 data (memmapped by joblib to workers) runs without error.
+    # Marked thread-unsafe; data uses the unseeded global numpy random state.
     # Non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/5956
     # Test that SparseCoder does not error by passing reading only
@@ -658,6 +781,9 @@ def test_sparse_coder_parallel_mmap():
 
 
 def test_sparse_coder_common_transformer():
+    # [FUNCTION DOC]
+    # Runs common transformer checks (non-array data, general, general with
+    # read-only memmap, unfitted) on a SparseCoder with a 40x3 dictionary.
     rng = np.random.RandomState(777)
     n_components, n_features = 40, 3
     init_dict = rng.rand(n_components, n_features)
@@ -674,6 +800,8 @@ def test_sparse_coder_common_transformer():
 
 
 def test_sparse_coder_n_features_in():
+    # [FUNCTION DOC]
+    # Checks SparseCoder.fit sets n_features_in_ to the dictionary's feature count.
     d = np.array([[1, 2, 3], [1, 2, 3]])
     X = np.array([[1, 2, 3]])
     sc = SparseCoder(d)
@@ -682,6 +810,9 @@ def test_sparse_coder_n_features_in():
 
 
 def test_sparse_encoder_feature_number_error():
+    # [FUNCTION DOC]
+    # Checks SparseCoder.fit raises ValueError when X has a different number of
+    # features than the dictionary.
     n_components = 10
     rng = np.random.RandomState(0)
     D = rng.uniform(size=(n_components, n_features))
@@ -694,6 +825,11 @@ def test_sparse_encoder_feature_number_error():
 
 
 def test_update_dict():
+    # [FUNCTION DOC]
+    # Non-regression test for #4866: _update_dict in batch mode (from X and code)
+    # and online mode (from sufficient statistics A = code^T code, B = X^T code)
+    # yield the same updated dictionary.
+    # Side effects: _update_dict mutates the dictionary copies in place.
     # Check the dict update in batch mode vs online mode
     # Non-regression test for #4866
     rng = np.random.RandomState(0)
@@ -723,6 +859,8 @@ def test_update_dict():
 # Note: do not check integer input because `lasso_lars` and `lars` fail with
 # `ValueError` in `_lars_path_solver`
 def test_sparse_encode_dtype_match(data_type, algorithm):
+    # [FUNCTION DOC]
+    # Checks sparse_encode preserves float32/float64 dtype for every algorithm.
     n_components = 6
     rng = np.random.RandomState(0)
     dictionary = rng.randn(n_components, n_features)
@@ -736,6 +874,9 @@ def test_sparse_encode_dtype_match(data_type, algorithm):
     "algorithm", ("lasso_lars", "lasso_cd", "lars", "threshold", "omp")
 )
 def test_sparse_encode_numerical_consistency(algorithm):
+    # [FUNCTION DOC]
+    # Checks sparse_encode float32 and float64 codes agree (rtol 1e-4) for every
+    # algorithm.
     # verify numerical consistency among np.float32 and np.float64
     rtol = 1e-4
     n_components = 6
@@ -757,6 +898,9 @@ def test_sparse_encode_numerical_consistency(algorithm):
 # Note: do not check integer input because `lasso_lars` and `lars` fail with
 # `ValueError` in `_lars_path_solver`
 def test_sparse_coder_dtype_match(data_type, transform_algorithm):
+    # [FUNCTION DOC]
+    # Checks SparseCoder.transform preserves float32/float64 dtype for every
+    # transform algorithm.
     # Verify preserving dtype for transform in sparse coder
     n_components = 6
     rng = np.random.RandomState(0)
@@ -787,6 +931,9 @@ def test_dictionary_learning_dtype_match(
     fit_algorithm,
     transform_algorithm,
 ):
+    # [FUNCTION DOC]
+    # Checks DictionaryLearning keeps float32/float64 and upcasts ints to float64
+    # for components_ and transform output, for each fit/transform algorithm.
     # Verify preserving dtype for fit and transform in dictionary learning class
     dict_learner = DictionaryLearning(
         n_components=8,
@@ -818,6 +965,9 @@ def test_minibatch_dictionary_learning_dtype_match(
     fit_algorithm,
     transform_algorithm,
 ):
+    # [FUNCTION DOC]
+    # Same dtype checks for MiniBatchDictionaryLearning, also for the internal
+    # sufficient statistics _A and _B.
     # Verify preserving dtype for fit and transform in minibatch dictionary learning
     dict_learner = MiniBatchDictionaryLearning(
         n_components=8,
@@ -847,6 +997,9 @@ def test_minibatch_dictionary_learning_dtype_match(
     ),
 )
 def test_dict_learning_dtype_match(data_type, expected_type, method):
+    # [FUNCTION DOC]
+    # Checks dict_learning returns code and dictionary with the expected dtype for
+    # lars and cd.
     # Verify output matrix dtype
     rng = np.random.RandomState(0)
     n_components = 8
@@ -863,6 +1016,11 @@ def test_dict_learning_dtype_match(data_type, expected_type, method):
 
 @pytest.mark.parametrize("method", ("lars", "cd"))
 def test_dict_learning_numerical_consistency(method):
+    # [FUNCTION DOC]
+    # Checks dict_learning float32 and float64 solutions agree on invariants (the
+    # product U V, L1 norm of U, squared norm of V, number of non-zeros) since U and
+    # V are only unique up to sign/permutation, and that the solution is not
+    # degenerate (>5% non-zeros).
     # verify numerically consistent among np.float32 and np.float64
     rtol = 1e-4
     n_components = 4
@@ -908,6 +1066,9 @@ def test_dict_learning_numerical_consistency(method):
     ),
 )
 def test_dict_learning_online_dtype_match(data_type, expected_type, method):
+    # [FUNCTION DOC]
+    # Checks dict_learning_online returns code and dictionary with the expected
+    # dtype for lars and cd.
     # Verify output matrix dtype
     rng = np.random.RandomState(0)
     n_components = 8
@@ -925,6 +1086,9 @@ def test_dict_learning_online_dtype_match(data_type, expected_type, method):
 
 @pytest.mark.parametrize("method", ("lars", "cd"))
 def test_dict_learning_online_numerical_consistency(method):
+    # [FUNCTION DOC]
+    # dict_learning_online counterpart of test_dict_learning_numerical_consistency
+    # (1000 iterations, no early stopping).
     # verify numerically consistent among np.float32 and np.float64
     rtol = 1e-4
     n_components = 4
@@ -977,6 +1141,10 @@ def test_dict_learning_online_numerical_consistency(method):
     ids=lambda x: x.__class__.__name__,
 )
 def test_get_feature_names_out(estimator):
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out of SparseCoder, DictionaryLearning and
+    # MiniBatchDictionaryLearning returns "<lowercase class name><i>" for i in
+    # 0..n_features-1 (default n_components resolves to n_features here).
     """Check feature names for dict learning estimators."""
     estimator = clone(estimator)
     estimator.fit(X)
@@ -994,6 +1162,10 @@ def test_get_feature_names_out(estimator):
 # https://github.com/joblib/loky/issues/458
 @pytest.mark.thread_unsafe
 def test_cd_work_on_joblib_memmapped_data(monkeypatch):
+    # [FUNCTION DOC]
+    # Checks DictionaryLearning with cd and n_jobs=2 completes when joblib memmaps
+    # data (Parallel monkeypatched with max_nbytes=100). Marked thread-unsafe.
+    # Side effects: monkeypatches Parallel in the _dict_learning module for the test.
     monkeypatch.setattr(
         sklearn.decomposition._dict_learning,
         "Parallel",
