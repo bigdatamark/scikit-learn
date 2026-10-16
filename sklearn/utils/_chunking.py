@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Utilities to split work into chunks: generic iterator chunking, slice generators for
+# batches and even partitions, and a row-count calculator honouring the working_memory
+# configuration.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -12,6 +16,13 @@ from sklearn.utils._param_validation import Interval, validate_params
 
 
 def chunk_generator(gen, chunksize):
+    # [FUNCTION DOC]
+    # HELPER: Generator that repeatedly takes up to chunksize items from the iterator gen
+    # and yields them as lists, stopping when an empty chunk is obtained.
+    # Inputs: gen - iterator (a plain iterable that is not an iterator would be restarted on
+    # each islice and loop forever); chunksize - positive int.
+    # Outputs: yields lists; the last may be shorter.
+    # Side effects: consumes gen.
     """Chunk generator, ``gen`` into lists of length ``chunksize``. The last
     chunk may have a length less than ``chunksize``."""
     while True:
@@ -31,6 +42,14 @@ def chunk_generator(gen, chunksize):
     prefer_skip_nested_validation=True,
 )
 def gen_batches(n, batch_size, *, min_batch_size=0):
+    # [FUNCTION DOC]
+    # Yields consecutive slices of length batch_size over range(0, n). For each of the
+    # floor(n / batch_size) full batches, a slice is emitted unless the remainder after it
+    # would be smaller than min_batch_size, in which case that batch is skipped; finally, if
+    # anything remains, one slice from the current start to n is emitted (merging the tail).
+    # Inputs: n >= 1, batch_size >= 1, min_batch_size >= 0 (validated by validate_params).
+    # Outputs: generator of slice objects.
+    # Exceptions: InvalidParameterError for out-of-range or non-integer parameters.
     """Generator to create slices containing `batch_size` elements from 0 to `n`.
 
     The last slice may contain less than `batch_size` elements, when
@@ -87,6 +106,13 @@ def gen_batches(n, batch_size, *, min_batch_size=0):
     prefer_skip_nested_validation=True,
 )
 def gen_even_slices(n, n_packs, *, n_samples=None):
+    # [FUNCTION DOC]
+    # Yields n_packs contiguous slices partitioning range(0, n): each gets n // n_packs
+    # elements, and the first n % n_packs slices get one extra. Empty slices (n_packs > n)
+    # are skipped. If n_samples is given, each end is clipped to n_samples.
+    # Inputs: n >= 1, n_packs >= 1, n_samples - optional int >= 1.
+    # Outputs: generator of slice(start, end, None).
+    # Exceptions: InvalidParameterError for invalid parameters.
     """Generator to create `n_packs` evenly spaced slices going up to `n`.
 
     If `n_packs` does not divide `n`, except for the first `n % n_packs`
@@ -138,6 +164,15 @@ def gen_even_slices(n, n_packs, *, n_samples=None):
 
 
 def get_chunk_n_rows(row_bytes, *, max_n_rows=None, working_memory=None):
+    # [FUNCTION DOC]
+    # Computes how many rows of row_bytes each fit in working_memory MiB: floor of
+    # working_memory * 2**20 / row_bytes, capped at max_n_rows if given. If the result is
+    # below 1 a warning is issued and 1 is returned.
+    # Inputs: row_bytes - positive number; max_n_rows - optional int; working_memory - MiB,
+    # defaults to the global config value.
+    # Outputs: int >= 1.
+    # Exceptions: ZeroDivisionError if row_bytes is 0.
+    # Side effects: emits a UserWarning when even one row does not fit; reads global config.
     """Calculate how many rows can be processed within `working_memory`.
 
     Parameters

@@ -1,3 +1,15 @@
+# [PACKAGE DOC]
+# Public entry point of sklearn.utils: re-exports a curated set of general-purpose helpers
+# from private submodules so they can be imported as sklearn.utils.<name>.
+# Exposes: Bunch; chunking generators (gen_batches, gen_even_slices); indexing helpers
+# (_safe_indexing, resample, shuffle, safe_mask); HTML repr (estimator_html_repr and the
+# _HTMLDocumentationLinkMixin kept for compatibility); _align_api_if_sparse; tag
+# dataclasses and get_tags; class/sample weight computation; deprecated decorator;
+# all_estimators; safe_sqr; murmurhash3_32; validation helpers (check_array, check_X_y,
+# check_random_state, check_scalar, etc.); DataConversionWarning; metadata_routing module.
+# __all__ lists these names explicitly.
+# Import-time side effects: imports all listed submodules (validation, tags, html repr,
+# metadata routing, murmurhash compiled extension); no global state is changed here.
 """Various utilities to help with development."""
 
 # Authors: The scikit-learn developers

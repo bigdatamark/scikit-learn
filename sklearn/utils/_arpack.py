@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# HELPER: Small utility module for ARPACK-based eigensolvers (scipy eigsh/svds), providing
+# a reproducible starting vector consistent with ARPACK's own initialisation.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -5,6 +8,16 @@ from sklearn.utils.validation import check_random_state
 
 
 def _init_arpack_v0(size, random_state):
+    # [FUNCTION DOC]
+    # HELPER: Draws a starting vector for ARPACK iterations from Uniform[-1, 1].
+    # Inputs: size - int length of the vector; random_state - None, int seed or RandomState,
+    # normalised through check_random_state.
+    # Outputs: float64 ndarray of shape (size,).
+    # Exceptions: ValueError from check_random_state for an invalid random_state.
+    # Side effects: advances the state of a passed RandomState instance (or the global one
+    # when None).
+    # KNOWN ISSUE: the docstring documents a default of None for random_state, but the
+    # parameter has no default and must be passed.
     """Initialize the starting vector for iteration in ARPACK functions.
 
     Initialize an ndarray with values sampled from the uniform distribution on

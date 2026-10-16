@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for LinearDiscriminantAnalysis and QuadraticDiscriminantAnalysis: solvers
+# (svd, lsqr, eigen), shrinkage and custom covariance estimators, priors,
+# probabilities against closed-form references, transforms, dtypes,
+# regularization and error handling, plus the private _cov helper. Module-level
+# toy datasets (X, X1, X2, X6, X7 with labels y, y3, y4, y6, y7) and the
+# solver_shrinkage list of (solver, shrinkage) pairs are shared across tests.
+
 import warnings
 
 import numpy as np
@@ -71,6 +79,14 @@ solver_shrinkage = [
 
 
 def test_lda_predict():
+    # [FUNCTION DOC]
+    # For each (solver, shrinkage) pair: perfect predictions on separable 2D and 1D
+    # toy data, predict_proba thresholding matches labels, exp(predict_log_proba)
+    # equals predict_proba, and a 3-class non-separable labelling is not perfectly
+    # predicted (regression for prior reuse). Then checks errors: svd with shrinkage
+    # raises NotImplementedError; shrinkage together with covariance_estimator, svd
+    # with covariance_estimator, and a non-covariance estimator (KMeans) raise
+    # ValueError.
     # Test LDA classification.
     # This checks that LDA implements fit and predict and returns correct
     # values for simple toy data.
@@ -136,7 +152,19 @@ def test_lda_predict():
 @pytest.mark.parametrize("n_classes", [2, 3])
 @pytest.mark.parametrize("solver", ["svd", "lsqr", "eigen"])
 def test_lda_predict_proba(solver, n_classes):
+    # [FUNCTION DOC]
+    # Draws 90000 samples from 2 or 3 Gaussians sharing one covariance, fits LDA with
+    # each solver, checks means_ and covariance_ recover the generating values, then
+    # computes the theoretical posterior at one point using the ESL 4.4.5 log-odds
+    # formulation relative to the last class and checks predict_proba matches it
+    # within 1e-2 (also checks the reference probabilities sum to one).
     def generate_dataset(n_samples, centers, covariances, random_state=None):
+        # [FUNCTION DOC]
+        # HELPER: Draws n_samples // n_centers multivariate normal samples per center.
+        # Inputs: n_samples - int; centers - array (n_centers, n_features); covariances -
+        # array (n_centers, n_features, n_features); random_state - seed or None.
+        # Outputs: X of shape (n_centers * (n_samples // n_centers), n_features) and
+        # integer labels y (center index) of matching length.
         """Generate a multivariate normal data given some centers and
         covariances"""
         rng = check_random_state(random_state)
@@ -184,6 +212,10 @@ def test_lda_predict_proba(solver, n_classes):
     sample = np.array([[-22, 22]])
 
     def discriminant_func(sample, coef, intercept, clazz):
+        # [FUNCTION DOC]
+        # HELPER: Returns the exponential of intercept[clazz] plus the dot product of the
+        # sample with coef[clazz], as a Python float (unnormalized odds versus the last
+        # class).
         return np.exp(intercept[clazz] + np.dot(sample, coef[clazz])).item()
 
     prob = np.array(
@@ -230,6 +262,9 @@ def test_lda_predict_proba(solver, n_classes):
 
 
 def test_lda_priors():
+    # [FUNCTION DOC]
+    # Checks negative priors raise ValueError, list priors are accepted, and priors not
+    # summing to one trigger a UserWarning and are renormalized in priors_.
     # Test priors (negative priors)
     priors = np.array([0.5, -0.5])
     clf = LinearDiscriminantAnalysis(priors=priors)
@@ -255,6 +290,8 @@ def test_lda_priors():
 
 
 def test_lda_coefs():
+    # [FUNCTION DOC]
+    # Checks coef_ from svd, lsqr and eigen solvers agree on 2-class blob data.
     # Test if the coefficients of the solvers are approximately the same.
     n_features = 2
     n_classes = 2
@@ -277,6 +314,9 @@ def test_lda_coefs():
 
 
 def test_lda_transform():
+    # [FUNCTION DOC]
+    # Checks svd and eigen transform to n_components=1 columns and that lsqr transform
+    # raises NotImplementedError.
     # Test LDA transform.
     clf = LinearDiscriminantAnalysis(solver="svd", n_components=1)
     X_transformed_svd = clf.fit(X, y).transform(X)
@@ -294,6 +334,9 @@ def test_lda_transform():
 
 
 def test_lda_solver_agreement():
+    # [FUNCTION DOC]
+    # Checks svd and eigen transforms agree up to sign, and decision_function agrees
+    # across svd, eigen and lsqr.
     # Test LDA transform.
     clf = LinearDiscriminantAnalysis(solver="svd", n_components=1)
     X_transformed_svd = clf.fit(X, y).transform(X)
@@ -315,6 +358,9 @@ def test_lda_solver_agreement():
 
 
 def test_lda_explained_variance_ratio():
+    # [FUNCTION DOC]
+    # On random 3-class data, checks explained_variance_ratio_ of eigen and svd has
+    # length 2 (n_classes - 1), sums to 1, and matches between solvers.
     # Test if the sum of the normalized eigen vectors values equals 1,
     # Also tests whether the explained_variance_ratio_ formed by the
     # eigen solver is the same as the explained_variance_ratio_ formed
@@ -345,6 +391,10 @@ def test_lda_explained_variance_ratio():
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_lda_orthogonality(solver):
+    # [FUNCTION DOC]
+    # Builds four symmetric class clouds with kite-shaped means; checks the transformed
+    # within-class scatter has identity covariance, and that the longer between-mean
+    # direction maps onto the first component and the shorter onto the second.
     # arrange four classes with their means in a kite-shaped pattern
     # the longer distance should be transformed to the first component, and
     # the shorter distance to the second component.
@@ -388,6 +438,9 @@ def test_lda_orthogonality(solver):
 
 
 def test_lda_scaling():
+    # [FUNCTION DOC]
+    # Checks perfect training accuracy for all solvers on separable data whose
+    # features have very different scales.
     # Test if classification works correctly with differently scaled features.
     n = 100
     rng = np.random.RandomState(1234)
@@ -405,6 +458,12 @@ def test_lda_scaling():
 
 
 def test_lda_store_covariance():
+    # [FUNCTION DOC]
+    # Checks lsqr and eigen always set covariance_ with the expected values, svd does
+    # not set it by default, and sets it with store_covariance=True.
+    # KNOWN ISSUE: the final store_covariance block reuses the loop variable solver
+    # (left as "eigen") instead of "svd", so the svd store_covariance path is not
+    # actually tested.
     # Test for solver 'lsqr' and 'eigen'
     # 'store_covariance' has no effect on 'lsqr' and 'eigen' solvers
     for solver in ("lsqr", "eigen"):
@@ -436,6 +495,9 @@ def test_lda_store_covariance():
 
 @pytest.mark.parametrize("seed", range(10))
 def test_lda_shrinkage(seed):
+    # [FUNCTION DOC]
+    # For several seeds, checks shrinkage=0.5 gives the same means_ and covariance_ as
+    # covariance_estimator=ShrunkCovariance(shrinkage=0.5) with lsqr.
     # Test that shrunk covariance estimator and shrinkage parameter behave the
     # same
     rng = np.random.RandomState(seed)
@@ -454,11 +516,20 @@ def test_lda_shrinkage(seed):
 
 
 def test_lda_ledoitwolf():
+    # [FUNCTION DOC]
+    # Checks shrinkage="auto" equals using a custom estimator that standardizes data,
+    # applies Ledoit-Wolf and rescales back (means_ and covariance_ compared).
     # When shrinkage="auto" current implementation uses ledoitwolf estimation
     # of covariance after standardizing the data. This checks that it is indeed
     # the case
     class StandardizedLedoitWolf:
+        # [CLASS DOC]
+        # HELPER: Minimal covariance estimator reproducing LDA's "auto" shrinkage.
         def fit(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Standardizes X, computes the Ledoit-Wolf covariance of the standardized
+            # data, rescales it by the outer product of feature scales and stores it in
+            # self.covariance_. Returns None.
             sc = StandardScaler()  # standardize features
             X_sc = sc.fit_transform(X)
             s = ledoit_wolf(X_sc)[0]
@@ -486,6 +557,10 @@ def test_lda_ledoitwolf():
 @pytest.mark.parametrize("n_features", [3, 5])
 @pytest.mark.parametrize("n_classes", [5, 3])
 def test_lda_dimension_warning(n_classes, n_features):
+    # [FUNCTION DOC]
+    # Checks n_components up to min(n_features, n_classes - 1) (or None) fits, and
+    # larger values raise ValueError "n_components cannot be larger than".
+    # KNOWN ISSUE: the name says "warning" but the behavior tested is an error.
     rng = check_random_state(0)
     n_samples = 10
     X = rng.randn(n_samples, n_features)
@@ -520,6 +595,9 @@ def test_lda_dimension_warning(n_classes, n_features):
     ],
 )
 def test_lda_dtype_match(data_type, expected_type):
+    # [FUNCTION DOC]
+    # Checks coef_ dtype is float32 for float32 input and float64 for float64/int
+    # input across all solver/shrinkage pairs.
     for solver, shrinkage in solver_shrinkage:
         clf = LinearDiscriminantAnalysis(solver=solver, shrinkage=shrinkage)
         clf.fit(X.astype(data_type), y.astype(data_type))
@@ -527,6 +605,8 @@ def test_lda_dtype_match(data_type, expected_type):
 
 
 def test_lda_numeric_consistency_float32_float64():
+    # [FUNCTION DOC]
+    # Checks coef_ from float32 and float64 fits agree to rtol 1e-6.
     for solver, shrinkage in solver_shrinkage:
         clf_32 = LinearDiscriminantAnalysis(solver=solver, shrinkage=shrinkage)
         clf_32.fit(X.astype(np.float32), y.astype(np.float32))
@@ -540,6 +620,10 @@ def test_lda_numeric_consistency_float32_float64():
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_qda(solver):
+    # [FUNCTION DOC]
+    # Checks QDA (svd and eigen) perfect predictions on 2D and 1D toy data, proba and
+    # log-proba consistency, failure to separate a random labelling, and ValueError
+    # when a class has a single sample.
     # QDA classification.
     # This checks that QDA implements fit and predict and returns
     # correct values for a simple toy dataset.
@@ -567,6 +651,10 @@ def test_qda(solver):
 
 
 def test_qda_covariance_estimator():
+    # [FUNCTION DOC]
+    # Checks QDA errors: svd with shrinkage raises NotImplementedError; shrinkage plus
+    # covariance_estimator, svd with covariance_estimator and a non-covariance
+    # estimator raise ValueError.
     # Test that the correct errors are raised when using inappropriate
     # covariance estimators or shrinkage parameters with QDA.
     clf = QuadraticDiscriminantAnalysis(solver="svd", shrinkage="auto")
@@ -601,11 +689,20 @@ def test_qda_covariance_estimator():
 
 
 def test_qda_ledoitwolf(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks QDA eigen with shrinkage="auto" matches a custom standardized Ledoit-Wolf
+    # estimator (means_ and covariance_).
     # When shrinkage="auto" current implementation uses ledoitwolf estimation
     # of covariance after standardizing the data. This checks that it is indeed
     # the case
     class StandardizedLedoitWolf:
+        # [CLASS DOC]
+        # HELPER: Same standardized Ledoit-Wolf covariance estimator as in
+        # test_lda_ledoitwolf.
         def fit(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Standardizes X, applies ledoit_wolf, rescales by feature scales, stores
+            # self.covariance_.
             sc = StandardScaler()  # standardize features
             X_sc = sc.fit_transform(X)
             s = ledoit_wolf(X_sc)[0]
@@ -631,6 +728,9 @@ def test_qda_ledoitwolf(global_random_seed):
 
 
 def test_qda_coefs(global_random_seed):
+    # [FUNCTION DOC]
+    # Checks svd and eigen solvers give the same per-class rotations_ (up to sign) and
+    # scalings_ on blobs with different spreads.
     # Test if the coefficients of the solvers are approximately the same.
     n_features = 2
     n_classes = 2
@@ -664,6 +764,9 @@ def test_qda_coefs(global_random_seed):
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_qda_priors(solver):
+    # [FUNCTION DOC]
+    # Checks that a near-zero prior on class 1 increases the number of predictions of
+    # class 2.
     clf = QuadraticDiscriminantAnalysis(solver=solver)
     y_pred = clf.fit(X, y).predict(X)
     n_pos = np.sum(y_pred == 2)
@@ -678,6 +781,8 @@ def test_qda_priors(solver):
 
 @pytest.mark.parametrize("priors_type", ["list", "tuple", "array"])
 def test_qda_prior_type(priors_type):
+    # [FUNCTION DOC]
+    # Checks priors given as list, tuple or array are stored as an ndarray priors_.
     """Check that priors accept array-like."""
     priors = [0.5, 0.5]
     clf = QuadraticDiscriminantAnalysis(
@@ -688,6 +793,9 @@ def test_qda_prior_type(priors_type):
 
 
 def test_qda_prior_copy():
+    # [FUNCTION DOC]
+    # Checks priors_ is a copy: mutating the priors array after fit does not change
+    # priors_.
     """Check that altering `priors` without `fit` doesn't change `priors_`"""
     priors = np.array([0.5, 0.5])
     qda = QuadraticDiscriminantAnalysis(priors=priors).fit(X, y)
@@ -702,6 +810,9 @@ def test_qda_prior_copy():
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_qda_store_covariance(solver):
+    # [FUNCTION DOC]
+    # Checks covariance_ is absent by default and, with store_covariance=True, equals
+    # the per-class EmpiricalCovariance.
     # The default is to not set the covariances_ attribute
     clf = QuadraticDiscriminantAnalysis(solver=solver).fit(X6, y6)
     assert not hasattr(clf, "covariance_")
@@ -721,6 +832,15 @@ def test_qda_store_covariance(solver):
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_qda_regularization(global_random_seed, solver):
+    # [FUNCTION DOC]
+    # Checks a constant feature without regularization raises LinAlgError (not full
+    # rank) and leaves the model unfitted (predict raises AttributeError); with
+    # reg_param (svd) or shrinkage (eigen) fitting works and predicts perfectly. With
+    # fewer samples per class than features, svd still raises even with reg_param,
+    # while eigen with shrinkage fits.
+    # KNOWN ISSUE: the warnings.catch_warnings block that turns warnings into errors
+    # has an empty body (the fit is dedented outside it), so no "no warning" check is
+    # performed.
     # The default is reg_param=0. and will cause issues when there is a
     # constant variable.
     rng = np.random.default_rng(global_random_seed)
@@ -774,6 +894,9 @@ def test_qda_regularization(global_random_seed, solver):
 
 
 def test_covariance():
+    # [FUNCTION DOC]
+    # Checks _cov with "empirical" and "auto" shrinkage returns symmetric matrices on
+    # correlated data.
     x, y = make_blobs(n_samples=100, n_features=5, centers=1, random_state=42)
 
     # make features correlated
@@ -788,6 +911,8 @@ def test_covariance():
 
 @pytest.mark.parametrize("solver", ["svd", "lsqr", "eigen"])
 def test_raises_value_error_on_same_number_of_classes_and_samples(solver):
+    # [FUNCTION DOC]
+    # Checks LDA raises ValueError when n_samples equals n_classes.
     """
     Tests that if the number of samples equals the number
     of classes, a ValueError is raised.
@@ -801,6 +926,8 @@ def test_raises_value_error_on_same_number_of_classes_and_samples(solver):
 
 @pytest.mark.parametrize("solver", ["svd", "eigen"])
 def test_raises_value_error_on_one_sample_per_class(solver):
+    # [FUNCTION DOC]
+    # Checks QDA raises ValueError when a class has only one sample.
     """
     Tests that if a class has one sample, a ValueError is raised.
     """
@@ -812,6 +939,9 @@ def test_raises_value_error_on_one_sample_per_class(solver):
 
 
 def test_get_feature_names_out():
+    # [FUNCTION DOC]
+    # Checks LDA get_feature_names_out returns "lineardiscriminantanalysis<i>" for each
+    # output component, as an object array.
     """Check get_feature_names_out uses class name as prefix."""
 
     est = LinearDiscriminantAnalysis().fit(X, y)
@@ -834,6 +964,13 @@ def test_get_feature_names_out():
 def test_qda_shrinkage_performance(
     global_random_seed, n_features, train_size, solver_no_shrinkage
 ):
+    # [FUNCTION DOC]
+    # Two zero-mean Gaussian classes with different variances, 25 features, 100
+    # training samples per split: checks QDA eigen with "auto" shrinkage has mean
+    # d2_brier_score above 0.9 while unshrunk svd/eigen is below 0.6.
+    # KNOWN ISSUE: samples are drawn from the unseeded global np.random instead of the
+    # seeded rng, so the data is not reproducible from global_random_seed.
+    # KNOWN ISSUE: the line reassigning n_features to itself is a no-op.
     # Test that QDA with shrinkage performs better than without shrinkage on
     # a case where there's a small number of samples per class relative to
     # the number of features.
@@ -875,6 +1012,8 @@ def test_qda_shrinkage_performance(
 
 
 def test_qda_solver_agreement():
+    # [FUNCTION DOC]
+    # Checks QDA svd and eigen decision_function agree on toy data.
     qda_svd = QuadraticDiscriminantAnalysis(solver="svd")
     qda_eigen = QuadraticDiscriminantAnalysis(solver="eigen")
 

@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests that public functions decorated with validate_params (and public functions
+# wrapping estimators) raise InvalidParameterError with an informative message for
+# parameters of invalid type or value, and that their declared constraints exactly
+# match their signature. Two lists drive parametrization: plain validated functions
+# and (function, estimator class) wrapper pairs.
 from importlib import import_module
 from inspect import signature
 from numbers import Integral, Real
@@ -14,6 +20,15 @@ from sklearn.utils._param_validation import (
 
 
 def _get_func_info(func_module):
+    # [FUNCTION DOC]
+    # HELPER: Resolves a dotted path "package.module.func" into the function object and
+    # introspects its signature.
+    # Inputs: func_module - str, fully qualified dotted name of a function.
+    # Outputs: tuple (func, func_name, func_params, required_params) where func_params
+    # lists all named parameters excluding var-positional/var-keyword ones, and
+    # required_params is the subset without a default value.
+    # Exceptions: ImportError / AttributeError if the module or function does not exist.
+    # Side effects: imports the module.
     module_name, func_name = func_module.rsplit(".", 1)
     module = import_module(module_name)
     func = getattr(module, func_name)
@@ -39,6 +54,25 @@ def _get_func_info(func_module):
 def _check_function_param_validation(
     func, func_name, func_params, required_params, parameter_constraints
 ):
+    # [FUNCTION DOC]
+    # HELPER: Core checker. First builds valid values for every required parameter (1 for
+    # "no_validation", otherwise a value generated from the first constraint). Asserts the
+    # constraint dict keys equal the function parameter names. Then for each validated
+    # parameter: rejects constraint lists mixing Integral and Real intervals, checks that
+    # passing an instance of a fresh dummy type raises InvalidParameterError matching
+    # "The '<param>' parameter of <func> must be ... Got ... instead.", and for each
+    # constraint for which an invalid value can be generated, checks that value raises
+    # the same error.
+    # Inputs: func - callable; func_name - str; func_params - list of names;
+    # required_params - list of names; parameter_constraints - dict name -> list of
+    # constraints or "no_validation".
+    # Outputs: None.
+    # Exceptions: AssertionError on key mismatch; ValueError on mixed Integral/Real
+    # intervals; pytest failure when no or wrong error is raised.
+    # Side effects: calls func many times (may trigger I/O for dataset fetchers only if
+    # validation does not fail first).
+    # Note: the pytest.fail calls inside pytest.raises only run if func does not
+    # raise, giving a custom failure message.
     """Check that an informative error is raised when the value of a parameter does not
     have an appropriate type or value.
     """
@@ -338,6 +372,11 @@ PARAM_VALIDATION_FUNCTION_LIST = [
 
 @pytest.mark.parametrize("func_module", PARAM_VALIDATION_FUNCTION_LIST)
 def test_function_param_validation(func_module):
+    # [FUNCTION DOC]
+    # Verifies parameter validation for each function in PARAM_VALIDATION_FUNCTION_LIST
+    # by reading its _skl_parameter_constraints attribute (set by validate_params) and
+    # running _check_function_param_validation.
+    # Inputs: func_module - dotted name of the function (parametrized).
     """Check param validation for public functions that are not wrappers around
     estimators.
     """
@@ -381,6 +420,12 @@ PARAM_VALIDATION_CLASS_WRAPPER_LIST = [
     "func_module, class_module", PARAM_VALIDATION_CLASS_WRAPPER_LIST
 )
 def test_class_wrapper_param_validation(func_module, class_module):
+    # [FUNCTION DOC]
+    # Verifies parameter validation for public functions wrapping estimators: merges the
+    # estimator class _parameter_constraints with the function's
+    # _skl_parameter_constraints (function entries win), keeps only keys that are
+    # function parameters, then runs _check_function_param_validation.
+    # Inputs: func_module - dotted function name; class_module - dotted class name.
     """Check param validation for public functions that are wrappers around
     estimators.
     """

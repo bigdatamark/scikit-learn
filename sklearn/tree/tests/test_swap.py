@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the Cython helper _py_swap_array_slices from sklearn.tree._partitioner,
+# which swaps two adjacent slices of an array in place.
 import numpy as np
 import pytest
 
@@ -6,7 +9,16 @@ from sklearn.tree._partitioner import _py_swap_array_slices
 
 @pytest.mark.parametrize("dtype", [np.float32, np.intp])
 def test_py_swap_array_slices_random(dtype, global_random_seed):
+    # [FUNCTION DOC]
+    # Compares _py_swap_array_slices against a NumPy reference on 20 random arrays and
+    # slice boundaries, then checks the no-op edge cases where n equals end - start and
+    # where n is 0.
+    # Inputs: dtype - float32 or intp (parametrized); global_random_seed fixture.
     def swap_slices_np(arr, start, end, n):
+        # [FUNCTION DOC]
+        # HELPER: NumPy reference implementation; returns a copy of arr where the slice
+        # [start, start+n) is moved after the slice [start+n, end), preserving the order
+        # inside each slice. Input arr is not modified.
         """
         Swaps the two slices array[start:start + n] and
         array[start + n:end] while preserving the order in the slices.

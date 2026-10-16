@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.base: clone semantics, repr/str, get_params/set_params,
+# is_classifier/is_regressor/is_clusterer, scoring with sample weights, pickling with
+# version warnings, __sklearn_tags__ inheritance, set_output / feature-name
+# validation, n_features_in_ checks, HTML repr and related BaseEstimator behavior.
+# Defines several small dummy estimator classes used by these tests.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -43,84 +49,134 @@ from sklearn.utils.validation import _check_n_features, validate_data
 #############################################################################
 # A few test classes
 class MyEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with two params, l1 and empty, used in clone/repr tests.
     def __init__(self, l1=0, empty=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores l1 (default 0) and empty (default None) unchanged.
         self.l1 = l1
         self.empty = empty
 
 
 class K(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with params c and d, used as a nested sub-estimator.
     def __init__(self, c=None, d=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores c and d unchanged.
         self.c = c
         self.d = d
 
 
 class T(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Minimal estimator with params a and b, used to hold nested estimators.
     def __init__(self, a=None, b=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores a and b unchanged.
         self.a = a
         self.b = b
 
 
 class NaNTag(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose tags set input_tags.allow_nan to True.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with allow_nan set True.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = True
         return tags
 
 
 class NoNaNTag(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator whose tags set input_tags.allow_nan to False.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns parent tags with allow_nan set False.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = False
         return tags
 
 
 class OverrideTag(NaNTag):
+    # [CLASS DOC]
+    # HELPER: Subclass of NaNTag overriding allow_nan back to False.
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Calls NaNTag's tags then sets allow_nan False.
         tags = super().__sklearn_tags__()
         tags.input_tags.allow_nan = False
         return tags
 
 
 class DiamondOverwriteTag(NaNTag, NoNaNTag):
+    # [CLASS DOC]
+    # HELPER: Diamond inheritance (NaNTag, NoNaNTag); per MRO NaNTag runs last so
+    # allow_nan ends True.
     pass
 
 
 class InheritDiamondOverwriteTag(DiamondOverwriteTag):
+    # [CLASS DOC]
+    # HELPER: Subclass of DiamondOverwriteTag inheriting its tag resolution unchanged.
     pass
 
 
 class ModifyInitParams(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator that copies its parameter in __init__, violating the clone
+    # contract (stored param is not the passed object).
     """Deprecated behavior.
     Equal parameters but with a type cast.
     Doesn't fulfill a is a
     """
 
     def __init__(self, a=np.array([0])):
+        # [FUNCTION DOC]
+        # HELPER: Stores a copy of a (default array [0]).
         self.a = a.copy()
 
 
 class Buggy(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator ignoring its constructor argument (always sets a = 1).
     "A buggy estimator that does not set its parameters right."
 
     def __init__(self, a=None):
+        # [FUNCTION DOC]
+        # HELPER: Sets self.a to 1 regardless of the passed a.
         self.a = 1
 
 
 class NoEstimator:
+    # [CLASS DOC]
+    # HELPER: Object with fit/predict but no get_params; not a valid estimator.
     def __init__(self):
+        # [FUNCTION DOC]
+        # HELPER: Does nothing.
         pass
 
     def fit(self, X=None, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns self.
         return self
 
     def predict(self, X=None):
+        # [FUNCTION DOC]
+        # HELPER: Returns None.
         return None
 
 
 class VargEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator with *vargs in __init__, which get_params rejects.
     """scikit-learn estimators shouldn't have vargs."""
 
     def __init__(self, *vargs):
+        # [FUNCTION DOC]
+        # HELPER: Accepts and ignores positional varargs.
         pass
 
 
@@ -129,6 +185,9 @@ class VargEstimator(BaseEstimator):
 
 
 def test_clone():
+    # [FUNCTION DOC]
+    # Verifies clone returns a different object with equal get_params for SelectFpr,
+    # including when alpha is a numpy array.
     # Tests that clone creates a correct deep copy.
     # We create an estimator, make a copy of its original state
     # (which, in this case, is the current state of the estimator),
@@ -147,6 +206,8 @@ def test_clone():
 
 
 def test_clone_2():
+    # [FUNCTION DOC]
+    # Verifies clone does not copy non-parameter attributes set on the instance.
     # Tests that clone doesn't copy everything.
     # We first create an estimator, give it an own attribute, and
     # make a copy of its original state. Then we check that the copy doesn't
@@ -161,6 +222,9 @@ def test_clone_2():
 
 
 def test_clone_buggy():
+    # [FUNCTION DOC]
+    # Verifies clone raises RuntimeError for Buggy, VargEstimator and ModifyInitParams,
+    # and TypeError for an object without get_params (NoEstimator).
     # Check that clone raises an error on buggy estimators.
     buggy = Buggy()
     buggy.a = 2
@@ -181,6 +245,9 @@ def test_clone_buggy():
 
 
 def test_clone_empty_array():
+    # [FUNCTION DOC]
+    # Verifies cloning preserves an empty numpy array and 1x1 sparse csr matrix/array
+    # parameters (data compared).
     # Regression test for cloning estimators with empty arrays
     clf = MyEstimator(empty=np.array([]))
     clf2 = clone(clf)
@@ -196,6 +263,8 @@ def test_clone_empty_array():
 
 
 def test_clone_nan():
+    # [FUNCTION DOC]
+    # Verifies a np.nan parameter survives clone as the identical object.
     # Regression test for cloning estimators with default parameter as np.nan
     clf = MyEstimator(empty=np.nan)
     clf2 = clone(clf)
@@ -204,6 +273,8 @@ def test_clone_nan():
 
 
 def test_clone_dict():
+    # [FUNCTION DOC]
+    # Verifies cloning a dict clones the estimators it contains.
     # test that clone creates a clone of a dict
     orig = {"a": MyEstimator()}
     cloned = clone(orig)
@@ -211,6 +282,9 @@ def test_clone_dict():
 
 
 def test_clone_sparse_matrices():
+    # [FUNCTION DOC]
+    # Verifies that for every scipy.sparse *_matrix / *_array class, a parameter holding
+    # such a 5x5 identity is cloned to the same class with equal contents.
     sparse_matrix_classes = [
         cls
         for name in dir(sp)
@@ -227,6 +301,8 @@ def test_clone_sparse_matrices():
 
 
 def test_clone_estimator_types():
+    # [FUNCTION DOC]
+    # Verifies a class (type) parameter is kept by identity, not cloned.
     # Check that clone works for parameters that are types rather than
     # instances
     clf = MyEstimator(empty=MyEstimator)
@@ -236,6 +312,8 @@ def test_clone_estimator_types():
 
 
 def test_clone_class_rather_than_instance():
+    # [FUNCTION DOC]
+    # Verifies cloning a class instead of an instance raises TypeError with a clear message.
     # Check that clone raises expected error message when
     # cloning class rather than instance
     msg = "You should provide an instance of scikit-learn estimator"
@@ -245,6 +323,10 @@ def test_clone_class_rather_than_instance():
 
 # TODO (1.11): remove svc test for predict_proba after it is deprecated
 def test_conditional_attrs_not_in_dir():
+    # [FUNCTION DOC]
+    # Verifies __dir__ hides conditionally available methods: set_output absent for
+    # LabelEncoder but present for StandardScaler, and predict_proba on SVC follows the
+    # probability flag.
     # Test that __dir__ includes only relevant attributes. #28558
 
     encoder = LabelEncoder()
@@ -261,6 +343,9 @@ def test_conditional_attrs_not_in_dir():
 
 
 def test_repr():
+    # [FUNCTION DOC]
+    # Verifies repr of nested estimators ("T(a=K(), b=K())") and that a very long list
+    # parameter is ellipsized to a repr of length 485.
     # Smoke test the repr of the base estimator.
     my_estimator = MyEstimator()
     repr(my_estimator)
@@ -272,12 +357,17 @@ def test_repr():
 
 
 def test_str():
+    # [FUNCTION DOC]
+    # Smoke test that str() works on an estimator.
     # Smoke test the str of the base estimator
     my_estimator = MyEstimator()
     str(my_estimator)
 
 
 def test_get_params():
+    # [FUNCTION DOC]
+    # Verifies deep get_params exposes nested "a__d" while shallow does not, that
+    # set_params(a__d=2) sets the nested value, and invalid nested param raises ValueError.
     test = T(K(), K)
 
     assert "a__d" in test.get_params(deep=True)
@@ -304,6 +394,9 @@ def test_get_params():
     ],
 )
 def test_is_classifier(estimator, expected_result):
+    # [FUNCTION DOC]
+    # Verifies is_classifier on plain, grid-searched and pipelined SVC/SVR.
+    # Inputs: estimator, expected_result - parametrized.
     assert is_classifier(estimator) == expected_result
 
 
@@ -321,6 +414,8 @@ def test_is_classifier(estimator, expected_result):
     ],
 )
 def test_is_regressor(estimator, expected_result):
+    # [FUNCTION DOC]
+    # Verifies is_regressor on plain, grid-searched and pipelined SVR/SVC.
     assert is_regressor(estimator) == expected_result
 
 
@@ -338,10 +433,15 @@ def test_is_regressor(estimator, expected_result):
     ],
 )
 def test_is_clusterer(estimator, expected_result):
+    # [FUNCTION DOC]
+    # Verifies is_clusterer on plain, grid-searched and pipelined KMeans/SVC.
     assert is_clusterer(estimator) == expected_result
 
 
 def test_set_params():
+    # [FUNCTION DOC]
+    # Verifies Pipeline.set_params raises ValueError for unknown nested parameter names
+    # and unknown step names.
     # test nested estimator parameter setting
     clf = Pipeline([("svc", SVC())])
 
@@ -360,11 +460,20 @@ def test_set_params():
 
 
 def test_set_params_passes_all_parameters():
+    # [FUNCTION DOC]
+    # Regression test (#9944): nested set_params on Pipeline and GridSearchCV passes all
+    # nested params in a single call to the sub-estimator; asserted inside the override.
     # Make sure all parameters are passed together to set_params
     # of nested estimator. Regression test for #9944
 
     class TestDecisionTree(DecisionTreeClassifier):
+        # [CLASS DOC]
+        # HELPER: DecisionTreeClassifier whose set_params asserts it received exactly the
+        # expected kwargs (closure variable expected_kwargs).
         def set_params(self, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Delegates to parent set_params, asserts kwargs equal expected_kwargs,
+            # returns self. Raises AssertionError otherwise.
             super().set_params(**kwargs)
             # expected_kwargs is in test scope
             assert kwargs == expected_kwargs
@@ -379,6 +488,9 @@ def test_set_params_passes_all_parameters():
 
 
 def test_set_params_updates_valid_params():
+    # [FUNCTION DOC]
+    # Verifies set_params replacing estimator and setting estimator__C in one call applies
+    # C to the new SVC rather than the old tree.
     # Check that set_params tries to set SVC().C, not
     # DecisionTreeClassifier().C
     gscv = GridSearchCV(DecisionTreeClassifier(), {})
@@ -400,6 +512,9 @@ def test_set_params_updates_valid_params():
     ],
 )
 def test_score_sample_weight(tree, dataset):
+    # [FUNCTION DOC]
+    # Verifies tree.score differs with random integer sample_weight vs. unweighted, for a
+    # classifier and a regressor.
     tree = clone(tree)  # avoid side effects from previous tests.
     rng = np.random.RandomState(0)
     # check that the score with and without sample weights are different
@@ -415,7 +530,12 @@ def test_score_sample_weight(tree, dataset):
 
 
 def test_clone_pandas_dataframe():
+    # [FUNCTION DOC]
+    # Verifies cloning an estimator holding a MockDataFrame parameter keeps an equal
+    # frame and scalar param.
     class DummyEstimator(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer with a dataframe param and a scalar param; fit/transform no-ops.
         """This is a dummy class for generating numerical features
 
         This feature extractor extracts numerical features from pandas data
@@ -432,13 +552,19 @@ def test_clone_pandas_dataframe():
         """
 
         def __init__(self, df=None, scalar_param=1):
+            # [FUNCTION DOC]
+            # HELPER: Stores df and scalar_param.
             self.df = df
             self.scalar_param = scalar_param
 
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: No-op returning None.
             pass
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: No-op returning None.
             pass
 
     # build and clone estimator
@@ -453,22 +579,38 @@ def test_clone_pandas_dataframe():
 
 
 def test_clone_protocol():
+    # [FUNCTION DOC]
+    # Verifies the __sklearn_clone__ protocol using a frozen wrapper: attribute access
+    # delegates to the fitted PCA, fit/fit_transform leave components_ unchanged, and
+    # clone returns the same object.
     """Checks that clone works with `__sklearn_clone__` protocol."""
 
     class FrozenEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Wrapper around a fitted estimator that ignores refitting and clones to itself.
         def __init__(self, fitted_estimator):
+            # [FUNCTION DOC]
+            # HELPER: Stores the fitted estimator.
             self.fitted_estimator = fitted_estimator
 
         def __getattr__(self, name):
+            # [FUNCTION DOC]
+            # HELPER: Delegates missing attribute lookups to fitted_estimator.
             return getattr(self.fitted_estimator, name)
 
         def __sklearn_clone__(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns self, making clone a no-op.
             return self
 
         def fit(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Ignores arguments; returns self.
             return self
 
         def fit_transform(self, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Returns fitted_estimator.transform of the arguments without refitting.
             return self.fitted_estimator.transform(*args, **kwargs)
 
     X = np.array([[-1, -1], [-2, -1], [-3, -2]])
@@ -497,6 +639,9 @@ def test_clone_protocol():
 
 
 def test_pickle_version_warning_is_not_raised_with_matching_version():
+    # [FUNCTION DOC]
+    # Verifies pickles contain _sklearn_version and that unpickling with matching version
+    # emits no warning (warnings as errors) and gives the same score.
     iris = datasets.load_iris()
     tree = DecisionTreeClassifier().fit(iris.data, iris.target)
     tree_pickle = pickle.dumps(tree)
@@ -513,7 +658,11 @@ def test_pickle_version_warning_is_not_raised_with_matching_version():
 
 
 class TreeBadVersion(DecisionTreeClassifier):
+    # [CLASS DOC]
+    # HELPER: Tree whose pickle state reports _sklearn_version "something".
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns a copy of __dict__ with _sklearn_version overridden.
         return dict(self.__dict__.items(), _sklearn_version="something")
 
 
@@ -527,6 +676,9 @@ pickle_error_message = (
 
 
 def test_pickle_version_warning_is_issued_upon_different_version():
+    # [FUNCTION DOC]
+    # Verifies unpickling with a different version emits InconsistentVersionWarning with
+    # correct estimator name, original and current version attributes.
     iris = datasets.load_iris()
     tree = TreeBadVersion().fit(iris.data, iris.target)
     tree_pickle_other = pickle.dumps(tree)
@@ -546,11 +698,17 @@ def test_pickle_version_warning_is_issued_upon_different_version():
 
 
 class TreeNoVersion(DecisionTreeClassifier):
+    # [CLASS DOC]
+    # HELPER: Tree whose pickle state omits _sklearn_version (pre-0.18 style).
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns __dict__ directly (no version key).
         return self.__dict__
 
 
 def test_pickle_version_warning_is_issued_when_no_version_info_in_pickle():
+    # [FUNCTION DOC]
+    # Verifies unpickling a version-less pickle warns with old_version "pre-0.18".
     iris = datasets.load_iris()
     # TreeNoVersion has no getstate, like pre-0.18
     tree = TreeNoVersion().fit(iris.data, iris.target)
@@ -570,6 +728,10 @@ def test_pickle_version_warning_is_issued_when_no_version_info_in_pickle():
 # The test modifies global state by changing the TreeNoVersion class
 @pytest.mark.thread_unsafe
 def test_pickle_version_no_warning_is_issued_with_non_sklearn_estimator():
+    # [FUNCTION DOC]
+    # Verifies no warning when the unpickled class's module is not sklearn, by temporarily
+    # setting TreeNoVersion.__module__ to "notsklearn" (restored in finally).
+    # Side effects: temporarily mutates a module-level class (thread_unsafe).
     iris = datasets.load_iris()
     tree = TreeNoVersion().fit(iris.data, iris.target)
     tree_pickle_noversion = pickle.dumps(tree)
@@ -586,23 +748,38 @@ def test_pickle_version_no_warning_is_issued_with_non_sklearn_estimator():
 
 
 class DontPickleAttributeMixin:
+    # [CLASS DOC]
+    # HELPER: Mixin whose pickling sets _attribute_not_pickled to None and whose unpickling
+    # sets _restored True.
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns a copy of __dict__ with _attribute_not_pickled set to None.
         data = self.__dict__.copy()
         data["_attribute_not_pickled"] = None
         return data
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # HELPER: Sets state["_restored"] = True (mutating state) and updates __dict__.
         state["_restored"] = True
         self.__dict__.update(state)
 
 
 class MultiInheritanceEstimator(DontPickleAttributeMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator combining DontPickleAttributeMixin with BaseEstimator, to test that
+    # a mixin's __getstate__/__setstate__ take precedence.
     def __init__(self, attribute_pickled=5):
+        # [FUNCTION DOC]
+        # HELPER: Stores attribute_pickled (default 5) and sets _attribute_not_pickled to None.
         self.attribute_pickled = attribute_pickled
         self._attribute_not_pickled = None
 
 
 def test_pickling_when_getstate_is_overwritten_by_mixin():
+    # [FUNCTION DOC]
+    # Verifies pickle round-trip uses the mixin's getstate/setstate: the public param is
+    # kept, _attribute_not_pickled becomes None and _restored is set.
     estimator = MultiInheritanceEstimator()
     estimator._attribute_not_pickled = "this attribute should not be pickled"
 
@@ -614,6 +791,12 @@ def test_pickling_when_getstate_is_overwritten_by_mixin():
 
 
 def test_pickling_when_getstate_is_overwritten_by_mixin_outside_of_sklearn():
+    # [FUNCTION DOC]
+    # Verifies, with the class's __module__ temporarily set to "notsklearn", that the mixin
+    # __getstate__ returns no _sklearn_version and __setstate__ restores given values.
+    # Side effects: mutates MultiInheritanceEstimator.__module__, restored in finally.
+    # KNOWN ISSUE: not marked thread_unsafe though it mutates a module-level class, and if
+    # construction failed, old_mod would be undefined in the finally clause.
     try:
         estimator = MultiInheritanceEstimator()
         text = "this attribute should not be pickled"
@@ -633,17 +816,25 @@ def test_pickling_when_getstate_is_overwritten_by_mixin_outside_of_sklearn():
 
 
 class SingleInheritanceEstimator(BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator overriding __getstate__ to blank _attribute_not_pickled.
     def __init__(self, attribute_pickled=5):
+        # [FUNCTION DOC]
+        # HELPER: Stores attribute_pickled and sets _attribute_not_pickled to None.
         self.attribute_pickled = attribute_pickled
         self._attribute_not_pickled = None
 
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns BaseEstimator's state with _attribute_not_pickled set to None.
         state = super().__getstate__()
         state["_attribute_not_pickled"] = None
         return state
 
 
 def test_pickling_works_when_getstate_is_overwritten_in_the_child_class():
+    # [FUNCTION DOC]
+    # Verifies a child-class __getstate__ override is honored during pickle round-trip.
     estimator = SingleInheritanceEstimator()
     estimator._attribute_not_pickled = "this attribute should not be pickled"
 
@@ -654,6 +845,11 @@ def test_pickling_works_when_getstate_is_overwritten_in_the_child_class():
 
 
 def test_tag_inheritance():
+    # [FUNCTION DOC]
+    # Verifies allow_nan resolution for NaNTag, NoNaNTag, OverrideTag and the diamond
+    # classes (diamond resolves to True).
+    # KNOWN ISSUE: the comment says changing tags by inheritance "is not allowed", but the
+    # assertions show overriding via inheritance works as normal MRO.
     # test that changing tags by inheritance is not allowed
 
     nan_tag_est = NaNTag()
@@ -672,11 +868,20 @@ def test_tag_inheritance():
 
 
 def test_raises_on_get_params_non_attribute():
+    # [FUNCTION DOC]
+    # Verifies get_params raises AttributeError when __init__ does not store a declared
+    # parameter as an attribute.
     class MyEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator declaring param in __init__ but never storing it.
         def __init__(self, param=5):
+            # [FUNCTION DOC]
+            # HELPER: Ignores param.
             pass
 
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns self.
             return self
 
     est = MyEstimator()
@@ -687,6 +892,9 @@ def test_raises_on_get_params_non_attribute():
 
 
 def test_repr_mimebundle_():
+    # [FUNCTION DOC]
+    # Verifies _repr_mimebundle_ includes text/html by default and only text/plain under
+    # display="text".
     # Checks the display configuration flag controls the json output
     tree = DecisionTreeClassifier()
     output = tree._repr_mimebundle_()
@@ -700,6 +908,9 @@ def test_repr_mimebundle_():
 
 
 def test_repr_html_wraps():
+    # [FUNCTION DOC]
+    # Verifies _repr_html_ contains a style tag and raises AttributeError under
+    # display="text".
     # Checks the display configuration flag controls the html output
     tree = DecisionTreeClassifier()
 
@@ -713,6 +924,9 @@ def test_repr_html_wraps():
 
 
 def test_n_features_in_validation():
+    # [FUNCTION DOC]
+    # Verifies _check_n_features sets n_features_in_ on reset and raises ValueError for
+    # featureless input when reset=False.
     """Check that `_check_n_features` validates data when reset=False"""
     est = MyEstimator()
     X_train = [[1, 2, 3], [4, 5, 6]]
@@ -726,6 +940,9 @@ def test_n_features_in_validation():
 
 
 def test_n_features_in_no_validation():
+    # [FUNCTION DOC]
+    # Verifies _check_n_features neither sets n_features_in_ nor raises for invalid input
+    # when the attribute was never defined.
     """Check that `_check_n_features` does not validate data when
     n_features_in_ is not defined."""
     est = MyEstimator()
@@ -738,6 +955,11 @@ def test_n_features_in_no_validation():
 
 
 def test_feature_names_in():
+    # [FUNCTION DOC]
+    # Verifies feature_names_in_ handling by validate_data with pandas: stored on fit with
+    # DataFrame, removed on ndarray refit, mismatch raises ValueError, ndarray/DataFrame
+    # mixing warns, integer column names are silently ignored, and mixed str/int column
+    # names raise TypeError on fit and transform. Skipped without pandas.
     """Check that feature_name_in are recorded by `_validate_data`"""
     pd = pytest.importorskip("pandas")
     iris = datasets.load_iris()
@@ -745,11 +967,17 @@ def test_feature_names_in():
     df = pd.DataFrame(X_np, columns=iris.feature_names)
 
     class NoOpTransformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer that only runs validate_data.
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: validate_data with reset; returns self.
             validate_data(self, X)
             return self
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: validate_data with reset=False; returns X unchanged.
             validate_data(self, X, reset=False)
             return X
 
@@ -816,6 +1044,10 @@ def test_feature_names_in():
 
 
 def test_validate_data_skip_check_array():
+    # [FUNCTION DOC]
+    # Verifies validate_data skip_check_array: False converts X/y to ndarrays, True returns
+    # the original objects, for X only, y only and both; calling with neither raises
+    # ValueError.
     """Check skip_check_array option of _validate_data."""
 
     pd = pytest.importorskip("pandas")
@@ -824,6 +1056,8 @@ def test_validate_data_skip_check_array():
     y = pd.Series(iris.target)
 
     class NoOpTransformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Empty transformer used as validate_data target.
         pass
 
     no_op = NoOpTransformer()
@@ -857,6 +1091,8 @@ def test_validate_data_skip_check_array():
 
 
 def test_clone_keeps_output_config():
+    # [FUNCTION DOC]
+    # Verifies clone preserves the set_output transform config.
     """Check that clone keeps the set_output config."""
 
     ss = StandardScaler().set_output(transform="pandas")
@@ -868,15 +1104,22 @@ def test_clone_keeps_output_config():
 
 
 class _Empty:
+    # [CLASS DOC]
+    # HELPER: Plain empty class used as a base.
     pass
 
 
 class EmptyEstimator(_Empty, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Estimator with no attributes, combining _Empty and BaseEstimator.
     pass
 
 
 @pytest.mark.parametrize("estimator", [BaseEstimator(), EmptyEstimator()])
 def test_estimator_empty_instance_dict(estimator):
+    # [FUNCTION DOC]
+    # Verifies __getstate__ on an attribute-less estimator returns only _sklearn_version
+    # and that pickling BaseEstimator() works (gh-25188).
     """Check that ``__getstate__`` returns an empty ``dict`` with an empty
     instance.
 
@@ -892,12 +1135,18 @@ def test_estimator_empty_instance_dict(estimator):
 
 
 def test_estimator_getstate_using_slots_error_message():
+    # [FUNCTION DOC]
+    # Verifies __getstate__ and pickle.dumps raise TypeError for estimators using __slots__.
     """Using a `BaseEstimator` with `__slots__` is not supported."""
 
     class WithSlots:
+        # [CLASS DOC]
+        # HELPER: Class with __slots__ ("x",).
         __slots__ = ("x",)
 
     class Estimator(BaseEstimator, WithSlots):
+        # [CLASS DOC]
+        # HELPER: BaseEstimator subclass mixed with a slotted class.
         pass
 
     msg = (
@@ -921,6 +1170,11 @@ def test_estimator_getstate_using_slots_error_message():
     ],
 )
 def test_feature_names_in_on_dataframes(constructor_name, minversion):
+    # [FUNCTION DOC]
+    # Verifies feature_names_in_ is set from pandas, pyarrow and polars frames, transform
+    # returns equal values (not checked for pyarrow), and mismatched names raise ValueError.
+    # Inputs: constructor_name, minversion - parametrized container library and minimum
+    # version.
     """Test that feature_names_in_ is correctly set for dataframe X."""
     data = [[1, 4, 2], [3, 3, 6]]
     columns = ["col_0", "col_1", "col_2"]
@@ -929,11 +1183,17 @@ def test_feature_names_in_on_dataframes(constructor_name, minversion):
     )
 
     class NoOpTransformer(TransformerMixin, BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Transformer validating input via validate_data.
         def fit(self, X, y=None):
+            # [FUNCTION DOC]
+            # HELPER: validate_data with reset; returns self.
             validate_data(self, X)
             return self
 
         def transform(self, X):
+            # [FUNCTION DOC]
+            # HELPER: Returns the validated array (reset=False).
             return validate_data(self, X, reset=False)
 
     no_op = NoOpTransformer()
@@ -954,14 +1214,23 @@ def test_feature_names_in_on_dataframes(constructor_name, minversion):
 
 @config_context(enable_metadata_routing=True)
 def test_transformer_fit_transform_with_metadata_in_transform():
+    # [FUNCTION DOC]
+    # Verifies with routing enabled that TransformerMixin.fit_transform warns when metadata
+    # is passed and transform requests it, and does not warn when none is passed.
     """Test that having a transformer with metadata for transform raises a
     warning when calling fit_transform."""
 
     class CustomTransformer(BaseEstimator, TransformerMixin):
+        # [CLASS DOC]
+        # HELPER: Transformer accepting prop in fit and transform.
         def fit(self, X, y=None, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns self.
             return self
 
         def transform(self, X, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns X.
             return X
 
     # passing the metadata to `fit_transform` should raise a warning since it
@@ -980,14 +1249,23 @@ def test_transformer_fit_transform_with_metadata_in_transform():
 
 @config_context(enable_metadata_routing=True)
 def test_outlier_mixin_fit_predict_with_metadata_in_predict():
+    # [FUNCTION DOC]
+    # Verifies with routing enabled that OutlierMixin.fit_predict warns when metadata is
+    # passed and predict requests it, and does not warn otherwise.
     """Test that having an OutlierMixin with metadata for predict raises a
     warning when calling fit_predict."""
 
     class CustomOutlierDetector(BaseEstimator, OutlierMixin):
+        # [CLASS DOC]
+        # HELPER: Outlier detector accepting prop in fit and predict.
         def fit(self, X, y=None, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns self.
             return self
 
         def predict(self, X, prop=None):
+            # [FUNCTION DOC]
+            # HELPER: Returns X.
             return X
 
     # passing the metadata to `fit_predict` should raise a warning since it
@@ -1005,6 +1283,8 @@ def test_outlier_mixin_fit_predict_with_metadata_in_predict():
 
 
 def test_get_params_html():
+    # [FUNCTION DOC]
+    # Verifies _get_params_html returns all params and lists only "empty" as non-default.
     """Check the behaviour of the `_get_params_html` method."""
     est = MyEstimator(empty="test")
 
@@ -1013,6 +1293,9 @@ def test_get_params_html():
 
 
 def test_get_fitted_attr_html():
+    # [FUNCTION DOC]
+    # Verifies _get_fitted_attr_html for a fitted PCA: type/value/shape entries, 9 fitted
+    # attributes, and non-trailing-underscore attributes excluded.
     """Check the behaviour of the `_get_fitted_attr_html` method."""
     X = np.array([[-1, -1], [-2, -1], [-3, -2]])
     pca = PCA().fit(X)
@@ -1028,6 +1311,9 @@ def test_get_fitted_attr_html():
 
 
 def test_get_fitted_attr_html_no_warnings():
+    # [FUNCTION DOC]
+    # Verifies building the fitted-attribute HTML for a deprecated fitted property emits no
+    # warnings and still reports its value (issue #34056).
     """Check that deprecated fitted attrs don't generate a warning in the repr.
 
     Non-regression test for
@@ -1035,9 +1321,13 @@ def test_get_fitted_attr_html_no_warnings():
     """
 
     class Estimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Estimator with a deprecated fitted property foo_.
         @deprecated("Attribute `foo` is deprecated")
         @property
         def foo_(self):
+            # [FUNCTION DOC]
+            # HELPER: Returns 1 (access emits a deprecation warning).
             return 1
 
     model = Estimator()
@@ -1050,8 +1340,15 @@ def test_get_fitted_attr_html_no_warnings():
 
 
 def make_estimator_with_param(default_value):
+    # [FUNCTION DOC]
+    # HELPER: Builds and returns a new estimator class whose single param defaults to
+    # default_value.
     class DynamicEstimator(BaseEstimator):
+        # [CLASS DOC]
+        # HELPER: Dynamically created estimator with one param.
         def __init__(self, param=default_value):
+            # [FUNCTION DOC]
+            # HELPER: Stores param.
             self.param = param
 
     return DynamicEstimator
@@ -1087,6 +1384,9 @@ def make_estimator_with_param(default_value):
     ],
 )
 def test_param_is_non_default(default_value, test_value):
+    # [FUNCTION DOC]
+    # Verifies values differing from the default (various types: tuples, lists, arrays,
+    # NaN, callables, splitters, scorers) are reported as non-default (issue #31525).
     """Check that we detect non-default parameters with various types.
 
     Non-regression test for:
@@ -1098,6 +1398,8 @@ def test_param_is_non_default(default_value, test_value):
 
 
 def test_param_is_non_default_when_pandas_NA():
+    # [FUNCTION DOC]
+    # Verifies pandas.NA is reported as non-default against default 0 (issue #32312).
     """Check that we detect pandas.Na as non-default parameter.
 
     Non-regression test for:
@@ -1129,6 +1431,9 @@ def test_param_is_non_default_when_pandas_NA():
     ],
 )
 def test_param_is_default(default_value, test_value):
+    # [FUNCTION DOC]
+    # Verifies values equal to the default, including array-likes with equal elements,
+    # NaN vs NaN and 2 vs 2.0, are not reported as non-default.
     """Check that we detect the default parameters and values in an array-like will
     be reported as default as well.
 

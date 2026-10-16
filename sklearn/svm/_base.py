@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Shared machinery for the SVM estimators. BaseLibSVM wraps the libsvm dense and
+# sparse Cython bindings (fit, predict, decision function, coef_/n_support_);
+# BaseSVC adds classification (label encoding, class weights, ovr/ovo decision
+# shapes, Platt probabilities). Module helpers convert one-vs-one dual
+# coefficients to primal weights and drive liblinear (_fit_liblinear and its
+# solver-number lookup) for LinearSVC, LinearSVR and LogisticRegression.
+# LIBSVM_IMPL lists libsvm problem types; its index is the libsvm svm_type.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -43,6 +51,19 @@ LIBSVM_IMPL = ["c_svc", "nu_svc", "one_class", "epsilon_svr", "nu_svr"]
 
 
 def _one_vs_one_coef(dual_coef, n_support, support_vectors):
+    # [FUNCTION DOC]
+    # HELPER: Builds the primal weight vectors of all n_class*(n_class-1)/2
+    # pairwise libsvm classifiers for a linear kernel. Support vectors are grouped
+    # by class (n_support gives group sizes; cumulative sums give offsets). For each
+    # pair (class1 < class2): the weight is the dual coefficients of class1's SVs
+    # taken from row class2-1, times those SVs, plus the dual coefficients of
+    # class2's SVs taken from row class1, times those SVs (libsvm's dual_coef
+    # layout). On SciPy < 1.12 rows are selected as 2-D slices for sparse
+    # compatibility.
+    # Inputs: dual_coef - (n_class-1, n_SV) dense or sparse; n_support - per-class
+    # SV counts; support_vectors - (n_SV, n_features) dense or sparse.
+    # Outputs: list of 1-row/1-D arrays (or sparse rows), one per pair in
+    # lexicographic pair order.
     """Generate primal coefficients from dual coefficients
     for the one-vs-one multi class LibSVM in the case
     of a linear kernel."""
@@ -81,6 +102,14 @@ def _one_vs_one_coef(dual_coef, n_support, support_vectors):
 
 
 class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract libsvm estimator. Subclasses set _impl (one of LIBSVM_IMPL) and
+    # expose the public parameters. Fitted state: support_, support_vectors_,
+    # _n_support, dual_coef_/_dual_coef_ (public one sign-flipped for binary
+    # classification), intercept_/_intercept_, _probA/_probB, fit_status_,
+    # n_iter_, shape_fit_, _gamma, _sparse, _effective_probability, and for a
+    # callable kernel the name-mangled training data reference used at predict
+    # time. Tags: pairwise for kernel "precomputed", sparse input otherwise.
     """Base class for estimators that use libsvm as backing library.
 
     This implements support vector machine classification and regression.
@@ -136,6 +165,10 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         max_iter,
         random_state,
     ):
+        # [FUNCTION DOC]
+        # Checks that the subclass _impl is a known libsvm type, then stores all
+        # hyperparameters unchanged.
+        # Exceptions: ValueError if _impl is not in LIBSVM_IMPL.
         if self._impl not in LIBSVM_IMPL:
             raise ValueError(
                 "impl should be one of %s, %s was given" % (LIBSVM_IMPL, self._impl)
@@ -158,6 +191,9 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         self.random_state = random_state
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: pairwise iff kernel is "precomputed"; sparse input
+        # supported iff kernel is not "precomputed".
         tags = super().__sklearn_tags__()
         # Used by cross_val_score.
         tags.input_tags.pairwise = self.kernel == "precomputed"
@@ -166,6 +202,28 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Steps: create RNG from random_state; reject sparse X with precomputed kernel;
+        # _sparse is true for sparse X unless the kernel is callable. With a callable
+        # kernel only lengths are checked; otherwise X, y are validated to C-ordered
+        # float64 (CSR for sparse, 32-bit indices). y goes through _validate_targets;
+        # sample_weight becomes a float64 array (empty if None). For c_svc/nu_svc emit a
+        # FutureWarning unless probability is "deprecated" (then probability is off).
+        # Check X/y lengths (except one_class), square precomputed matrix and
+        # sample_weight length. Resolve _gamma: 0 for precomputed/callable, "scale" ->
+        # 1/(n_features * Var(X)) (1 if variance is 0), "auto" -> 1/n_features, else
+        # the given number. Dispatch to _sparse_fit or _dense_fit with a random seed
+        # drawn from the RNG. Store shape_fit_, private copies of intercept and dual
+        # coef, and for binary classification negate the public intercept_/dual_coef_.
+        # Set n_iter_ (array for classifiers, int otherwise).
+        # Inputs: X - (n_samples, n_features) or precomputed (n_samples, n_samples);
+        # y - (n_samples,); sample_weight - optional (n_samples,).
+        # Outputs: self.
+        # Exceptions: TypeError for sparse precomputed; ValueError for shape mismatches
+        # or non-finite intercepts/dual coefficients; errors from _validate_targets.
+        # Side effects: sets fitted attributes; prints "[LibSVM]" if verbose; warnings.
+        # KNOWN ISSUE: the check compares _impl with "nu_scv" (typo for "nu_svc"), so
+        # NuSVC's deprecation message recommends SVC instead of NuSVC.
         """Fit the SVM model according to the given training data.
 
         Parameters
@@ -325,6 +383,9 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return self
 
     def _validate_targets(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Regression/one-class target validation: ravels y to 1-D (warning on
+        # column vectors) and casts to float64.
         """Validation of y and class_weight.
 
         Default implementation for SVR and one-class; overridden in BaseSVC.
@@ -332,6 +393,9 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return column_or_1d(y, warn=True).astype(np.float64, copy=False)
 
     def _warn_from_fit_status(self):
+        # [FUNCTION DOC]
+        # HELPER: Asserts fit_status_ is 0 or 1 and emits a ConvergenceWarning ("Solver
+        # terminated early") when it is 1 (max_iter reached).
         assert self.fit_status_ in (0, 1)
         if self.fit_status_ == 1:
             warnings.warn(
@@ -342,6 +406,14 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
             )
 
     def _dense_fit(self, X, y, sample_weight, solver_type, kernel, random_seed):
+        # [FUNCTION DOC]
+        # HELPER: Dense libsvm training. For a callable kernel, keeps a reference to the
+        # training X and replaces X by the computed square Gram matrix. Sets libsvm
+        # verbosity and calls libsvm.fit with all hyperparameters, class_weight_ (empty
+        # if absent) and the resolved _gamma; stores support_, support_vectors_,
+        # _n_support, dual_coef_, intercept_, _probA, _probB, fit_status_, _num_iter.
+        # Exceptions: ValueError if the callable kernel output is not square.
+        # Side effects: sets the attributes above; may warn via _warn_from_fit_status.
         if callable(self.kernel):
             # you must store a reference to X to compute the kernel in predict
             # TODO: add keyword copy to copy on demand
@@ -389,6 +461,15 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         self._warn_from_fit_status()
 
     def _sparse_fit(self, X, y, sample_weight, solver_type, kernel, random_seed):
+        # [FUNCTION DOC]
+        # HELPER: Sparse libsvm training on a CSR matrix: casts X.data to float64 and
+        # sorts indices in place, maps kernel to its integer code, calls
+        # libsvm_sparse_train and stores support_, support_vectors_ (sparse),
+        # intercept_, _n_support, _probA, _probB, fit_status_, _num_iter. Rebuilds
+        # dual_coef_ as a CSR (n_class, n_SV) matrix where n_class is n_classes-1 for
+        # classifiers and 1 otherwise; each row holds all n_SV coefficients (empty 1x0
+        # CSR when there are no SVs).
+        # Side effects: mutates X (dtype of data, index order); sets attributes; warns.
         X.data = np.asarray(X.data, dtype=np.float64, order="C")
         X.sort_indices()
 
@@ -453,6 +534,11 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
             )
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Validates X via _validate_for_predict and dispatches to the sparse or dense
+        # libsvm predictor.
+        # Outputs: ndarray (n_samples,): regression values, class indices (as floats,
+        # mapped to labels by BaseSVC.predict) or +1/-1 for one-class.
         """Perform regression on samples in X.
 
         For a one-class model, +1 (inlier) or -1 (outlier) is returned.
@@ -473,6 +559,13 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return predict(X)
 
     def _dense_predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Applies a callable kernel if any (checking the column count equals the
+        # number of training samples), then calls libsvm.predict with the stored
+        # private model (_dual_coef_, _intercept_) and parameters.
+        # Exceptions: ValueError on Gram matrix width mismatch.
+        # KNOWN ISSUE: the branch re-validating 1-D X is dead in practice: inputs are
+        # already 2-D after validate_data or the kernel computation.
         X = self._compute_kernel(X)
         if X.ndim == 1:
             X = check_array(X, order="C", accept_large_sparse=False)
@@ -507,6 +600,10 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         )
 
     def _sparse_predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Calls libsvm_sparse_predict with the CSR components of X and of the
+        # support vectors, the private dual coefficients/intercepts and all model
+        # parameters (C passed as 0, unused). Precondition: X is float64 CSR.
         # Precondition: X is CSR sparse of dtype np.float64.
         kernel = self.kernel
         if callable(kernel):
@@ -543,6 +640,9 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         )
 
     def _compute_kernel(self, X):
+        # [FUNCTION DOC]
+        # HELPER: For a callable kernel, returns kernel(X, training X) densified to a
+        # C-ordered float64 array; otherwise returns X unchanged.
         """Return the data transformed by a callable kernel"""
         if callable(self.kernel):
             # in the case of precomputed kernel given as a function, we
@@ -554,6 +654,11 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return X
 
     def _decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, applies a callable kernel, evaluates libsvm's (ovo)
+        # decision values via the sparse or dense path, and for binary c_svc/nu_svc
+        # negates and flattens them so positive means classes_[1].
+        # Outputs: (n_samples, n_pairs) array, or (n_samples,) in the binary case.
         """Evaluates the decision function for the samples in X.
 
         Parameters
@@ -584,6 +689,9 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return dec_func
 
     def _dense_decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Converts X to C-ordered float64 and calls libsvm.decision_function
+        # with the private model parameters ("precomputed" for callable kernels).
         X = check_array(X, dtype=np.float64, order="C", accept_large_sparse=False)
 
         kernel = self.kernel
@@ -608,6 +716,10 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         )
 
     def _sparse_decision_function(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Casts X.data to float64 in place and calls
+        # libsvm_sparse_decision_function with the CSR data of X and support vectors.
+        # Side effects: mutates X.data dtype.
         X.data = np.asarray(X.data, dtype=np.float64, order="C")
 
         kernel = self.kernel
@@ -643,6 +755,15 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         )
 
     def _validate_for_predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted; validates X (unless the kernel is callable) to
+        # C-ordered float64 with CSR allowed and feature count checked. If trained
+        # sparse, converts dense X to CSR and sorts indices. Rejects sparse X on a
+        # dense-trained model; for precomputed kernels checks X width equals the number
+        # of training samples; verifies n_support_ sums to the number of support
+        # vectors (CVE-2020-28975 guard against tampered models).
+        # Outputs: validated X.
+        # Exceptions: NotFittedError; ValueError for the conditions above.
         check_is_fitted(self)
 
         if not callable(self.kernel):
@@ -685,6 +806,13 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
 
     @property
     def coef_(self):
+        # [FUNCTION DOC]
+        # Property: primal weights for the linear kernel, computed by _get_coef and
+        # marked read-only (data array for sparse).
+        # Outputs: (n_classes*(n_classes-1)/2, n_features) for multiclass, otherwise
+        # (1, n_features); dense or sparse like the support vectors.
+        # Exceptions: AttributeError if kernel is not "linear".
+        # KNOWN ISSUE: docstring states shape (n_features, n_classes), which is wrong.
         """Weights assigned to the features when `kernel="linear"`.
 
         Returns
@@ -707,10 +835,17 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
         return coef
 
     def _get_coef(self):
+        # [FUNCTION DOC]
+        # HELPER: Primal weights for single-model libsvm types: private dual
+        # coefficients times support vectors.
         return safe_sparse_dot(self._dual_coef_, self.support_vectors_)
 
     @property
     def n_support_(self):
+        # [FUNCTION DOC]
+        # Property: per-class support vector counts for classifiers; for SVR/one-class
+        # returns a 1-element array with the first stored count.
+        # Exceptions: AttributeError (converted from NotFittedError) when not fitted.
         """Number of support vectors for each class."""
         try:
             check_is_fitted(self)
@@ -727,6 +862,11 @@ class BaseLibSVM(BaseEstimator, metaclass=ABCMeta):
 
 
 class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
+    # [CLASS DOC]
+    # Abstract libsvm classifier base (SVC, NuSVC). Adds decision_function_shape
+    # ("ovr"/"ovo") and break_ties; drops epsilon and nu from the base constraints
+    # (subclasses re-add nu). Fitted attributes added: classes_, class_weight_.
+    # predict_proba/predict_log_proba exist only when probability is truthy.
     """ABC for LibSVM-based classifiers."""
 
     _parameter_constraints: dict = {
@@ -757,6 +897,9 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         random_state,
         break_ties,
     ):
+        # [FUNCTION DOC]
+        # Stores decision_function_shape and break_ties, then forwards the rest to
+        # BaseLibSVM.__init__ with epsilon fixed to 0.
         self.decision_function_shape = decision_function_shape
         self.break_ties = break_ties
         super().__init__(
@@ -778,6 +921,13 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         )
 
     def _validate_targets(self, y):
+        # [FUNCTION DOC]
+        # HELPER: Ravels y, checks it is a classification target, encodes labels to
+        # indices of the sorted unique classes, computes class_weight_ and sets
+        # classes_.
+        # Outputs: C-ordered float64 array of class indices.
+        # Exceptions: ValueError if fewer than 2 classes or invalid targets.
+        # Side effects: sets class_weight_ and classes_.
         y_ = column_or_1d(y, warn=True)
         check_classification_targets(y)
         cls, y = np.unique(y_, return_inverse=True)
@@ -793,6 +943,10 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         return np.asarray(y, dtype=np.float64, order="C")
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns the ovo decision values; for "ovr" with more than 2 classes converts
+        # them via _ovr_decision_function (votes plus normalized confidences) to
+        # (n_samples, n_classes). Binary output is (n_samples,).
         """Evaluate the decision function for the samples in X.
 
         Parameters
@@ -825,6 +979,11 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         return dec
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Checks fitted and settings; with break_ties, "ovr" and >2 classes returns the
+        # argmax of decision_function, else uses libsvm's vote-based predict. Maps the
+        # class indices to labels in classes_.
+        # Exceptions: ValueError if break_ties is True with "ovo"; NotFittedError.
         """Perform classification on samples in X.
 
         For a one-class model, +1 or -1 is returned.
@@ -862,6 +1021,10 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
     # probabilities are not available depending on a setting, introduce two
     # estimators.
     def _check_proba(self):
+        # [FUNCTION DOC]
+        # HELPER: available_if predicate for probability methods.
+        # Exceptions: AttributeError when probability is "deprecated" or falsy, or when
+        # _impl is not c_svc/nu_svc. Returns True otherwise.
         if self.probability == "deprecated" or not self.probability:
             raise AttributeError(
                 "predict_proba is not available when probability=False"
@@ -872,6 +1035,12 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
 
     @available_if(_check_proba)
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Validates X and returns libsvm Platt-scaled class probabilities via the
+        # sparse or dense path.
+        # Outputs: (n_samples, n_classes), columns in classes_ order.
+        # Exceptions: NotFittedError if the model was fitted without probability
+        # (empty _probA/_probB, e.g. probability toggled after fit).
         """Compute probabilities of possible outcomes for samples in X.
 
         The model needs to have probability information computed at training
@@ -909,6 +1078,8 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
 
     @available_if(_check_proba)
     def predict_log_proba(self, X):
+        # [FUNCTION DOC]
+        # Natural log of predict_proba (zeros give -inf with a numpy warning).
         """Compute log probabilities of possible outcomes for samples in X.
 
         The model need to have probability information computed at training
@@ -938,6 +1109,9 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         return np.log(self.predict_proba(X))
 
     def _dense_predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Applies a callable kernel if any and calls libsvm.predict_proba with
+        # the private model.
         X = self._compute_kernel(X)
 
         kernel = self.kernel
@@ -965,6 +1139,9 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         return pprob
 
     def _sparse_predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Casts X.data to float64 in place and calls
+        # libsvm_sparse_predict_proba with the CSR components and model parameters.
         X.data = np.asarray(X.data, dtype=np.float64, order="C")
 
         kernel = self.kernel
@@ -1000,6 +1177,10 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         )
 
     def _get_coef(self):
+        # [FUNCTION DOC]
+        # HELPER: Primal weights from the public (sign-flipped) dual_coef_: a single
+        # product for binary problems, else stacks _one_vs_one_coef rows (CSR if
+        # sparse).
         if self.dual_coef_.shape[0] == 1:
             # binary classifier
             coef = safe_sparse_dot(self.dual_coef_, self.support_vectors_)
@@ -1022,6 +1203,9 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
     )
     @property
     def probA_(self):
+        # [FUNCTION DOC]
+        # Deprecated property returning the Platt scaling parameter array _probA.
+        # Side effects: FutureWarning on access (via the deprecated decorator).
         """Parameter learned in Platt scaling when `probability=True`.
 
         Returns
@@ -1037,6 +1221,9 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
     )
     @property
     def probB_(self):
+        # [FUNCTION DOC]
+        # Deprecated property returning the Platt scaling parameter array _probB.
+        # Side effects: FutureWarning on access.
         """Parameter learned in Platt scaling when `probability=True`.
 
         Returns
@@ -1046,12 +1233,22 @@ class BaseSVC(ClassifierMixin, BaseLibSVM, metaclass=ABCMeta):
         return self._probB
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: sparse input supported iff kernel is not "precomputed"
+        # (same as the base).
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = self.kernel != "precomputed"
         return tags
 
 
 def _get_liblinear_solver_type(multi_class, penalty, loss, dual):
+    # [FUNCTION DOC]
+    # HELPER: Maps (multi_class, penalty, loss, dual) to liblinear's solver id via a
+    # nested lookup table loss -> penalty -> dual -> id; "crammer_singer" always
+    # gives 4 regardless of other arguments.
+    # Outputs: int solver id.
+    # Exceptions: ValueError for unknown multi_class, or unsupported loss, penalty
+    # or dual combination (message describes which level failed).
     """Find the liblinear magic number for the solver.
 
     This number depends on the values of the following attributes:
@@ -1126,6 +1323,27 @@ def _fit_liblinear(
     epsilon=0.1,
     sample_weight=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Shared liblinear training driver. For classification losses, label-
+    # encodes y (error if < 2 classes) and computes class weights (taking
+    # sample_weight into account); for epsilon-insensitive losses y is used as is
+    # with empty class weights. bias is intercept_scaling when fit_intercept (must
+    # be > 0), else -1. Sets libsvm/liblinear verbosity, checks sparse X has 32-bit
+    # indices, makes y a writable float64 vector, validates sample_weight, picks the
+    # solver id and calls liblinear.train_wrap with a random seed. Warns
+    # ConvergenceWarning if the max iteration count over classes reaches max_iter.
+    # Splits the raw coefficients: last column times intercept_scaling is the
+    # intercept when fit_intercept.
+    # Outputs: coef_ - (n_models, n_features) where n_models is 1 for binary or
+    # regression, n_classes otherwise; intercept_ - (n_models,) array or 0.0;
+    # n_iter_ - int array of iterations per model.
+    # Exceptions: ValueError for single-class y, intercept_scaling <= 0, bad solver
+    # combinations, 64-bit sparse indices.
+    # Side effects: sets global verbosity of liblinear/libsvm; prints "[LibLinear]"
+    # when verbose; consumes random_state.
+    # KNOWN ISSUE: docstring gives coef_ shape (n_features, n_features + 1) and
+    # intercept_ as float; both are wrong (see Outputs). liblinear verbosity is set
+    # twice (redundant).
     """Used by Logistic Regression (and CV) and LinearSVC/LinearSVR.
 
     Preprocessing is done in this function before supplying it to liblinear.

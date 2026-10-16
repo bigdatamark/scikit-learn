@@ -1,9 +1,19 @@
+# [MODULE DOC]
+# Tests for the Cython weighted Fenwick tree (binary indexed tree) exposed through
+# the PytestWeightedFenwickTree wrapper in sklearn.tree._utils.
 import numpy as np
 
 from sklearn.tree._utils import PytestWeightedFenwickTree
 
 
 def test_cython_weighted_fenwick_tree(global_random_seed):
+    # [FUNCTION DOC]
+    # Inserts 100 random (y, integer weight) items in random order; after each insert,
+    # draws a random target cumulative weight and calls py_search. Verifies that the
+    # returned cumulative weight and weighted-y sum match prefix sums up to t_idx, that
+    # cw < target when t_idx_low equals t_idx and cw == target otherwise, and that adding
+    # the next nonzero weight after t_idx (resp. t_idx_low) exceeds (resp. reaches) target.
+    # Inputs: global_random_seed fixture.
     """
     Test Cython's weighted Fenwick tree implementation
     """

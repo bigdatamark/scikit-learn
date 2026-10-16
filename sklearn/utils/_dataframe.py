@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Lightweight type checks for dataframe-like containers (pandas, polars, pyarrow) that
+# never import those libraries: they only inspect sys.modules, so an object can only be
+# of that type if the library was already imported.
 """Functions to determine if an object is a dataframe or series."""
 
 # Authors: The scikit-learn developers
@@ -7,6 +11,11 @@ import sys
 
 
 def is_df_or_series(X):
+    # [FUNCTION DOC]
+    # Returns True if X is a pandas DataFrame/Series, polars DataFrame/Series, or pyarrow
+    # Table/RecordBatch/Array/ChunkedArray; False otherwise.
+    # KNOWN ISSUE: the docstring mentions only dataframes or series, but pyarrow Arrays and
+    # ChunkedArrays are also accepted.
     """Return True if the X is a dataframe or series.
 
     Parameters
@@ -23,6 +32,9 @@ def is_df_or_series(X):
 
 
 def is_pandas_df_or_series(X):
+    # [FUNCTION DOC]
+    # Returns isinstance check against pandas DataFrame or Series; False when pandas is not
+    # in sys.modules.
     """Return True if the X is a pandas dataframe or series.
 
     Parameters
@@ -43,6 +55,8 @@ def is_pandas_df_or_series(X):
 
 
 def is_pandas_df(X):
+    # [FUNCTION DOC]
+    # Returns True only for pandas DataFrame; False when pandas is not loaded.
     """Return True if the X is a pandas dataframe.
 
     Parameters
@@ -63,6 +77,9 @@ def is_pandas_df(X):
 
 
 def is_pyarrow_data(X):
+    # [FUNCTION DOC]
+    # Returns True for pyarrow Table, RecordBatch, Array or ChunkedArray; False when pyarrow
+    # is not loaded.
     """Return True if the X is a pyarrow Table, RecordBatch, Array or ChunkedArray.
 
     Parameters
@@ -84,6 +101,8 @@ def is_pyarrow_data(X):
 
 
 def is_polars_df_or_series(X):
+    # [FUNCTION DOC]
+    # Returns True for polars DataFrame or Series; False when polars is not loaded.
     """Return True if the X is a polars dataframe or series.
 
     Parameters
@@ -104,6 +123,8 @@ def is_polars_df_or_series(X):
 
 
 def is_polars_df(X):
+    # [FUNCTION DOC]
+    # Returns True only for polars DataFrame; False when polars is not loaded.
     """Return True if the X is a polars dataframe.
 
     Parameters

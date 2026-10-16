@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.isotonic: the isotonic_regression function (PAVA), the
+# IsotonicRegression estimator (ties handling, direction detection, bounds,
+# out-of-bounds policies, weights, dtypes, thresholds, input validation, pickling,
+# set_output) and the helpers check_increasing and _make_unique.
+
 import copy
 import pickle
 import warnings
@@ -24,6 +30,10 @@ from sklearn.utils.validation import check_array
 
 
 def test_permutation_invariance():
+    # [FUNCTION DOC]
+    # Non-regression for unsorted sample weights: fitting on a shuffled copy of
+    # (x, y, sample_weight) must give identical transformed values on x as fitting on
+    # the original order.
     # check that fit is permutation invariant.
     # regression test of missing sorting of sample-weights
     ir = IsotonicRegression()
@@ -38,6 +48,9 @@ def test_permutation_invariance():
 
 
 def test_check_increasing_small_number_of_samples():
+    # [FUNCTION DOC]
+    # Checks check_increasing returns True on 3 samples without emitting a UserWarning
+    # (warnings turned into errors), since the CI check needs more samples.
     x = [0, 1, 2]
     y = [1, 1.1, 1.05]
 
@@ -49,6 +62,8 @@ def test_check_increasing_small_number_of_samples():
 
 
 def test_check_increasing_up():
+    # [FUNCTION DOC]
+    # Checks a clearly increasing series returns True with no warning.
     x = [0, 1, 2, 3, 4, 5]
     y = [0, 1.5, 2.77, 8.99, 8.99, 50]
 
@@ -61,6 +76,9 @@ def test_check_increasing_up():
 
 
 def test_check_increasing_up_extreme():
+    # [FUNCTION DOC]
+    # Checks a perfectly linear increasing series returns True with no warning
+    # (Spearman correlation of exactly 1 must not break the Fisher transform).
     x = [0, 1, 2, 3, 4, 5]
     y = [0, 1, 2, 3, 4, 5]
 
@@ -73,6 +91,8 @@ def test_check_increasing_up_extreme():
 
 
 def test_check_increasing_down():
+    # [FUNCTION DOC]
+    # Checks a clearly decreasing series returns False with no warning.
     x = [0, 1, 2, 3, 4, 5]
     y = [0, -1.5, -2.77, -8.99, -8.99, -50]
 
@@ -85,6 +105,8 @@ def test_check_increasing_down():
 
 
 def test_check_increasing_down_extreme():
+    # [FUNCTION DOC]
+    # Checks a perfectly linear decreasing series returns False with no warning.
     x = [0, 1, 2, 3, 4, 5]
     y = [0, -1, -2, -3, -4, -5]
 
@@ -97,6 +119,9 @@ def test_check_increasing_down_extreme():
 
 
 def test_check_ci_warn():
+    # [FUNCTION DOC]
+    # Checks an oscillating series returns False and warns that the confidence
+    # interval spans zero ("interval" in message).
     x = [0, 1, 2, 3, 4, 5]
     y = [0, -1, 2, -3, 4, -5]
 
@@ -109,6 +134,11 @@ def test_check_ci_warn():
 
 
 def test_isotonic_regression():
+    # [FUNCTION DOC]
+    # Checks isotonic_regression against hand-computed PAVA solutions, that
+    # fit/transform, fit_transform and predict agree with bounds 0..1, invariance to a
+    # permutation of the samples, and that constant x yields mean(y) everywhere.
+    # Side effects: uses the unseeded global numpy RNG for the permutation.
     y = np.array([3, 7, 5, 9, 8, 7, 10])
     y_ = np.array([3, 6, 6, 8, 8, 8, 10])
     assert_array_equal(y_, isotonic_regression(y))
@@ -135,6 +165,9 @@ def test_isotonic_regression():
 
 
 def test_isotonic_regression_ties_min():
+    # [FUNCTION DOC]
+    # Checks tied minimum x values get averaged targets and fit+transform equals
+    # fit_transform.
     # Setup examples with ties on minimum
     x = [1, 1, 2, 3, 4, 5]
     y = [1, 2, 3, 4, 5, 6]
@@ -148,6 +181,9 @@ def test_isotonic_regression_ties_min():
 
 
 def test_isotonic_regression_ties_max():
+    # [FUNCTION DOC]
+    # Checks tied maximum x values get averaged targets and fit+transform equals
+    # fit_transform.
     # Setup examples with ties on maximum
     x = [1, 2, 3, 4, 5, 5]
     y = [1, 2, 3, 4, 5, 6]
@@ -161,6 +197,9 @@ def test_isotonic_regression_ties_max():
 
 
 def test_isotonic_regression_ties_secondary_():
+    # [FUNCTION DOC]
+    # Compares fit/transform and fit_transform with reference values from R isotone
+    # gpava (ties="secondary") on the pituitary dataset, to 4 decimals.
     """
     Test isotonic regression fit, transform  and fit_transform
     against the "secondary" ties method and "pituitary" data from R
@@ -202,6 +241,9 @@ def test_isotonic_regression_ties_secondary_():
 
 
 def test_isotonic_regression_with_ties_in_differently_sized_groups():
+    # [FUNCTION DOC]
+    # Non-regression (#9432): compares against R gpava secondary-ties output on data
+    # with tie groups of different sizes.
     """
     Non-regression test to handle issue 9432:
     https://github.com/scikit-learn/scikit-learn/issues/9432
@@ -226,6 +268,9 @@ def test_isotonic_regression_with_ties_in_differently_sized_groups():
 
 
 def test_isotonic_regression_reversed():
+    # [FUNCTION DOC]
+    # Checks decreasing isotonic regression against expected values for both the
+    # function and the estimator, and that the estimator output is non-increasing.
     y = np.array([10, 9, 10, 7, 6, 6.1, 5])
     y_result = np.array([10, 9.5, 9.5, 7, 6.05, 6.05, 5])
 
@@ -238,6 +283,9 @@ def test_isotonic_regression_reversed():
 
 
 def test_isotonic_regression_auto_decreasing():
+    # [FUNCTION DOC]
+    # Checks increasing="auto" detects a decreasing trend (first fitted value is not
+    # below last).
     # Set y and x for decreasing
     y = np.array([10, 9, 10, 7, 6, 6.1, 5])
     x = np.arange(len(y))
@@ -251,6 +299,10 @@ def test_isotonic_regression_auto_decreasing():
 
 
 def test_isotonic_regression_auto_increasing():
+    # [FUNCTION DOC]
+    # Checks increasing="auto" detects an increasing trend.
+    # KNOWN ISSUE: the inline comment says "Set y and x for decreasing" but the data is
+    # increasing.
     # Set y and x for decreasing
     y = np.array([5, 6.1, 6, 7, 10, 9, 10])
     x = np.arange(len(y))
@@ -265,6 +317,9 @@ def test_isotonic_regression_auto_increasing():
 
 
 def test_assert_raises_exceptions():
+    # [FUNCTION DOC]
+    # Checks ValueError for inconsistent lengths of X/y/sample_weight, for 2D X with
+    # many features in fit, and in transform.
     ir = IsotonicRegression()
     rng = np.random.RandomState(42)
 
@@ -285,6 +340,8 @@ def test_assert_raises_exceptions():
 
 
 def test_isotonic_sample_weight_parameter_default_value():
+    # [FUNCTION DOC]
+    # Checks fitting with all-ones weights equals fitting without sample_weight.
     # check if default value of sample_weight parameter is one
     ir = IsotonicRegression()
     # random test data
@@ -301,6 +358,8 @@ def test_isotonic_sample_weight_parameter_default_value():
 
 
 def test_isotonic_min_max_boundaries():
+    # [FUNCTION DOC]
+    # Checks y_min/y_max clip fitted values to [2, 4].
     # check if min value is used correctly
     ir = IsotonicRegression(y_min=2, y_max=4)
     n = 6
@@ -312,6 +371,8 @@ def test_isotonic_min_max_boundaries():
 
 
 def test_isotonic_sample_weight():
+    # [FUNCTION DOC]
+    # Checks weighted PAVA result against hand-computed weighted block means.
     ir = IsotonicRegression()
     x = [1, 2, 3, 4, 5, 6, 7]
     y = [1, 41, 51, 1, 2, 5, 24]
@@ -323,6 +384,9 @@ def test_isotonic_sample_weight():
 
 
 def test_isotonic_regression_oob_raise():
+    # [FUNCTION DOC]
+    # Checks out_of_bounds="raise" makes predict raise ValueError for x outside the
+    # training range.
     # Set y and x
     y = np.array([3, 7, 5, 9, 8, 7, 10])
     x = np.arange(len(y))
@@ -338,6 +402,8 @@ def test_isotonic_regression_oob_raise():
 
 
 def test_isotonic_regression_oob_clip():
+    # [FUNCTION DOC]
+    # Checks out_of_bounds="clip" maps out-of-range x to the extreme fitted values.
     # Set y and x
     y = np.array([3, 7, 5, 9, 8, 7, 10])
     x = np.arange(len(y))
@@ -354,6 +420,8 @@ def test_isotonic_regression_oob_clip():
 
 
 def test_isotonic_regression_oob_nan():
+    # [FUNCTION DOC]
+    # Checks out_of_bounds="nan" returns NaN for both out-of-range inputs.
     # Set y and x
     y = np.array([3, 7, 5, 9, 8, 7, 10])
     x = np.arange(len(y))
@@ -368,6 +436,8 @@ def test_isotonic_regression_oob_nan():
 
 
 def test_isotonic_regression_pickle():
+    # [FUNCTION DOC]
+    # Checks a pickled and unpickled fitted model predicts identically.
     y = np.array([3, 7, 5, 9, 8, 7, 10])
     x = np.arange(len(y))
 
@@ -381,6 +451,8 @@ def test_isotonic_regression_pickle():
 
 
 def test_isotonic_duplicate_min_entry():
+    # [FUNCTION DOC]
+    # Checks duplicated minimum x with clip gives finite predictions.
     x = [0, 0, 1]
     y = [0, 0, 1]
 
@@ -391,6 +463,9 @@ def test_isotonic_duplicate_min_entry():
 
 
 def test_isotonic_ymin_ymax():
+    # [FUNCTION DOC]
+    # Non-regression (#6921): isotonic_regression output respects y_min/y_max for
+    # increasing, decreasing, and single-bound (y_min only) cases.
     # Test from @NelleV's issue:
     # https://github.com/scikit-learn/scikit-learn/issues/6921
     x = np.array(
@@ -435,6 +510,9 @@ def test_isotonic_ymin_ymax():
 
 
 def test_isotonic_zero_weight_loop():
+    # [FUNCTION DOC]
+    # Non-regression (#4297): fitting twice with some zero sample weights must
+    # terminate (a hang means failure); no explicit assertion.
     # Test from @ogrisel's issue:
     # https://github.com/scikit-learn/scikit-learn/issues/4297
 
@@ -457,6 +535,11 @@ def test_isotonic_zero_weight_loop():
 
 
 def test_fast_predict():
+    # [FUNCTION DOC]
+    # Non-regression (#6206): a model whose interpolation function is built from all
+    # points via private _build_y (trim_duplicates False) and _build_f must predict
+    # identically to a normally fitted model that keeps only necessary points, with
+    # some zero weights.
     # test that the faster prediction change doesn't
     # affect out-of-sample predictions:
     # https://github.com/scikit-learn/scikit-learn/pull/6206
@@ -494,6 +577,8 @@ def test_fast_predict():
 
 
 def test_isotonic_copy_before_fit():
+    # [FUNCTION DOC]
+    # Non-regression (#6628): copy.copy of an unfitted estimator must not raise.
     # https://github.com/scikit-learn/scikit-learn/issues/6628
     ir = IsotonicRegression()
     copy.copy(ir)
@@ -501,6 +586,10 @@ def test_isotonic_copy_before_fit():
 
 @pytest.mark.parametrize("dtype", [np.int32, np.int64, np.float32, np.float64])
 def test_isotonic_dtype(dtype):
+    # [FUNCTION DOC]
+    # For integer and float y dtypes and None/float32/float64 weights, checks the
+    # function and predict outputs have the dtype check_array would choose (float64
+    # for ints, otherwise preserved).
     y = [2, 1, 4, 3, 5]
     weights = np.array([0.9, 0.9, 0.9, 0.9, 0.9], dtype=np.float64)
     reg = IsotonicRegression()
@@ -522,6 +611,9 @@ def test_isotonic_dtype(dtype):
 
 @pytest.mark.parametrize("y_dtype", [np.int32, np.int64, np.float32, np.float64])
 def test_isotonic_mismatched_dtype(y_dtype):
+    # [FUNCTION DOC]
+    # Non-regression (#15004): with float32 X and y of another dtype, predict returns
+    # X's dtype.
     # regression test for #15004
     # check that data are converted when X and y dtype differ
     reg = IsotonicRegression()
@@ -532,6 +624,8 @@ def test_isotonic_mismatched_dtype(y_dtype):
 
 
 def test_make_unique_dtype():
+    # [FUNCTION DOC]
+    # Checks _make_unique deduplicates x for float32 and float64 inputs.
     x_list = [2, 2, 2, 3, 5]
     for dtype in (np.float32, np.float64):
         x = np.array(x_list, dtype=dtype)
@@ -543,6 +637,9 @@ def test_make_unique_dtype():
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 def test_make_unique_tolerance(dtype):
+    # [FUNCTION DOC]
+    # Checks _make_unique merges values closer than the dtype's resolution: float64
+    # keeps 1 + 1e-14 distinct, float32 merges it and 1e-16 into neighbours.
     # Check that equality takes account of np.finfo tolerance
     x = np.array([0, 1e-16, 1, 1 + 1e-14], dtype=dtype)
     y = x.copy()
@@ -556,6 +653,9 @@ def test_make_unique_tolerance(dtype):
 
 
 def test_isotonic_make_unique_tolerance():
+    # [FUNCTION DOC]
+    # Checks near-duplicate X (1 and 1 + 1e-16) are merged with averaged targets, and
+    # the resulting thresholds and interpolated predictions.
     # Check that averaging of targets for duplicate X is done correctly,
     # taking into account tolerance
     X = np.array([0, 1, 1 + 1e-16, 2], dtype=np.float64)
@@ -569,6 +669,9 @@ def test_isotonic_make_unique_tolerance():
 
 
 def test_isotonic_non_regression_inf_slope():
+    # [FUNCTION DOC]
+    # Non-regression (#10903): denormal X values must not produce infinite
+    # predictions.
     # Non-regression test to ensure that inf values are not returned
     # see: https://github.com/scikit-learn/scikit-learn/issues/10903
     X = np.array([0.0, 4.1e-320, 4.4e-314, 1.0])
@@ -580,6 +683,10 @@ def test_isotonic_non_regression_inf_slope():
 
 @pytest.mark.parametrize("increasing", [True, False])
 def test_isotonic_thresholds(increasing):
+    # [FUNCTION DOC]
+    # For both directions on random data: X_thresholds_ and y_thresholds_ have equal
+    # shape, X thresholds are a strict subset of X and strictly increasing, y
+    # thresholds lie in y's range and are monotone in the requested direction.
     rng = np.random.RandomState(42)
     n_samples = 30
     X = rng.normal(size=n_samples)
@@ -606,6 +713,9 @@ def test_isotonic_thresholds(increasing):
 
 
 def test_input_shape_validation():
+    # [FUNCTION DOC]
+    # Non-regression (#15012): fitting on 1D X and on a single-column 2D X gives the
+    # same fitted attributes and predictions.
     # Test from #15012
     # Check that IsotonicRegression can handle 2darray with only 1 feature
     X = np.arange(10)
@@ -628,6 +738,8 @@ def test_input_shape_validation():
 
 
 def test_isotonic_2darray_more_than_1_feature():
+    # [FUNCTION DOC]
+    # Checks a 2-column X raises ValueError in fit, predict and transform.
     # Ensure IsotonicRegression raises error if input has more than 1 feature
     X = np.arange(10)
     X_2d = np.c_[X, X]
@@ -646,6 +758,9 @@ def test_isotonic_2darray_more_than_1_feature():
 
 
 def test_isotonic_regression_sample_weight_not_overwritten():
+    # [FUNCTION DOC]
+    # Non-regression (#20508): neither isotonic_regression nor fit mutate the passed
+    # sample_weight array.
     """Check that calling fitting function of isotonic regression will not
     overwrite `sample_weight`.
     Non-regression test for:
@@ -665,6 +780,9 @@ def test_isotonic_regression_sample_weight_not_overwritten():
 
 @pytest.mark.parametrize("shape", ["1d", "2d"])
 def test_get_feature_names_out(shape):
+    # [FUNCTION DOC]
+    # Checks get_feature_names_out returns an object ndarray ["isotonicregression0"]
+    # for 1D and 2D X.
     """Check `get_feature_names_out` for `IsotonicRegression`."""
     X = np.arange(10)
     if shape == "2d":
@@ -679,6 +797,9 @@ def test_get_feature_names_out(shape):
 
 
 def test_isotonic_regression_output_predict():
+    # [FUNCTION DOC]
+    # Non-regression (#25499): with transform_output="pandas", transform returns a
+    # DataFrame while predict still returns an ndarray. Skipped without pandas.
     """Check that `predict` does return the expected output type.
 
     We need to check that `transform` will output a DataFrame and a NumPy array

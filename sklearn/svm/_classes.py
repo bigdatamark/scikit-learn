@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Public SVM estimators. LinearSVC and LinearSVR fit linear models through
+# liblinear (_fit_liblinear); SVC, NuSVC (classification), SVR, NuSVR
+# (regression) and OneClassSVM (novelty detection) are thin libsvm-backed
+# subclasses of BaseSVC/BaseLibSVM that fix _impl, restrict the parameter
+# constraints and forward constructor arguments. Also provides the helper that
+# resolves dual="auto" for the liblinear models.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -23,6 +30,16 @@ from sklearn.utils.validation import _num_samples, validate_data
 
 
 def _validate_dual_parameter(dual, loss, penalty, multi_class, X):
+    # [FUNCTION DOC]
+    # HELPER: Resolves the dual flag. If dual is "auto": when n_samples <
+    # n_features prefer dual (True) if liblinear supports the combination with
+    # dual=True, else False; otherwise prefer primal (False) if supported, else
+    # True. Any other value is returned unchanged.
+    # Inputs: dual - bool or "auto"; loss, penalty, multi_class - liblinear options;
+    # X - 2-D data (only its shape is used).
+    # Outputs: bool (or the given value).
+    # Exceptions: none raised directly; an unsupported combination surfaces later
+    # in _fit_liblinear.
     """Helper function to assign the value of dual parameter."""
     if dual == "auto":
         if X.shape[0] < X.shape[1]:
@@ -42,6 +59,12 @@ def _validate_dual_parameter(dual, loss, penalty, multi_class, X):
 
 
 class LinearSVC(LinearClassifierMixin, SparseCoefMixin, BaseEstimator):
+    # [CLASS DOC]
+    # liblinear linear classifier (squared hinge/hinge loss, l1/l2 penalty, ovr or
+    # Crammer-Singer multiclass). Prediction, decision_function, densify/sparsify
+    # come from LinearClassifierMixin and SparseCoefMixin. Fitted attributes:
+    # classes_, coef_ (n_classes or 1, n_features), intercept_, n_iter_ (max over
+    # sub-problems), plus n_features_in_/feature_names_in_.
     """Linear Support Vector Classification.
 
     Similar to SVC with parameter kernel='linear', but implemented in terms of
@@ -273,6 +296,8 @@ class LinearSVC(LinearClassifierMixin, SparseCoefMixin, BaseEstimator):
         random_state=None,
         max_iter=1000,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged (validated at fit).
         self.dual = dual
         self.tol = tol
         self.C = C
@@ -288,6 +313,17 @@ class LinearSVC(LinearClassifierMixin, SparseCoefMixin, BaseEstimator):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates X (CSR or dense C-ordered float64, 32-bit sparse indices) and y,
+        # checks classification targets, sets classes_, resolves dual, and fits with
+        # _fit_liblinear (classification loss, class_weight, sample_weight). Stores the
+        # max iteration count as n_iter_. For Crammer-Singer with 2 classes, collapses
+        # the two weight rows into one (row1 minus row0) and likewise the intercepts.
+        # Inputs: X (n_samples, n_features); y (n_samples,); sample_weight optional.
+        # Outputs: self.
+        # Exceptions: validation errors; ValueError from _fit_liblinear (one class,
+        # unsupported penalty/loss/dual).
+        # Side effects: sets fitted attributes; may warn ConvergenceWarning.
         """Fit the model according to the given training data.
 
         Parameters
@@ -359,12 +395,20 @@ class LinearSVC(LinearClassifierMixin, SparseCoefMixin, BaseEstimator):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class LinearSVR(RegressorMixin, LinearModel):
+    # [CLASS DOC]
+    # liblinear linear regressor with (squared) epsilon-insensitive loss and l2
+    # penalty. predict comes from LinearModel. Fitted attributes: coef_
+    # (n_features,), intercept_ ((1,) array or 0.0 without intercept), n_iter_.
+    # KNOWN ISSUE: the epsilon constraint is any Real, so negative epsilon values
+    # pass validation although the loss expects epsilon >= 0.
     """Linear Support Vector Regression.
 
     Similar to SVR with parameter kernel='linear', but implemented in terms of
@@ -539,6 +583,8 @@ class LinearSVR(RegressorMixin, LinearModel):
         random_state=None,
         max_iter=1000,
     ):
+        # [FUNCTION DOC]
+        # Stores all hyperparameters unchanged.
         self.tol = tol
         self.C = C
         self.epsilon = epsilon
@@ -552,6 +598,13 @@ class LinearSVR(RegressorMixin, LinearModel):
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Validates X/y like LinearSVC, resolves dual with penalty "l2" and "ovr",
+        # fits via _fit_liblinear with the regression loss and epsilon (no class
+        # weights), flattens coef_ to 1-D and stores the max iteration count as n_iter_.
+        # Outputs: self.
+        # Exceptions: validation errors; ValueError for unsupported loss/dual combos.
+        # Side effects: sets fitted attributes; may warn ConvergenceWarning.
         """Fit the model according to the given training data.
 
         Parameters
@@ -615,12 +668,17 @@ class LinearSVR(RegressorMixin, LinearModel):
         return self
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags to declare sparse input support.
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = True
         return tags
 
 
 class SVC(BaseSVC):
+    # [CLASS DOC]
+    # C-SVM classifier (_impl "c_svc"); all behavior lives in BaseSVC/BaseLibSVM.
+    # nu is fixed to 0 and unused.
     """C-Support Vector Classification.
 
     The implementation is based on libsvm. The fit time scales at least
@@ -892,6 +950,8 @@ class SVC(BaseSVC):
         break_ties=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards keyword-only hyperparameters to BaseSVC.__init__ with nu=0.0.
         super().__init__(
             kernel=kernel,
             degree=degree,
@@ -913,6 +973,9 @@ class SVC(BaseSVC):
 
 
 class NuSVC(BaseSVC):
+    # [CLASS DOC]
+    # nu-SVM classifier (_impl "nu_svc"): nu in (0, 1] replaces C, whose constraint
+    # is removed; C is fixed to 0 internally.
     """Nu-Support Vector Classification.
 
     Similar to SVC but uses a parameter to control the number of support
@@ -1167,6 +1230,8 @@ class NuSVC(BaseSVC):
         break_ties=False,
         random_state=None,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to BaseSVC.__init__ with C=0.0.
         super().__init__(
             kernel=kernel,
             degree=degree,
@@ -1188,6 +1253,9 @@ class NuSVC(BaseSVC):
 
 
 class SVR(RegressorMixin, BaseLibSVM):
+    # [CLASS DOC]
+    # epsilon-SVR regressor (_impl "epsilon_svr"). class_weight, nu, probability and
+    # random_state are not parameters (constraints removed, fixed internally).
     """Epsilon-Support Vector Regression.
 
     The free parameters in the model are C and epsilon.
@@ -1363,6 +1431,9 @@ class SVR(RegressorMixin, BaseLibSVM):
         verbose=False,
         max_iter=-1,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to BaseLibSVM.__init__ with nu=0, probability=False,
+        # class_weight=None and random_state=None.
         super().__init__(
             kernel=kernel,
             degree=degree,
@@ -1383,6 +1454,9 @@ class SVR(RegressorMixin, BaseLibSVM):
 
 
 class NuSVR(RegressorMixin, BaseLibSVM):
+    # [CLASS DOC]
+    # nu-SVR regressor (_impl "nu_svr"): nu controls the fraction of support
+    # vectors; epsilon, class_weight, probability and random_state are fixed.
     """Nu Support Vector Regression.
 
     Similar to NuSVC, for regression, uses a parameter nu to control
@@ -1551,6 +1625,9 @@ class NuSVR(RegressorMixin, BaseLibSVM):
         verbose=False,
         max_iter=-1,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters to BaseLibSVM.__init__ with epsilon=0,
+        # probability=False, class_weight=None and random_state=None.
         super().__init__(
             kernel=kernel,
             degree=degree,
@@ -1571,6 +1648,10 @@ class NuSVR(RegressorMixin, BaseLibSVM):
 
 
 class OneClassSVM(OutlierMixin, BaseLibSVM):
+    # [CLASS DOC]
+    # Unsupervised novelty detector (_impl "one_class"). Extra fitted attribute:
+    # offset_ (negated private intercept) so that decision_function equals
+    # score_samples minus offset_. Predict returns +1 (inlier) / -1 (outlier).
     """Unsupervised Outlier Detection.
 
     Estimate the support of a high-dimensional distribution.
@@ -1728,6 +1809,9 @@ class OneClassSVM(OutlierMixin, BaseLibSVM):
         verbose=False,
         max_iter=-1,
     ):
+        # [FUNCTION DOC]
+        # Forwards hyperparameters positionally to BaseLibSVM.__init__ with C=0,
+        # epsilon=0, probability=False, class_weight=None, random_state=None.
         super().__init__(
             kernel,
             degree,
@@ -1747,6 +1831,12 @@ class OneClassSVM(OutlierMixin, BaseLibSVM):
         )
 
     def fit(self, X, y=None, sample_weight=None):
+        # [FUNCTION DOC]
+        # Fits the base model with a dummy all-ones target (y ignored) and sets offset_
+        # to the negated private intercept.
+        # Inputs: X (n_samples, n_features) dense or sparse; sample_weight optional.
+        # Outputs: self.
+        # Exceptions/side effects: as BaseLibSVM.fit.
         """Detect the soft boundary of the set of samples X.
 
         Parameters
@@ -1776,6 +1866,9 @@ class OneClassSVM(OutlierMixin, BaseLibSVM):
         return self
 
     def decision_function(self, X):
+        # [FUNCTION DOC]
+        # Returns the flattened libsvm decision values (positive for inliers).
+        # Outputs: ndarray (n_samples,).
         """Signed distance to the separating hyperplane.
 
         Signed distance is positive for an inlier and negative for an outlier.
@@ -1794,6 +1887,9 @@ class OneClassSVM(OutlierMixin, BaseLibSVM):
         return dec
 
     def score_samples(self, X):
+        # [FUNCTION DOC]
+        # Returns decision_function plus offset_ (unshifted score).
+        # Outputs: ndarray (n_samples,).
         """Raw scoring function of the samples.
 
         Parameters
@@ -1809,6 +1905,9 @@ class OneClassSVM(OutlierMixin, BaseLibSVM):
         return self.decision_function(X) + self.offset_
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Calls the libsvm predict and casts the +1/-1 results to integer (intp).
+        # Outputs: ndarray (n_samples,) of +1/-1.
         """Perform classification on samples in X.
 
         For a one-class model, +1 or -1 is returned.

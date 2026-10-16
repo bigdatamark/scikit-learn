@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests that the root split chosen by decision/extra trees (max_depth=1) produces
+# node values and weighted impurities matching a brute-force NumPy reference
+# splitter (NaiveSplitter), for regression and classification criteria, dense,
+# sparse and missing-value inputs, and that non-random trees find an optimal split.
 from dataclasses import dataclass
 from itertools import product
 from operator import itemgetter
@@ -34,10 +39,25 @@ REG_TREES = {
 
 @dataclass
 class NaiveSplitter:
+    # [CLASS DOC]
+    # HELPER: Brute-force reference splitter (dataclass) used as an oracle.
+    # Fields: criterion - criterion name; n_classes - number of classes, default 0
+    # (only used for classification criteria).
     criterion: str
     n_classes: int = 0
 
     def compute_node_value_and_impurity(self, y, w):
+        # [FUNCTION DOC]
+        # HELPER: Computes the prediction and total weighted impurity of a node.
+        # For gini/entropy/log_loss: weighted class proportions (length n_classes) and
+        # 1 minus sum of squared proportions, or entropy in base 2. squared_error: weighted
+        # mean and weighted mean squared deviation. absolute_error: weighted median
+        # (averaged percentile 50) and weighted mean absolute deviation. poisson: weighted
+        # mean and half the weighted mean Poisson deviance.
+        # Inputs: y - 1d targets (int class labels for classification); w - 1d weights.
+        # Outputs: (pred, impurity times sum of weights); (nan, inf) if total weight is
+        # below 1e-7, marking an invalid split.
+        # Exceptions: ValueError for an unknown criterion.
         sum_weights = np.sum(w)
         if sum_weights < 1e-7:
             return np.nan, np.inf  # invalid split
@@ -64,6 +84,11 @@ class NaiveSplitter:
         return pred, loss * sum_weights
 
     def compute_split_nodes(self, X, y, w, feature, threshold=None, missing_left=False):
+        # [FUNCTION DOC]
+        # HELPER: Routes samples by x <= threshold on column feature (NaN also goes left if
+        # missing_left) and returns the (value, impurity) pairs of the left and right nodes.
+        # Inputs: X - dense 2d array; y, w - 1d arrays; feature - int column; threshold -
+        # float (None default would fail the comparison); missing_left - bool, default False.
         x = X[:, feature]
         go_left = x <= threshold
         if missing_left:
@@ -76,11 +101,19 @@ class NaiveSplitter:
     def compute_split_impurity(
         self, X, y, w, feature, threshold=None, missing_left=False
     ):
+        # [FUNCTION DOC]
+        # HELPER: Returns the sum of left and right weighted impurities of the given split;
+        # same inputs as compute_split_nodes.
         nodes = self.compute_split_nodes(X, y, w, feature, threshold, missing_left)
         (_, left_impurity), (_, right_impurity) = nodes
         return left_impurity + right_impurity
 
     def _generate_all_splits(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Generator over candidate splits as dicts with feature, threshold and
+        # missing_left. For each feature yields every unique non-NaN value as threshold with
+        # missing_left False; if the column has NaNs, additionally yields every threshold
+        # plus -inf with missing_left True (-inf puts only NaNs on the left).
         for f in range(X.shape[1]):
             x = X[:, f]
             nan_mask = np.isnan(x)
@@ -102,6 +135,10 @@ class NaiveSplitter:
                 }
 
     def best_split_naive(self, X, y, w):
+        # [FUNCTION DOC]
+        # HELPER: Exhaustively evaluates all candidate splits and returns the pair
+        # (impurity, split dict) with minimal impurity, or (inf, None) if there are no
+        # candidates (ties resolved by first occurrence).
         splits = list(self._generate_all_splits(X))
         if len(splits) == 0:
             return (np.inf, None)
@@ -122,6 +159,17 @@ def make_simple_dataset(
     n_classes,
     rng,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds a random dataset: X uniform in [0, 1) of shape (n, d), y equal to
+    # noise plus row sums, weights either random integers in [0, 5) or uniform floats.
+    # With probability 1/2 rounds X to create duplicates; optionally sets a random
+    # fraction of entries to NaN; if is_sparse, centers X by -0.5, zeroes a random
+    # fraction of entries and wraps it in a CSC array. For classification, y is binned
+    # into n_classes classes by quantiles.
+    # Inputs: n, d - ints; with_nans, is_sparse, is_clf - bools; n_classes - int; rng -
+    # numpy Generator.
+    # Outputs: (X_dense as float32, X as passed to the tree, y, w).
+    # Side effects: consumes rng state.
     X_dense = rng.random((n, d))
     y = rng.random(n) + X_dense.sum(axis=1)
     w = rng.integers(0, 5, size=n) if rng.uniform() < 0.5 else rng.random(n)
@@ -165,6 +213,14 @@ def make_simple_dataset(
     ids=["dense-without_missing", "sparse-without_missing", "dense-with_missing"],
 )
 def test_split_impurity(Tree, criterion, sparse, missing_values, global_random_seed):
+    # [FUNCTION DOC]
+    # For 14 random datasets of increasing size, fits a depth-1 tree and checks that
+    # root and child impurities and values equal the NaiveSplitter computations at the
+    # split found by the tree; if no split was made, requires an Extra tree, zero root
+    # impurity or no valid split; for non-Extra trees also checks that the split
+    # impurity equals the naive optimal impurity.
+    # Inputs: Tree class and criterion, sparse and missing_values flags (parametrized),
+    # global_random_seed fixture. friedman_mse FutureWarnings are ignored.
     is_clf = criterion in CLF_CRITERIONS
 
     rng = np.random.default_rng(global_random_seed)

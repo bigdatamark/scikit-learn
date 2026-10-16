@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the Reingold-Tilford (Buchheim) tree layout in
+# sklearn.tree._reingold_tilford, using two small hand-built binary trees.
 import numpy as np
 import pytest
 
@@ -20,7 +23,16 @@ bigger_tree = Tree(
 
 @pytest.mark.parametrize("tree, n_nodes", [(simple_tree, 3), (bigger_tree, 9)])
 def test_buchheim(tree, n_nodes):
+    # [FUNCTION DOC]
+    # Lays out tree with buchheim and walks the result, verifying that every child is
+    # exactly one level below its parent, every parent is centered between its two
+    # children, the number of laid-out nodes equals n_nodes, and x coordinates are
+    # unique within each depth.
+    # Inputs: tree - Tree fixture; n_nodes - expected node count.
     def walk_tree(draw_tree):
+        # [FUNCTION DOC]
+        # HELPER: Recursively collects (x, y) of draw_tree and its descendants while
+        # asserting the depth and centering properties. Outputs: list of (x, y) tuples.
         res = [(draw_tree.x, draw_tree.y)]
         for child in draw_tree.children:
             # parents higher than children:

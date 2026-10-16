@@ -1,3 +1,11 @@
+# [MODULE DOC]
+# Tests for sklearn.random_projection: the Johnson-Lindenstrauss minimum dimension
+# helper, the private random matrix generators (_gaussian_random_matrix,
+# _sparse_random_matrix) and the GaussianRandomProjection / SparseRandomProjection
+# transformers (validation, embedding quality, output types, inverse transform,
+# feature names, dtype preservation). Module-level lists group generators and
+# estimators for parametrization; n_samples=10, n_features=1000 and n_nonzeros=100 are
+# shared defaults.
 import functools
 import warnings
 from typing import Any, List
@@ -41,6 +49,14 @@ def make_sparse_random_data(
     random_state=None,
     sparse_format="csr",
 ):
+    # [FUNCTION DOC]
+    # HELPER: Builds a random sparse dataset: n_nonzeros Gaussian values placed at
+    # uniformly random (row, col) positions (duplicates are summed by the COO format).
+    # Inputs: coo_container - COO matrix/array class; n_samples, n_features - output shape;
+    # n_nonzeros - number of drawn entries; random_state - seed or None;
+    # sparse_format - target sparse format string (default "csr") or None for dense.
+    # Outputs: sparse matrix in sparse_format, or a dense ndarray if sparse_format is None.
+    # Side effects: none beyond a local RandomState.
     """Make some random data with uniformly located non zero entries with
     Gaussian distributed values; `sparse_format` can be `"csr"` (default) or
     `None` (in which case a dense array is returned).
@@ -63,6 +79,9 @@ def make_sparse_random_data(
 
 
 def densify(matrix):
+    # [FUNCTION DOC]
+    # HELPER: Returns a dense ndarray for a sparse matrix (via toarray) and the input
+    # unchanged otherwise.
     if not sp.issparse(matrix):
         return matrix
     else:
@@ -87,11 +106,17 @@ n_nonzeros = int(n_samples * n_features / 100.0)
     ],
 )
 def test_invalid_jl_domain(n_samples, eps):
+    # [FUNCTION DOC]
+    # Verifies johnson_lindenstrauss_min_dim raises ValueError for eps outside (0, 1) or
+    # non-positive n_samples.
     with pytest.raises(ValueError):
         johnson_lindenstrauss_min_dim(n_samples, eps=eps)
 
 
 def test_input_size_jl_min_dim():
+    # [FUNCTION DOC]
+    # Verifies a shape mismatch between n_samples and eps lists raises ValueError, and
+    # that broadcast-compatible 2D arrays of samples and eps are accepted without error.
     with pytest.raises(ValueError):
         johnson_lindenstrauss_min_dim(3 * [100], eps=2 * [0.9])
 
@@ -104,6 +129,10 @@ def test_input_size_jl_min_dim():
 # tests random matrix generation
 ###############################################################################
 def check_input_size_random_matrix(random_matrix):
+    # [FUNCTION DOC]
+    # HELPER: Checks that the generator raises ValueError for non-positive n_components
+    # or n_features combinations.
+    # Inputs: random_matrix - generator callable (n_components, n_features, ...).
     inputs = [(0, 0), (-1, 1), (1, -1), (1, 0), (-1, 0)]
     for n_components, n_features in inputs:
         with pytest.raises(ValueError):
@@ -111,6 +140,9 @@ def check_input_size_random_matrix(random_matrix):
 
 
 def check_size_generated(random_matrix):
+    # [FUNCTION DOC]
+    # HELPER: Checks that generated matrices have shape (n_components, n_features) for a
+    # few small sizes.
     inputs = [(1, 5), (5, 1), (5, 5), (1, 1)]
     for n_components, n_features in inputs:
         assert random_matrix(n_components, n_features).shape == (
@@ -120,6 +152,9 @@ def check_size_generated(random_matrix):
 
 
 def check_zero_mean_and_unit_norm(random_matrix):
+    # [FUNCTION DOC]
+    # HELPER: Generates a 10000x1 matrix with random_state=0 and checks its mean is about
+    # 0 (3 decimals) and the column's Euclidean norm is about 1 (1 decimal).
     # All random matrix should produce a transformation matrix
     # with zero mean and unit norm for each columns
 
@@ -130,6 +165,9 @@ def check_zero_mean_and_unit_norm(random_matrix):
 
 
 def check_input_with_sparse_random_matrix(random_matrix):
+    # [FUNCTION DOC]
+    # HELPER: Checks that a sparse generator raises ValueError for density values -1, 0
+    # and 1.1 (outside (0, 1]).
     n_components, n_features = 5, 10
 
     for density in [-1.0, 0.0, 1.1]:
@@ -139,6 +177,9 @@ def check_input_with_sparse_random_matrix(random_matrix):
 
 @pytest.mark.parametrize("random_matrix", all_random_matrix)
 def test_basic_property_of_random_matrix(random_matrix):
+    # [FUNCTION DOC]
+    # Runs the size-validation, shape and zero-mean/unit-norm checks on every random
+    # matrix generator.
     # Check basic properties of random matrix generation
     check_input_size_random_matrix(random_matrix)
     check_size_generated(random_matrix)
@@ -147,6 +188,9 @@ def test_basic_property_of_random_matrix(random_matrix):
 
 @pytest.mark.parametrize("random_matrix", all_sparse_random_matrix)
 def test_basic_property_of_sparse_random_matrix(random_matrix):
+    # [FUNCTION DOC]
+    # Runs the density validation check on sparse generators and the zero-mean/unit-norm
+    # check with density fixed to 1.0 via functools.partial.
     check_input_with_sparse_random_matrix(random_matrix)
 
     random_matrix_dense = functools.partial(random_matrix, density=1.0)
@@ -155,6 +199,9 @@ def test_basic_property_of_sparse_random_matrix(random_matrix):
 
 
 def test_gaussian_random_matrix():
+    # [FUNCTION DOC]
+    # Verifies a 100x1000 Gaussian random matrix has mean about 0 and sample variance
+    # about 1/n_components.
     # Check some statical properties of Gaussian random matrix
     # Check that the random matrix follow the proper distribution.
     # Let's say that each element of a_{ij} of A is taken from
@@ -169,6 +216,11 @@ def test_gaussian_random_matrix():
 
 
 def test_sparse_random_matrix():
+    # [FUNCTION DOC]
+    # Verifies, for density 0.3 and 1.0, that the sparse random matrix only contains the
+    # values +-sqrt(1/density)/sqrt(n_components) (and 0 when density < 1) and that the
+    # empirical frequencies and their variances match the expected Bernoulli
+    # probabilities (1 - 1/s for zero, 1/(2s) for each sign, s = 1/density).
     # Check some statical properties of sparse random matrix
     n_components = 100
     n_features = 500
@@ -226,6 +278,9 @@ def test_sparse_random_matrix():
 
 
 def test_random_projection_transformer_invalid_input():
+    # [FUNCTION DOC]
+    # Verifies fitting with n_components="auto" on a single-sample dataset raises
+    # ValueError for every projection class.
     n_components = "auto"
     fit_data = [[0, 1, 2]]
     for RandomProjection in all_RandomProjection:
@@ -235,6 +290,8 @@ def test_random_projection_transformer_invalid_input():
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_try_to_transform_before_fit(coo_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies calling transform before fit raises NotFittedError.
     data = make_sparse_random_data(
         coo_container,
         n_samples,
@@ -250,6 +307,9 @@ def test_try_to_transform_before_fit(coo_container, global_random_seed):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_too_many_samples_to_find_a_safe_embedding(coo_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that with eps=0.1 and 1000 samples the JL dimension (5920) exceeds
+    # n_features=100, so fit raises ValueError with the exact explanatory message.
     data = make_sparse_random_data(
         coo_container,
         n_samples=1000,
@@ -272,6 +332,10 @@ def test_too_many_samples_to_find_a_safe_embedding(coo_container, global_random_
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_random_projection_embedding_quality(coo_container):
+    # [FUNCTION DOC]
+    # Verifies the JL guarantee: with eps=0.2 and automatic n_components, all ratios of
+    # squared pairwise distances after/before projection (excluding zero distances) lie
+    # within (1 - eps, 1 + eps).
     data = make_sparse_random_data(
         coo_container,
         n_samples=8,
@@ -310,6 +374,10 @@ def test_random_projection_embedding_quality(coo_container):
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_SparseRandomProj_output_representation(coo_container):
+    # [FUNCTION DOC]
+    # Verifies SparseRandomProjection output types: dense_output=True always returns an
+    # ndarray; dense_output=False returns ndarray for dense input and a sparse matrix for
+    # sparse input.
     dense_data = make_sparse_random_data(
         coo_container,
         n_samples,
@@ -348,6 +416,14 @@ def test_SparseRandomProj_output_representation(coo_container):
 def test_correct_RandomProjection_dimensions_embedding(
     coo_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies auto-sizing: n_components_ is 110 for eps=0.5 and 10 samples, density_ is
+    # about 0.03 for the sparse variant, components_ shape, deterministic transform,
+    # reproducibility with the same seed, ValueError on wrong feature count, and that a
+    # fixed density 0.001 yields about 100 nonzeros (85 < nnz < 115).
+    # KNOWN ISSUE: the inline comments say "close to 1% density" while density=0.001 is
+    # 0.1%; 100 x 1000 x 0.001 = 100 nonzeros, so the bounds are right but the comment
+    # is misleading.
     data = make_sparse_random_data(
         coo_container,
         n_samples,
@@ -401,6 +477,9 @@ def test_correct_RandomProjection_dimensions_embedding(
 def test_warning_n_components_greater_than_n_features(
     coo_container, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies a DataDimensionalityWarning is emitted when n_components exceeds
+    # n_features.
     n_features = 20
     n_samples = 5
     n_nonzeros = int(n_features / 4)
@@ -420,6 +499,9 @@ def test_warning_n_components_greater_than_n_features(
 
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_works_with_sparse_data(coo_container, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that fitting on dense or CSR versions of the same data with the same seed
+    # produces identical components_.
     n_features = 20
     n_samples = 5
     n_nonzeros = int(n_features / 4)
@@ -449,6 +531,9 @@ def test_works_with_sparse_data(coo_container, global_random_seed):
 
 
 def test_johnson_lindenstrauss_min_dim():
+    # [FUNCTION DOC]
+    # Regression test: for eps=1e-5 and 100 samples the exact integer result is returned
+    # (no 32-bit overflow).
     """Test Johnson-Lindenstrauss for small eps.
 
     Regression test for #17111: before #19374, 32-bit systems would fail.
@@ -461,6 +546,9 @@ def test_johnson_lindenstrauss_min_dim():
 def test_random_projection_feature_names_out(
     coo_container, random_projection_cls, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies get_feature_names_out returns "<lowercase class name><i>" for each
+    # component as an object array.
     data = make_sparse_random_data(
         coo_container,
         n_samples,
@@ -494,6 +582,12 @@ def test_inverse_transform(
     compute_inverse_components,
     global_random_seed,
 ):
+    # [FUNCTION DOC]
+    # Verifies inverse_transform for dense and CSR inputs across shapes: when
+    # compute_inverse_components is True the inverse_components_ attribute exists with
+    # shape (n_features, n_components); the reconstruction has X's shape and projecting
+    # it again reproduces the original projection (since components have full row rank
+    # pseudo-inverse). Dimensionality warnings are suppressed.
     n_components = 10
 
     random_projection = random_projection_cls(
@@ -557,6 +651,9 @@ def test_inverse_transform(
 def test_random_projection_dtype_match(
     random_projection_cls, input_dtype, expected_dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies components_ and transformed output keep float32/float64 dtype and that
+    # integer inputs are upcast to float64.
     # Verify output matrix dtype
     rng = np.random.RandomState(42)
     X = rng.rand(25, 3000)
@@ -569,6 +666,9 @@ def test_random_projection_dtype_match(
 
 @pytest.mark.parametrize("random_projection_cls", all_RandomProjection)
 def test_random_projection_numerical_consistency(random_projection_cls):
+    # [FUNCTION DOC]
+    # Verifies float32 and float64 fits with the same seed give projections equal within
+    # atol 1e-5 and matching components_.
     # Verify numerical consistency among np.float32 and np.float64
     atol = 1e-5
     rng = np.random.RandomState(42)

@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# HELPER: Pure-Python implementation of the Buchheim et al. (2002) linear-time
+# variant of the Reingold-Tilford / Walker tidy tree layout algorithm. Used by
+# sklearn.tree._export (matplotlib plotting) to compute x/y positions of tree nodes.
+# Public contents: DrawTree (layout node wrapper), Tree (minimal input tree), buchheim
+# (entry point) and the walk helpers. No import-time side effects besides importing
+# numpy.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -5,7 +12,20 @@ import numpy as np
 
 
 class DrawTree:
+    # [CLASS DOC]
+    # HELPER: Mutable layout node wrapping an input Tree node. Holds the layout state
+    # used by Buchheim's algorithm: x (horizontal position, -1 before layout), y (depth),
+    # children (DrawTree wrappers), parent, thread (contour thread pointer), mod
+    # (pending subtree shift), ancestor, change/shift (deferred shift bookkeeping),
+    # number (1-based index among siblings).
     def __init__(self, tree, parent=None, depth=0, number=1):
+        # [FUNCTION DOC]
+        # Builds the wrapper recursively for the whole subtree of tree.
+        # Inputs: tree - object with a children sequence (e.g. Tree); parent - parent
+        # DrawTree or None for the root; depth - int depth (stored as y), default 0;
+        # number - 1-based position among siblings, default 1.
+        # Outputs: none. Side effects: sets all layout attributes, ancestor to self, and
+        # recursively creates DrawTree children with depth + 1 and their sibling index.
         self.x = -1.0
         self.y = depth
         self.tree = tree
@@ -22,12 +42,22 @@ class DrawTree:
         self.number = number
 
     def left(self):
+        # [FUNCTION DOC]
+        # Returns the next node on the left contour: the thread if set, otherwise the
+        # first child; returns 0 (falsy) when there are no children and no thread.
         return self.thread or (len(self.children) and self.children[0])
 
     def right(self):
+        # [FUNCTION DOC]
+        # Returns the next node on the right contour: the thread if set, otherwise the
+        # last child; returns 0 (falsy) when there are no children and no thread.
         return self.thread or (len(self.children) and self.children[-1])
 
     def lbrother(self):
+        # [FUNCTION DOC]
+        # Returns the sibling immediately to the left of this node in parent.children,
+        # or None if this node is the first child or has no parent.
+        # Note: siblings are compared with equality (default identity).
         n = None
         if self.parent:
             for node in self.parent.children:
@@ -38,6 +68,10 @@ class DrawTree:
         return n
 
     def get_lmost_sibling(self):
+        # [FUNCTION DOC]
+        # Returns (and caches in _lmost_sibling) the leftmost sibling of this node, or
+        # None when this node has no parent or is itself the first child.
+        # Side effects: caches the result on first successful lookup.
         if not self._lmost_sibling and self.parent and self != self.parent.children[0]:
             self._lmost_sibling = self.parent.children[0]
         return self._lmost_sibling
@@ -45,18 +79,32 @@ class DrawTree:
     lmost_sibling = property(get_lmost_sibling)
 
     def __str__(self):
+        # [FUNCTION DOC]
+        # Returns a debugging string "<tree>: x=<x> mod=<mod>".
         return "%s: x=%s mod=%s" % (self.tree, self.x, self.mod)
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Same as __str__.
         return self.__str__()
 
     def max_extents(self):
+        # [FUNCTION DOC]
+        # Recursively computes the maximum x and maximum y over this node and all its
+        # descendants. Outputs: numpy array of shape (2,) holding [max_x, max_y].
         extents = [c.max_extents() for c in self.children]
         extents.append((self.x, self.y))
         return np.max(extents, axis=0)
 
 
 def buchheim(tree):
+    # [FUNCTION DOC]
+    # Entry point: computes a tidy layout of tree. Wraps it in DrawTree, runs
+    # first_walk (preliminary x and mod values), second_walk (final x via accumulated
+    # mods, y = depth, returns minimum x), and if the minimum x is negative shifts the
+    # whole tree right with third_walk so all x are >= 0.
+    # Inputs: tree - root of a Tree-like structure (has children).
+    # Outputs: the root DrawTree with x and y set on every node.
     dt = first_walk(DrawTree(tree))
     min = second_walk(dt)
     if min < 0:
@@ -65,12 +113,26 @@ def buchheim(tree):
 
 
 def third_walk(tree, n):
+    # [FUNCTION DOC]
+    # HELPER: Recursively adds n to the x coordinate of tree and all descendants.
+    # Side effects: mutates x of every node in the subtree.
     tree.x += n
     for c in tree.children:
         third_walk(c, n)
 
 
 def first_walk(v, distance=1.0):
+    # [FUNCTION DOC]
+    # HELPER: Post-order first pass of Buchheim's algorithm. Leaves get x = left
+    # brother's x + distance, or 0 if first child. Internal nodes: recursively lay out
+    # each child (always with the default distance 1.0), resolve conflicts between
+    # subtrees with apportion, apply deferred shifts via execute_shifts, then place the
+    # node at the midpoint of its first and last child; if it has a left brother it is
+    # placed at brother.x + distance and mod records the offset to the midpoint.
+    # Inputs: v - DrawTree; distance - minimum horizontal separation, default 1.0.
+    # Outputs: v. Side effects: sets x, mod, thread, ancestor, change, shift on nodes.
+    # KNOWN ISSUE: the recursive call does not forward distance, so a non-default
+    # distance only applies at the top level.
     if len(v.children) == 0:
         if v.lmost_sibling:
             v.x = v.lbrother().x + distance
@@ -96,6 +158,16 @@ def first_walk(v, distance=1.0):
 
 
 def apportion(v, default_ancestor, distance):
+    # [FUNCTION DOC]
+    # HELPER: Resolves overlap between the subtree rooted at v and the subtrees of its
+    # left siblings by walking the inner and outer contours (vil/vir/vol/vor with
+    # accumulated mod sums) level by level; whenever the left contour plus distance
+    # exceeds the right contour, moves the subtree of v right by the difference with
+    # move_subtree. Afterwards sets threads so the contours of the combined forest
+    # remain traversable, and updates the default ancestor.
+    # Inputs: v - DrawTree being placed; default_ancestor - DrawTree; distance - float.
+    # Outputs: the (possibly updated) default ancestor.
+    # Side effects: mutates x, mod, thread, ancestor, change, shift of contour nodes.
     w = v.lbrother()
     if w is not None:
         # in buchheim notation:
@@ -133,6 +205,13 @@ def apportion(v, default_ancestor, distance):
 
 
 def move_subtree(wl, wr, shift):
+    # [FUNCTION DOC]
+    # HELPER: Shifts subtree wr right by shift and records the shift so that it is
+    # distributed evenly over the intermediate siblings between wl and wr (via change
+    # and shift counters, applied later by execute_shifts).
+    # Inputs: wl, wr - sibling DrawTrees (wl left of wr); shift - positive float.
+    # Exceptions: ZeroDivisionError if wl and wr have the same number.
+    # Side effects: mutates wr.change, wr.shift, wr.x, wr.mod and wl.change.
     subtrees = wr.number - wl.number
     # print(wl.tree, "is conflicted with", wr.tree, 'moving', subtrees,
     # 'shift', shift)
@@ -145,6 +224,11 @@ def move_subtree(wl, wr, shift):
 
 
 def execute_shifts(v):
+    # [FUNCTION DOC]
+    # HELPER: Applies the deferred shifts of v's children: iterating children from
+    # right to left, adds the running shift to each child's x and mod, then accumulates
+    # child.change into change and child.shift + change into shift.
+    # Side effects: mutates x and mod of v's children.
     shift = change = 0
     for w in v.children[::-1]:
         # print("shift:", w, shift, w.change)
@@ -155,6 +239,9 @@ def execute_shifts(v):
 
 
 def ancestor(vil, v, default_ancestor):
+    # [FUNCTION DOC]
+    # HELPER: Returns vil.ancestor if it is a sibling of v (one of v.parent.children),
+    # otherwise default_ancestor. Used to find which left subtree to move.
     # the relevant text is at the bottom of page 7 of
     # "Improving Walker's Algorithm to Run in Linear Time" by Buchheim et al,
     # (2002)
@@ -166,6 +253,13 @@ def ancestor(vil, v, default_ancestor):
 
 
 def second_walk(v, m=0, depth=0, min=None):
+    # [FUNCTION DOC]
+    # HELPER: Pre-order second pass: final x = preliminary x + sum of ancestors' mods
+    # (m), sets y to depth and tracks the minimum x seen.
+    # Inputs: v - DrawTree; m - accumulated mod of ancestors, default 0; depth - int,
+    # default 0; min - running minimum or None.
+    # Outputs: minimum x over the subtree (combined with incoming min).
+    # Side effects: mutates x and y of every node in the subtree.
     v.x += m
     v.y = depth
 
@@ -179,7 +273,13 @@ def second_walk(v, m=0, depth=0, min=None):
 
 
 class Tree:
+    # [CLASS DOC]
+    # HELPER: Minimal input tree node for buchheim with label, node_id and children.
     def __init__(self, label="", node_id=-1, *children):
+        # [FUNCTION DOC]
+        # Inputs: label - display string, default ""; node_id - int id, default -1;
+        # *children - child Tree nodes. Side effects: stores children as the given tuple,
+        # or an empty list when no children are passed.
         self.label = label
         self.node_id = node_id
         if children:
