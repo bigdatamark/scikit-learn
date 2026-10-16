@@ -1,3 +1,9 @@
+# [PACKAGE DOC]
+# Public entry point of the callback framework. Re-exports the callback protocols
+# (FitCallback, AutoPropagatedCallback), the CallbackContext task tree, the estimator
+# mixin CallbackSupportMixin and the with_callbacks fit decorator, and the built-in
+# callbacks ProgressBar, ScoringMonitor and ScoringMonitorLog (listed in __all__).
+# Import-time side effects: imports the private submodules only; no global state set.
 """
 The :mod:`sklearn.callback` module implements the framework and off the shelf
 callbacks for scikit-learn estimators.

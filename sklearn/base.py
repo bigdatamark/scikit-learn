@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Core estimator infrastructure: clone, BaseEstimator (params, repr, pickling, tags,
+# validation), the estimator-type mixins (classifier, regressor, clusterer,
+# bicluster, transformer, density, outlier, meta, multi-output, ...), the
+# _fit_context decorator, and is_* type-check helpers based on tags.
 """Base classes for all estimators and various utility functions."""
 
 # Authors: The scikit-learn developers
@@ -44,6 +49,11 @@ from sklearn.utils.validation import (
 
 
 def clone(estimator, *, safe=True):
+    # [FUNCTION DOC]
+    # Dispatches cloning: if estimator is an instance (not a class) defining
+    # __sklearn_clone__, return its result; otherwise use _clone_parametrized.
+    # Inputs: estimator - estimator, container of estimators, or any object; safe (bool,
+    # keyword-only, True). Outputs: the clone. Exceptions: see _clone_parametrized.
     """Construct a new unfitted estimator with the same parameters.
 
     Clone does a deep copy of the model in an estimator
@@ -98,6 +108,20 @@ def clone(estimator, *, safe=True):
 
 
 def _clone_parametrized(estimator, *, safe=True):
+    # [FUNCTION DOC]
+    # HELPER: Default clone algorithm.
+    # Steps: dicts are rebuilt with cloned values; list/tuple/set/frozenset are rebuilt
+    # with cloned items (same container type). Objects without get_params, or classes,
+    # are deep-copied when safe is False, else rejected. For estimators: clone each
+    # shallow parameter with safe=False, instantiate the class with them, copy a cloned
+    # _metadata_request if present, share _skl_callbacks by reference, check that the
+    # constructor stored each parameter object unchanged (identity), and deep-copy
+    # _sklearn_output_config if present.
+    # Outputs: new unfitted object.
+    # Exceptions: TypeError for non-estimators/classes with safe=True; RuntimeError when
+    # __init__ does not store a parameter as-is.
+    # KNOWN ISSUE: subclasses of dict/list (e.g. OrderedDict) do not match the exact-type
+    # checks and are handled as plain objects.
     """Default implementation of clone. See :func:`sklearn.base.clone` for details."""
 
     estimator_type = type(estimator)
@@ -163,6 +187,9 @@ def _clone_parametrized(estimator, *, safe=True):
 
 
 class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequester):
+    # [CLASS DOC]
+    # Base class for estimators. Parameters are discovered from the __init__ signature;
+    # mixes in HTML repr, documentation links and metadata-routing request handling.
     """Base class for all estimators in scikit-learn.
 
     Inheriting from this class provides default implementations of:
@@ -207,6 +234,10 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
     """
 
     def __dir__(self):
+        # [FUNCTION DOC]
+        # Returns the default attribute listing filtered to names for which hasattr is True,
+        # hiding methods disabled by available_if; FutureWarnings from deprecated attributes
+        # are suppressed while probing.
         # Filters conditional methods that should be hidden based
         # on the `available_if` decorator
         with warnings.catch_warnings():
@@ -217,6 +248,10 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
 
     @classmethod
     def _get_param_names(cls):
+        # [FUNCTION DOC]
+        # HELPER: Returns sorted names of __init__ parameters (excluding self and **kwargs);
+        # empty list if __init__ is object.__init__.
+        # Exceptions: RuntimeError if __init__ has *args.
         """Get parameter names for the estimator"""
         # fetch the constructor
         init = cls.__init__
@@ -246,6 +281,11 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         return sorted([p.name for p in parameters])
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # Returns dict of parameter name -> current attribute value; with deep=True, also adds
+        # "name__subparam" entries for any value having get_params (and not a class),
+        # recursively via that object's get_params().
+        # Exceptions: AttributeError if a parameter is not stored as an attribute.
         """
         Get parameters for this estimator.
 
@@ -270,6 +310,12 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         return out
 
     def _get_params_html(self, deep=True, doc_link=""):
+        # [FUNCTION DOC]
+        # HELPER: Builds a ParamsDict for the HTML repr with parameters ordered non-default
+        # first, then default; parameters from the signature come before extra ones (e.g.
+        # deep sub-parameters), preserving order within each group.
+        # Inputs: deep (bool, True); doc_link (str, "").
+        # Outputs: ParamsDict(params, non_default tuple, estimator_class, doc_link).
         """
         Get parameters for this estimator with a specific HTML representation.
 
@@ -299,6 +345,10 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         }
 
         def is_non_default(param_name, param_value):
+            # [FUNCTION DOC]
+            # HELPER: True if param_value counts as user-set: name absent from the signature, no
+            # default, an estimator of a different type than the default, pandas NA versus a
+            # non-NA default, or not array_equal to the default (two scalar NaNs are equal).
             """Finds the parameters that have been set by the user."""
             if param_name not in init_default_params:
                 # happens if k is part of a **kwargs
@@ -354,6 +404,13 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         )
 
     def _get_fitted_attr_html(self, doc_link=""):
+        # [FUNCTION DOC]
+        # HELPER: Collects public attributes ending with "_" (not starting with "_") into a
+        # dict for the HTML repr: type name and value, plus shape and dtype for array-likes.
+        # Members are retrieved with FutureWarnings silenced. Stops with a "..." entry when
+        # the dict exceeds 100 entries. Outputs: AttrsDict.
+        # KNOWN ISSUE: the check is "more than 100", so up to 101 attributes are shown
+        # before the "..." marker; inspect.getmembers also evaluates properties.
         """Get fitted attributes of the estimator."""
 
         fitted_attr = {}
@@ -398,6 +455,13 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         )
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # Sets parameters, supporting nested "component__param" keys.
+        # Steps: no params -> return immediately. Validate each top-level key against
+        # get_params(deep=True); set plain keys immediately (setattr, also updating the local
+        # mapping), group nested keys by component; then call set_params on each component.
+        # Outputs: self. Exceptions: ValueError for an unknown top-level key.
+        # Side effects: mutates self and nested estimators; no validation of values.
         """Set the parameters of this estimator.
 
         The method works on simple estimators as well as on nested objects
@@ -442,9 +506,17 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         return self
 
     def __sklearn_clone__(self):
+        # [FUNCTION DOC]
+        # Default __sklearn_clone__: delegates to _clone_parametrized with safe=True.
         return _clone_parametrized(self)
 
     def __repr__(self, N_CHAR_MAX=700):
+        # [FUNCTION DOC]
+        # Pretty-prints the estimator via _EstimatorPrettyPrinter (compact, sequences
+        # truncated to 30 elements). If the repr has more than N_CHAR_MAX non-blank chars,
+        # keep about N_CHAR_MAX//2 non-blank chars at each end joined by "...", extending the
+        # right part to start at a line boundary when the cut spans lines; the ellipsis is
+        # applied only if it shortens the string. Outputs: str.
         # N_CHAR_MAX is the (approximate) maximum number of non-blank
         # characters to render. We pass it as an optional parameter to ease
         # the tests.
@@ -497,6 +569,10 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         return repr_
 
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # Pickle state: copy of the instance dict (via object.__getstate__ when available),
+        # with _sklearn_version added for classes defined in sklearn modules.
+        # Exceptions: TypeError if the class defines non-empty __slots__.
         if getattr(self, "__slots__", None):
             raise TypeError(
                 "You cannot use `__slots__` in objects inheriting from "
@@ -519,6 +595,11 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
             return state
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # For sklearn classes, pops _sklearn_version (default "pre-0.18") and emits
+        # InconsistentVersionWarning if it differs from the running version; then restores
+        # state via the parent __setstate__ or by updating __dict__.
+        # Side effects: mutates the given state dict.
         if type(self).__module__.startswith("sklearn."):
             pickle_version = state.pop("_sklearn_version", "pre-0.18")
             if pickle_version != __version__:
@@ -535,6 +616,8 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
             self.__dict__.update(state)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns default Tags: no estimator type, target not required, no type-specific tags.
         return Tags(
             estimator_type=None,
             target_tags=TargetTags(required=False),
@@ -544,6 +627,9 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
         )
 
     def _validate_params(self):
+        # [FUNCTION DOC]
+        # HELPER: Validates get_params(deep=False) against _parameter_constraints.
+        # Exceptions: InvalidParameterError from validate_parameter_constraints.
         """Validate types and values of constructor parameters
 
         The expected type and values must be defined in the `_parameter_constraints`
@@ -559,6 +645,8 @@ class BaseEstimator(ReprHTMLMixin, _HTMLDocumentationLinkMixin, _MetadataRequest
 
 
 class ClassifierMixin:
+    # [CLASS DOC]
+    # Mixin marking classifiers via tags and providing accuracy-based score.
     """Mixin class for all classifiers in scikit-learn.
 
     This mixin defines the following functionality:
@@ -593,6 +681,9 @@ class ClassifierMixin:
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: estimator_type "classifier", default ClassifierTags, target
+        # required.
         tags = super().__sklearn_tags__()
         tags.estimator_type = "classifier"
         tags.classifier_tags = ClassifierTags()
@@ -600,6 +691,9 @@ class ClassifierMixin:
         return tags
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns accuracy_score(y, predict(X), sample_weight). Exceptions: those of predict
+        # and accuracy_score.
         """
         Return :ref:`accuracy <accuracy_score>` on provided data and labels.
 
@@ -629,6 +723,8 @@ class ClassifierMixin:
 
 
 class RegressorMixin:
+    # [CLASS DOC]
+    # Mixin marking regressors via tags and providing R^2-based score.
     """Mixin class for all regression estimators in scikit-learn.
 
     This mixin defines the following functionality:
@@ -663,6 +759,9 @@ class RegressorMixin:
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: estimator_type "regressor", default RegressorTags, target
+        # required.
         tags = super().__sklearn_tags__()
         tags.estimator_type = "regressor"
         tags.regressor_tags = RegressorTags()
@@ -670,6 +769,9 @@ class RegressorMixin:
         return tags
 
     def score(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # Returns r2_score(y, predict(X), sample_weight) with r2_score defaults
+        # (uniform_average over outputs).
         """Return :ref:`coefficient of determination <r2_score>` on test data.
 
         The coefficient of determination, :math:`R^2`, is defined as
@@ -717,6 +819,8 @@ class RegressorMixin:
 
 
 class ClusterMixin:
+    # [CLASS DOC]
+    # Mixin marking clusterers via tags and providing a default fit_predict.
     """Mixin class for all cluster estimators in scikit-learn.
 
     - set estimator type to `"clusterer"` through the `estimator_type` tag;
@@ -736,6 +840,9 @@ class ClusterMixin:
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: estimator_type "clusterer"; if transformer tags exist, set
+        # preserves_dtype to an empty list.
         tags = super().__sklearn_tags__()
         tags.estimator_type = "clusterer"
         if tags.transformer_tags is not None:
@@ -743,6 +850,9 @@ class ClusterMixin:
         return tags
 
     def fit_predict(self, X, y=None, **kwargs):
+        # [FUNCTION DOC]
+        # Calls fit(X, **kwargs) (y is not forwarded) and returns labels_.
+        # Side effects: fits self.
         """
         Perform clustering on `X` and returns cluster labels.
 
@@ -771,6 +881,9 @@ class ClusterMixin:
 
 
 class BiclusterMixin:
+    # [CLASS DOC]
+    # Mixin providing bicluster accessors based on fitted rows_ and columns_ boolean
+    # indicator arrays of shape (n_biclusters, n_rows) and (n_biclusters, n_columns).
     """Mixin class for all bicluster estimators in scikit-learn.
 
     This mixin defines the following functionality:
@@ -800,6 +913,8 @@ class BiclusterMixin:
 
     @property
     def biclusters_(self):
+        # [FUNCTION DOC]
+        # Returns the tuple (rows_, columns_). Exceptions: AttributeError if not fitted.
         """Convenient way to get row and column indicators together.
 
         Returns the ``rows_`` and ``columns_`` members.
@@ -807,6 +922,9 @@ class BiclusterMixin:
         return self.rows_, self.columns_
 
     def get_indices(self, i):
+        # [FUNCTION DOC]
+        # Returns (row indices, column indices) where row i of rows_ and columns_ is nonzero.
+        # Inputs: i - int bicluster index. Exceptions: IndexError/AttributeError.
         """Row and column indices of the `i`'th bicluster.
 
         Only works if ``rows_`` and ``columns_`` attributes exist.
@@ -828,6 +946,8 @@ class BiclusterMixin:
         return np.nonzero(rows)[0], np.nonzero(columns)[0]
 
     def get_shape(self, i):
+        # [FUNCTION DOC]
+        # Returns (number of rows, number of columns) of bicluster i via get_indices.
         """Shape of the `i`'th bicluster.
 
         Parameters
@@ -847,6 +967,10 @@ class BiclusterMixin:
         return tuple(len(i) for i in indices)
 
     def get_submatrix(self, i, data):
+        # [FUNCTION DOC]
+        # Validates data with check_array (sparse converted to CSR) and returns the rows and
+        # columns of bicluster i using a broadcast (open mesh) index.
+        # Outputs: array (or sparse matrix) of shape (n_rows_i, n_cols_i).
         """Return the submatrix corresponding to bicluster `i`.
 
         Parameters
@@ -873,6 +997,9 @@ class BiclusterMixin:
 
 
 class TransformerMixin(_SetOutputMixin):
+    # [CLASS DOC]
+    # Mixin for transformers: adds transformer tags and default fit_transform; inherits
+    # set_output wrapping from _SetOutputMixin.
     """Mixin class for all transformers in scikit-learn.
 
     This mixin defines the following functionality:
@@ -906,11 +1033,20 @@ class TransformerMixin(_SetOutputMixin):
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags with default TransformerTags.
         tags = super().__sklearn_tags__()
         tags.transformer_tags = TransformerTags()
         return tags
 
     def fit_transform(self, X, y=None, **fit_params):
+        # [FUNCTION DOC]
+        # Default fit then transform. When metadata routing is enabled and any of fit_params
+        # would be consumed by transform, emits a UserWarning (params are not forwarded to
+        # transform). Calls fit(X, **fit_params) if y is None, else fit(X, y, **fit_params),
+        # then transform(X). Outputs: transformed X.
+        # KNOWN ISSUE: the inline comment mentions "a given clustering algorithm" although
+        # this is the transformer implementation (copy-paste).
         """
         Fit to data, then transform it.
 
@@ -973,6 +1109,8 @@ class TransformerMixin(_SetOutputMixin):
 
 
 class OneToOneFeatureMixin:
+    # [CLASS DOC]
+    # Mixin providing get_feature_names_out equal to the input feature names.
     """Provides `get_feature_names_out` for simple transformers.
 
     This mixin assumes there's a 1-to-1 correspondence between input features
@@ -992,6 +1130,10 @@ class OneToOneFeatureMixin:
     """
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Checks n_features_in_ exists (NotFittedError otherwise), then returns the validated
+        # input feature names (or generated x0..xN-1) via _check_feature_names_in.
+        # Exceptions: ValueError for input_features inconsistent with fit.
         """Get output feature names for transformation.
 
         Parameters
@@ -1019,6 +1161,8 @@ class OneToOneFeatureMixin:
 
 
 class ClassNamePrefixFeaturesOutMixin:
+    # [CLASS DOC]
+    # Mixin providing get_feature_names_out of the form "<lowercased class name><i>".
     """Mixin class for transformers that generate their own names by prefixing.
 
     This mixin is useful when the transformer needs to generate its own feature
@@ -1044,6 +1188,9 @@ class ClassNamePrefixFeaturesOutMixin:
     """
 
     def get_feature_names_out(self, input_features=None):
+        # [FUNCTION DOC]
+        # Requires fitted _n_features_out (NotFittedError otherwise) and returns names from
+        # _generate_get_feature_names_out, which also validates input_features.
         """Get output feature names for transformation.
 
         The feature names out will prefixed by the lowercased class name. For
@@ -1067,6 +1214,8 @@ class ClassNamePrefixFeaturesOutMixin:
 
 
 class DensityMixin:
+    # [CLASS DOC]
+    # Mixin marking density estimators via tags with a placeholder score.
     """Mixin class for all density estimators in scikit-learn.
 
     This mixin defines the following functionality:
@@ -1087,11 +1236,16 @@ class DensityMixin:
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: estimator_type "density_estimator".
         tags = super().__sklearn_tags__()
         tags.estimator_type = "density_estimator"
         return tags
 
     def score(self, X, y=None):
+        # [FUNCTION DOC]
+        # No-op placeholder meant to be overridden.
+        # KNOWN ISSUE: returns None although the docstring documents a float score.
         """Return the score of the model on the data `X`.
 
         Parameters
@@ -1110,6 +1264,8 @@ class DensityMixin:
 
 
 class OutlierMixin:
+    # [CLASS DOC]
+    # Mixin marking outlier detectors via tags and providing default fit_predict.
     """Mixin class for all outlier detection estimators in scikit-learn.
 
     This mixin defines the following functionality:
@@ -1134,11 +1290,19 @@ class OutlierMixin:
     """
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags: estimator_type "outlier_detector".
         tags = super().__sklearn_tags__()
         tags.estimator_type = "outlier_detector"
         return tags
 
     def fit_predict(self, X, y=None, **kwargs):
+        # [FUNCTION DOC]
+        # Fits with fit(X, **kwargs) and returns predict(X). If routing is enabled and kwargs
+        # would be consumed by predict, warns (UserWarning) that they are not forwarded.
+        # y is ignored and not passed to fit.
+        # KNOWN ISSUE: the local is named transform_params though it holds predict params,
+        # and the warning text lacks spaces between some concatenated sentences.
         """Perform fit on X and returns labels for X.
 
         Returns -1 for outliers and 1 for inliers.
@@ -1192,6 +1356,8 @@ class OutlierMixin:
 
 
 class MetaEstimatorMixin:
+    # [CLASS DOC]
+    # Marker mixin with no behavior; identifies meta-estimators.
     """Mixin class for all meta estimators in scikit-learn.
 
     This mixin is empty, and only exists to indicate that the estimator is a
@@ -1223,18 +1389,27 @@ class MetaEstimatorMixin:
 
 
 class MultiOutputMixin:
+    # [CLASS DOC]
+    # Mixin setting target_tags.multi_output to True.
     """Mixin to mark estimators that support multioutput."""
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends parent tags with multi_output True.
         tags = super().__sklearn_tags__()
         tags.target_tags.multi_output = True
         return tags
 
 
 class _UnstableArchMixin:
+    # [CLASS DOC]
+    # HELPER: Mixin flagging estimators as non-deterministic on 32-bit or PowerPC hosts.
     """Mark estimators that are non-deterministic on 32bit or PowerPC"""
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Sets non_deterministic tag when _IS_32BIT or platform.machine starts with
+        # "ppc"/"powerpc".
         tags = super().__sklearn_tags__()
         tags.non_deterministic = _IS_32BIT or platform.machine().startswith(
             ("ppc", "powerpc")
@@ -1243,6 +1418,8 @@ class _UnstableArchMixin:
 
 
 def is_classifier(estimator):
+    # [FUNCTION DOC]
+    # Returns True when get_tags(estimator).estimator_type is "classifier".
     """Return True if the given estimator is (probably) a classifier.
 
     Parameters
@@ -1274,6 +1451,8 @@ def is_classifier(estimator):
 
 
 def is_regressor(estimator):
+    # [FUNCTION DOC]
+    # Returns True when the estimator_type tag is "regressor".
     """Return True if the given estimator is (probably) a regressor.
 
     Parameters
@@ -1305,6 +1484,8 @@ def is_regressor(estimator):
 
 
 def is_clusterer(estimator):
+    # [FUNCTION DOC]
+    # Returns True when the estimator_type tag is "clusterer".
     """Return True if the given estimator is (probably) a clusterer.
 
     .. versionadded:: 1.6
@@ -1338,6 +1519,8 @@ def is_clusterer(estimator):
 
 
 def is_outlier_detector(estimator):
+    # [FUNCTION DOC]
+    # Returns True when the estimator_type tag is "outlier_detector".
     """Return True if the given estimator is (probably) an outlier detector.
 
     Parameters
@@ -1354,6 +1537,10 @@ def is_outlier_detector(estimator):
 
 
 def _fit_context(*, prefer_skip_nested_validation):
+    # [FUNCTION DOC]
+    # HELPER: Decorator factory for fit-like methods.
+    # Inputs: prefer_skip_nested_validation (bool, keyword-only).
+    # Outputs: decorator wrapping a method.
     """Decorator to run the fit methods of estimators within context managers.
 
     Parameters
@@ -1378,8 +1565,16 @@ def _fit_context(*, prefer_skip_nested_validation):
     """
 
     def decorator(fit_method):
+        # [FUNCTION DOC]
+        # HELPER: Wraps fit_method with functools.wraps; returns the wrapper.
         @functools.wraps(fit_method)
         def wrapper(estimator, *args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Validates estimator params unless global skip_parameter_validation is set
+            # or the method is partial_fit on an already fitted estimator; then runs fit_method
+            # inside config_context(skip_parameter_validation = prefer flag OR global flag) and
+            # callback_management_context (callback teardown). Returns fit_method's result.
+            # Exceptions: InvalidParameterError from validation; callback teardown errors.
             from sklearn.callback._callback_support import callback_management_context
 
             global_skip_validation = get_config()["skip_parameter_validation"]

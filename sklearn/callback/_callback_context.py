@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Task-tree context objects passed to callback hooks, plus helpers to dispatch hooks,
+# build snapshot "fitted" estimators and compute a context's ancestor path.
+# Module state: VALID_HOOK_PARAMS_OUT lists the keyword-only hook parameters allowed;
+# _cached_signature is an unbounded lru_cache around inspect.signature (it keeps
+# references to the bound hook methods, and therefore callbacks, alive).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -19,6 +25,12 @@ _cached_signature = functools.lru_cache()(inspect.signature)
 
 
 class CallbackContext:
+    # [CLASS DOC]
+    # Node of a tree of fit tasks. Private state: _callbacks (list shared by reference with
+    # the estimator's _skl_callbacks and with all descendant contexts of that estimator),
+    # _children_map (task_id -> child context, insertion ordered), _propagation_depth
+    # (number of meta-estimator levels above), and optionally _propagated_callbacks (set
+    # by propagate_callback_context). Not created via __init__ (constructors use __new__).
     """Task level context for the callbacks.
 
     This class is responsible for managing the callbacks and holding the tree structure
@@ -74,6 +86,14 @@ class CallbackContext:
     def _from_estimator(
         cls, estimator, task_name, task_id, max_subtasks, sequential_subtasks
     ):
+        # [FUNCTION DOC]
+        # HELPER: Builds the root context for an estimator's fit.
+        # Inputs: as documented; estimator is not stored (avoids a reference cycle).
+        # Steps: set all public attributes (new root_uuid, UTC init_time, no parent, empty
+        # children). If the estimator carries _parent_callback_ctx (it is a sub-estimator
+        # inside propagate_callback_context), merge into that parent leaf (see _merge_with)
+        # and set depth to parent depth + 1; otherwise depth 0.
+        # Outputs: new CallbackContext. Exceptions: ValueError from _merge_with.
         """Private constructor to create a root context.
 
         Parameters
@@ -132,6 +152,11 @@ class CallbackContext:
     def _from_parent(
         cls, parent_context, *, task_name, task_id, max_subtasks, sequential_subtasks
     ):
+        # [FUNCTION DOC]
+        # HELPER: Builds a child context of parent_context with the given task fields,
+        # inheriting callbacks, estimator_name, depth and root_uuid; fresh init_time.
+        # Outputs: new context, registered via parent_context._add_child (which sets parent).
+        # Exceptions: ValueError from _add_child (duplicate id or too many children).
         """Private constructor to create a sub-context.
 
         Parameters
@@ -177,12 +202,17 @@ class CallbackContext:
         return new_ctx
 
     def __iter__(self):
+        # [FUNCTION DOC]
+        # Yields this context then, recursively, each child subtree in insertion order
+        # (pre-order DFS).
         """Pre-order depth-first traversal of the task tree."""
         yield self
         for context in self._children_map.values():
             yield from context
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "CallbackContext(estimator_name=..., task_name=..., task_id=...)".
         return (
             f"{self.__class__.__name__}("
             f"estimator_name={self.estimator_name!r}, "
@@ -191,6 +221,10 @@ class CallbackContext:
         )
 
     def _add_child(self, child_context):
+        # [FUNCTION DOC]
+        # HELPER: Registers child_context under its task_id and sets its parent to self.
+        # Exceptions: ValueError if task_id already used, or if max_subtasks is not None and
+        # the number of children already reached it.
         """Add `child_context` as a child of this context."""
         if child_context.task_id in self._children_map:
             raise ValueError(
@@ -213,6 +247,13 @@ class CallbackContext:
         child_context.parent = self
 
     def _merge_with(self, other_context):
+        # [FUNCTION DOC]
+        # HELPER: Makes self (a sub-estimator root) replace other_context (a meta-estimator
+        # leaf) in the tree: takes its parent, task_id and root_uuid, overwrites the parent's
+        # children map entry, and records source_task_name/source_estimator_name.
+        # Exceptions: ValueError if other_context is not a leaf (max_subtasks != 0).
+        # KNOWN ISSUE: if other_context is itself a root (parent None, e.g. a meta-estimator
+        # whose root task is a leaf) this raises AttributeError on the parent's children map.
         """Merge this context with `other_context`.
 
         This method is called on a sub-estimator's root task to merge it with a
@@ -243,6 +284,14 @@ class CallbackContext:
     def subcontext(
         self, task_name="", task_id=None, max_subtasks=0, sequential_subtasks=True
     ):
+        # [FUNCTION DOC]
+        # Creates and attaches a child context.
+        # Inputs: task_name (str, ""), task_id (int or None), max_subtasks (int/None, 0 = leaf),
+        # sequential_subtasks (bool, True).
+        # Behavior: when this context is sequential, task_id must be None and becomes the
+        # current number of children; when not sequential, task_id is required.
+        # Outputs: the new child CallbackContext.
+        # Exceptions: ValueError for the task_id rule violations above, or from _add_child.
         """Create a context for a subtask of the current task.
 
         Parameters
@@ -287,6 +336,19 @@ class CallbackContext:
         )
 
     def _call_hooks(self, estimator, hook_name, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Dispatches hook_name on each callback of this context and ORs results.
+        # Inputs: estimator; hook_name (str); kwargs - candidate argument values (X, y,
+        # metadata, reconstruction_attributes), each possibly a zero-arg callable for laziness.
+        # Steps: for each callback not in _propagated_callbacks: read the hook's keyword-only
+        # parameter names (cached signature); reject unknown names; for each requested name
+        # compute its value once per call (calling it if callable). "fitted_estimator" is built
+        # from reconstruction_attributes via _from_reconstruction_attributes (None if absent).
+        # Call the hook with (estimator, self, requested kwargs) and OR its truthiness.
+        # Outputs: bool. Exceptions: TypeError for invalid hook parameter names.
+        # KNOWN ISSUE: the inline comment says only on_fit_task_end is skipped for propagated
+        # callbacks, but every hook dispatched here is skipped for them. Also a value that is
+        # legitimately callable (e.g. an estimator-like object with __call__) would be invoked.
         """Helper to call the hook of all callbacks with their respective arguments.
 
         Provide the right arguments to each hook by inspecting their signatures. Any
@@ -371,6 +433,10 @@ class CallbackContext:
         metadata=None,
         reconstruction_attributes=None,
     ):
+        # [FUNCTION DOC]
+        # Dispatches on_fit_task_begin to callbacks (see _call_hooks); the hook results are
+        # discarded. Inputs: keyword-only estimator, X, y, metadata, reconstruction_attributes
+        # (values or zero-arg callables). Outputs: self (allows chaining/assignment).
         """Call the `on_fit_task_begin` hook of the callbacks.
 
         Parameters
@@ -413,6 +479,9 @@ class CallbackContext:
         metadata=None,
         reconstruction_attributes=None,
     ):
+        # [FUNCTION DOC]
+        # Dispatches on_fit_task_end (see _call_hooks). Inputs as call_on_fit_task_begin.
+        # Outputs: bool, True if any callback requested stopping.
         """Call the `on_fit_task_end` hook of the callbacks.
 
         Parameters
@@ -453,6 +522,20 @@ class CallbackContext:
 
     @contextmanager
     def propagate_callback_context(self, sub_estimator):
+        # [FUNCTION DOC]
+        # Context manager wrapping a sub-estimator fit inside this (leaf) task.
+        # Inputs: sub_estimator - estimator about to be fitted.
+        # Steps: refuse sub-estimators that already own auto-propagated callbacks; set
+        # sub_estimator._parent_callback_ctx to self (always, for tree merging); select this
+        # context's auto-propagated callbacks whose max_propagation_depth is None or greater
+        # than this depth; if the sub-estimator lacks set_callbacks, warn and propagate none;
+        # otherwise record them in self._propagated_callbacks and append them to the
+        # sub-estimator's callbacks. Yields None. On exit, remove the propagated callbacks
+        # from the sub-estimator and delete _parent_callback_ctx.
+        # Exceptions: TypeError for pre-existing auto-propagated callbacks.
+        # Side effects: mutates sub_estimator and self; emits UserWarning as described.
+        # KNOWN ISSUE: self._propagated_callbacks is never reset on exit, so it persists on
+        # this context after the block.
         """Propagate the context and callbacks to a sub-estimator.
 
         Clear the propagated callbacks from the sub-estimator on exit.
@@ -525,6 +608,10 @@ class CallbackContext:
 
 
 def _from_reconstruction_attributes(estimator, reconstruction_attributes):
+    # [FUNCTION DOC]
+    # HELPER: Shallow-copies estimator and sets each key/value of reconstruction_attributes
+    # on the copy as attributes. Outputs: the copy. The original is not modified, but
+    # mutable attributes are shared with it.
     """Return a copy of the estimator as if it was fitted.
 
     Parameters
@@ -548,6 +635,9 @@ def _from_reconstruction_attributes(estimator, reconstruction_attributes):
 
 
 def get_context_path(context):
+    # [FUNCTION DOC]
+    # HELPER: Recursively walks parent links to return the list of contexts from the root
+    # down to and including context. Outputs: list of CallbackContext.
     """Helper function to get the path from the root context down to a given context.
 
     Parameters

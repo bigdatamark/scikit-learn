@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Message transport between worker copies of a callback and the main process.
+# Module-level registries (_listeners, _message_consumers, _worker_connections) are
+# per-process global state; an empty registry in a worker is what routes send over
+# the socket. Threads started here are daemon threads.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -24,6 +29,8 @@ from typing import Callable, NamedTuple
 
 
 class ListenerHandle(NamedTuple):
+    # [CLASS DOC]
+    # Picklable (address, authkey) pair identifying a listener; plain NamedTuple, no logic.
     """A picklable reference to a main-process listener.
 
     Attributes
@@ -66,6 +73,15 @@ _worker_connections: dict[str, Connection] = {}
 
 
 def open_listener(message_consumer, *, owner=None):
+    # [FUNCTION DOC]
+    # Opens a multiprocessing Listener in the main process and starts serving it.
+    # Inputs: message_consumer - thread-safe one-argument callable; owner - optional object
+    # whose garbage collection closes the listener (via weakref.finalize).
+    # Steps: generate a random 32-byte authkey, create a Listener with backlog 128,
+    # register listener and consumer under its address, then start a daemon accept thread
+    # that spawns a daemon handler thread per incoming connection.
+    # Outputs: ListenerHandle.
+    # Side effects: mutates the module registries; creates an OS socket/pipe and threads.
     """Create a listener for incoming messages on the main process.
 
     Also registers the listener and its message consumer in the module-level dicts.
@@ -103,6 +119,10 @@ def open_listener(message_consumer, *, owner=None):
         weakref.finalize(owner, close_listener, listener_handle)
 
     def _handle(conn):
+        # [FUNCTION DOC]
+        # HELPER: Per-connection loop: receive a message, pass it to message_consumer, send a
+        # None acknowledgement; returns silently on EOFError/OSError (disconnect). Exceptions
+        # raised by the consumer itself propagate and kill this handler thread.
         # Read messages until the worker disconnects. After processing each message,
         # send a one-byte acknowledgement so that the worker-side `send` only returns
         # once the message has actually been consumed here.
@@ -114,6 +134,10 @@ def open_listener(message_consumer, *, owner=None):
             return
 
     def _accept():
+        # [FUNCTION DOC]
+        # HELPER: Accept loop; for each accepted connection start a daemon _handle thread.
+        # Returns when accept raises OSError (listener closed). Authentication failures
+        # (AuthenticationError) are not OSError and would end this thread.
         while True:
             try:
                 conn = listener.accept()
@@ -126,6 +150,10 @@ def open_listener(message_consumer, *, owner=None):
 
 
 def close_listener(listener_handle):
+    # [FUNCTION DOC]
+    # Unregisters the consumer and closes the listener for listener_handle, if still
+    # registered (idempotent). Side effects: mutates registries; closing makes the accept
+    # thread exit. Existing handler threads end when their clients disconnect.
     """Stop listening for `listener_handle` and free its background threads."""
     _message_consumers.pop(listener_handle.address, None)
     listener = _listeners.pop(listener_handle.address, None)
@@ -134,6 +162,11 @@ def close_listener(listener_handle):
 
 
 def can_reuse_listener(listener_handle):
+    # [FUNCTION DOC]
+    # Decides whether an unpickled handle may be reused in this process.
+    # Outputs: False if the address is registered locally (same process as the opener) or
+    # if connecting with a Client raises OSError; otherwise True.
+    # Side effects: opens and immediately closes a test connection to the listener.
     """Whether the listener at `listener_handle` is usable from this process.
 
     Helper for callbacks that open their listener eagerly (e.g. in `__init__`) and
@@ -157,6 +190,14 @@ def can_reuse_listener(listener_handle):
 
 
 def send(listener_handle, message):
+    # [FUNCTION DOC]
+    # Delivers message to the consumer behind listener_handle.
+    # Inputs: listener_handle - ListenerHandle; message - any picklable object.
+    # Behavior: if a consumer is registered locally, call it directly. Otherwise reuse or
+    # open (and cache in _worker_connections) a Client connection, send the message and
+    # block until the acknowledgement is received.
+    # Outputs: None. Exceptions: connection errors (OSError/EOFError) propagate; a broken
+    # cached connection is never evicted, so later sends keep failing.
     """Deliver `message` to whoever is listening on `listener_handle`.
 
     There are two possible delivery paths:

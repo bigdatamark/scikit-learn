@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# ScoringMonitor callback that scores fitted snapshots at the end of fit tasks and
+# collects them (across processes via _transport) into per-run ScoringMonitorLog
+# objects.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,6 +18,10 @@ from sklearn.utils._param_validation import StrOptions, validate_params
 
 @dataclass
 class ScoringMonitorLog:
+    # [CLASS DOC]
+    # Dataclass holding one run's rows; data_as_pandas lazily builds and caches a DataFrame.
+    # KNOWN ISSUE: the docstring types timestamp as datetime.datetime, but get_logs fills
+    # it with a formatted string ("UTC%Y-%m-%d-%H:%M:%S.%f").
     """Log for one run of a scoring monitor.
 
     The recorded scores are accessed through the `data` attribute, as a list of dicts,
@@ -60,12 +68,17 @@ class ScoringMonitorLog:
 
     @property
     def data_as_pandas(self):
+        # [FUNCTION DOC]
+        # Returns a pandas DataFrame of data, built on first access and cached on the instance
+        # (later changes to data are not reflected). Exceptions: ImportError without pandas.
         pd = check_pandas_support(f"`{self.__class__.__name__}.data_as_pandas`")
         if self._data_as_pandas is None:
             self._data_as_pandas = pd.DataFrame(self.data)
         return self._data_as_pandas
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns a short repr with run_id, estimator_name and timestamp (data omitted).
         return (
             f"ScoringMonitorLog(run_id={self.run_id}, "
             f"estimator_name={self.estimator_name}, "
@@ -74,6 +87,11 @@ class ScoringMonitorLog:
 
 
 class ScoringMonitor:
+    # [CLASS DOC]
+    # FitCallback (not auto-propagated) logging scores of fitted_estimator on the task's
+    # X, y at each on_fit_task_end. Attributes: _scoring (normalized scoring spec), _log
+    # (list of raw entries appended by the listener), _estimator_scorers (estimator ->
+    # scorer during fit), _listener_handle.
     """Callback that monitors a score for each iterative step of an estimator.
 
     The specified scorer is called on the training data at each iterative step of the
@@ -105,6 +123,13 @@ class ScoringMonitor:
         prefer_skip_nested_validation=True,
     )
     def __init__(self, *, scoring):
+        # [FUNCTION DOC]
+        # Inputs: scoring (keyword-only; str, callable, list, tuple, dict or None).
+        # Normalization: a string becomes a one-element list; a _BaseScorer instance becomes
+        # {"score": scorer}; anything else is kept as given.
+        # Side effects: opens a transport listener owned by self (closed on garbage
+        # collection) whose consumer appends to _log; starts background threads.
+        # Exceptions: InvalidParameterError for invalid scoring type.
         from sklearn.metrics._scorer import _BaseScorer
 
         self._scoring = scoring
@@ -124,6 +149,9 @@ class ScoringMonitor:
         self._listener_handle = open_listener(self._log.append, owner=self)
 
     def setup(self, estimator, context):
+        # [FUNCTION DOC]
+        # Builds (once per estimator object) a scorer with check_scoring(estimator, _scoring)
+        # and stores it in _estimator_scorers. Exceptions: those of check_scoring.
         # A scorer per estimator is needed to avoid race conditions when the callback is
         # set on different estimators and the scorer is the estimator's default scorer.
         if estimator not in self._estimator_scorers:
@@ -132,9 +160,13 @@ class ScoringMonitor:
             self._estimator_scorers[estimator] = check_scoring(estimator, self._scoring)
 
     def teardown(self, estimator, context):
+        # [FUNCTION DOC]
+        # Removes the estimator's scorer, if any.
         self._estimator_scorers.pop(estimator, None)
 
     def on_fit_task_begin(self, estimator, context):
+        # [FUNCTION DOC]
+        # No-op hook.
         pass
 
     def on_fit_task_end(
@@ -147,6 +179,18 @@ class ScoringMonitor:
         fitted_estimator=None,
         metadata=None,
     ):
+        # [FUNCTION DOC]
+        # Records one log entry for this task. Returns early (None) if no fitted_estimator.
+        # Builds run info (root init_time formatted as a string, root estimator_name), the
+        # per-ancestor task info (estimator_name, task_name, task_id, sequential_subtasks),
+        # and, only when both X and y are given, the scores dict from the estimator's scorer
+        # called with metadata as keyword arguments. Sends (root_uuid, run_info,
+        # task_info_path, scores) to the listener (entry is logged even with empty scores).
+        # Outputs: None (never requests stopping). Exceptions: KeyError if setup was not run
+        # for this estimator; scorer errors propagate.
+        # KNOWN ISSUE: a scorer that returns a scalar (single-metric callable) would make
+        # dict update fail; normalization relies on check_scoring returning a dict-producing
+        # scorer.
         if fitted_estimator is None:
             return
 
@@ -178,12 +222,19 @@ class ScoringMonitor:
         send(self._listener_handle, (run_id, run_info, task_info_path, scores))
 
     def __getstate__(self):
+        # [FUNCTION DOC]
+        # Pickle state: the instance dict with _log replaced by a snapshot copy (safe against
+        # concurrent appends by the listener thread).
         # `_log` is grown by the listener thread, which can run while this callback is
         # being pickled by another thread, e.g. loky's queue feeder when a task is
         # dispatched to a worker. The pickler must therefore never walk the live list.
         return {**self.__dict__, "_log": list(self._log)}
 
     def __setstate__(self, state):
+        # [FUNCTION DOC]
+        # Restores the dict; if the inherited listener handle cannot be reused here (same
+        # process as the original or unreachable), opens a new listener consuming into this
+        # instance's _log. Side effects: may create a listener and threads.
         """Restore state, opening a fresh listener if the inherited one is unusable."""
         self.__dict__.update(state)
         if not can_reuse_listener(self._listener_handle):
@@ -198,6 +249,19 @@ class ScoringMonitor:
         prefer_skip_nested_validation=True,
     )
     def get_logs(self, select="most_recent", include_lineage=False):
+        # [FUNCTION DOC]
+        # Aggregates _log into ScoringMonitorLog objects.
+        # Steps: group entries by run_id, one row per entry with task_id_path,
+        # parent_task_id_path, the task info of the scored task and its scores. If
+        # include_lineage, add a score-less row for each ancestor path not already present.
+        # Sort rows by (path length, path), drop the internal parent_task_info_path key, build
+        # logs and sort them by (timestamp string, estimator_name).
+        # Inputs: select ("most_recent" or "all"); include_lineage (bool).
+        # Outputs: the last log (most_recent) or the list of all logs.
+        # Exceptions: ValueError if nothing was logged; InvalidParameterError for bad values.
+        # KNOWN ISSUE: "as_frame" is declared in the validate_params constraints but is not a
+        # parameter of this method (dead constraint; docstring also refers to it). Sorting by
+        # path length first does not group rows by parent as the inline comment claims.
         """Retrieve the logged scores.
 
         Log entries are grouped by runs, which are the outermost enclosing fit calls. If

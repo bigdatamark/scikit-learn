@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Probability calibration: the CalibratedClassifierCV meta-estimator, the internal
+# sigmoid (Platt) and temperature-scaling calibrators, helpers fitting
+# classifier/calibrator pairs, calibration_curve and the CalibrationDisplay plot.
+# Only temperature scaling supports the Array API.
 """Methods for calibrating predicted probabilities."""
 
 # Authors: The scikit-learn developers
@@ -72,6 +77,10 @@ from sklearn.utils.validation import (
 
 
 class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # Meta-classifier; fitted attributes: classes_, calibrated_classifiers_ (list of
+    # _CalibratedClassifier), and n_features_in_/feature_names_in_ copied from the first
+    # fitted base classifier when available.
     """Calibrate probabilities using isotonic, sigmoid, or temperature scaling.
 
     This class uses cross-validation to both estimate the parameters of a
@@ -315,6 +324,8 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         n_jobs=None,
         ensemble="auto",
     ):
+        # [FUNCTION DOC]
+        # Stores parameters unchanged (validated later via _parameter_constraints).
         self.estimator = estimator
         self.method = method
         self.cv = cv
@@ -322,6 +333,9 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         self.ensemble = ensemble
 
     def _get_estimator(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns self.estimator, or a fresh LinearSVC(random_state=0) when None
+        # (requesting sample_weight for fit when metadata routing is enabled). Not cloned.
         """Resolve which estimator to return (default is LinearSVC)"""
         if self.estimator is None:
             # we want all classifiers that don't expose a random_state
@@ -339,6 +353,26 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y, sample_weight=None, **fit_params):
+        # [FUNCTION DOC]
+        # Fits base classifier(s) and calibrators.
+        # Steps: validate classification targets; make X, y indexable; resolve estimator and
+        # ensemble ("auto" -> False only for FrozenEstimator); set classes_ via LabelEncoder
+        # on all y; for temperature with string labels, label-encode y. Route params: with
+        # routing, process_routing; otherwise warn (UserWarning) if sample_weight is given but
+        # the estimator's fit lacks it, and forward fit_params plus sample_weight when
+        # supported. Move y/sample_weight to X's namespace/device. Validate that each class
+        # has at least n_folds samples (n_folds from int cv or cv.n_splits) and reject
+        # LeaveOneOut. Build cv with check_cv(classifier=True).
+        # Ensemble: in parallel over splits, fit a clone on train and calibrate on test
+        # (_fit_classifier_calibrator_pair). Non-ensemble: out-of-fold predictions via
+        # cross_val_predict with decision_function or predict_proba; for binary, keep the
+        # positive-class column and reshape to (n, 1); refit the clone on all data and fit a
+        # single calibrator on the out-of-fold predictions.
+        # Outputs: self. Exceptions: ValueError for too few samples per class or LeaveOneOut;
+        # errors from the base estimator.
+        # KNOWN ISSUE: the string-label check inspects y[0], which fails or misbehaves for
+        # pandas Series with a non-default index; the LeaveOneOut error message lacks a
+        # space ("allowall").
         """Fit the calibrated model.
 
         Parameters
@@ -509,6 +543,10 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return self
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # Returns the arithmetic mean of predict_proba over calibrated_classifiers_, shape
+        # (n_samples, n_classes), allocated in X's namespace/device.
+        # Exceptions: NotFittedError if unfitted.
         """Calibrated probabilities of classification.
 
         This function returns calibrated probabilities of classification
@@ -538,6 +576,9 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return mean_proba
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # Returns classes_ at the argmax of predict_proba per row; indices are moved to
+        # NumPy/CPU when classes_ holds strings. Exceptions: NotFittedError.
         """Predict the target of new samples.
 
         The predicted class is the class that has the highest probability,
@@ -562,6 +603,9 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return self.classes_[class_indices]
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Builds a MetadataRouter: self requests, the (resolved) estimator with fit->fit, and
+        # the cv splitter with fit->split.
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -588,6 +632,9 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         return router
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Copies the sparse input tag from the resolved estimator; array_api_support is true
+        # only if the estimator supports it and method is "temperature".
         tags = super().__sklearn_tags__()
         estimator_tags = get_tags(self._get_estimator())
         tags.input_tags.sparse = estimator_tags.input_tags.sparse
@@ -609,6 +656,12 @@ def _fit_classifier_calibrator_pair(
     sample_weight=None,
     fit_params=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Fits estimator on the train indices (fit params sliced to train), computes
+    # decision_function or predict_proba on the test indices (1-D reshaped to (n, 1)),
+    # validates sample_weight to the predictions dtype and slices it to test, then fits
+    # calibrator(s) with _fit_calibrator on test predictions/labels.
+    # Outputs: _CalibratedClassifier. Side effects: fits the passed estimator in place.
     """Fit a classifier/calibration pair on a given train/test split.
 
     Fit the classifier on the train set, compute its predictions on the test
@@ -687,6 +740,17 @@ def _fit_classifier_calibrator_pair(
 
 
 def _fit_calibrator(clf, predictions, y, classes, method, xp, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Fits calibrators on raw predictions.
+    # Sigmoid/isotonic: binarize y against classes; for each column of predictions paired
+    # with the index (in classes) of the corresponding clf.classes_ entry, fit an
+    # IsotonicRegression(out_of_bounds="clip") or _SigmoidCalibration on that column vs
+    # the binary indicator. In the binary case predictions has one column, paired with
+    # index 0, and label_binarize also yields a single column, so it is the positive class.
+    # Temperature: for binary single-column predict_proba output, expand to [1-p, p]; fit
+    # one _TemperatureScaling on all columns with encoded y.
+    # Outputs: _CalibratedClassifier(clf, calibrators, method, classes).
+    # KNOWN ISSUE: an unknown method silently yields an empty calibrator list.
     """Fit calibrator(s) and return a `_CalibratedClassifier`
     instance.
 
@@ -752,6 +816,10 @@ def _fit_calibrator(clf, predictions, y, classes, method, xp, sample_weight=None
 
 
 class _CalibratedClassifier:
+    # [CLASS DOC]
+    # HELPER: Plain object chaining a fitted classifier and its calibrators.
+    # KNOWN ISSUE: the docstring lists only sigmoid/isotonic for method, but
+    # "temperature" (single _TemperatureScaling calibrator) is also handled.
     """Pipeline-like chaining a fitted classifier and its fitted calibrators.
 
     Parameters
@@ -775,12 +843,24 @@ class _CalibratedClassifier:
     """
 
     def __init__(self, estimator, calibrators, *, classes, method="sigmoid"):
+        # [FUNCTION DOC]
+        # HELPER: Stores estimator, calibrators, classes (keyword-only) and method.
         self.estimator = estimator
         self.calibrators = calibrators
         self.classes = classes
         self.method = method
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Computes calibrated probabilities.
+        # Gets raw predictions (decision_function preferred, else predict_proba; 1-D -> (n, 1)).
+        # Sigmoid/isotonic: fill a NumPy (n_samples, n_classes) array column by column with
+        # each calibrator's prediction (shift index by one in the binary case so the single
+        # calibrator fills the positive column), then set column 0 to 1 - column 1 for binary,
+        # or row-normalize for multiclass, using a uniform 1/n_classes row where the row sum
+        # is 0. Temperature: expand binary predict_proba to [1-p, p] and return the
+        # calibrator's softmax output. Finally clip values in (1, 1+1e-5] to exactly 1.
+        # Outputs: array (n_samples, n_classes).
         """Calculate calibrated probabilities.
 
         Calculates classification calibrated probabilities
@@ -854,6 +934,17 @@ class _CalibratedClassifier:
 def _sigmoid_calibration(
     predictions, y, sample_weight=None, max_abs_prediction_threshold=30
 ):
+    # [FUNCTION DOC]
+    # HELPER: Platt scaling fit.
+    # Steps: flatten inputs; if max |prediction| >= max_abs_prediction_threshold (30),
+    # divide predictions by that maximum. Compute priors (weighted counts) of negatives
+    # (y <= 0) and positives; build smoothed targets (prior1+1)/(prior1+2) for positives
+    # and 1/(prior0+2) for negatives. Minimize the summed half-binomial loss of raw
+    # prediction -(A*F + B) with L-BFGS-B from A=0, B=log((prior0+1)/(prior1+1)).
+    # Outputs: (A / scale, B) floats, so probabilities are expit(-(A*f + B)).
+    # Exceptions: none raised directly; optimizer non-convergence is silently accepted.
+    # KNOWN ISSUE: sample_weight is indexed with a boolean mask, so it must be a NumPy
+    # array (a list would fail).
     """Probability Calibration with sigmoid method (Platt 2000)
 
     Parameters
@@ -915,6 +1006,9 @@ def _sigmoid_calibration(
     bin_loss = HalfBinomialLoss()
 
     def loss_grad(AB):
+        # [FUNCTION DOC]
+        # HELPER: Objective for the optimizer: returns (summed loss, float64 gradient w.r.t.
+        # A and B) for parameter vector AB, using the closure's F, T and sample_weight.
         # .astype below is needed to ensure y_true and raw_prediction have the
         # same dtype. With result = np.float64(0) * np.array([1, 2], dtype=np.float32)
         # - in Numpy 2, result.dtype is float64
@@ -954,6 +1048,14 @@ def _sigmoid_calibration(
 
 
 def _convert_to_logits(decision_values, eps=1e-12, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Normalizes classifier outputs to 2-D logits in the input namespace.
+    # Steps: validate as float32/float64 (1-D allowed). For 2-D with more than one column,
+    # if all values are in [0, 1] and every row sums to ~1, return log(values + eps),
+    # else return unchanged. For one column or 1-D, return [-x, x] columns.
+    # Outputs: array (n_samples, n_classes or 2).
+    # KNOWN ISSUE: decision_function outputs that happen to lie in [0, 1] and sum to 1 per
+    # row are misread as probabilities.
     """Convert decision_function values to 2D and predict_proba values to logits.
 
     This function ensures that the output of `decision_function` is
@@ -1013,6 +1115,8 @@ def _convert_to_logits(decision_values, eps=1e-12, xp=None):
 
 
 class _SigmoidCalibration(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: One-dimensional Platt-scaling regressor with fitted a_ and b_.
     """Sigmoid regression model.
 
     Attributes
@@ -1025,6 +1129,8 @@ class _SigmoidCalibration(RegressorMixin, BaseEstimator):
     """
 
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Flattens X and y, then sets a_, b_ via _sigmoid_calibration. Outputs: self.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -1051,6 +1157,9 @@ class _SigmoidCalibration(RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, T):
+        # [FUNCTION DOC]
+        # HELPER: Returns expit(-(a_ * T + b_)) for flattened T.
+        # KNOWN ISSUE: the docstring says "linear interpolation", which is not what it does.
         """Predict new data by linear interpolation.
 
         Parameters
@@ -1068,6 +1177,8 @@ class _SigmoidCalibration(RegressorMixin, BaseEstimator):
 
 
 class _TemperatureScaling(RegressorMixin, BaseEstimator):
+    # [CLASS DOC]
+    # HELPER: Temperature scaling regressor with fitted inverse temperature beta_.
     """Temperature scaling model.
 
     Attributes
@@ -1077,6 +1188,13 @@ class _TemperatureScaling(RegressorMixin, BaseEstimator):
     """
 
     def fit(self, X, y, sample_weight=None):
+        # [FUNCTION DOC]
+        # HELPER: Converts X to logits (_convert_to_logits), casts y (label-encoded ints) to
+        # the logits dtype, validates sample_weight, then minimizes the half-multinomial loss
+        # of exp(log_beta) * logits over log_beta in [-10, 10] (bounded scalar minimization,
+        # xatol = 64 * eps). Sets beta_ = exp(optimal log_beta) as a 0-d array in the input
+        # namespace. Outputs: self.
+        # Exceptions: RuntimeError if the optimizer reports failure.
         """Fit the model using X, y as training data.
 
         Parameters
@@ -1125,6 +1243,9 @@ class _TemperatureScaling(RegressorMixin, BaseEstimator):
         )
 
         def log_loss(log_beta=0.0):
+            # [FUNCTION DOC]
+            # HELPER: Objective: casts log_beta to the logits dtype/device and returns the
+            # multinomial loss of the scaled logits against labels with sample_weight.
             """Compute the log loss as a parameter of the inverse temperature
             (beta).
 
@@ -1183,6 +1304,9 @@ class _TemperatureScaling(RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns softmax(beta_ * logits of X), shape (n_samples, n_classes).
+        # KNOWN ISSUE: the docstring says "linear interpolation", which is not what it does.
         """Predict new data by linear interpolation.
 
         Parameters
@@ -1208,6 +1332,10 @@ class _TemperatureScaling(RegressorMixin, BaseEstimator):
         return softmax(self.beta_ * logits)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Tags declaring 1-D input support and no 2-D input.
+        # KNOWN ISSUE: fit/predict accept 2-D (n_samples, n_classes) inputs, contradicting
+        # two_d_array=False.
         tags = super().__sklearn_tags__()
         tags.input_tags.one_d_array = True
         tags.input_tags.two_d_array = False
@@ -1232,6 +1360,18 @@ def calibration_curve(
     n_bins=5,
     strategy="uniform",
 ):
+    # [FUNCTION DOC]
+    # Computes reliability curve points for a binary problem.
+    # Steps: flatten and length-check inputs; resolve pos_label; reject probabilities
+    # outside [0, 1] and more than two labels; binarize y_true against pos_label. Bin
+    # edges are n_bins+1 evenly spaced points (uniform) or percentiles of y_prob
+    # (quantile); assign each sample to a bin by searching the inner edges; sum
+    # probabilities, positives and counts per bin; drop empty bins.
+    # Outputs: (fraction of positives, mean predicted probability) per non-empty bin.
+    # Exceptions: ValueError for out-of-range probabilities, >2 classes, or ambiguous
+    # pos_label; InvalidParameterError for invalid parameters.
+    # KNOWN ISSUE: the final else branch raising for an invalid strategy is unreachable
+    # because validate_params already restricts strategy.
     """Compute true and predicted probabilities for a calibration curve.
 
     The method assumes the inputs come from a binary classifier, and
@@ -1343,6 +1483,9 @@ def calibration_curve(
 
 
 class CalibrationDisplay(_BinaryClassifierCurveDisplayMixin):
+    # [CLASS DOC]
+    # Plot holder for a calibration curve; stores constructor args as attributes and sets
+    # line_, ax_, figure_ when plotted.
     """Calibration curve (also known as reliability diagram) visualization.
 
     It is recommended to use
@@ -1421,6 +1564,8 @@ class CalibrationDisplay(_BinaryClassifierCurveDisplayMixin):
     def __init__(
         self, prob_true, prob_pred, y_prob, *, estimator_name=None, pos_label=None
     ):
+        # [FUNCTION DOC]
+        # Stores prob_true, prob_pred, y_prob, estimator_name and pos_label as given.
         self.prob_true = prob_true
         self.prob_pred = prob_pred
         self.y_prob = y_prob
@@ -1428,6 +1573,14 @@ class CalibrationDisplay(_BinaryClassifierCurveDisplayMixin):
         self.pos_label = pos_label
 
     def plot(self, *, ax=None, name=None, ref_line=True, **kwargs):
+        # [FUNCTION DOC]
+        # Draws the curve: resolve axes/figure/name via _validate_plot_params; line defaults
+        # (square markers, solid line, label=name) merged with user kwargs; add the dotted
+        # "Perfectly calibrated" diagonal if requested and not already on the axes; plot
+        # prob_true against prob_pred; show legend at lower right; set axis labels including
+        # the positive class when known. Outputs: self.
+        # Side effects: sets ax_, figure_, line_; draws on matplotlib axes.
+        # Exceptions: ImportError without matplotlib; kwargs validation errors.
         """Plot visualization.
 
         Extra keyword arguments will be passed to
@@ -1496,6 +1649,10 @@ class CalibrationDisplay(_BinaryClassifierCurveDisplayMixin):
         ref_line=True,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Computes positive-class predict_proba for the fitted estimator (resolving pos_label
+        # and name), then delegates to from_predictions with the same plot options.
+        # Outputs: CalibrationDisplay. Exceptions: errors for unfitted or non-binary input.
         """Plot calibration curve using a binary classifier and data.
 
         A calibration curve, also known as a reliability diagram, uses inputs
@@ -1619,6 +1776,10 @@ class CalibrationDisplay(_BinaryClassifierCurveDisplayMixin):
         ref_line=True,
         **kwargs,
     ):
+        # [FUNCTION DOC]
+        # Validates inputs/pos_label/name, computes the curve with calibration_curve (passing
+        # the raw pos_label), builds a display with the validated pos_label and plots it.
+        # Outputs: the plotted CalibrationDisplay.
         """Plot calibration curve using true labels and predicted probabilities.
 
         Calibration curve, also known as reliability diagram, uses inputs
