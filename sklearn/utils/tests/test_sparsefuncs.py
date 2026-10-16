@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.sparsefuncs and sklearn.utils.sparsefuncs_fast: (incremental,
+# weighted, NaN-aware) mean/variance along an axis, row/column scaling and swapping,
+# min/max, nonzero counting, CSC column medians, row normalization and norms, row
+# assignment, the implicitly column-centered LinearOperator, and sparse_matmul_to_dense.
+# Results are compared to dense NumPy equivalents for CSR/CSC matrix and array
+# containers.
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -39,6 +46,12 @@ from sklearn.utils.sparsefuncs_fast import (
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_mean_variance_axis0(csc_container, csr_container, lil_container):
+    # [FUNCTION DOC]
+    # Verifies mean_variance_axis along axis 0 on a small sparsified 5x4 dataset:
+    # TypeError for LIL input; for CSR and CSC inputs of float32, float64, int32 and
+    # int64 dtypes, output dtype is float32 for float32 input and float64 otherwise, and
+    # values match np.mean/np.var.
+    # Inputs: csc_container, csr_container, lil_container - sparse constructors.
     X, _ = make_classification(5, 4, random_state=0)
     # Sparsify the array a little bit
     X[0, 0] = 0
@@ -75,6 +88,11 @@ def test_mean_variance_axis0(csc_container, csr_container, lil_container):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("sparse_constructor", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_mean_variance_axis0_precision(dtype, sparse_constructor):
+    # [FUNCTION DOC]
+    # Non-regression (#19766): a 1000x1 column of constant 100 with 10 NaNs and random
+    # positive weights must yield a weighted variance below machine epsilon of the
+    # dtype, i.e. no catastrophic precision loss.
+    # Inputs: dtype - float32/float64; sparse_constructor - CSR or CSC.
     # Check that there's no big loss of precision when the real variance is
     # exactly 0. (#19766)
     rng = np.random.RandomState(0)
@@ -96,6 +114,12 @@ def test_mean_variance_axis0_precision(dtype, sparse_constructor):
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_mean_variance_axis1(csc_container, csr_container, lil_container):
+    # [FUNCTION DOC]
+    # Intended to verify mean_variance_axis along axis 1: checks TypeError for LIL input
+    # with axis=1, then dtype and value checks.
+    # KNOWN ISSUE: the value/dtype loop calls mean_variance_axis with axis=0 and
+    # compares to axis-0 NumPy stats, so axis=1 results are never actually checked; the
+    # test duplicates test_mean_variance_axis0.
     X, _ = make_classification(5, 4, random_state=0)
     # Sparsify the array a little bit
     X[0, 0] = 0
@@ -164,6 +188,13 @@ def test_mean_variance_axis1(csc_container, csr_container, lil_container):
 def test_incr_mean_variance_axis_weighted_axis1(
     Xw, X, weights, sparse_constructor, dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies that weighted incr_mean_variance_axis along axis 1 on Xw with
+    # integer/float column weights equals the unweighted result on X where columns are
+    # repeated according to the weights (NaNs ignored); also equals mean_variance_axis
+    # on X; checks output dtypes equal the input dtype, and repeats for a second
+    # incremental round starting from the first round's statistics.
+    # Inputs: Xw, X, weights - parametrized equivalent pairs; sparse_constructor; dtype.
     axis = 1
     Xw_sparse = sparse_constructor(Xw).astype(dtype)
     X_sparse = sparse_constructor(X).astype(dtype)
@@ -261,6 +292,11 @@ def test_incr_mean_variance_axis_weighted_axis1(
 def test_incr_mean_variance_axis_weighted_axis0(
     Xw, X, weights, sparse_constructor, dtype
 ):
+    # [FUNCTION DOC]
+    # Same as the axis-1 variant but along axis 0: weighted rows of Xw are equivalent to
+    # rows repeated in X; checks first-round equality with mean_variance_axis and second
+    # incremental round consistency, plus output dtypes.
+    # Inputs: Xw, X, weights; sparse_constructor; dtype.
     axis = 0
     Xw_sparse = sparse_constructor(Xw).astype(dtype)
     X_sparse = sparse_constructor(X).astype(dtype)
@@ -330,6 +366,13 @@ def test_incr_mean_variance_axis_weighted_axis0(
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 @pytest.mark.parametrize("lil_container", LIL_CONTAINERS)
 def test_incr_mean_variance_axis(csc_container, csr_container, lil_container):
+    # [FUNCTION DOC]
+    # For axis 0 and 1, on random 0/1 data: checks TypeError for nonsensical positional
+    # arguments and for LIL input; checks that a single-row (or column) input gives the
+    # same means/vars as mean_variance_axis with n equal to X.shape[axis] for CSR and
+    # CSC; then for the full stacked data and several input dtypes verifies output dtype
+    # (float32 for float32 input, else float64) and values.
+    # Inputs: csc_container, csr_container, lil_container.
     for axis in [0, 1]:
         rng = np.random.RandomState(0)
         n_features = 50
@@ -412,6 +455,11 @@ def test_incr_mean_variance_axis(csc_container, csr_container, lil_container):
 
 @pytest.mark.parametrize("sparse_constructor", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_incr_mean_variance_axis_dim_mismatch(sparse_constructor):
+    # [FUNCTION DOC]
+    # Non-regression for PR #18655: on a 60x4 random matrix, axis 0 matches NumPy stats;
+    # axis=1 with last_mean sized to n_features raises ValueError; inconsistent sizes of
+    # last_mean, last_var, last_n raise ValueError.
+    # Inputs: sparse_constructor - CSR or CSC.
     """Check that we raise proper error when axis=1 and the dimension mismatch.
     Non-regression test for:
     https://github.com/scikit-learn/scikit-learn/pull/18655
@@ -460,6 +508,11 @@ def test_incr_mean_variance_axis_dim_mismatch(sparse_constructor):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_incr_mean_variance_axis_equivalence_mean_variance(X1, X2, csr_container):
+    # [FUNCTION DOC]
+    # Non-regression for #16448: two incremental updates on X1 then X2 (second may
+    # include an all-NaN column) must equal nanmean, nanvar and non-NaN counts on the
+    # vertically stacked data.
+    # Inputs: X1, X2 - random sparse arrays; csr_container.
     # non-regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/16448
     # check that computing the incremental mean and variance is equivalent to
@@ -482,6 +535,9 @@ def test_incr_mean_variance_axis_equivalence_mean_variance(X1, X2, csr_container
 
 
 def test_incr_mean_variance_no_new_n():
+    # [FUNCTION DOC]
+    # Verifies that updating statistics with an empty (0-row) matrix leaves mean,
+    # variance and counts unchanged.
     # check the behaviour when we update the variance with an empty matrix
     axis = 0
     X1 = _sparse_random_array((5, 1), density=0.8, format="csr", rng=0)
@@ -501,6 +557,9 @@ def test_incr_mean_variance_no_new_n():
 
 
 def test_incr_mean_variance_n_float():
+    # [FUNCTION DOC]
+    # Verifies that a scalar last_n of 0 is accepted and broadcast, giving new_n equal
+    # to n_samples for every feature.
     # check the behaviour when last_n is just a number
     axis = 0
     X = _sparse_random_array((5, 2), density=0.8, format="csr", rng=0)
@@ -515,6 +574,13 @@ def test_incr_mean_variance_n_float():
 @pytest.mark.parametrize("axis", [0, 1])
 @pytest.mark.parametrize("sparse_constructor", CSC_CONTAINERS + CSR_CONTAINERS)
 def test_incr_mean_variance_axis_ignore_nan(axis, sparse_constructor):
+    # [FUNCTION DOC]
+    # Verifies that NaN entries are ignored by incr_mean_variance_axis: data with NaNs
+    # inserted (and the same non-NaN values per feature) yields the same updated means,
+    # variances and counts as the NaN-free data, starting from identical prior
+    # statistics (copied because they are modified in place). Uses transposes for axis
+    # 1.
+    # Inputs: axis - 0 or 1; sparse_constructor.
     old_means = np.array([535.0, 535.0, 535.0, 535.0])
     old_variances = np.array([4225.0, 4225.0, 4225.0, 4225.0])
     old_sample_count = np.array([2, 2, 2, 2], dtype=np.int64)
@@ -563,6 +629,10 @@ def test_incr_mean_variance_axis_ignore_nan(axis, sparse_constructor):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_mean_variance_illegal_axis(csr_container):
+    # [FUNCTION DOC]
+    # Verifies ValueError for axis values -3, 2 and -1 in both mean_variance_axis and
+    # incr_mean_variance_axis.
+    # Inputs: csr_container.
     X, _ = make_classification(5, 4, random_state=0)
     # Sparsify the array a little bit
     X[0, 0] = 0
@@ -594,6 +664,11 @@ def test_mean_variance_illegal_axis(csr_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_densify_rows(csr_container):
+    # [FUNCTION DOC]
+    # Verifies assign_rows_csr copies selected CSR rows (0, 2, 3) densely into rows (1,
+    # 3, 4) of a preallocated ones array, leaving other rows untouched, for float32 and
+    # float64.
+    # Inputs: csr_container.
     for dtype in (np.float32, np.float64):
         X = csr_container(
             [[0, 3, 0], [2, 4, 0], [0, 0, 0], [9, 8, 7], [4, 0, 5]], dtype=dtype
@@ -610,6 +685,10 @@ def test_densify_rows(csr_container):
 
 
 def test_inplace_column_scale():
+    # [FUNCTION DOC]
+    # Verifies inplace_column_scale multiplies each column of CSR and CSC matrices by
+    # the scale vector, matching dense scaling, for float64 and float32, and raises
+    # TypeError for LIL input. Uses an unseeded _sparse_random_array for X.
     rng = np.random.RandomState(0)
     X = _sparse_random_array((100, 200), density=0.05)
     Xr = X.tocsr()
@@ -642,6 +721,11 @@ def test_inplace_column_scale():
 
 
 def test_inplace_row_scale():
+    # [FUNCTION DOC]
+    # Verifies inplace_row_scale multiplies each row of CSR and CSC matrices by the
+    # scale vector, matching dense scaling, for float64 and float32.
+    # KNOWN ISSUE: the TypeError checks call inplace_column_scale instead of
+    # inplace_row_scale, so the LIL rejection of inplace_row_scale is not tested.
     rng = np.random.RandomState(0)
     X = _sparse_random_array((100, 200), density=0.05)
     Xr = X.tocsr()
@@ -676,6 +760,12 @@ def test_inplace_row_scale():
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_inplace_swap_row(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies inplace_swap_row on CSR and CSC (including negative index -1) matches a
+    # BLAS swap of dense rows, for float64 and float32.
+    # KNOWN ISSUE: the TypeError check calls inplace_swap_row with only the LIL matrix
+    # and no row indices, so the TypeError comes from missing arguments rather than from
+    # LIL rejection.
     X = np.array(
         [[0, 3, 0], [2, 4, 0], [0, 0, 0], [9, 8, 7], [4, 0, 5]], dtype=np.float64
     )
@@ -726,6 +816,11 @@ def test_inplace_swap_row(csc_container, csr_container):
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_inplace_swap_column(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies inplace_swap_column on CSR and CSC (including index -1) matches a BLAS
+    # swap of dense columns, for float64 and float32.
+    # KNOWN ISSUE: the TypeError check omits the column indices, so it raises for
+    # missing arguments rather than testing LIL rejection.
     X = np.array(
         [[0, 3, 0], [2, 4, 0], [0, 0, 0], [9, 8, 7], [4, 0, 5]], dtype=np.float64
     )
@@ -791,6 +886,12 @@ def test_min_max(
     ignore_nan,
     large_indices,
 ):
+    # [FUNCTION DOC]
+    # Verifies min_max_axis matches np.min/np.max (or nanmin/nanmax with ignore_nan when
+    # the missing value is NaN) along axis 0, 1 and None, with int32 or int64 index
+    # arrays.
+    # Inputs: dtype; axis; sparse_format - CSR/CSC constructor; missing_values,
+    # min_func, max_func, ignore_nan - paired; large_indices - bool.
     X = np.array(
         [
             [0, 3, 0],
@@ -815,6 +916,10 @@ def test_min_max(
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_min_max_axis_errors(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies min_max_axis raises TypeError for LIL input and ValueError for axis 2 or
+    # -3.
+    # Inputs: csc_container, csr_container.
     X = np.array(
         [[0, 3, 0], [2, -1, 0], [0, 0, 0], [9, 8, 7], [4, 0, 5]], dtype=np.float64
     )
@@ -831,6 +936,13 @@ def test_min_max_axis_errors(csc_container, csr_container):
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_count_nonzero(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies count_nonzero on CSR (axes 0, 1, -1, -2, None; with and without
+    # sample_weight) matches dense counts/weighted sums, raises TypeError for CSC and
+    # ValueError for axis 2, and returns the same dtype for both axes, also with int64
+    # indices (tolerating a casting TypeError on 32-bit platforms).
+    # Inputs: csc_container, csr_container.
+    # Side effects: mutates X_csr index dtype in place.
     X = np.array(
         [[0, 3, 0], [2, -1, 0], [0, 0, 0], [9, 8, 7], [4, 0, 5]], dtype=np.float64
     )
@@ -877,6 +989,11 @@ def test_count_nonzero(csc_container, csr_container):
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_csc_row_median(csc_container, csr_container):
+    # [FUNCTION DOC]
+    # Verifies csc_median_axis_0 matches np.median along axis 0 on dense random data, on
+    # sparse data with negatives, and on toy inputs with even/odd row counts; raises
+    # TypeError for CSR input.
+    # Inputs: csc_container, csr_container.
     # Test csc_row_median actually calculates the median.
 
     # Test that it gives the same output when X is dense.
@@ -916,6 +1033,11 @@ def test_csc_row_median(csc_container, csr_container):
 )
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_inplace_normalize(csr_container, inplace_csr_row_normalize):
+    # [FUNCTION DOC]
+    # Verifies inplace_csr_row_normalize_l1/l2 keep dtype and produce rows whose L1 norm
+    # (of absolute values, or of squared values for L2) is 1, with int32 and then int64
+    # indices. The same matrix is normalized repeatedly across index dtypes.
+    # Inputs: csr_container; inplace_csr_row_normalize - the function under test.
     if issubclass(sp.csr_matrix, csr_container):
         ones = np.ones((10, 1))
     else:
@@ -942,6 +1064,11 @@ def test_inplace_normalize(csr_container, inplace_csr_row_normalize):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_csr_row_norms(dtype):
+    # [FUNCTION DOC]
+    # Verifies csr_row_norms returns squared row L2 norms matching
+    # scipy.sparse.linalg.norm squared, preserving dtype (rtol 1e-6 for float32, 1e-7
+    # for float64).
+    # Inputs: dtype.
     # checks that csr_row_norms returns the same output as
     # scipy.sparse.linalg.norm, and that the dype is the same as X.dtype.
     X = _sparse_random_array((100, 10), format="csr", dtype=dtype, rng=42)
@@ -956,6 +1083,13 @@ def test_csr_row_norms(dtype):
 
 @pytest.fixture(scope="module", params=CSR_CONTAINERS + CSC_CONTAINERS)
 def centered_matrices(request):
+    # [FUNCTION DOC]
+    # HELPER: Module-scoped fixture parametrized over CSR and CSC containers. Builds a
+    # 500x100 random sparse matrix (density 0.1, seed 42), its column means, and returns
+    # the pair (LinearOperator from _implicit_column_offset, explicitly centered dense
+    # array).
+    # Inputs: request - pytest request carrying the container.
+    # Outputs: tuple (LinearOperator, ndarray of shape (500, 100)).
     """Returns equivalent tuple[sp.linalg.LinearOperator, np.ndarray]."""
     sparse_container = request.param
 
@@ -974,6 +1108,10 @@ def centered_matrices(request):
 
 
 def test_implicit_center_matmat(global_random_seed, centered_matrices):
+    # [FUNCTION DOC]
+    # Verifies the implicitly centered operator's matmat and @ with a random (100, 50)
+    # matrix equal the dense centered product.
+    # Inputs: global_random_seed; centered_matrices fixture.
     X_sparse_centered, X_dense_centered = centered_matrices
     rng = np.random.default_rng(global_random_seed)
     Y = rng.standard_normal((X_dense_centered.shape[1], 50))
@@ -982,6 +1120,10 @@ def test_implicit_center_matmat(global_random_seed, centered_matrices):
 
 
 def test_implicit_center_matvec(global_random_seed, centered_matrices):
+    # [FUNCTION DOC]
+    # Verifies matvec and @ with a random vector of length 100 equal the dense centered
+    # product.
+    # Inputs: global_random_seed; centered_matrices.
     X_sparse_centered, X_dense_centered = centered_matrices
     rng = np.random.default_rng(global_random_seed)
     y = rng.standard_normal(X_dense_centered.shape[1])
@@ -990,6 +1132,10 @@ def test_implicit_center_matvec(global_random_seed, centered_matrices):
 
 
 def test_implicit_center_rmatmat(global_random_seed, centered_matrices):
+    # [FUNCTION DOC]
+    # Verifies rmatmat and transpose @ with a random (500, 50) matrix equal the dense
+    # centered transpose product.
+    # Inputs: global_random_seed; centered_matrices.
     X_sparse_centered, X_dense_centered = centered_matrices
     rng = np.random.default_rng(global_random_seed)
     Y = rng.standard_normal((X_dense_centered.shape[0], 50))
@@ -998,6 +1144,11 @@ def test_implicit_center_rmatmat(global_random_seed, centered_matrices):
 
 
 def test_implit_center_rmatvec(global_random_seed, centered_matrices):
+    # [FUNCTION DOC]
+    # Verifies rmatvec and transpose @ with a random vector of length 500 equal the
+    # dense centered transpose product.
+    # Inputs: global_random_seed; centered_matrices.
+    # KNOWN ISSUE: test name misspells 'implicit'.
     X_sparse_centered, X_dense_centered = centered_matrices
     rng = np.random.default_rng(global_random_seed)
     y = rng.standard_normal(X_dense_centered.shape[0])
@@ -1047,6 +1198,10 @@ def test_implit_center_rmatvec(global_random_seed, centered_matrices):
     ],
 )
 def test_sparse_matmul_to_dense_raises(A, B, out, msg):
+    # [FUNCTION DOC]
+    # Verifies sparse_matmul_to_dense raises ValueError for incompatible shapes, wrong
+    # out shape, non-CSR/CSC A or B, and mismatched or non-float dtypes.
+    # Inputs: A, B - sparse arrays; out - ndarray or None; msg - expected regex.
     """Test that sparse_matmul_to_dense raises when it should."""
     with pytest.raises(ValueError, match=msg):
         sparse_matmul_to_dense(A, B, out=out)
@@ -1059,6 +1214,11 @@ def test_sparse_matmul_to_dense_raises(A, B, out, msg):
 def test_sparse_matmul_to_dense(
     global_random_seed, out_is_None, a_container, b_container, dtype
 ):
+    # [FUNCTION DOC]
+    # Verifies sparse_matmul_to_dense of random half-sparse A (10x19) and B (19x13) in
+    # any CSR/CSC combination equals the dense product (atol 1e-7), and that when out is
+    # given it is filled with the result.
+    # Inputs: global_random_seed; out_is_None - bool; a_container, b_container; dtype.
     """Test that sparse_matmul_to_dense computes correctly."""
     rng = np.random.default_rng(global_random_seed)
     n1, n2, n3 = 10, 19, 13
