@@ -1,3 +1,16 @@
+# [MODULE DOC]
+# Common invariance and API tests applied to all scikit-learn metrics (regression,
+#   classification, continuous/ranking classification, curves and pairwise).
+# Defines registries mapping metric names to callables (REGRESSION_METRICS,
+#   CLASSIFICATION_METRICS, CONTINUOUS_CLASSIFICATION_METRICS, CURVE_METRICS, merged
+#   into ALL_METRICS) and sets of names sharing properties (symmetric, averaging,
+#   pos_label, labels, normalize, multilabel, multioutput, sample-weight support,
+#   positivity or log1p target requirements, mixed array-namespace support).
+# Tests use these registries to check symmetry, sample-order and format invariance,
+#   string-label handling, NaN/inf rejection, averaging semantics, sample_weight
+#   semantics, label-permutation invariance, Array API compliance
+#   (array_api_metric_checkers maps each metric to its checker functions) and dataframe
+#   input.
 import math
 import re
 from functools import partial
@@ -223,6 +236,12 @@ CLASSIFICATION_METRICS = {
 
 
 def precision_recall_curve_padded_thresholds(*args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Wraps precision_recall_curve so its three outputs can be stacked into one
+    #   float array.
+    # Inputs: any positional/keyword arguments of precision_recall_curve.
+    # Outputs: 2-D float array of shape (3, n_points): precision, recall, and thresholds
+    #   padded at the end with NaN to the length of precision.
     """
     The dimensions of precision-recall pairs and the threshold array as
     returned by the precision_recall_curve do not match. See
@@ -661,6 +680,12 @@ METRICS_SUPPORTING_MIXED_NAMESPACE = [
 
 
 def _require_positive_targets(y1, y2):
+    # [FUNCTION DOC]
+    # HELPER: Shifts two target arrays so all values are strictly positive.
+    # Inputs: y1, y2 - numeric arrays. Adds the absolute value of the overall minimum
+    #   plus 1 to both.
+    # Outputs: the tuple (y1, y2).
+    # Side effects: modifies y1 and y2 in place (augmented assignment on arrays).
     """Make targets strictly positive"""
     offset = abs(min(y1.min(), y2.min())) + 1
     y1 += offset
@@ -669,6 +694,12 @@ def _require_positive_targets(y1, y2):
 
 
 def _require_log1p_targets(y1, y2):
+    # [FUNCTION DOC]
+    # HELPER: Shifts two target arrays so all values are strictly greater than -1 (valid
+    #   for log1p).
+    # Converts both to float64 copies, then adds the absolute value of the overall
+    #   minimum minus 0.99.
+    # Outputs: the tuple of new float64 arrays; inputs are not modified.
     """Make targets strictly larger than -1"""
     offset = abs(min(y1.min(), y2.min())) - 0.99
     y1 = y1.astype(np.float64)
@@ -679,6 +710,10 @@ def _require_log1p_targets(y1, y2):
 
 
 def test_symmetry_consistency():
+    # [FUNCTION DOC]
+    # Verifies every metric in ALL_METRICS is classified as symmetric, non-symmetric,
+    #   continuous, or undefined for binary/multiclass, and that no metric is both
+    #   symmetric and non-symmetric.
     # We shouldn't forget any metrics
     assert (
         SYMMETRIC_METRICS
@@ -692,6 +727,12 @@ def test_symmetry_consistency():
 
 @pytest.mark.parametrize("name", sorted(SYMMETRIC_METRICS))
 def test_symmetric_metric(name):
+    # [FUNCTION DOC]
+    # Verifies symmetric metrics give the same result with y_true and y_pred swapped, on
+    #   random binary vectors (adjusted for positivity/log1p requirements), or on random
+    #   multilabel indicators for metrics undefined on binary input.
+    # Exceptions: AssertionError with "is not symmetric", or an explicit failure for an
+    #   unhandled combination.
     # Test the symmetry of score and loss functions
     random_state = check_random_state(0)
     y_true = random_state.randint(0, 2, size=(20,))
@@ -726,6 +767,10 @@ def test_symmetric_metric(name):
 
 @pytest.mark.parametrize("name", sorted(NOT_SYMMETRIC_METRICS))
 def test_not_symmetric_metric(name):
+    # [FUNCTION DOC]
+    # Verifies non-symmetric metrics produce a different result after swapping arguments
+    #   on at least one of five random binary draws.
+    # Exceptions: ValueError "<name> seems to be symmetric" if all draws are symmetric.
     # Test the symmetry of score and loss functions
     random_state = check_random_state(0)
     metric = ALL_METRICS[name]
@@ -752,6 +797,9 @@ def test_not_symmetric_metric(name):
 
 
 def test_symmetry_tests():
+    # [FUNCTION DOC]
+    # Verifies the two symmetry tests themselves: each passes on a metric of the
+    #   matching kind and fails with the expected error on the opposite kind.
     # check test_symmetric_metric and test_not_symmetric_metric
     sym = "accuracy_score"
     not_sym = "recall_score"
@@ -771,6 +819,9 @@ def test_symmetry_tests():
     "name", sorted(set(ALL_METRICS) - METRIC_UNDEFINED_BINARY_MULTICLASS)
 )
 def test_sample_order_invariance(name):
+    # [FUNCTION DOC]
+    # Verifies each metric defined on binary input gives the same result after jointly
+    #   shuffling y_true and y_pred.
     random_state = check_random_state(0)
     y_true = random_state.randint(0, 2, size=(20,))
     y_pred = random_state.randint(0, 2, size=(20,))
@@ -792,6 +843,9 @@ def test_sample_order_invariance(name):
 
 
 def test_sample_order_invariance_multilabel_and_multioutput():
+    # [FUNCTION DOC]
+    # Verifies multilabel, continuous-multilabel and multioutput metrics are invariant
+    #   to jointly shuffling samples of y_true, y_pred and row-normalized y_score.
     random_state = check_random_state(0)
 
     # Generate some data
@@ -840,6 +894,12 @@ def test_sample_order_invariance_multilabel_and_multioutput():
     "name", sorted(set(ALL_METRICS) - METRIC_UNDEFINED_BINARY_MULTICLASS)
 )
 def test_format_invariance_with_1d_vectors(name):
+    # [FUNCTION DOC]
+    # Verifies each binary-capable metric gives the same result for lists, 1-D arrays,
+    #   column vectors and mixtures of these, raises ValueError when a row vector is
+    #   mixed with other formats, and (for metrics without multilabel/multioutput
+    #   support) raises ValueError on two row vectors, except roc_auc variants which
+    #   return NaN with UndefinedMetricWarning.
     random_state = check_random_state(0)
     y1 = random_state.randint(0, 2, size=(20,))
     y2 = random_state.randint(0, 2, size=(20,))
@@ -973,6 +1033,9 @@ CLASSIFICATION_METRICS_REPORT = {
 
 @pytest.mark.parametrize("metric", CLASSIFICATION_METRICS_REPORT.values())
 def test_classification_metrics_raise_on_empty_input(metric):
+    # [FUNCTION DOC]
+    # Verifies every classification metric and classification_report raise ValueError
+    #   about empty input on empty arrays.
     msg = "Found empty input array (e.g., `y_true` or `y_pred`) while a minimum of 1"
     with pytest.raises(ValueError, match=re.escape(msg)):
         metric(np.array([]), np.array([]))
@@ -980,6 +1043,9 @@ def test_classification_metrics_raise_on_empty_input(metric):
 
 @pytest.mark.parametrize("metric", CLASSIFICATION_METRICS.values())
 def test_classification_with_invalid_sample_weight(metric):
+    # [FUNCTION DOC]
+    # Verifies classification metrics reject sample_weight of wrong length, containing
+    #   inf or NaN, complex-valued, or 2-D, each with the expected ValueError message.
     # Check invalid `sample_weight` raises correct error
     random_state = check_random_state(0)
     n_samples = 20
@@ -1014,6 +1080,10 @@ def test_classification_with_invalid_sample_weight(metric):
     "name", sorted(set(CLASSIFICATION_METRICS) - METRIC_UNDEFINED_BINARY_MULTICLASS)
 )
 def test_classification_invariance_string_vs_numbers_labels(name):
+    # [FUNCTION DOC]
+    # Verifies classification metrics give identical results on 0/1 labels and on
+    #   equivalent string labels (fixed-width and object dtype), passing pos_label
+    #   "spam" and/or labels where the metric supports them.
     # Ensure that classification metrics with string labels are invariant
     random_state = check_random_state(0)
     y1 = random_state.randint(0, 2, size=(20,))
@@ -1068,6 +1138,10 @@ def test_classification_invariance_string_vs_numbers_labels(name):
 
 @pytest.mark.parametrize("name", CONTINUOUS_CLASSIFICATION_METRICS)
 def test_continuous_classification_invariance_string_vs_numbers_labels(name):
+    # [FUNCTION DOC]
+    # Verifies continuous classification metrics give identical results with string
+    #   y_true (and pos_label) as with 0/1 y_true; metrics undefined for binary input
+    #   must raise ValueError on string labels.
     # Ensure that continuous metrics with string labels are invariant under
     # class relabeling.
     random_state = check_random_state(0)
@@ -1125,6 +1199,10 @@ invalids_nan_inf = [
 )
 @pytest.mark.parametrize("y_true, y_score", invalids_nan_inf)
 def test_continuous_inf_nan_input(metric, y_true, y_score):
+    # [FUNCTION DOC]
+    # Verifies continuous classification and regression metrics raise ValueError
+    #   mentioning NaN or infinity when the score contains such values (inputs wrapped
+    #   in a list for coverage_error).
     # Reshape since coverage_error only accepts 2D arrays.
     if metric == coverage_error:
         y_true = [y_true]
@@ -1147,6 +1225,10 @@ def test_continuous_inf_nan_input(metric, y_true, y_score):
     ],
 )
 def test_classification_inf_nan_input(metric, y_true, y_score):
+    # [FUNCTION DOC]
+    # Verifies classification metrics raise ValueError naming y_true or y_pred and
+    #   whether it contains NaN or infinity, with extra cases where y_true is non-finite
+    #   (#6809).
     """check that classification metrics raise a message mentioning the
     occurrence of non-finite values in the target vectors."""
     if not np.isfinite(y_true).all():
@@ -1170,6 +1252,9 @@ def test_classification_inf_nan_input(metric, y_true, y_score):
 
 @pytest.mark.parametrize("metric", CLASSIFICATION_METRICS.values())
 def test_classification_binary_continuous_input(metric):
+    # [FUNCTION DOC]
+    # Verifies classification metrics reject a mix of binary string labels and
+    #   continuous predictions with an explicit ValueError.
     """check that classification metrics raise a message of mixed type data
     with continuous/binary target vectors."""
     y_true, y_score = ["a", "b", "a"], [0.1, 0.2, 0.3]
@@ -1181,6 +1266,10 @@ def test_classification_binary_continuous_input(metric):
 
 
 def check_single_sample(name):
+    # [FUNCTION DOC]
+    # HELPER: Calls the named metric on every pair of single-element inputs drawn from
+    #   two values (adapted to positivity/log1p requirements); passes if no exception is
+    #   raised.
     # Non-regression test: scores should work with a single sample.
     # This is important for leave-one-out cross validation.
     # Score functions tested are those that formerly called np.squeeze,
@@ -1199,6 +1288,9 @@ def check_single_sample(name):
 
 
 def check_single_sample_multioutput(name):
+    # [FUNCTION DOC]
+    # HELPER: Calls the named metric on every combination of single-sample, two-output
+    #   0/1 inputs; passes if no exception is raised.
     metric = ALL_METRICS[name]
     for i, j, k, l in product([0, 1], repeat=4):
         metric(np.array([[i, j]]), np.array([[k, l]]))
@@ -1217,6 +1309,9 @@ def check_single_sample_multioutput(name):
     ),
 )
 def test_single_sample(name):
+    # [FUNCTION DOC]
+    # Runs check_single_sample for every metric defined for binary/multiclass and not
+    #   continuous, with warnings ignored.
     check_single_sample(name)
 
 
@@ -1224,11 +1319,17 @@ def test_single_sample(name):
 @pytest.mark.filterwarnings("ignore")
 @pytest.mark.parametrize("name", sorted(MULTIOUTPUT_METRICS | MULTILABELS_METRICS))
 def test_single_sample_multioutput(name):
+    # [FUNCTION DOC]
+    # Runs check_single_sample_multioutput for every multioutput and multilabel metric,
+    #   with warnings ignored.
     check_single_sample_multioutput(name)
 
 
 @pytest.mark.parametrize("name", sorted(MULTIOUTPUT_METRICS))
 def test_multioutput_number_of_output_differ(name):
+    # [FUNCTION DOC]
+    # Verifies multioutput metrics raise ValueError when y_true and y_pred have
+    #   different numbers of outputs.
     y_true = np.array([[1, 0, 0, 1], [0, 1, 1, 1], [1, 1, 0, 1]])
     y_pred = np.array([[0, 0], [1, 0], [0, 0]])
 
@@ -1239,6 +1340,9 @@ def test_multioutput_number_of_output_differ(name):
 
 @pytest.mark.parametrize("name", sorted(MULTIOUTPUT_METRICS))
 def test_multioutput_regression_invariance_to_dimension_shuffling(name):
+    # [FUNCTION DOC]
+    # Verifies multioutput regression metrics are invariant to the same random
+    #   permutation of output columns, over three permutations.
     # test invariance to dimension shuffling
     random_state = check_random_state(0)
     y_true = random_state.uniform(0, 2, size=(20, 5))
@@ -1259,6 +1363,12 @@ def test_multioutput_regression_invariance_to_dimension_shuffling(name):
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.UndefinedMetricWarning")
 @pytest.mark.parametrize("coo_container", COO_CONTAINERS)
 def test_multilabel_representation_invariance(coo_container):
+    # [FUNCTION DOC]
+    # Verifies multilabel metrics give the same result for dense indicator, COO sparse
+    #   indicator, list of arrays and list of lists, using random multilabel data with
+    #   an appended all-zero row.
+    # Side effects: sets __module__ and __name__ on partial objects stored in the
+    #   module-level ALL_METRICS registry.
     # Generate some data
     n_classes = 4
     n_samples = 50
@@ -1335,6 +1445,9 @@ def test_multilabel_representation_invariance(coo_container):
 
 @pytest.mark.parametrize("name", sorted(MULTILABELS_METRICS))
 def test_raise_value_error_multilabel_sequences(name):
+    # [FUNCTION DOC]
+    # Verifies multilabel metrics raise ValueError on the legacy multilabel-sequence
+    #   formats (lists of lists/tuples, object arrays).
     # make sure the multilabel-sequence format raises ValueError
     multilabel_sequences = [
         [[1], [2], [0, 1]],
@@ -1352,6 +1465,10 @@ def test_raise_value_error_multilabel_sequences(name):
 
 @pytest.mark.parametrize("name", sorted(METRICS_WITH_NORMALIZE_OPTION))
 def test_normalize_option_binary_classification(name):
+    # [FUNCTION DOC]
+    # Verifies, for metrics with a normalize option on random binary data, that the
+    #   normalized result is positive and equals the unnormalized result divided by the
+    #   number of samples.
     # Test in the binary case
     n_classes = 2
     n_samples = 20
@@ -1381,6 +1498,9 @@ def test_normalize_option_binary_classification(name):
 
 @pytest.mark.parametrize("name", sorted(METRICS_WITH_NORMALIZE_OPTION))
 def test_normalize_option_multiclass_classification(name):
+    # [FUNCTION DOC]
+    # Same as the binary normalize test, on random 4-class labels and softmax-normalized
+    #   scores.
     # Test in the multiclass case
     n_classes = 4
     n_samples = 20
@@ -1414,6 +1534,10 @@ def test_normalize_option_multiclass_classification(name):
     "name", sorted(METRICS_WITH_NORMALIZE_OPTION.intersection(MULTILABELS_METRICS))
 )
 def test_normalize_option_multilabel_classification(name):
+    # [FUNCTION DOC]
+    # Same normalize check on random multilabel indicator data (100 samples, 4 classes).
+    # KNOWN ISSUE: adding a list of zeros to y_true/y_pred is a no-op, so the commented
+    #   intent of ensuring an empty label row is not achieved.
     # Test in the multilabel case
     n_classes = 4
     n_samples = 100
@@ -1463,6 +1587,16 @@ def test_normalize_option_multilabel_classification(name):
 def _check_averaging(
     metric, y_true, y_pred, y_true_binarize, y_pred_binarize, is_multilabel
 ):
+    # [FUNCTION DOC]
+    # HELPER: Checks the averaging semantics of a metric with an average parameter.
+    # Inputs: metric callable; y_true, y_pred - inputs in original format;
+    #   y_true_binarize, y_pred_binarize - (n_samples, n_classes) indicators;
+    #   is_multilabel - bool.
+    # Asserts: average=None equals per-column binary scores; micro equals the score on
+    #   raveled indicators; macro equals the mean of per-label scores; weighted equals
+    #   the support-weighted average (or 0 when total support is 0); samples (multilabel
+    #   only) equals the mean of per-row scores; unknown average values raise
+    #   ValueError.
     n_samples, n_classes = y_true_binarize.shape
 
     # No averaging
@@ -1515,6 +1649,11 @@ def _check_averaging(
 
 
 def check_averaging(name, y_true, y_true_binarize, y_pred, y_pred_binarize, y_score):
+    # [FUNCTION DOC]
+    # HELPER: Dispatches _check_averaging for a named metric, using y_pred for label
+    #   metrics and y_score (for both prediction and binarized prediction) for
+    #   continuous metrics with averaging.
+    # Exceptions: ValueError if the metric is in neither averaging set.
     is_multilabel = type_of_target(y_true).startswith("multilabel")
 
     metric = ALL_METRICS[name]
@@ -1533,6 +1672,9 @@ def check_averaging(name, y_true, y_true_binarize, y_pred, y_pred_binarize, y_sc
 
 @pytest.mark.parametrize("name", sorted(METRICS_WITH_AVERAGING))
 def test_averaging_multiclass(name):
+    # [FUNCTION DOC]
+    # Runs check_averaging for label metrics with averaging on random 3-class data
+    #   binarized by LabelBinarizer.
     n_samples, n_classes = 50, 3
     random_state = check_random_state(0)
     y_true = random_state.randint(0, n_classes, size=(n_samples,))
@@ -1551,6 +1693,9 @@ def test_averaging_multiclass(name):
     sorted(METRICS_WITH_AVERAGING | CONTINUOUS_CLASSIFICATION_METRICS_WITH_AVERAGING),
 )
 def test_averaging_multilabel(name):
+    # [FUNCTION DOC]
+    # Runs check_averaging for label and continuous averaging metrics on generated
+    #   multilabel data (20 true, 20 predicted rows) and Gaussian scores.
     n_samples, n_classes = 40, 5
     _, y = make_multilabel_classification(
         n_features=1,
@@ -1570,6 +1715,9 @@ def test_averaging_multilabel(name):
 
 @pytest.mark.parametrize("name", sorted(METRICS_WITH_AVERAGING))
 def test_averaging_multilabel_all_zeroes(name):
+    # [FUNCTION DOC]
+    # Runs check_averaging for label metrics on all-zero multilabel targets and
+    #   predictions.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros((20, 3))
     y_score = np.zeros((20, 3))
@@ -1580,6 +1728,9 @@ def test_averaging_multilabel_all_zeroes(name):
 
 
 def test_averaging_binary_multilabel_all_zeroes():
+    # [FUNCTION DOC]
+    # Runs _check_averaging on _average_binary_score wrapped around precision_score with
+    #   all-zero multilabel data, covering the zero total-weight branch.
     y_true = np.zeros((20, 3))
     y_pred = np.zeros((20, 3))
     y_true_binarize = y_true
@@ -1600,6 +1751,9 @@ def test_averaging_binary_multilabel_all_zeroes():
 
 @pytest.mark.parametrize("name", sorted(METRICS_WITH_AVERAGING))
 def test_averaging_multilabel_all_ones(name):
+    # [FUNCTION DOC]
+    # Runs check_averaging for label metrics on all-one multilabel targets and
+    #   predictions.
     y_true = np.ones((20, 3))
     y_pred = np.ones((20, 3))
     y_score = np.ones((20, 3))
@@ -1610,6 +1764,20 @@ def test_averaging_multilabel_all_ones(name):
 
 
 def check_sample_weight_invariance(name, metric, y1, y2, sample_weight=None):
+    # [FUNCTION DOC]
+    # HELPER: Checks sample_weight semantics of a metric on inputs y1, y2.
+    # Inputs: name - metric name; metric - callable; y1, y2 - targets/scores;
+    #   sample_weight - optional integer weights, default random integers in [1, 10).
+    # Asserts: unit weights equal no weights; given weights change the score; list
+    #   weights equal array weights; integer weights equal repeating samples; zero
+    #   weights equal dropping those samples; scaling weights by 2 (and 0.3 unless
+    #   median_absolute_error/roc_curve) leaves the score unchanged unless the metric is
+    #   weight-scale dependent; doubled-length weights raise ValueError listing
+    #   inconsistent sample counts.
+    # top_k_accuracy_score is evaluated with k=1.
+    # KNOWN ISSUE: the explicit ValueError inside the pytest.raises(AssertionError)
+    #   block is only reached when scores are equal and then escapes as ValueError
+    #   rather than an assertion failure; the custom message works only incidentally.
     rng = np.random.RandomState(0)
     if sample_weight is None:
         sample_weight = rng.randint(1, 10, size=len(y1))
@@ -1721,6 +1889,9 @@ def check_sample_weight_invariance(name, metric, y1, y2, sample_weight=None):
     ),
 )
 def test_regression_sample_weight_invariance(name):
+    # [FUNCTION DOC]
+    # Runs check_sample_weight_invariance for regression metrics supporting
+    #   sample_weight with weights 0..49.
     n_samples = 50
     random_state = check_random_state(0)
     # regression
@@ -1743,6 +1914,9 @@ def test_regression_sample_weight_invariance(name):
     ),
 )
 def test_regression_with_invalid_sample_weight(name):
+    # [FUNCTION DOC]
+    # Verifies regression metrics reject sample_weight of wrong length, inf, NaN,
+    #   complex or 2-D with the expected ValueError messages.
     # Check that `sample_weight` with incorrect length raises error
     n_samples = 50
     random_state = check_random_state(0)
@@ -1784,6 +1958,9 @@ def test_regression_with_invalid_sample_weight(name):
     ),
 )
 def test_binary_sample_weight_invariance(name):
+    # [FUNCTION DOC]
+    # Runs check_sample_weight_invariance for non-regression metrics on binary data,
+    #   using scores for continuous/curve metrics and labels otherwise.
     # binary
     n_samples = 50
     random_state = check_random_state(0)
@@ -1807,6 +1984,9 @@ def test_binary_sample_weight_invariance(name):
     ),
 )
 def test_multiclass_sample_weight_invariance(name):
+    # [FUNCTION DOC]
+    # Runs check_sample_weight_invariance on 5-class data, using softmax-normalized
+    #   scores for continuous metrics.
     # multiclass
     n_samples = 50
     random_state = check_random_state(0)
@@ -1831,6 +2011,9 @@ def test_multiclass_sample_weight_invariance(name):
     ),
 )
 def test_multilabel_sample_weight_invariance(name):
+    # [FUNCTION DOC]
+    # Runs check_sample_weight_invariance on multilabel indicators (y_pred repeats part
+    #   of y_true) and row-normalized scores.
     # multilabel indicator
     random_state = check_random_state(0)
     _, ya = make_multilabel_classification(
@@ -1858,6 +2041,9 @@ def test_multilabel_sample_weight_invariance(name):
     sorted(MULTIOUTPUT_METRICS - METRICS_WITHOUT_SAMPLE_WEIGHT),
 )
 def test_multioutput_sample_weight_invariance(name):
+    # [FUNCTION DOC]
+    # Runs check_sample_weight_invariance for multioutput regression metrics on uniform
+    #   random 20x5 data.
     random_state = check_random_state(0)
     y_true = random_state.uniform(0, 2, size=(20, 5))
     y_pred = random_state.uniform(0, 2, size=(20, 5))
@@ -1867,6 +2053,10 @@ def test_multioutput_sample_weight_invariance(name):
 
 
 def test_no_averaging_labels():
+    # [FUNCTION DOC]
+    # Verifies that for averaging metrics with average=None, passing labels returns per-
+    #   label scores reordered according to labels, for multiclass and (where supported)
+    #   multilabel input.
     # test labels argument when not using averaging
     # in multi-class and multi-label cases
     y_true_multilabel = np.array([[1, 1, 0, 0], [1, 1, 0, 0]])
@@ -1895,6 +2085,9 @@ def test_no_averaging_labels():
     "name", sorted(MULTILABELS_METRICS - {"multilabel_confusion_matrix"})
 )
 def test_multilabel_label_permutations_invariance(name):
+    # [FUNCTION DOC]
+    # Verifies multilabel metrics are invariant to every joint permutation of label
+    #   columns.
     random_state = check_random_state(0)
     n_samples, n_classes = 20, 4
 
@@ -1916,6 +2109,11 @@ def test_multilabel_label_permutations_invariance(name):
     "name", sorted(CONTINUOUS_MULTILABEL_METRICS | MULTIOUTPUT_METRICS)
 )
 def test_continuous_multilabel_multioutput_permutations_invariance(name):
+    # [FUNCTION DOC]
+    # Verifies continuous multilabel and multioutput metrics are invariant to every
+    #   joint column permutation, after ensuring each row has 1 to 3 positive labels;
+    #   for mean_absolute_percentage_error only checks the result is finite and above
+    #   1e6.
     random_state = check_random_state(0)
     n_samples, n_classes = 20, 4
     y_true = random_state.randint(0, 2, size=(n_samples, n_classes))
@@ -1953,6 +2151,9 @@ def test_continuous_multilabel_multioutput_permutations_invariance(name):
     sorted(set(CONTINUOUS_CLASSIFICATION_METRICS) - METRIC_UNDEFINED_BINARY_MULTICLASS),
 )
 def test_continuous_metric_permutation_invariance(name):
+    # [FUNCTION DOC]
+    # Verifies continuous multiclass metrics are invariant to relabeling classes when
+    #   the score columns are permuted consistently.
     n_samples, n_classes = 100, 3
     random_state = check_random_state(0)
 
@@ -1983,6 +2184,11 @@ def test_continuous_metric_permutation_invariance(name):
 )
 @pytest.mark.parametrize("metric_name", CLASSIFICATION_METRICS)
 def test_metrics_consistent_type_error(y1, metric_name):
+    # [FUNCTION DOC]
+    # Verifies classification metrics raise ValueError about mixing string and number
+    #   label types.
+    # KNOWN ISSUE: the third parameter value is commented as a list but is actually a
+    #   fixed-width string ndarray, duplicating the second case.
     # check that an understable message is raised when the type between y_true
     # and y_pred mismatch
     rng = np.random.RandomState(42)
@@ -2011,6 +2217,10 @@ def test_metrics_consistent_type_error(y1, metric_name):
 )
 @pytest.mark.parametrize("dtype_y_str", [str, object])
 def test_metrics_pos_label_error_str(metric, y_pred_threshold, dtype_y_str):
+    # [FUNCTION DOC]
+    # Verifies metrics with pos_label raise the expected ValueError on string targets:
+    #   one stating pos_label=1 is invalid when the default is 1, otherwise one asking
+    #   to specify pos_label.
     # check that the error message if `pos_label` is not specified and the
     # targets is made of strings.
     rng = np.random.RandomState(42)
@@ -2039,6 +2249,17 @@ def test_metrics_pos_label_error_str(metric, y_pred_threshold, dtype_y_str):
 def check_array_api_metric(
     metric, array_namespace, device_name, dtype_name, a_np, b_np, **metric_kwargs
 ):
+    # [FUNCTION DOC]
+    # HELPER: Core Array API compliance check for one metric on given numpy inputs.
+    # Inputs: metric callable; array_namespace, device_name, dtype_name - selected
+    #   backend; a_np, b_np - numpy inputs; metric_kwargs - extra kwargs (sample_weight
+    #   and ndarray multioutput are converted to the backend).
+    # Computes the numpy reference; if the backend arrays are convertible with
+    #   np.asarray, also checks that dispatch-disabled calls with all-backend and mixed
+    #   numpy/backend inputs match; then with array_api_dispatch enabled checks the
+    #   result (or each tuple element) matches after moving to numpy, with dtype-
+    #   dependent atol.
+    # Side effects: mutates the metric_kwargs dict it received.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     a_xp = xp.asarray(a_np, device=device)
@@ -2071,11 +2292,16 @@ def check_array_api_metric(
         numpy_as_array_works = False
 
     def _check_metric_matches(metric_a, metric_b, convert_a=False):
+        # [FUNCTION DOC]
+        # HELPER: Asserts two metric outputs match within the dtype tolerance,
+        #   optionally converting the first from the backend to numpy.
         if convert_a:
             metric_a = move_to(xp.asarray(metric_a), xp=np, device="cpu")
         assert_allclose(metric_a, metric_b, atol=_atol_for_type(dtype_name))
 
     def _check_each_metric_matches(metric_a, metric_b, convert_a=False):
+        # [FUNCTION DOC]
+        # HELPER: Applies _check_metric_matches element-wise to two tuples of outputs.
         for metric_a_val, metric_b_val in zip(metric_a, metric_b):
             _check_metric_matches(metric_a_val, metric_b_val, convert_a=convert_a)
 
@@ -2118,6 +2344,9 @@ def check_array_api_metric(
 def check_array_api_binary_classification_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on fixed binary labels, without and with
+    #   sample weights; uses beta=0.5 for fbeta_score.
     y_true_np = np.array([0, 0, 1, 1])
     y_pred_np = np.array([0, 1, 0, 1])
 
@@ -2153,6 +2382,10 @@ def check_array_api_binary_classification_metric(
 def check_array_api_multiclass_classification_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on fixed 4-class labels (probability matrix
+    #   for average_precision_score) for every applicable combination of average, beta
+    #   and adjusted, without and with sample weights.
     y_true_np = np.array([0, 1, 2, 3])
     y_pred_np = np.array([0, 1, 0, 2])
 
@@ -2206,6 +2439,9 @@ def check_array_api_multiclass_classification_metric(
 def check_array_api_multilabel_classification_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on fixed multilabel indicators for every
+    #   applicable average/beta combination, without and with sample weights.
     y_true_np = np.array([[1, 1], [0, 1], [0, 0]], dtype=dtype_name)
     y_pred_np = np.array([[1, 1], [1, 1], [1, 1]], dtype=dtype_name)
 
@@ -2246,6 +2482,9 @@ def check_array_api_multilabel_classification_metric(
 def check_array_api_binary_continuous_classification_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on binary labels with probabilities, without
+    #   and with sample weights.
     y_true_np = np.array([1, 0, 1, 0])
     y_prob_np = np.array([0.5, 0.2, 0.7, 0.6], dtype=dtype_name)
 
@@ -2274,6 +2513,9 @@ def check_array_api_binary_continuous_classification_metric(
 def check_array_api_multiclass_continuous_classification_metric(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on 4-class labels with a probability matrix,
+    #   without and with sample weights.
     y_true_np = np.array([0, 1, 2, 3])
     y_prob_np = np.array(
         [
@@ -2311,6 +2553,9 @@ def check_array_api_multiclass_continuous_classification_metric(
 def check_array_api_multilabel_continuous_classification_metric(
     metric, array_namespace, device, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on multilabel indicators with probability
+    #   matrix, without and with sample weights.
     y_true_np = np.array(
         [
             [0, 0, 1, 1],
@@ -2354,6 +2599,10 @@ def check_array_api_multilabel_continuous_classification_metric(
 
 
 def check_array_api_regression_metric(metric, array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on fixed regression vectors, adding sample
+    #   weights when the metric accepts them.
+    # Exceptions: skips mean_poisson_deviance when scipy is older than 1.14.
     func_name = metric.func.__name__ if isinstance(metric, partial) else metric.__name__
     if func_name == "mean_poisson_deviance" and sp_version < parse_version("1.14.0"):
         pytest.skip(
@@ -2398,6 +2647,10 @@ def check_array_api_regression_metric(metric, array_namespace, device_name, dtyp
 def check_array_api_regression_metric_multioutput(
     metric, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on 2-output regression data without weights,
+    #   with sample weights, with an ndarray multioutput weighting and with
+    #   multioutput="raw_values".
     y_true_np = np.array([[1, 3, 2], [1, 2, 2]], dtype=dtype_name)
     y_pred_np = np.array([[1, 4, 4], [1, 1, 1]], dtype=dtype_name)
 
@@ -2445,6 +2698,9 @@ def check_array_api_regression_metric_multioutput(
 
 
 def check_array_api_metric_pairwise(metric, array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # HELPER: Runs check_array_api_metric on fixed X/Y matrices for a pairwise metric,
+    #   additionally testing dense_output=False and then True when supported.
     X_np = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]], dtype=dtype_name)
     Y_np = np.array([[0.2, 0.3, 0.4], [0.5, 0.6, 0.7]], dtype=dtype_name)
 
@@ -2647,6 +2903,9 @@ array_api_metric_checkers = {
 
 
 def yield_metric_checker_combinations(metric_checkers=array_api_metric_checkers):
+    # [FUNCTION DOC]
+    # HELPER: Yields (metric, checker) pairs from the given mapping, defaulting to
+    #   array_api_metric_checkers.
     for metric, checkers in metric_checkers.items():
         for checker in checkers:
             yield metric, checker
@@ -2660,10 +2919,17 @@ def yield_metric_checker_combinations(metric_checkers=array_api_metric_checkers)
 def test_array_api_compliance(
     metric, array_namespace, device_name, dtype_name, check_func
 ):
+    # [FUNCTION DOC]
+    # Runs each registered Array API checker for its metric over every
+    #   namespace/device/dtype combination.
     check_func(metric, array_namespace, device_name, dtype_name)
 
 
 def _check_output(out_np, out_xp, xp_to, y2_xp):
+    # [FUNCTION DOC]
+    # HELPER: Asserts a mixed-namespace output has the same kind as the numpy output:
+    #   float stays float; arrays are in namespace xp_to and on the device of y2_xp;
+    #   strings stay strings.
     if isinstance(out_np, float):
         assert isinstance(out_xp, float)
     elif hasattr(out_np, "shape"):
@@ -2686,6 +2952,14 @@ def _check_output(out_np, out_xp, xp_to, y2_xp):
 def test_mixed_array_api_namespace_input_compliance(
     metric_name, other_ns_and_device, y_pred_ns_and_device
 ):
+    # [FUNCTION DOC]
+    # Verifies, with array_api_dispatch enabled, that metrics supporting mixed
+    #   namespaces accept y_true and sample_weight in one namespace/device and y_pred in
+    #   another, returning floats or arrays following y_pred's namespace and device;
+    #   data cases are chosen by metric family.
+    # KNOWN ISSUE: data_cases is unbound if a metric name belongs to none of the three
+    #   families, which would surface as an UnboundLocalError rather than a clear
+    #   failure.
     """Check `y_true` and `sample_weight` follows `y_pred` for mixed namespace inputs.
 
     Compares the output for all-numpy vs mixed-type inputs.
@@ -2716,6 +2990,9 @@ def test_mixed_array_api_namespace_input_compliance(
 
     # Deal with max mps float precision being float32
     def _get_dtype(data, xp, device):
+        # [FUNCTION DOC]
+        # HELPER: Picks the array dtype for a data list: the highest-precision float on
+        #   the device if the first element is a float, otherwise int64.
         # Assume list is all float if first element is float
         if isinstance(data[0], float):
             dtype = _max_precision_float_dtype(xp, device)
@@ -2778,6 +3055,10 @@ def test_mixed_array_api_namespace_input_compliance(
 )
 @skip_if_array_api_compat_not_configured
 def test_array_api_classification_string_input(metric_name):
+    # [FUNCTION DOC]
+    # Verifies thresholded classification metrics accept string y_true/y_pred with
+    #   array_api_dispatch enabled and return output of the same kind as with dispatch
+    #   disabled.
     """Check string inputs accepted with array API dispatch enabled.
 
     All thresholded classification metrics that do not require label indicator format
@@ -2823,6 +3104,10 @@ def test_array_api_classification_string_input(metric_name):
 def test_array_api_classification_mixed_string_numeric_input(
     metric_name, array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies continuous classification and curve metrics accept string y_true with
+    #   numeric scores from any namespace/device under dispatch, for binary and (when
+    #   defined) multiclass cases, with outputs following the score namespace.
     """Check string inputs and numeric inputs from mixed namespace and devices accepted.
 
     Non-thresholded (aka continuous/ranking) classification metrics should accept
@@ -2879,6 +3164,11 @@ def test_array_api_classification_mixed_string_numeric_input(
 @pytest.mark.parametrize("df_lib_name", ["pandas", "polars"])
 @pytest.mark.parametrize("metric_name", sorted(ALL_METRICS))
 def test_metrics_dataframe_series(metric_name, df_lib_name):
+    # [FUNCTION DOC]
+    # Verifies each metric gives the same result on pandas/polars Series as on their
+    #   numpy conversion; skips metrics that raise ValueError on these 1-D inputs.
+    # KNOWN ISSUE: the variable named y_pred is passed as the first (y_true) argument;
+    #   harmless for the comparison but misleading.
     df_lib = pytest.importorskip(df_lib_name)
 
     y_pred = df_lib.Series([0.0, 1.0, 0, 1.0])
@@ -2894,6 +3184,12 @@ def test_metrics_dataframe_series(metric_name, df_lib_name):
 
 
 def _get_metric_kwargs_for_array_api_testing(metric, params):
+    # [FUNCTION DOC]
+    # HELPER: Builds the cartesian product of parameter values for parameters accepted
+    #   by metric.
+    # Inputs: metric - callable; params - dict of parameter name to tuple of values;
+    #   parameters absent from the signature are skipped.
+    # Outputs: list of kwargs dicts (a list containing one empty dict if none apply).
     """Helper function to enable specifying a variety of additional params and
     their corresponding values, so that they can be passed to a metric function
     when testing for array api compliance."""
@@ -2916,6 +3212,9 @@ def _get_metric_kwargs_for_array_api_testing(metric, params):
 
 @pytest.mark.parametrize("name", sorted(ALL_METRICS))
 def test_returned_value_consistency(name):
+    # [FUNCTION DOC]
+    # Verifies every metric returns a Python float, ndarray, or tuple of all floats or
+    #   all ndarrays, and never a numpy float32/float64 scalar.
     """Ensure that the returned values of all metrics are consistent.
 
     It can either be a float, a numpy array, or a tuple of floats or numpy arrays.

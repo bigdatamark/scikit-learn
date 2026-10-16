@@ -1,3 +1,13 @@
+# [MODULE DOC]
+# Successive-halving hyper-parameter search estimators (HalvingGridSearchCV and
+# HalvingRandomSearchCV) built on top of BaseSearchCV. Each iteration evaluates the
+# remaining candidates with an increasing amount of a resource (number of samples or an
+# estimator parameter) and keeps the best 1/factor of them.
+# Public contents: HalvingGridSearchCV, HalvingRandomSearchCV (exposed via
+# sklearn.experimental.enable_halving_search_cv). Private: _SubsampleMetaSplitter,
+# _top_k, BaseSuccessiveHalving.
+# Side effects at import: none beyond building the _parameter_constraints dicts (which
+# query the registered scorer names).
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -21,15 +31,37 @@ __all__ = ["HalvingGridSearchCV", "HalvingRandomSearchCV"]
 
 
 class _SubsampleMetaSplitter:
+    # [CLASS DOC]
+    # HELPER: CV splitter wrapper that delegates to base_cv and then subsamples, without
+    # replacement, a fraction of each train (and optionally test) index array. Used by
+    # successive halving when resource='n_samples'.
     """Splitter that subsamples a given fraction of the dataset"""
 
     def __init__(self, *, base_cv, fraction, subsample_test, random_state):
+        # [FUNCTION DOC]
+        # HELPER: Stores the arguments as attributes without validation.
+        # Inputs: base_cv - splitter object with a split method; fraction - float in (0,
+        # 1] of indices to keep; subsample_test - bool, whether to also subsample test
+        # indices; random_state - int, RandomState or None passed to resample.
+        # Outputs: none. Side effects: sets the four attributes.
         self.base_cv = base_cv
         self.fraction = fraction
         self.subsample_test = subsample_test
         self.random_state = random_state
 
     def split(self, X, y, **kwargs):
+        # [FUNCTION DOC]
+        # HELPER: For each (train, test) pair from base_cv.split, replaces train by a
+        # subsample of int(fraction * len(train)) indices drawn without replacement, and
+        # likewise the test indices when subsample_test is true.
+        # Inputs: X, y - data passed through to base_cv.split; kwargs - extra split
+        # arguments such as groups.
+        # Outputs: generator of (train_idx, test_idx) integer index arrays.
+        # Side effects: randomness via random_state. With an int random_state the same
+        # seed is reused for every fold and for both train and test.
+        # KNOWN ISSUE: with a RandomState instance the draws consume shared state, so
+        # repeated calls give different subsamples; reproducibility relies on an int
+        # seed.
         for train_idx, test_idx in self.base_cv.split(X, y, **kwargs):
             train_idx = resample(
                 train_idx,
@@ -48,6 +80,16 @@ class _SubsampleMetaSplitter:
 
 
 def _top_k(results, k, itr):
+    # [FUNCTION DOC]
+    # HELPER: Returns the parameter dicts of the k best candidates evaluated at
+    # iteration itr, ordered from worse to best.
+    # Algorithm: select the rows whose iter equals itr, argsort their mean_test_score
+    # ascending, rotate the order so NaN scores (sorted last by argsort) move to the
+    # front, then take the last k entries.
+    # Inputs: results - cv_results_-like dict with 'iter', 'mean_test_score', 'params';
+    # k - int number of candidates to keep; itr - int iteration index.
+    # Outputs: numpy object array of up to k parameter dicts.
+    # Exceptions: none raised directly. Side effects: none.
     # Return the best candidates of a given iteration
     iteration, mean_test_score, params = (
         np.asarray(a)
@@ -63,6 +105,11 @@ def _top_k(results, k, itr):
 
 
 class BaseSuccessiveHalving(BaseSearchCV):
+    # [CLASS DOC]
+    # Abstract base implementing the successive-halving schedule. Subclasses supply
+    # _generate_candidate_params. Restricts scoring to single-metric, drops
+    # pre_dispatch, and adds random_state, max_resources, min_resources, resource,
+    # factor and aggressive_elimination parameters. Disables array API support in tags.
     """Implements successive halving.
 
     Ref:
@@ -107,6 +154,11 @@ class BaseSuccessiveHalving(BaseSearchCV):
         factor=3,
         aggressive_elimination=False,
     ):
+        # [FUNCTION DOC]
+        # Stores the constructor arguments (shared ones forwarded to
+        # BaseSearchCV.__init__) without validation; validation happens in fit through
+        # _parameter_constraints and _check_input_parameters. pre_dispatch keeps the
+        # BaseSearchCV default.
         super().__init__(
             estimator,
             scoring=scoring,
@@ -126,6 +178,24 @@ class BaseSuccessiveHalving(BaseSearchCV):
         self.aggressive_elimination = aggressive_elimination
 
     def _check_input_parameters(self, X, y, split_params):
+        # [FUNCTION DOC]
+        # Validates the halving configuration and resolves min_resources_ and
+        # max_resources_ before the search runs.
+        # Steps: require that the original cv yields constant splits; require that a
+        # non-'n_samples' resource is a parameter of the estimator; forbid
+        # n_candidates='exhaust' together with min_resources='exhaust' for the random
+        # variant. For 'smallest'/'exhaust' min_resources with resource='n_samples', set
+        # min_resources_ to 2 * n_splits, times the number of classes for classifiers;
+        # otherwise 1. Resolve max_resources='auto' to the number of samples.
+        # Inputs: X, y - training data; split_params - dict of splitter arguments
+        # (groups).
+        # Outputs: none.
+        # Exceptions: ValueError for non-constant cv splits, unsupported resource, both
+        # 'exhaust', max_resources='auto' with a non-sample resource, min_resources_
+        # greater than max_resources_, or min_resources_ equal to 0 (empty X).
+        # Classification target checks may also raise.
+        # Side effects: sets min_resources_ and max_resources_; for classifiers calls
+        # validate_data on y, which may set n_features_in_-related state on self.
         # We need to enforce that successive calls to cv.split() yield the same
         # splits: see https://github.com/scikit-learn/scikit-learn/issues/15149
         if not _yields_constant_splits(self._checked_cv_orig):
@@ -192,6 +262,13 @@ class BaseSuccessiveHalving(BaseSearchCV):
 
     @staticmethod
     def _select_best_index(refit, refit_metric, results):
+        # [FUNCTION DOC]
+        # Static method used as the refit selector: among the candidates of the last
+        # iteration, returns the cv_results_ index with the highest mean_test_score,
+        # ignoring NaNs; if all are NaN, the first candidate of that iteration.
+        # Inputs: refit, refit_metric - unused; results - cv_results_ dict with 'iter'
+        # and 'mean_test_score' arrays.
+        # Outputs: int index into the cv_results_ arrays. Side effects: none.
         """Custom refit callable to return the index of the best candidate.
 
         We want the best candidate out of the last iteration. By default
@@ -218,6 +295,15 @@ class BaseSuccessiveHalving(BaseSearchCV):
         prefer_skip_nested_validation=False
     )
     def fit(self, X, y=None, **params):
+        # [FUNCTION DOC]
+        # Records the original number of samples, runs BaseSearchCV.fit, then sets
+        # best_score_ from mean_test_score at best_index_.
+        # Inputs: X, y, params - as in BaseSearchCV.fit. Outputs: self.
+        # Side effects: sets _n_samples_orig and best_score_ plus everything
+        # BaseSearchCV.fit sets.
+        # KNOWN ISSUE: the public docstrings say refit may be a callable choosing
+        # best_index_, but _select_best_index is overridden and ignores refit, so a
+        # callable refit has no effect on selection and best_score_ is still set.
         """Run fit with all sets of parameters.
 
         Parameters
@@ -249,6 +335,32 @@ class BaseSuccessiveHalving(BaseSearchCV):
         return self
 
     def _run_search(self, evaluate_candidates, *, callback_ctx):
+        # [FUNCTION DOC]
+        # Implements the successive-halving loop.
+        # Algorithm: generate the candidate list; reject a resource that is also a
+        # searched parameter. n_required_iterations = 1 +
+        # floor(log_factor(n_candidates)). For min_resources='exhaust', raise
+        # min_resources_ to max_resources_ // factor**(n_required_iterations - 1) if
+        # larger. n_possible_iterations = 1 + floor(log_factor(max_resources_ //
+        # min_resources_)). n_iterations is n_required_iterations with
+        # aggressive_elimination, else the minimum of the two. For each iteration: the
+        # exponent is itr, or with aggressive elimination max(0, itr - n_required +
+        # n_possible) so early iterations repeat the minimal resource; n_resources =
+        # int(factor**power * min_resources_) capped at max_resources_. With
+        # resource='n_samples', evaluate on a _SubsampleMetaSplitter keeping n_resources
+        # / n_samples of every train and test fold; otherwise copy each candidate dict
+        # and set the resource parameter to n_resources. Pass 'iter' and 'n_resources'
+        # as extra results, then keep the top ceil(n_candidates / factor) candidates of
+        # this iteration via _top_k.
+        # Inputs: evaluate_candidates - callable from BaseSearchCV.fit; callback_ctx -
+        # callback context used to create 'search' and 'halving-iteration' subtasks.
+        # Outputs: none.
+        # Exceptions: ValueError if resource is a searched parameter.
+        # Side effects: sets min_resources_ (exhaust case), n_resources_, n_candidates_,
+        # n_remaining_candidates_, n_required_iterations_, n_possible_iterations_,
+        # n_iterations_; prints progress when verbose; fires callback hooks.
+        # KNOWN ISSUE: log(len(candidate_params), factor) raises if there are zero
+        # candidates, and floor of a floating log can be off by one for exact powers.
         candidate_params = self._generate_candidate_params()
 
         if self.resource != "n_samples" and any(
@@ -378,9 +490,14 @@ class BaseSuccessiveHalving(BaseSearchCV):
 
     @abstractmethod
     def _generate_candidate_params(self):
+        # [FUNCTION DOC]
+        # Abstract: subclasses return an iterable of candidate parameter dicts with a
+        # defined length. Outputs: ParameterGrid / ParameterSampler-like object.
         pass
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Returns the BaseSearchCV tags with array_api_support forced to False.
         # TODO: remove this when we add array API support to
         # `BaseSuccessiveHalving`
         tags = super().__sklearn_tags__()
@@ -389,6 +506,8 @@ class BaseSuccessiveHalving(BaseSearchCV):
 
 
 class HalvingGridSearchCV(BaseSuccessiveHalving):
+    # [CLASS DOC]
+    # Successive halving over every combination of an explicit parameter grid.
     """Search over specified parameter values with successive halving.
 
     The search strategy starts evaluating all the candidates with a small
@@ -725,6 +844,9 @@ class HalvingGridSearchCV(BaseSuccessiveHalving):
         n_jobs=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards the shared arguments to BaseSuccessiveHalving and stores param_grid
+        # without validation.
         super().__init__(
             estimator,
             scoring=scoring,
@@ -744,10 +866,16 @@ class HalvingGridSearchCV(BaseSuccessiveHalving):
         self.param_grid = param_grid
 
     def _generate_candidate_params(self):
+        # [FUNCTION DOC]
+        # Returns ParameterGrid(param_grid), the full set of grid combinations.
+        # Exceptions: TypeError/ValueError from ParameterGrid for malformed grids.
         return ParameterGrid(self.param_grid)
 
 
 class HalvingRandomSearchCV(BaseSuccessiveHalving):
+    # [CLASS DOC]
+    # Successive halving over parameter settings sampled from param_distributions; adds
+    # n_candidates (int or 'exhaust') and defaults min_resources to 'smallest'.
     """Randomized search on hyper parameters.
 
     The search strategy starts evaluating all the candidates with a small
@@ -1106,6 +1234,9 @@ class HalvingRandomSearchCV(BaseSuccessiveHalving):
         n_jobs=None,
         verbose=0,
     ):
+        # [FUNCTION DOC]
+        # Forwards the shared arguments to BaseSuccessiveHalving and stores
+        # param_distributions and n_candidates without validation.
         super().__init__(
             estimator,
             scoring=scoring,
@@ -1126,6 +1257,13 @@ class HalvingRandomSearchCV(BaseSuccessiveHalving):
         self.n_candidates = n_candidates
 
     def _generate_candidate_params(self):
+        # [FUNCTION DOC]
+        # Returns a ParameterSampler drawing n_candidates settings; with
+        # n_candidates='exhaust' the count is max_resources_ // min_resources_ so the
+        # last iteration can use as many resources as possible.
+        # Inputs: uses min_resources_ and max_resources_ already set by
+        # _check_input_parameters. Outputs: ParameterSampler seeded with random_state.
+        # Side effects: none (sampling happens on iteration).
         n_candidates_first_iter = self.n_candidates
         if n_candidates_first_iter == "exhaust":
             # This will generate enough candidates so that the last iteration

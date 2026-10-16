@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Scorer objects and the registry of named scorers. Defines the scorer class hierarchy
+# (_BaseScorer, _Scorer, _CurveScorer), a multi-metric wrapper that caches estimator
+# predictions, a passthrough to estimator.score, make_scorer, get_scorer,
+# get_scorer_names and check_scoring. At import time it builds every predefined scorer
+# and fills the module-level _SCORERS dict, including precision/recall/f1/jaccard with
+# binary and macro/micro/samples/weighted averages.
+# KNOWN ISSUE: brier_score_loss_scorer is built but never registered in _SCORERS, and is
+# identical to neg_brier_score_scorer.
 """
 The :mod:`sklearn.metrics.scorer` submodule implements a flexible
 interface for model selection and evaluation using
@@ -90,6 +99,14 @@ from sklearn.utils.validation import _check_response_method, _deprecate_position
 
 
 def _cached_call(cache, estimator, response_method, *args, **kwargs):
+    # [FUNCTION DOC]
+    # HELPER: Returns predictions of estimator for response_method via
+    # _get_response_values, using cache (dict keyed by method name) when given.
+    # Inputs: cache - dict or None; estimator; response_method - method name; extra args
+    # and kwargs (e.g. X, pos_label) forwarded.
+    # Outputs: the response values (array).
+    # Side effects: stores the result in cache. The cache key ignores args, so it is
+    # only valid for one X per cache.
     """Call estimator with method and args and kwargs."""
     if cache is not None and response_method in cache:
         return cache[response_method]
@@ -105,6 +122,9 @@ def _cached_call(cache, estimator, response_method, *args, **kwargs):
 
 
 def _get_func_repr_or_name(func):
+    # [FUNCTION DOC]
+    # HELPER: Returns repr for functools.partial objects, otherwise the function's
+    # __name__; used in scorer reprs.
     """Returns the name of the function or repr of a partial."""
     if isinstance(func, partial):
         return repr(func)
@@ -113,6 +133,10 @@ def _get_func_repr_or_name(func):
 
 
 class _MultimetricScorer:
+    # [CLASS DOC]
+    # Combines several named scorers into one callable returning a dict of scores,
+    # sharing a per-call prediction cache when beneficial and routing metadata to each
+    # scorer.
     """Callable for multimetric scoring used to avoid repeated calls
     to `predict_proba`, `predict`, and `decision_function`.
 
@@ -132,10 +156,24 @@ class _MultimetricScorer:
     """
 
     def __init__(self, *, scorers, raise_exc=True):
+        # [FUNCTION DOC]
+        # Stores the scorers dict (name to scorer) and raise_exc flag.
         self._scorers = scorers
         self._raise_exc = raise_exc
 
     def __call__(self, estimator, *args, **kwargs):
+        # [FUNCTION DOC]
+        # Builds a cache if _use_cache says so. With metadata routing enabled, routes
+        # kwargs via process_routing; otherwise passes all kwargs except sample_weight
+        # to every scorer and adds sample_weight only to scorers whose function accepts
+        # it. For each scorer, _BaseScorer instances are evaluated through _score with
+        # the cached caller, other callables are called directly.
+        # Outputs: dict name to score; if raise_exc is False, failed scorers map to the
+        # formatted traceback string.
+        # Exceptions: re-raises scorer exceptions when raise_exc is True.
+        # KNOWN ISSUE: the non-routing branch calls _accept_sample_weight on every
+        # scorer, so a plain callable scorer (not a scorer class) raises AttributeError
+        # outside the try block.
         """Evaluate predicted target values."""
         scores = {}
         cache = {} if self._use_cache(estimator) else None
@@ -185,14 +223,25 @@ class _MultimetricScorer:
         return scores
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "MultiMetricScorer(" followed by the quoted scorer names.
         scorers = ", ".join([f'"{s}"' for s in self._scorers])
         return f"MultiMetricScorer({scorers})"
 
     def _accept_sample_weight(self):
+        # [FUNCTION DOC]
+        # True if any sub-scorer's function accepts sample_weight (legacy, non-routing
+        # path).
         # TODO(slep006): remove when metadata routing is the only way
         return any(scorer._accept_sample_weight() for scorer in self._scorers.values())
 
     def _use_cache(self, estimator):
+        # [FUNCTION DOC]
+        # Returns False for a single scorer; otherwise resolves each _BaseScorer's
+        # response method on the estimator and returns True when some resolved method
+        # name is used by more than one scorer.
+        # Exceptions: AttributeError from _check_response_method if the estimator lacks
+        # the method.
         """Return True if using a cache is beneficial, thus when a response method will
         be called several time.
         """
@@ -214,6 +263,9 @@ class _MultimetricScorer:
         return False
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns a MetadataRouter with each scorer as child, mapping caller "score" to
+        # callee "score".
         """Get metadata routing of this object.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -234,6 +286,11 @@ class _MultimetricScorer:
 
 
 class _BaseScorer(_MetadataRequester):
+    # [CLASS DOC]
+    # Base class of scorers built by make_scorer: holds the metric function, a sign (+1
+    # or
+    # -1, applied to the metric output), fixed kwargs and the response method, and
+    # implements metadata request handling. Subclasses implement _score.
     """Base scorer that is used as `scorer(estimator, X, y_true)`.
 
     Parameters
@@ -254,12 +311,17 @@ class _BaseScorer(_MetadataRequester):
     """
 
     def __init__(self, score_func, sign, kwargs, response_method="predict"):
+        # [FUNCTION DOC]
+        # Stores score_func, sign, kwargs dict and response_method without validation.
         self._score_func = score_func
         self._sign = sign
         self._kwargs = kwargs
         self._response_method = response_method
 
     def _get_pos_label(self):
+        # [FUNCTION DOC]
+        # Returns pos_label from stored kwargs if present, else the default of the
+        # metric's pos_label parameter, else None.
         if "pos_label" in self._kwargs:
             return self._kwargs["pos_label"]
         score_func_params = signature(self._score_func).parameters
@@ -268,10 +330,15 @@ class _BaseScorer(_MetadataRequester):
         return None
 
     def _accept_sample_weight(self):
+        # [FUNCTION DOC]
+        # True if the metric function signature has a sample_weight parameter.
         # TODO(slep006): remove when metadata routing is the only way
         return "sample_weight" in signature(self._score_func).parameters
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Builds a make_scorer(...) style repr including greater_is_better=False for
+        # negative sign, the response method and stored kwargs.
         sign_string = "" if self._sign > 0 else ", greater_is_better=False"
         response_method_string = f", response_method={self._response_method!r}"
         kwargs_string = "".join([f", {k}={v}" for k, v in self._kwargs.items()])
@@ -282,11 +349,20 @@ class _BaseScorer(_MetadataRequester):
         )
 
     def _routing_repr(self):
+        # [FUNCTION DOC]
+        # Repr used in metadata routing messages; same as repr.
         return repr(self)
 
     # TODO (1.11): remove decorator and sample_weight param from signature
     @_deprecate_positional_args(version="1.11")
     def __call__(self, estimator, X, y_true, *, sample_weight=None, **kwargs):
+        # [FUNCTION DOC]
+        # Rejects unexpected kwargs when routing is disabled (_raise_for_params), moves
+        # a deprecated explicit sample_weight into kwargs, then calls _score with an
+        # uncached caller.
+        # Outputs: the score.
+        # Exceptions: ValueError/TypeError from _raise_for_params; deprecation warning
+        # for positional use of sample_weight via the decorator.
         """Evaluate predicted target values for X relative to y_true.
 
         Parameters
@@ -328,6 +404,9 @@ class _BaseScorer(_MetadataRequester):
         return self._score(partial(_cached_call, None), estimator, X, y_true, **kwargs)
 
     def _warn_overlap(self, message, kwargs):
+        # [FUNCTION DOC]
+        # HELPER: Emits a UserWarning listing keys present both in the scorer's stored
+        # kwargs and in the given kwargs.
         """Warn if there is any overlap between ``self._kwargs`` and ``kwargs``.
 
         This method is intended to be used to check for overlap between
@@ -341,6 +420,12 @@ class _BaseScorer(_MetadataRequester):
             )
 
     def set_score_request(self, **kwargs):
+        # [FUNCTION DOC]
+        # Replaces the scorer's metadata request for score with the given param-to-alias
+        # mapping, after warning about overlap with stored kwargs.
+        # Outputs: self.
+        # Exceptions: RuntimeError if metadata routing is not enabled.
+        # Side effects: sets self._metadata_request.
         """Set requested parameters by the scorer.
 
         Please see :ref:`User Guide <metadata_routing>` on how the routing
@@ -376,6 +461,10 @@ class _BaseScorer(_MetadataRequester):
         return self
 
     def _get_metadata_request(self):
+        # [FUNCTION DOC]
+        # Returns the explicitly set request if any; otherwise builds a default request
+        # from the metric function's signature, ignoring the target and prediction
+        # parameter names.
         """Get requested metadata properties.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -418,7 +507,15 @@ class _BaseScorer(_MetadataRequester):
 
 
 class _Scorer(_BaseScorer):
+    # [CLASS DOC]
+    # Scorer that applies the metric to a single response (predict, predict_proba or
+    # decision_function output) of the estimator.
     def _score(self, method_caller, estimator, X, y_true, **kwargs):
+        # [FUNCTION DOC]
+        # Warns on kwargs overlap, uses pos_label only for non-regressors, resolves the
+        # response method on the estimator, obtains predictions through method_caller,
+        # then returns sign times metric(y_true, y_pred) with stored kwargs updated by
+        # call kwargs.
         """Evaluate the response method of `estimator` on `X` and `y_true`.
 
         Parameters
@@ -476,6 +573,10 @@ class _Scorer(_BaseScorer):
     prefer_skip_nested_validation=True,
 )
 def get_scorer(scoring):
+    # [FUNCTION DOC]
+    # Returns a deep copy of the registered scorer for a string name; returns callables
+    # or None unchanged.
+    # Exceptions: ValueError for an unknown string.
     """Get a scorer from string.
 
     Read more in the :ref:`User Guide <scoring_parameter>`.
@@ -526,27 +627,43 @@ def get_scorer(scoring):
 
 
 class _PassthroughScorer(_MetadataRequester):
+    # [CLASS DOC]
+    # Scorer used when scoring is None: delegates to the estimator's own score method
+    # while participating in metadata routing.
     # Passes scoring of estimator's `score` method back to estimator if scoring
     # is `None`.
 
     def __init__(self, estimator):
+        # [FUNCTION DOC]
+        # Stores the estimator whose score method signature and routing are used.
         self._estimator = estimator
 
     def __call__(self, estimator, *args, **kwargs):
+        # [FUNCTION DOC]
+        # Calls estimator.score with the given args and kwargs (the estimator passed at
+        # call time, not the stored one).
         """Method that wraps estimator.score"""
         return estimator.score(*args, **kwargs)
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # Returns "<EstimatorClass>.score".
         return f"{type(self._estimator).__name__}.score"
 
     def _routing_repr(self):
+        # [FUNCTION DOC]
+        # Routing repr; same as repr.
         return repr(self)
 
     def _accept_sample_weight(self):
+        # [FUNCTION DOC]
+        # True if the stored estimator's score method accepts sample_weight.
         # TODO(slep006): remove when metadata routing is the only way
         return "sample_weight" in signature(self._estimator.score).parameters
 
     def get_metadata_routing(self):
+        # [FUNCTION DOC]
+        # Returns the routing of the stored estimator itself.
         """Get requested data properties.
 
         Please check :ref:`User Guide <metadata_routing>` on how the routing
@@ -564,6 +681,12 @@ class _PassthroughScorer(_MetadataRequester):
 
 
 def _check_multimetric_scoring(estimator, scoring):
+    # [FUNCTION DOC]
+    # HELPER: Converts list/tuple/set or dict scoring into a dict name to scorer via
+    # check_scoring. Lists must be non-empty, unique strings; dict keys must be strings
+    # and the dict non-empty.
+    # Exceptions: ValueError for unhashable or duplicate elements, callables or
+    # non-strings in a list, empty containers, non-string dict keys, or any other type.
     """Check the scoring parameter in cases when multiple metrics are allowed.
 
     In addition, multimetric scoring leverages a caching mechanism to not call the same
@@ -653,6 +776,9 @@ def _check_multimetric_scoring(estimator, scoring):
 
 
 def _get_response_method_name(response_method):
+    # [FUNCTION DOC]
+    # HELPER: Returns the __name__ of a response method, unwrapping functools.partial
+    # recursively via its func attribute.
     try:
         return response_method.__name__
     except AttributeError:
@@ -674,6 +800,9 @@ def _get_response_method_name(response_method):
 def make_scorer(
     score_func, *, response_method="predict", greater_is_better=True, **kwargs
 ):
+    # [FUNCTION DOC]
+    # Maps greater_is_better to a sign of +1 or -1 and returns a _Scorer wrapping
+    # score_func with the extra kwargs and response_method.
     """Make a scorer from a performance metric or loss function.
 
     A scorer is a wrapper around an arbitrary metric or loss function that is called
@@ -777,10 +906,16 @@ matthews_corrcoef_scorer = make_scorer(matthews_corrcoef)
 
 
 def positive_likelihood_ratio(y_true, y_pred):
+    # [FUNCTION DOC]
+    # Positive likelihood ratio (first element of class_likelihood_ratios) with
+    # undefined values replaced by 1.0; used for the registered scorer.
     return class_likelihood_ratios(y_true, y_pred, replace_undefined_by=1.0)[0]
 
 
 def negative_likelihood_ratio(y_true, y_pred):
+    # [FUNCTION DOC]
+    # Negative likelihood ratio (second element of class_likelihood_ratios) with
+    # undefined values replaced by 1.0; used with greater_is_better False.
     return class_likelihood_ratios(y_true, y_pred, replace_undefined_by=1.0)[1]
 
 
@@ -891,6 +1026,8 @@ _SCORERS = dict(
 
 
 def get_scorer_names():
+    # [FUNCTION DOC]
+    # Returns the sorted list of keys of _SCORERS.
     """Get the names of all available scorers.
 
     These names can be passed to :func:`~sklearn.metrics.get_scorer` to
@@ -945,6 +1082,14 @@ for name, metric in [
     prefer_skip_nested_validation=True,
 )
 def check_scoring(estimator=None, scoring=None, *, allow_none=False, raise_exc=True):
+    # [FUNCTION DOC]
+    # Strings go through get_scorer. Callables are returned as-is unless their module is
+    # a sklearn.metrics submodule other than _scorer or tests, which signals a bare
+    # metric and raises ValueError. Lists/tuples/sets/dicts become a _MultimetricScorer.
+    # None returns a _PassthroughScorer if the estimator has score, None if allow_none,
+    # else TypeError.
+    # Exceptions: ValueError, TypeError as above; InvalidParameterError for invalid
+    # inputs.
     """Determine scorer from user options.
 
     A TypeError will be thrown if the estimator cannot be scored.
@@ -1052,6 +1197,13 @@ def check_scoring(estimator=None, scoring=None, *, allow_none=False, raise_exc=T
 
 
 def _threshold_scores_to_class_labels(y_score, threshold, classes, pos_label):
+    # [FUNCTION DOC]
+    # HELPER: Converts scores to class labels: score >= threshold maps to the positive
+    # class. With pos_label None, uses classes[1] as positive and classes[0] as
+    # negative; otherwise the index of pos_label in classes and the first other class.
+    # Inputs: y_score - 1d array; threshold - scalar; classes - array of class labels;
+    # pos_label - label or None.
+    # Outputs: array of labels of y_score's shape.
     """Threshold `y_score` and return the associated class labels."""
     if pos_label is None:
         map_thresholded_score_to_label = np.array([0, 1])
@@ -1064,6 +1216,9 @@ def _threshold_scores_to_class_labels(y_score, threshold, classes, pos_label):
 
 
 class _CurveScorer(_BaseScorer):
+    # [CLASS DOC]
+    # Scorer that evaluates a label-based metric over a range of decision thresholds
+    # applied to a continuous response, returning the score for each threshold.
     """Scorer taking a continuous response and output a score for each threshold.
 
     Parameters
@@ -1090,6 +1245,9 @@ class _CurveScorer(_BaseScorer):
     """
 
     def __init__(self, score_func, sign, kwargs, thresholds, response_method):
+        # [FUNCTION DOC]
+        # Calls the base initializer and stores thresholds (int count or array-like of
+        # values).
         super().__init__(
             score_func=score_func,
             sign=sign,
@@ -1100,6 +1258,11 @@ class _CurveScorer(_BaseScorer):
 
     @classmethod
     def from_scorer(cls, scorer, response_method, thresholds):
+        # [FUNCTION DOC]
+        # Builds a _CurveScorer copying function, sign and kwargs from an existing
+        # scorer with a new response method and thresholds, and transfers the scorer's
+        # metadata routing.
+        # Outputs: new _CurveScorer.
         """Create a continuous scorer from a normal scorer."""
         instance = cls(
             score_func=scorer._score_func,
@@ -1113,6 +1276,14 @@ class _CurveScorer(_BaseScorer):
         return instance
 
     def _score(self, method_caller, estimator, X, y_true, **kwargs):
+        # [FUNCTION DOC]
+        # Gets the continuous response through method_caller using self._response_method
+        # and pos_label. Thresholds are either an evenly spaced grid between min and max
+        # of the scores (when an integer) or the given values. For each threshold,
+        # converts scores to labels and computes sign times the metric.
+        # Outputs: tuple (array of scores, array of thresholds).
+        # Note: unlike _Scorer, the response method is not resolved via
+        # _check_response_method and kwargs overlap is not warned.
         """Evaluate predicted target values for X relative to y_true.
 
         Parameters

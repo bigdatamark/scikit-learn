@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Regression metrics: absolute, squared, log, percentage and pinball errors, R squared
+# and explained variance, max error, Tweedie-family deviances and D squared scores. Most
+# functions support array API inputs (y_true and sample_weight are moved to y_pred's
+# namespace/device), sample weights and multi-output targets with multioutput set to
+# "raw_values", "uniform_average", "variance_weighted" (R2/explained variance only) or
+# an array of output weights. Aggregated results are returned as Python floats.
+# KNOWN ISSUE: the export list is spelled __ALL__ instead of __all__, so it has no
+# effect on star imports.
 """Metrics to assess performance on regression task.
 
 Functions named as ``*_score`` return a scalar value to maximize: the higher
@@ -60,6 +69,20 @@ __ALL__ = [
 def _check_reg_targets(
     y_true, y_pred, sample_weight, multioutput, dtype="numeric", xp=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Validates a regression problem. Checks equal lengths, converts
+    # y_true/y_pred with check_array (1d or 2d, given dtype), validates sample_weight,
+    # reshapes 1d targets to a single column, checks the output counts match and
+    # validates multioutput (allowed strings, or a weight array whose length equals the
+    # number of outputs, only when there are several outputs).
+    # Inputs: y_true, y_pred - array-likes (n_samples,) or (n_samples, n_outputs);
+    # sample_weight - array-like or None; multioutput - str, array-like or None; dtype -
+    # passed to check_array; xp - optional array namespace.
+    # Outputs: tuple (y_type "continuous" or "continuous-multioutput", 2d y_true, 2d
+    # y_pred, sample_weight, multioutput).
+    # Exceptions: ValueError for inconsistent lengths, differing output counts, an
+    # unknown multioutput string, custom weights for single output, or a weight-count
+    # mismatch.
     """Check that y_true, y_pred and sample_weight belong to the same regression task.
 
     To reduce redundancy when calling `_find_matching_floating_dtype`,
@@ -157,6 +180,10 @@ def _check_reg_targets(
 def _check_reg_targets_with_floating_dtype(
     y_true, y_pred, sample_weight, multioutput, xp=None
 ):
+    # [FUNCTION DOC]
+    # HELPER: Same as _check_reg_targets but first picks a common floating dtype for
+    # y_true, y_pred and sample_weight (_find_matching_floating_dtype) and converts all
+    # of them to it.
     """Ensures y_true, y_pred, and sample_weight correspond to same regression task.
 
     Extends `_check_reg_targets` by automatically selecting a suitable floating-point
@@ -225,6 +252,10 @@ def _check_reg_targets_with_floating_dtype(
 def mean_absolute_error(
     y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Validates inputs (floating dtype), computes the per-output weighted mean of
+    # absolute residuals, then returns the raw per-output array, or the average over
+    # outputs (uniform or weighted by the multioutput array) as a float.
     """Mean absolute error regression loss.
 
     The mean absolute error is a non-negative floating point value, where best value
@@ -320,6 +351,11 @@ def mean_absolute_error(
 def mean_pinball_loss(
     y_true, y_pred, *, sample_weight=None, alpha=0.5, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; for each sample and output, the loss is alpha times the residual
+    # (y_true - y_pred) when it is non-negative, otherwise (alpha - 1) times the
+    # residual. Averages over samples with sample_weight, then returns per-output values
+    # or their (weighted) average as a float.
     """Pinball loss for quantile regression.
 
     Read more in the :ref:`User Guide <pinball_loss>`.
@@ -419,6 +455,11 @@ def mean_pinball_loss(
 def mean_absolute_percentage_error(
     y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; per element computes absolute error divided by max(abs(y_true),
+    # float64 machine eps) so zero targets give huge but finite values; averages over
+    # samples with weights and over outputs as in the other errors. Result is a
+    # fraction, not a percentage.
     """Mean absolute percentage error (MAPE) regression loss.
 
     Note that we are not using the common "percentage" definition: the percentage
@@ -528,6 +569,9 @@ def mean_squared_error(
     sample_weight=None,
     multioutput="uniform_average",
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; weighted mean over samples of squared residuals per output, then
+    # raw values or (weighted) average over outputs as a float.
     """Mean squared error regression loss.
 
     Read more in the :ref:`User Guide <mean_squared_error>`.
@@ -616,6 +660,9 @@ def mean_squared_error(
 def root_mean_squared_error(
     y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Computes per-output MSE (raw_values) and takes its square root, then raw values or
+    # (weighted) average over outputs. Validation is delegated to mean_squared_error.
     """Root mean squared error regression loss.
 
     Read more in the :ref:`User Guide <mean_squared_error>`.
@@ -705,6 +752,10 @@ def mean_squared_log_error(
     sample_weight=None,
     multioutput="uniform_average",
 ):
+    # [FUNCTION DOC]
+    # Validates inputs, raises ValueError if any y_true or y_pred value is at most -1,
+    # then returns mean_squared_error on log1p of both, forwarding weights and
+    # multioutput.
     """Mean squared logarithmic error regression loss.
 
     Read more in the :ref:`User Guide <mean_squared_log_error>`.
@@ -790,6 +841,9 @@ def mean_squared_log_error(
 def root_mean_squared_log_error(
     y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Same validation and -1 check as mean_squared_log_error, then returns
+    # root_mean_squared_error on log1p-transformed targets.
     """Root mean squared logarithmic error regression loss.
 
     Read more in the :ref:`User Guide <mean_squared_log_error>`.
@@ -869,6 +923,11 @@ def root_mean_squared_log_error(
 def median_absolute_error(
     y_true, y_pred, *, multioutput="uniform_average", sample_weight=None
 ):
+    # [FUNCTION DOC]
+    # Validates inputs (no float conversion). Without weights, takes the median of
+    # absolute residuals per output; with weights, the weighted 50th percentile
+    # (averaged variant).
+    # Returns raw values or the (weighted) average over outputs as a float.
     """Median absolute error regression loss.
 
     Median absolute error output is non-negative floating point. The best value
@@ -946,6 +1005,18 @@ def median_absolute_error(
 def _assemble_fraction_of_explained_deviance(
     numerator, denominator, n_outputs, multioutput, force_finite, xp, device
 ):
+    # [FUNCTION DOC]
+    # HELPER: Turns per-output numerator/denominator deviances into 1 - numerator /
+    # denominator scores and aggregates them. With force_finite False, plain division
+    # (may give nan or -inf). With force_finite True, scores default to 1, are computed
+    # only where both parts are non-zero, and are 0 where the numerator is non-zero but
+    # the denominator is zero. Aggregation: raw_values returns the array;
+    # uniform_average averages; variance_weighted weights by the denominator (falls back
+    # to uniform when all denominators are zero); an array uses those weights.
+    # Inputs: numerator, denominator - 1d arrays of length n_outputs; n_outputs - int;
+    # multioutput - str or array; force_finite - bool; xp, device - namespace and
+    # device.
+    # Outputs: float when the result has one element, otherwise an array.
     """Common part used by explained variance score and :math:`R^2` score."""
     dtype = numerator.dtype
 
@@ -1014,6 +1085,11 @@ def explained_variance_score(
     multioutput="uniform_average",
     force_finite=True,
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; per output, numerator is the weighted variance of the residuals
+    # (squared deviation of residuals from their weighted mean), denominator is the
+    # weighted variance of y_true. Combines them via
+    # _assemble_fraction_of_explained_deviance.
     """Explained variance regression score function.
 
     Best possible score is 1.0, lower values are worse.
@@ -1162,6 +1238,11 @@ def r2_score(
     multioutput="uniform_average",
     force_finite=True,
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; with fewer than two samples warns UndefinedMetricWarning and
+    # returns nan. Numerator is the weighted sum of squared residuals per output;
+    # denominator the weighted sum of squared deviations of y_true from its weighted
+    # mean. Combines them via _assemble_fraction_of_explained_deviance.
     """:math:`R^2` (coefficient of determination) regression score function.
 
     Best possible score is 1.0 and it can be negative (because the
@@ -1326,6 +1407,9 @@ def r2_score(
     prefer_skip_nested_validation=True,
 )
 def max_error(y_true, y_pred):
+    # [FUNCTION DOC]
+    # Validates inputs; returns the maximum absolute residual as a float.
+    # Exceptions: ValueError for multi-output targets.
     """
     The max_error metric calculates the maximum residual error.
 
@@ -1363,6 +1447,14 @@ def max_error(y_true, y_pred):
 
 
 def _mean_tweedie_deviance(y_true, y_pred, sample_weight, power):
+    # [FUNCTION DOC]
+    # HELPER: Computes the weighted mean unit Tweedie deviance for a given power, with
+    # no domain checks. Formulas: power 0 is squared error; 1 is Poisson (2 (y log(y/mu)
+    # - y + mu), with y log y taken as 0 at y = 0); 2 is Gamma (2 (log(mu/y) + y/mu -
+    # 1)); other powers use the general closed form, where for negative powers y_true is
+    # clipped at 0 in the first term.
+    # Inputs: y_true, y_pred - arrays; sample_weight - array or None; power - float.
+    # Outputs: Python float.
     """Mean Tweedie deviance regression loss."""
     xp, _ = get_namespace(y_true, y_pred)
     p = power
@@ -1408,6 +1500,11 @@ def _mean_tweedie_deviance(y_true, y_pred, sample_weight, power):
     prefer_skip_nested_validation=True,
 )
 def mean_tweedie_deviance(y_true, y_pred, *, sample_weight=None, power=0):
+    # [FUNCTION DOC]
+    # Validates inputs (single output only), reshapes sample_weight into a column,
+    # checks the power-specific domain (power < 0: y_pred > 0; 1 <= power < 2: y_true >=
+    # 0 and y_pred > 0; power >= 2: both > 0) and returns _mean_tweedie_deviance.
+    # Exceptions: ValueError for multi-output input or values outside the domain.
     """Mean Tweedie deviance regression loss.
 
     Read more in the :ref:`User Guide <mean_tweedie_deviance>`.
@@ -1501,6 +1598,8 @@ def mean_tweedie_deviance(y_true, y_pred, *, sample_weight=None, power=0):
     prefer_skip_nested_validation=True,
 )
 def mean_poisson_deviance(y_true, y_pred, *, sample_weight=None):
+    # [FUNCTION DOC]
+    # Poisson deviance: mean_tweedie_deviance with power 1.
     """Mean Poisson deviance regression loss.
 
     Poisson deviance is equivalent to the Tweedie deviance with
@@ -1544,6 +1643,8 @@ def mean_poisson_deviance(y_true, y_pred, *, sample_weight=None):
     prefer_skip_nested_validation=True,
 )
 def mean_gamma_deviance(y_true, y_pred, *, sample_weight=None):
+    # [FUNCTION DOC]
+    # Gamma deviance: mean_tweedie_deviance with power 2.
     """Mean Gamma deviance regression loss.
 
     Gamma deviance is equivalent to the Tweedie deviance with
@@ -1592,6 +1693,15 @@ def mean_gamma_deviance(y_true, y_pred, *, sample_weight=None):
     prefer_skip_nested_validation=True,
 )
 def d2_tweedie_score(y_true, y_pred, *, sample_weight=None, power=0):
+    # [FUNCTION DOC]
+    # Validates inputs (single output only); with fewer than two samples warns
+    # UndefinedMetricWarning and returns nan. Squeezes targets to 1d, computes the
+    # model's mean deviance and the deviance of the weighted mean of y_true used as
+    # constant prediction, and returns 1 - numerator / denominator.
+    # Exceptions: ValueError for multi-output or domain violations.
+    # KNOWN ISSUE: both deviances are Python floats, so a zero null deviance (e.g.
+    # constant y_true) raises ZeroDivisionError instead of returning a finite or nan
+    # score; there is no force_finite handling unlike the other D2/R2 scores.
     """
     :math:`D^2` regression score function, fraction of Tweedie deviance explained.
 
@@ -1711,6 +1821,11 @@ def d2_tweedie_score(y_true, y_pred, *, sample_weight=None, power=0):
 def d2_pinball_score(
     y_true, y_pred, *, sample_weight=None, alpha=0.5, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # Validates inputs; with fewer than two samples warns and returns nan. Numerator is
+    # the per-output pinball loss of the model; denominator is the per-output pinball
+    # loss of a constant prediction equal to the weighted alpha-quantile of y_true (unit
+    # weights if none given). Combines them with force_finite enabled.
     """
     :math:`D^2` regression score function, fraction of pinball loss explained.
 
@@ -1882,6 +1997,8 @@ def d2_pinball_score(
 def d2_absolute_error_score(
     y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
 ):
+    # [FUNCTION DOC]
+    # D2 with absolute error: d2_pinball_score with alpha 0.5 (median baseline).
     """
     :math:`D^2` regression score function, fraction of absolute error explained.
 

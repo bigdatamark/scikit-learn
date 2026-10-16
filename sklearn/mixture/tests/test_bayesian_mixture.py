@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for BayesianGaussianMixture and its private normalization helpers: prior
+#   resolution, weight computation, monotonic lower bound, consistency across covariance
+#   types, covariance/precision inversion, translation invariance, fit_predict
+#   consistency and prediction quality. Uses the RandomData fixture class from
+#   test_gaussian_mixture.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -22,6 +28,9 @@ PRIOR_TYPE = ["dirichlet_process", "dirichlet_distribution"]
 
 
 def test_log_dirichlet_norm():
+    # [FUNCTION DOC]
+    # Verifies _log_dirichlet_norm against a direct log-gamma formula on two random
+    #   concentrations.
     rng = np.random.RandomState(0)
 
     weight_concentration = rng.rand(2)
@@ -34,6 +43,9 @@ def test_log_dirichlet_norm():
 
 
 def test_log_wishart_norm():
+    # [FUNCTION DOC]
+    # Verifies _log_wishart_norm against a per-component loop re-implementing the
+    #   formula for 5 components and 2 features.
     rng = np.random.RandomState(0)
 
     n_components, n_features = 5, 2
@@ -62,6 +74,9 @@ def test_log_wishart_norm():
 
 
 def test_bayesian_mixture_weights_prior_initialisation():
+    # [FUNCTION DOC]
+    # Verifies weight_concentration_prior_ equals the user value when given and 1 /
+    #   n_components by default.
     rng = np.random.RandomState(0)
     n_samples, n_components, n_features = 10, 5, 2
     X = rng.rand(n_samples, n_features)
@@ -79,6 +94,10 @@ def test_bayesian_mixture_weights_prior_initialisation():
 
 
 def test_bayesian_mixture_mean_prior_initialisation():
+    # [FUNCTION DOC]
+    # Verifies mean_precision_prior_ (user value or default 1.0) and mean_prior_ (user
+    #   value or column means of X) after fit.
+    # KNOWN ISSUE: comment "bemean_priorta" is a typo for mean_prior.
     rng = np.random.RandomState(0)
     n_samples, n_components, n_features = 10, 3, 2
     X = rng.rand(n_samples, n_features)
@@ -107,6 +126,13 @@ def test_bayesian_mixture_mean_prior_initialisation():
 
 
 def test_bayesian_mixture_precisions_prior_initialisation():
+    # [FUNCTION DOC]
+    # Verifies degrees_of_freedom_prior validation (ValueError with exact message for
+    #   n_features - 1), that user degrees_of_freedom_prior and covariance_prior values
+    #   are stored, and that default covariance_prior_ matches the empirical
+    #   covariance/variance per covariance type.
+    # KNOWN ISSUE: the "default value of degrees_of_freedom_prior" check passes
+    #   n_features explicitly, so the None default branch is not exercised.
     rng = np.random.RandomState(0)
     n_samples, n_features = 10, 2
     X = rng.rand(n_samples, n_features)
@@ -170,6 +196,9 @@ def test_bayesian_mixture_precisions_prior_initialisation():
 
 
 def test_bayesian_mixture_check_is_fitted():
+    # [FUNCTION DOC]
+    # Verifies score on an unfitted estimator raises (NotFittedError, a ValueError
+    #   subclass) with the "not fitted yet" message.
     rng = np.random.RandomState(0)
     n_samples, n_features = 10, 2
 
@@ -183,6 +212,10 @@ def test_bayesian_mixture_check_is_fitted():
 
 
 def test_bayesian_mixture_weights():
+    # [FUNCTION DOC]
+    # Verifies weights_ equal the normalized concentrations for the Dirichlet
+    #   distribution prior and the normalized expected stick-breaking weights for the
+    #   Dirichlet process, both summing to 1.
     rng = np.random.RandomState(0)
     n_samples, n_features = 10, 2
 
@@ -221,6 +254,10 @@ def test_bayesian_mixture_weights():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_monotonic_likelihood():
+    # [FUNCTION DOC]
+    # Verifies, with warm_start and max_iter=1 repeated up to 600 times, that
+    #   lower_bound_ never decreases for every prior and covariance type, and that the
+    #   model eventually converges.
     # We check that each step of the each step of variational inference without
     # regularization improve monotonically the training set of the bound
     rng = np.random.RandomState(0)
@@ -253,6 +290,10 @@ def test_monotonic_likelihood():
 
 
 def test_compare_covar_type():
+    # [FUNCTION DOC]
+    # After one initialization M step (same seed), verifies unnormalized covariances are
+    #   consistent across types: tied equals the mean of full, diag equals the diagonals
+    #   of full, spherical equals the mean of diag, for both prior types.
     # We can compare the 'full' precision with the other cov_type if we apply
     # 1 iter of the M-step (done during _initialize_parameters).
     rng = np.random.RandomState(0)
@@ -326,6 +367,9 @@ def test_compare_covar_type():
 
 @pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 def test_check_covariance_precision():
+    # [FUNCTION DOC]
+    # Verifies covariances_ times precisions_ is the identity (matrix product for
+    #   full/tied, elementwise ones for diag/spherical) after fitting with reg_covar=0.
     # We check that the dot product of the covariance and the precision
     # matrices is identity.
     rng = np.random.RandomState(0)
@@ -361,6 +405,9 @@ def test_check_covariance_precision():
 
 
 def test_invariant_translation():
+    # [FUNCTION DOC]
+    # Verifies that shifting X by 100 shifts means_ by 100 while weights_ and
+    #   covariances_ remain unchanged, for all prior and covariance types.
     # We check here that adding a constant in the data change correctly the
     # parameters of the mixture
     rng = np.random.RandomState(0)
@@ -403,6 +450,10 @@ def test_invariant_translation():
     ],
 )
 def test_bayesian_mixture_fit_predict(seed, max_iter, tol):
+    # [FUNCTION DOC]
+    # Verifies fit(X).predict(X) equals fit_predict(X) on a deep copy, under converged
+    #   and non-converged settings (parametrized seed, max_iter, tol) for every
+    #   covariance type.
     rng = np.random.RandomState(seed)
     rand_data = RandomData(rng, n_samples=50, scale=7)
     n_components = 2 * rand_data.n_components
@@ -425,6 +476,9 @@ def test_bayesian_mixture_fit_predict(seed, max_iter, tol):
 
 
 def test_bayesian_mixture_fit_predict_n_init():
+    # [FUNCTION DOC]
+    # Verifies fit_predict and a subsequent predict agree when n_init=10 (the best
+    #   initialization is kept consistently).
     # Check that fit_predict is equivalent to fit.predict, when n_init > 1
     X = np.random.RandomState(0).randn(50, 5)
     gm = BayesianGaussianMixture(n_components=5, n_init=10, random_state=0)
@@ -434,6 +488,10 @@ def test_bayesian_mixture_fit_predict_n_init():
 
 
 def test_bayesian_mixture_predict_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies predict raises NotFittedError before fit, then that predict matches
+    #   argmax of predict_proba and the adjusted Rand score against true labels is >=
+    #   0.95.
     # this is the same test as test_gaussian_mixture_predict_predict_proba()
     rng = np.random.RandomState(0)
     rand_data = RandomData(rng)

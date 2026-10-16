@@ -1,3 +1,12 @@
+# [MODULE DOC]
+# Implements GaussianMixture (maximum-likelihood EM for a finite Gaussian mixture) plus
+#   the module-level Gaussian helpers shared with BayesianGaussianMixture: validators
+#   for user-provided weights/means/precisions, M-step estimators of weights, means and
+#   covariances for the four covariance types, conversion of covariances or precisions
+#   to precision Cholesky factors, log-determinants and per-component log Gaussian
+#   densities.
+# Most helpers accept an optional array-API namespace (xp) and work with numpy or other
+#   array-API libraries.
 """Gaussian Mixture Model."""
 
 # Authors: The scikit-learn developers
@@ -25,6 +34,16 @@ from sklearn.utils.extmath import row_norms
 
 
 def _check_weights(weights, n_components, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Validates user-provided initial mixture weights: converts to a float array
+    #   (1-D allowed), checks shape (n_components,), that all values lie in [0, 1], and
+    #   that they sum to 1 within atol 1e-6 (float32) or 1e-8 (float64).
+    # Inputs: weights - array-like; n_components - int; xp - optional namespace.
+    # Outputs: the validated float array.
+    # Exceptions: ValueError on wrong shape, out-of-range values, or non-normalized sum.
+    # Side effects: none.
+    # KNOWN ISSUE: the range error message labels are swapped: it says "max value" but
+    #   formats the minimum, and "min value" with the maximum.
     """Check the user provided 'weights'.
 
     Parameters
@@ -61,6 +80,10 @@ def _check_weights(weights, n_components, xp=None):
 
 
 def _check_means(means, n_components, n_features, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Converts user-provided initial means to a float array and checks shape
+    #   (n_components, n_features).
+    # Outputs: the validated array. Exceptions: ValueError on wrong shape.
     """Validate the provided 'means'.
 
     Parameters
@@ -85,6 +108,12 @@ def _check_means(means, n_components, n_features, xp=None):
 
 
 def _check_precision_positivity(precision, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Raises ValueError ("'<type> precision' should be positive") if any entry
+    #   of the precision vector is <= 0.
+    # Inputs: precision - array; covariance_type - str used in the message; xp -
+    #   optional namespace.
+    # Outputs: None.
     """Check a precision vector is positive-definite."""
     xp, _ = get_namespace(precision, xp=xp)
     if xp.any(xp.less_equal(precision, 0.0)):
@@ -92,6 +121,12 @@ def _check_precision_positivity(precision, covariance_type, xp=None):
 
 
 def _check_precision_matrix(precision, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Raises ValueError unless the matrix is symmetric (elementwise isclose to
+    #   its transpose) and all eigenvalues (eigvalsh) are strictly positive.
+    # Inputs: precision - square 2-D array; covariance_type - str for the message; xp -
+    #   optional namespace.
+    # Outputs: None.
     """Check a precision matrix is symmetric and positive-definite."""
     xp, _ = get_namespace(precision, xp=xp)
     if not (
@@ -104,6 +139,10 @@ def _check_precision_matrix(precision, covariance_type, xp=None):
 
 
 def _check_precisions_full(precisions, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Applies _check_precision_matrix to each matrix along the first axis of a
+    #   (n_components, n_features, n_features) array.
+    # Exceptions: ValueError from the first failing matrix.
     """Check the precision matrices are symmetric and positive-definite."""
     xp, _ = get_namespace(precisions, xp=xp)
     for i in range(precisions.shape[0]):
@@ -111,6 +150,14 @@ def _check_precisions_full(precisions, covariance_type, xp=None):
 
 
 def _check_precisions(precisions, covariance_type, n_components, n_features, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Validates user-provided initial precisions: converts to a float array
+    #   (allowing 3-D only for 'full'), checks the shape expected for covariance_type
+    #   ('full' (k, d, d), 'tied' (d, d), 'diag' (k, d), 'spherical' (k,)), then checks
+    #   symmetric positive definiteness ('full', 'tied') or strict positivity ('diag',
+    #   'spherical').
+    # Outputs: the validated array.
+    # Exceptions: ValueError on wrong shape or invalid values.
     """Validate user provided precisions.
 
     Parameters
@@ -166,6 +213,12 @@ def _check_precisions(precisions, covariance_type, n_components, n_features, xp=
 
 
 def _estimate_gaussian_covariances_full(resp, X, nk, means, reg_covar, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: For each component k, computes the responsibility-weighted scatter matrix
+    #   of (X - means[k]) divided by nk[k] and adds reg_covar to its diagonal.
+    # Inputs: resp (n_samples, n_components); X (n_samples, n_features); nk
+    #   (n_components,); means (n_components, n_features); reg_covar float.
+    # Outputs: array (n_components, n_features, n_features) with X's dtype.
     """Estimate the full covariance matrices.
 
     Parameters
@@ -198,6 +251,12 @@ def _estimate_gaussian_covariances_full(resp, X, nk, means, reg_covar, xp=None):
 
 
 def _estimate_gaussian_covariances_tied(resp, X, nk, means, reg_covar, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Shared covariance computed as (X^T X - sum over k of nk[k] *
+    #   outer(means[k], means[k])) divided by the total count, plus reg_covar on the
+    #   diagonal. Relies on each sample's responsibilities summing to 1, so resp itself
+    #   is not used.
+    # Outputs: array (n_features, n_features).
     """Estimate the tied covariance matrix.
 
     Parameters
@@ -227,6 +286,10 @@ def _estimate_gaussian_covariances_tied(resp, X, nk, means, reg_covar, xp=None):
 
 
 def _estimate_gaussian_covariances_diag(resp, X, nk, means, reg_covar, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Per-component per-feature variance: responsibility-weighted average of
+    #   squared X divided by nk, minus squared means, plus reg_covar.
+    # Outputs: array (n_components, n_features).
     """Estimate the diagonal covariance vectors.
 
     Parameters
@@ -253,6 +316,12 @@ def _estimate_gaussian_covariances_diag(resp, X, nk, means, reg_covar, xp=None):
 
 
 def _estimate_gaussian_covariances_spherical(resp, X, nk, means, reg_covar, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Single variance per component: the mean over features of the diagonal
+    #   covariance estimate (reg_covar already included).
+    # Outputs: array (n_components,).
+    # KNOWN ISSUE: the namespace is re-derived from X alone, ignoring the xp argument
+    #   (harmless since it is then passed through).
     """Estimate the spherical variance values.
 
     Parameters
@@ -280,6 +349,15 @@ def _estimate_gaussian_covariances_spherical(resp, X, nk, means, reg_covar, xp=N
 
 
 def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: M-step sufficient statistics: nk is the column sum of resp plus 10 *
+    #   machine epsilon (avoids division by zero), means are the resp-weighted averages
+    #   of X, and covariances come from the estimator matching covariance_type.
+    # Inputs: X (n_samples, n_features); resp (n_samples, n_components); reg_covar
+    #   float; covariance_type str.
+    # Outputs: tuple (nk (n_components,), means (n_components, n_features), covariances
+    #   shaped per type).
+    # Exceptions: KeyError for an unknown covariance_type.
     """Estimate the Gaussian distribution parameters.
 
     Parameters
@@ -321,6 +399,16 @@ def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type, xp=None):
 
 
 def _compute_precision_cholesky(covariances, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Converts covariances into Cholesky factors of the precisions. For 'full'
+    #   and 'tied', computes the lower Cholesky factor L of each covariance and returns
+    #   the transpose of L^-1 (solved against the identity), so that precision = P P^T.
+    #   For 'diag'/'spherical' returns 1 / sqrt(covariance).
+    # Inputs: covariances shaped per covariance_type; covariance_type str; xp optional.
+    # Outputs: array with the same shape as covariances.
+    # Exceptions: ValueError with an explanatory message (plus a float64 hint for
+    #   float32 input) when a Cholesky fails (numpy LinAlgError only) or a
+    #   diag/spherical variance is <= 0.
     """Compute the Cholesky decomposition of the precisions.
 
     Parameters
@@ -386,12 +474,22 @@ def _compute_precision_cholesky(covariances, covariance_type, xp=None):
 
 
 def _flipudlr(array, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Returns the array with both its row order and column order reversed.
     """Reverse the rows and columns of an array."""
     xp, _ = get_namespace(array, xp=xp)
     return xp.flip(xp.flip(array, axis=1), axis=0)
 
 
 def _compute_precision_cholesky_from_precisions(precisions, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Computes precision Cholesky factors directly from precisions, consistent
+    #   with _compute_precision_cholesky. For 'full'/'tied' it reverses rows and
+    #   columns, takes the lower Cholesky factor, and reverses again, yielding an upper-
+    #   triangular U with precision = U U^T. For 'diag'/'spherical' returns
+    #   sqrt(precisions).
+    # Outputs: array with the same shape as precisions.
+    # Exceptions: numpy LinAlgError if a precision matrix is not positive definite.
     r"""Compute the Cholesky decomposition of precisions using precisions themselves.
 
     As implemented in :func:`_compute_precision_cholesky`, the `precisions_cholesky_` is
@@ -446,6 +544,13 @@ def _compute_precision_cholesky_from_precisions(precisions, covariance_type, xp=
 ###############################################################################
 # Gaussian mixture probability estimators
 def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Log-determinant of the Cholesky factors: sum of logs of the diagonal per
+    #   component ('full', taken via a strided view of the flattened matrices), sum of
+    #   logs of the diagonal ('tied', scalar), sum of logs per row ('diag'), or
+    #   n_features * log(value) ('spherical').
+    # Inputs: matrix_chol shaped per type; covariance_type; n_features int.
+    # Outputs: array (n_components,) or scalar for 'tied'.
     """Compute the log-det of the Cholesky decomposition of matrices.
 
     Parameters
@@ -488,6 +593,19 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features, xp=None)
 
 
 def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type, xp=None):
+    # [FUNCTION DOC]
+    # HELPER: Log density of each sample under each Gaussian component. Computes the
+    #   squared Mahalanobis distance per type ('full'/'tied': squared norm of (X - mu)
+    #   projected by the precision Cholesky; 'diag'/'spherical': expanded quadratic form
+    #   with precisions = squared Cholesky), then returns -0.5 * (n_features * log(2 pi)
+    #   + distance) + log-det of the precision Cholesky.
+    # Inputs: X (n_samples, n_features); means (n_components, n_features);
+    #   precisions_chol shaped per type; covariance_type.
+    # Outputs: array (n_samples, n_components).
+    # KNOWN ISSUE: xp is not forwarded to _compute_log_det_cholesky (it re-derives the
+    #   namespace). The comment "det(precision_chol) = - det(precision) / 2" is
+    #   imprecise; the relation is between log-determinants (log det chol = 0.5 * log
+    #   det precision).
     """Estimate the log Gaussian probability.
 
     Parameters
@@ -554,6 +672,12 @@ def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type, xp=N
 
 
 class GaussianMixture(BaseMixture):
+    # [CLASS DOC]
+    # Finite Gaussian mixture fitted by EM. Supplies to BaseMixture the covariance-type
+    #   specific M step, log-probabilities, plain log weights and lower bound (which is
+    #   just the mean log-likelihood). Supports optional user initial
+    #   weights/means/precisions, array-API inputs when init_params is 'random' or
+    #   'random_from_data', and BIC/AIC model selection.
     """Gaussian Mixture.
 
     Representation of a Gaussian mixture model probability distribution.
@@ -779,6 +903,10 @@ class GaussianMixture(BaseMixture):
         verbose=0,
         verbose_interval=10,
     ):
+        # [FUNCTION DOC]
+        # Stores constructor parameters (shared ones forwarded to BaseMixture.__init__);
+        #   no validation.
+        # Side effects: sets the corresponding public attributes.
         super().__init__(
             n_components=n_components,
             tol=tol,
@@ -798,6 +926,17 @@ class GaussianMixture(BaseMixture):
         self.precisions_init = precisions_init
 
     def _check_parameters(self, X, xp=None):
+        # [FUNCTION DOC]
+        # Validates and replaces weights_init, means_init and precisions_init when
+        #   provided, then rejects init_params other than 'random'/'random_from_data'
+        #   when array_api_dispatch is enabled.
+        # Inputs: X (n_samples, n_features); xp optional namespace.
+        # Exceptions: ValueError from the validators; NotImplementedError for
+        #   unsupported init_params under array API dispatch.
+        # Side effects: overwrites the user-set attributes weights_init, means_init,
+        #   precisions_init with validated arrays.
+        # KNOWN ISSUE: mutating constructor parameters in fit departs from the scikit-
+        #   learn convention of not modifying init params.
         """Check the Gaussian mixture parameters are well defined."""
         _, n_features = X.shape
 
@@ -834,6 +973,12 @@ class GaussianMixture(BaseMixture):
             )
 
     def _initialize_parameters(self, X, random_state, xp=None):
+        # [FUNCTION DOC]
+        # Skips responsibility-based initialization when all three of weights_init,
+        #   means_init and precisions_init are given (calls _initialize with resp None);
+        #   otherwise delegates to BaseMixture._initialize_parameters.
+        # Inputs: X; random_state - RandomState; xp optional.
+        # Side effects: sets fitted parameter attributes; may consume random_state.
         # If all the initial parameters are all provided, then there is no need to run
         # the initialization.
         compute_resp = (
@@ -847,6 +992,18 @@ class GaussianMixture(BaseMixture):
             self._initialize(X, None, xp=xp)
 
     def _initialize(self, X, resp, xp=None):
+        # [FUNCTION DOC]
+        # Sets initial parameters: if resp is given, estimates weights (counts divided
+        #   by n_samples unless weights_init is provided), means and covariances from
+        #   it. User-provided init values take precedence. Precision Cholesky factors
+        #   come from the covariances, or from precisions_init when provided.
+        # Inputs: X (n_samples, n_features); resp (n_samples, n_components) or None; xp
+        #   optional.
+        # Side effects: sets weights_ (moved to X's device), means_,
+        #   precisions_cholesky_ and, only when precisions_init is None, covariances_.
+        # KNOWN ISSUE: when precisions_init is provided, covariances_ is never set here;
+        #   if resp is None and an init value is missing, None values would propagate,
+        #   but _initialize_parameters prevents that combination.
         """Initialization of the Gaussian mixture parameters.
 
         Parameters
@@ -881,6 +1038,14 @@ class GaussianMixture(BaseMixture):
             )
 
     def _m_step(self, X, log_resp, xp=None):
+        # [FUNCTION DOC]
+        # EM M step: from exp(log_resp), recomputes counts, means and covariances,
+        #   normalizes counts to weights_ summing to 1 and recomputes
+        #   precisions_cholesky_.
+        # Inputs: X; log_resp (n_samples, n_components); xp optional.
+        # Exceptions: ValueError from _compute_precision_cholesky for degenerate
+        #   covariances.
+        # Side effects: sets weights_, means_, covariances_, precisions_cholesky_.
         """M step.
 
         Parameters
@@ -901,18 +1066,29 @@ class GaussianMixture(BaseMixture):
         )
 
     def _estimate_log_prob(self, X, xp=None):
+        # [FUNCTION DOC]
+        # Returns per-sample per-component log Gaussian densities (n_samples,
+        #   n_components) using the current means_ and precisions_cholesky_.
         return _estimate_log_gaussian_prob(
             X, self.means_, self.precisions_cholesky_, self.covariance_type, xp=xp
         )
 
     def _estimate_log_weights(self, xp=None):
+        # [FUNCTION DOC]
+        # Returns the elementwise log of weights_ (n_components,).
         xp, _ = get_namespace(self.weights_, xp=xp)
         return xp.log(self.weights_)
 
     def _compute_lower_bound(self, _, log_prob_norm):
+        # [FUNCTION DOC]
+        # Returns log_prob_norm unchanged (the mean log-likelihood); the first argument
+        #   (log_resp) is ignored.
         return log_prob_norm
 
     def _get_parameters(self):
+        # [FUNCTION DOC]
+        # Returns (weights_, means_, covariances_, precisions_cholesky_) for best-init
+        #   bookkeeping.
         return (
             self.weights_,
             self.means_,
@@ -921,6 +1097,12 @@ class GaussianMixture(BaseMixture):
         )
 
     def _set_parameters(self, params, xp=None):
+        # [FUNCTION DOC]
+        # Restores the four parameters from a tuple and derives precisions_: P P^T per
+        #   component ('full'), P P^T ('tied'), or squared Cholesky values otherwise.
+        # Inputs: params - 4-tuple; xp optional.
+        # Side effects: sets weights_, means_, covariances_, precisions_cholesky_,
+        #   precisions_.
         xp, _, device_ = get_namespace_and_device(params, xp=xp)
         (
             self.weights_,
@@ -943,6 +1125,12 @@ class GaussianMixture(BaseMixture):
             self.precisions_ = self.precisions_cholesky_**2
 
     def _n_parameters(self):
+        # [FUNCTION DOC]
+        # Counts free parameters: covariance parameters (k d(d+1)/2 'full', k d 'diag',
+        #   d(d+1)/2 'tied', k 'spherical') plus k d means plus k - 1 weights.
+        # Outputs: int.
+        # KNOWN ISSUE: an unknown covariance_type would leave cov_params unbound
+        #   (prevented by parameter validation).
         """Return the number of free parameters in the model."""
         _, n_features = self.means_.shape
         if self.covariance_type == "full":
@@ -957,6 +1145,11 @@ class GaussianMixture(BaseMixture):
         return int(cov_params + mean_params + self.n_components - 1)
 
     def bic(self, X):
+        # [FUNCTION DOC]
+        # Returns BIC: -2 * total log-likelihood (score times n_samples) + n_parameters
+        #   * log(n_samples). Lower is better.
+        # Inputs: X (n_samples, n_features). Outputs: float.
+        # Exceptions: NotFittedError via score if unfitted.
         """Bayesian information criterion for the current model on the input X.
 
         You can refer to this :ref:`mathematical section <aic_bic>` for more
@@ -980,6 +1173,9 @@ class GaussianMixture(BaseMixture):
         )
 
     def aic(self, X):
+        # [FUNCTION DOC]
+        # Returns AIC: -2 * total log-likelihood + 2 * n_parameters. Lower is better.
+        # Inputs: X (n_samples, n_features). Outputs: float.
         """Akaike information criterion for the current model on the input X.
 
         You can refer to this :ref:`mathematical section <aic_bic>` for more
@@ -998,6 +1194,10 @@ class GaussianMixture(BaseMixture):
         return -2 * self.score(X) * X.shape[0] + 2 * self._n_parameters()
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # Extends the parent tags, declaring array API support only when init_params is
+        #   'random' or 'random_from_data' and warm_start is False.
+        # Outputs: Tags object.
         tags = super().__sklearn_tags__()
         tags.array_api_support = (
             self.init_params in ["random", "random_from_data"] and not self.warm_start
