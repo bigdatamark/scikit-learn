@@ -35,8 +35,7 @@ class AvailableParameterEstimator:
 def test_available_if_docstring():
     # [FUNCTION DOC]
     # Verifies the wrapped method's docstring is preserved when accessed through the
-    # class
-    # __dict__ (descriptor object), through the class, and through an instance.
+    # class __dict__ (descriptor object), through the class, and through an instance.
     assert "This is a mock available_if function" in str(
         AvailableParameterEstimator.__dict__["available_func"].__doc__
     )
@@ -59,10 +58,8 @@ def test_available_if():
 def test_available_if_unbound_method():
     # [FUNCTION DOC]
     # Non-regression for issue 20614: calling the descriptor as an unbound method with
-    # an
-    # explicit instance works when available, and raises AttributeError with the
-    # expected
-    # message when the instance has available=False.
+    # an explicit instance works when available, and raises AttributeError with the
+    # expected message when the instance has available=False.
     # This is a non regression test for:
     # https://github.com/scikit-learn/scikit-learn/issues/20614
     # to make sure that decorated functions can be used as an unbound method,
@@ -81,8 +78,7 @@ def test_available_if_unbound_method():
 def test_available_if_methods_can_be_pickled():
     # [FUNCTION DOC]
     # Non-regression for issue 21344: pickles and unpickles the bound available_func of
-    # an
-    # instance and checks the unpickled callable returns the configured return_value
+    # an instance and checks the unpickled callable returns the configured return_value
     # (10).
     """Check that available_if methods can be pickled.
 

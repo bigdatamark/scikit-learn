@@ -1,3 +1,6 @@
+# [MODULE DOC]
+# Tests for the mocking helpers in sklearn.utils._mocking: CheckingClassifier (input
+# checks, fit params, methods_to_check, outputs) and _MockEstimatorOnOffPrediction.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -15,14 +18,21 @@ from sklearn.utils.fixes import CSR_CONTAINERS
 
 @pytest.fixture
 def iris():
+    # [FUNCTION DOC]
+    # HELPER: Fixture returning the iris dataset as an (X, y) tuple (150x4 floats, 3
+    # classes).
     return load_iris(return_X_y=True)
 
 
 def _success(x):
+    # [FUNCTION DOC]
+    # HELPER: Check callback that accepts any input; always returns True.
     return True
 
 
 def _fail(x):
+    # [FUNCTION DOC]
+    # HELPER: Check callback that rejects any input; always returns False.
     return False
 
 
@@ -36,6 +46,9 @@ def _fail(x):
     ],
 )
 def test_check_on_fit_success(iris, kwargs):
+    # [FUNCTION DOC]
+    # Verifies fit succeeds on iris when no checks or only passing check_X / check_y
+    # callbacks are given.
     X, y = iris
     CheckingClassifier(**kwargs).fit(X, y)
 
@@ -51,6 +64,8 @@ def test_check_on_fit_success(iris, kwargs):
     ],
 )
 def test_check_on_fit_fail(iris, kwargs):
+    # [FUNCTION DOC]
+    # Verifies fit raises AssertionError when check_X and/or check_y returns False.
     X, y = iris
     clf = CheckingClassifier(**kwargs)
     with pytest.raises(AssertionError):
@@ -61,6 +76,9 @@ def test_check_on_fit_fail(iris, kwargs):
     "pred_func", ["predict", "predict_proba", "decision_function", "score"]
 )
 def test_check_X_on_predict_success(iris, pred_func):
+    # [FUNCTION DOC]
+    # Verifies predict, predict_proba, decision_function and score run without error
+    # when check_X passes.
     X, y = iris
     clf = CheckingClassifier(check_X=_success).fit(X, y)
     getattr(clf, pred_func)(X)
@@ -70,6 +88,9 @@ def test_check_X_on_predict_success(iris, pred_func):
     "pred_func", ["predict", "predict_proba", "decision_function", "score"]
 )
 def test_check_X_on_predict_fail(iris, pred_func):
+    # [FUNCTION DOC]
+    # Fits with a passing check_X, then swaps in a failing check_X via set_params and
+    # verifies each prediction method raises AssertionError.
     X, y = iris
     clf = CheckingClassifier(check_X=_success).fit(X, y)
     clf.set_params(check_X=_fail)
@@ -79,6 +100,12 @@ def test_check_X_on_predict_fail(iris, pred_func):
 
 @pytest.mark.parametrize("input_type", ["list", "array", "sparse", "pandas"])
 def test_checking_classifier(iris, input_type):
+    # [FUNCTION DOC]
+    # For list, array, sparse and pandas inputs, checks fitted classes_ and
+    # n_features_in_, that predictions are valid classes, that score is 0 by default and
+    # 1 once foo_param is 10, and predict_proba/decision_function shapes and ranges for
+    # 3 classes; then refits on only classes 0 and 1 and checks proba shape (100, 2) and
+    # a 1D decision function of shape (100,).
     # Check that the CheckingClassifier outputs what we expect
     X, y = iris
     X = _convert_container(X, input_type)
@@ -119,6 +146,10 @@ def test_checking_classifier(iris, input_type):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_checking_classifier_with_params(iris, csr_container):
+    # [FUNCTION DOC]
+    # Verifies check_X=sparse.issparse rejects dense and accepts CSR input, and that
+    # check_X=check_array with check_X_params accept_sparse=False accepts dense but
+    # raises TypeError ("Sparse data was passed") for CSR input.
     X, y = iris
     X_sparse = csr_container(X)
 
@@ -136,6 +167,10 @@ def test_checking_classifier_with_params(iris, csr_container):
 
 
 def test_checking_classifier_fit_params(iris):
+    # [FUNCTION DOC]
+    # With expected_sample_weight=True, passing a sample_weight of half the sample
+    # length must raise ValueError whose message exactly states actual and expected
+    # shapes.
     # check the error raised when the number of samples is not the one expected
     X, y = iris
     clf = CheckingClassifier(expected_sample_weight=True)
@@ -148,6 +183,9 @@ def test_checking_classifier_fit_params(iris):
 
 
 def test_checking_classifier_missing_fit_params(iris):
+    # [FUNCTION DOC]
+    # With expected_sample_weight=True, fitting without sample_weight must raise
+    # AssertionError mentioning that sample_weight was expected.
     X, y = iris
     clf = CheckingClassifier(expected_sample_weight=True)
     err_msg = "Expected sample_weight to be passed"
@@ -163,6 +201,10 @@ def test_checking_classifier_missing_fit_params(iris):
     "predict_method", ["predict", "predict_proba", "decision_function", "score"]
 )
 def test_checking_classifier_methods_to_check(iris, methods_to_check, predict_method):
+    # [FUNCTION DOC]
+    # With a check_X that fails on dense input, verifies the check is applied only to
+    # the prediction methods listed in methods_to_check (raising AssertionError) and
+    # bypassed for the others; fit is never in the list so it succeeds.
     # check that methods_to_check allows to bypass checks
     X, y = iris
 
@@ -189,6 +231,10 @@ def test_checking_classifier_methods_to_check(iris, methods_to_check, predict_me
     ],
 )
 def test_mock_estimator_on_off_prediction(iris, response_methods):
+    # [FUNCTION DOC]
+    # Verifies _MockEstimatorOnOffPrediction sets classes_ after fit, exposes exactly
+    # the configured response methods (each returning its own name as a string) and does
+    # not expose the others.
     X, y = iris
     estimator = _MockEstimatorOnOffPrediction(response_methods=response_methods)
 

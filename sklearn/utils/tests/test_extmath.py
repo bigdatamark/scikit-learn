@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# Tests for sklearn.utils.extmath: density, weighted_mode, randomized_svd and its
+# range finder, _randomized_eigsh, row_norms, svd_flip and sign-flip helpers,
+# cartesian, incremental (weighted) mean/variance updates, softmax, stable_cumsum
+# deprecation, safe_sparse_dot and _approximate_mode, plus array API compliance checks.
+# Tests compare against exact NumPy/SciPy references with fixed random seeds.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -64,6 +70,9 @@ from sklearn.utils.fixes import (
     COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS + LIL_CONTAINERS,
 )
 def test_density(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies density of a sparse container (COO/CSC/CSR/LIL) built from a random integer
+    # matrix with some zeros equals density of the dense array.
     rng = np.random.RandomState(0)
     X = rng.randint(10, size=(10, 5))
     X[1, 2] = 0
@@ -73,6 +82,9 @@ def test_density(sparse_container):
 
 
 def test_uniform_weights():
+    # [FUNCTION DOC]
+    # Verifies weighted_mode with all-one weights matches fixes._mode (unweighted mode and
+    # count) for axis None, 0 and 1.
     # with uniform weights, results should be identical to stats.mode
     rng = np.random.RandomState(0)
     x = rng.randint(10, size=(10, 5))
@@ -87,6 +99,9 @@ def test_uniform_weights():
 
 
 def test_random_weights():
+    # [FUNCTION DOC]
+    # Verifies weighted_mode along rows: the first 5 columns are set to 6 with weights
+    # boosted by 1, so every row's mode is 6 and its score equals the sum of those weights.
     # set this up so that each row should have a weighted mode of 6,
     # with a score that is easily reproduced
     mode_result = 6
@@ -106,6 +121,13 @@ def test_random_weights():
 
 @pytest.mark.parametrize("dtype", (np.int32, np.int64, np.float32, np.float64))
 def test_randomized_svd_low_rank_all_dtypes(dtype):
+    # [FUNCTION DOC]
+    # Verifies randomized_svd on a noiseless low-rank 100x500 matrix for int and float
+    # dtypes and normalizers auto/LU/QR: output dtype (same float dtype, float64 for
+    # ints), shapes, singular values and the rank-k reconstruction match the exact SVD;
+    # then repeats on CSR containers checking dtype kind and leading singular values.
+    # KNOWN ISSUE: X is overwritten with its CSR version inside the loop, so from the
+    # second normalizer on the "dense" checks actually run on sparse input.
     # Check that extmath.randomized_svd is consistent with linalg.svd
     n_samples = 100
     n_features = 500
@@ -186,6 +208,10 @@ def test_randomized_svd_low_rank_all_dtypes(dtype):
 
 @pytest.mark.parametrize("dtype", (np.int32, np.int64, np.float32, np.float64))
 def test_randomized_eigsh(dtype):
+    # [FUNCTION DOC]
+    # Verifies _randomized_eigsh on a randomly rotated diag(1, -2, 0, 3): selection
+    # "module" returns the two largest-magnitude eigenvalues [3, -2] with 4x2 eigenvectors,
+    # and selection "value" raises NotImplementedError.
     """Test that `_randomized_eigsh` returns the appropriate components"""
 
     rng = np.random.RandomState(42)
@@ -209,6 +235,11 @@ def test_randomized_eigsh(dtype):
 
 @pytest.mark.parametrize("k", (10, 50, 100, 199, 200))
 def test_randomized_eigsh_compared_to_others(k):
+    # [FUNCTION DOC]
+    # Verifies _randomized_eigsh (default normalizer and QR with oversampling) on a
+    # 200x200 sparse SPD matrix matches LAPACK eigh top-k eigenvalues and (sign-normalised
+    # with svd_flip) eigenvectors, and that ARPACK eigsh agrees with LAPACK when k < 200.
+    # Input: k - number of components.
     """Check that `_randomized_eigsh` is similar to other `eigsh`
 
     Tests that for a random PSD matrix, `_randomized_eigsh` provides results
@@ -291,6 +322,10 @@ def test_randomized_eigsh_compared_to_others(k):
     ],
 )
 def test_randomized_eigsh_reconst_low_rank(n, rank):
+    # [FUNCTION DOC]
+    # Verifies _randomized_eigsh with n_components=rank on a rank-deficient PSD matrix
+    # X X^T yields unit-norm orthogonal eigenvectors and reconstructs the matrix.
+    # Inputs: n - matrix size; rank - true rank (< n).
     """Check that randomized_eigsh is able to reconstruct a low rank psd matrix
 
     Tests that the decomposition provided by `_randomized_eigsh` leads to
@@ -319,6 +354,10 @@ def test_randomized_eigsh_reconst_low_rank(n, rank):
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_row_norms(dtype, csr_container):
+    # [FUNCTION DOC]
+    # Verifies row_norms (squared and not) on dense float32/float64 data and on CSR
+    # containers with int32 and forced int64 index arrays against the explicit row sums
+    # of squares.
     X = np.random.RandomState(42).randn(100, 100)
     if dtype is np.float32:
         precision = 4
@@ -345,6 +384,10 @@ def test_row_norms(dtype, csr_container):
 
 
 def test_randomized_svd_low_rank_with_noise():
+    # [FUNCTION DOC]
+    # Verifies randomized_svd on a low-rank matrix with a noisy tail: with n_iter=0 the
+    # leading singular values are off by more than 0.01, while with default power
+    # iterations they match the exact values to 3 decimals, for every normalizer.
     # Check that extmath.randomized_svd can handle noisy matrices
     n_samples = 100
     n_features = 500
@@ -386,6 +429,9 @@ def test_randomized_svd_low_rank_with_noise():
 
 
 def test_randomized_svd_infinite_rank():
+    # [FUNCTION DOC]
+    # Same as the noise test but with tail_strength=1 (slowly decaying spectrum): n_iter=0
+    # errs by more than 0.1, while n_iter=5 recovers the top-k singular values.
     # Check that extmath.randomized_svd can handle noisy matrices
     n_samples = 100
     n_features = 500
@@ -427,6 +473,10 @@ def test_randomized_svd_infinite_rank():
 
 
 def test_randomized_svd_transpose_consistency():
+    # [FUNCTION DOC]
+    # Verifies transpose=False/True/"auto" all give singular values and rank-k
+    # reconstructions close to exact SVD, and that "auto" equals transpose=True here
+    # (more features than samples).
     # Check that transposing the design matrix has limited impact
     n_samples = 100
     n_features = 500
@@ -459,6 +509,11 @@ def test_randomized_svd_transpose_consistency():
 
 
 def test_randomized_svd_power_iteration_normalizer():
+    # [FUNCTION DOC]
+    # Verifies that with power_iteration_normalizer="none" the reconstruction error
+    # changes by more than 100 between 2 and 20 iterations (divergence), whereas with
+    # LU/QR/auto the error at 5, 10 and 50 iterations stays within 15 of the 2-iteration
+    # error.
     # randomized_svd with power_iteration_normalized='none' diverges for
     # large number of power iterations on this dataset
     rng = np.random.RandomState(42)
@@ -505,6 +560,9 @@ def test_randomized_svd_power_iteration_normalizer():
 
 @pytest.mark.parametrize("sparse_container", DOK_CONTAINERS + LIL_CONTAINERS)
 def test_randomized_svd_sparse_warnings(sparse_container):
+    # [FUNCTION DOC]
+    # Verifies randomized_svd emits SparseEfficiencyWarning naming the container when
+    # given DOK or LIL input.
     # randomized_svd throws a warning for lil and dok matrix
     rng = np.random.RandomState(42)
     X = make_low_rank_matrix(50, 20, effective_rank=10, random_state=rng)
@@ -521,6 +579,9 @@ def test_randomized_svd_sparse_warnings(sparse_container):
 
 
 def test_svd_flip():
+    # [FUNCTION DOC]
+    # Verifies svd_flip with u_based_decision False and True preserves the reconstruction
+    # U*S*Vt for a matrix and its transpose.
     # Check that svd_flip works in both situations, and reconstructs input.
     rs = np.random.RandomState(1999)
     n_samples = 20
@@ -547,6 +608,10 @@ def test_svd_flip():
 
 @pytest.mark.parametrize("n_samples, n_features", [(3, 4), (4, 3)])
 def test_svd_flip_max_abs_cols(n_samples, n_features, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies svd_flip makes the largest-magnitude entry of each column of U positive
+    # (u-based) and of each row of Vt positive (v-based), for tall and wide matrices.
+    # Uses the global_random_seed fixture.
     rs = np.random.RandomState(global_random_seed)
     X = rs.randn(n_samples, n_features)
     U, _, Vt = linalg.svd(X, full_matrices=False)
@@ -561,6 +626,10 @@ def test_svd_flip_max_abs_cols(n_samples, n_features, global_random_seed):
 
 
 def test_randomized_svd_sign_flip():
+    # [FUNCTION DOC]
+    # Verifies randomized_svd with flip_sign=True gives identical U and V for 10
+    # different seeds on a diagonal 2x2 matrix, with valid reconstruction and orthonormal
+    # factors.
     a = np.array([[2.0, 0.0], [0.0, 1.0]])
     u1, s1, v1 = randomized_svd(a, 2, flip_sign=True, random_state=41)
     for seed in range(10):
@@ -573,11 +642,20 @@ def test_randomized_svd_sign_flip():
 
 
 def test_randomized_svd_sign_flip_with_transpose():
+    # [FUNCTION DOC]
+    # Verifies sign flipping is always u-based regardless of transpose: max-abs entries
+    # of U columns are positive, and those of V rows are not all positive, both without
+    # and with transpose=True (regression for issue 5608).
     # Check if the randomized_svd sign flipping is always done based on u
     # irrespective of transpose.
     # See https://github.com/scikit-learn/scikit-learn/issues/5608
     # for more details.
     def max_loading_is_positive(u, v):
+        # [FUNCTION DOC]
+        # HELPER: Returns a pair of booleans: whether every column of u has its max-abs value
+        # equal to its max (positive), and the same for every row of v.
+        # KNOWN ISSUE: the docstring says "across all rows for u and across all columns for v"
+        # but the code reduces over axis 0 for u (per column) and axis 1 for v (per row).
         """
         returns bool tuple indicating if the values maximising np.abs
         are positive across all rows for u and across all columns for v.
@@ -610,6 +688,9 @@ def test_randomized_svd_sign_flip_with_transpose():
 @pytest.mark.parametrize("k", [10, 20, 50])
 @pytest.mark.parametrize("seed", range(5))
 def test_randomized_svd_lapack_driver(n, m, k, seed):
+    # [FUNCTION DOC]
+    # Verifies randomized_svd with svd_lapack_driver "gesdd" vs "gesvd" yields matching
+    # shapes and values (rtol 1e-3) for random n x m matrices and several k and seeds.
     # Check that different SVD drivers provide consistent results
 
     # Matrix being compressed
@@ -632,6 +713,9 @@ def test_randomized_svd_lapack_driver(n, m, k, seed):
 
 
 def test_cartesian():
+    # [FUNCTION DOC]
+    # Verifies cartesian returns the lexicographic product of three 1-D arrays as rows,
+    # and a single axis gives a column vector.
     # Check if cartesian product delivers the right results
 
     axes = (np.array([1, 2, 3]), np.array([4, 5]), np.array([6, 7]))
@@ -679,6 +763,9 @@ def test_cartesian():
     ],
 )
 def test_cartesian_mix_types(arrays, output_dtype):
+    # [FUNCTION DOC]
+    # Verifies cartesian output dtype is the promoted dtype of mixed inputs (int64,
+    # float64, object).
     """Check that the cartesian product works with mixed types."""
     output = cartesian(arrays)
 
@@ -688,6 +775,9 @@ def test_cartesian_mix_types(arrays, output_dtype):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("as_list", (True, False))
 def test_incremental_weighted_mean_and_variance_simple(dtype, as_list):
+    # [FUNCTION DOC]
+    # Verifies _incremental_mean_and_var from a zero state with sample weights (array or
+    # list input) equals the weighted mean and E[x^2]-mean^2 variance.
     rng = np.random.RandomState(42)
     mult = 10
     X = rng.rand(1000, 20).astype(dtype) * mult
@@ -708,6 +798,10 @@ def test_incremental_weighted_mean_and_variance_simple(dtype, as_list):
 def test_incremental_weighted_mean_and_variance_array_api(
     array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies _incremental_mean_and_var under array API dispatch returns mean/var on the
+    # input's device with the namespace's max-precision float dtype, numerically equal to
+    # the NumPy result.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
     rng = np.random.RandomState(42)
     mult = 10
@@ -743,10 +837,19 @@ def test_incremental_weighted_mean_and_variance_array_api(
     "weight_loc, weight_scale", [(0, 1), (0, 1e-8), (1, 1e-8), (10, 1), (1e7, 1)]
 )
 def test_incremental_weighted_mean_and_variance(mean, var, weight_loc, weight_scale):
+    # [FUNCTION DOC]
+    # Verifies correctness and numerical stability of weighted incremental mean/variance
+    # over batches of several chunk sizes, for extreme means, scales and weight
+    # distributions (including near-zero and negative-mean weights), against np.average
+    # and, with unit weights, np.mean/np.var. Uses accumulator-safe references.
     rng = np.random.RandomState(42)
 
     # Testing of correctness and numerical stability
     def _assert(X, sample_weight, expected_mean, expected_var):
+        # [FUNCTION DOC]
+        # HELPER: Feeds X in batches of sizes 1, n/10+1, n/4+1, n/2+1 and n into
+        # _incremental_mean_and_var starting from zero state, and asserts the final mean and
+        # variance (atol 1e-6) match the expected values.
         n = X.shape[0]
         for chunk_size in [1, n // 10 + 1, n // 4 + 1, n // 2 + 1, n]:
             last_mean, last_weight_sum, last_var = 0, 0, 0
@@ -782,6 +885,9 @@ def test_incremental_weighted_mean_and_variance(mean, var, weight_loc, weight_sc
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_incremental_weighted_mean_and_variance_ignore_nan(dtype):
+    # [FUNCTION DOC]
+    # Verifies weighted incremental update ignores NaN: an X_nan whose non-NaN entries per
+    # column equal X's column values gives the same means, variances and counts.
     old_means = np.array([535.0, 535.0, 535.0, 535.0])
     old_variances = np.array([4225.0, 4225.0, 4225.0, 4225.0])
     old_weight_sum = np.array([2, 2, 2, 2], dtype=np.int32)
@@ -818,6 +924,9 @@ def test_incremental_weighted_mean_and_variance_ignore_nan(dtype):
 
 
 def test_incremental_variance_update_formulas():
+    # [FUNCTION DOC]
+    # Verifies the Youngs-Cramer update: starting from stats of the first 2 rows and
+    # updating with the rest gives the full-data mean, variance and count.
     # Test Youngs and Cramer incremental variance formulas.
     # Doggie data from https://www.mathsisfun.com/data/standard-deviation.html
     A = np.array(
@@ -844,6 +953,9 @@ def test_incremental_variance_update_formulas():
 
 
 def test_incremental_mean_and_variance_ignore_nan():
+    # [FUNCTION DOC]
+    # Unweighted counterpart of the NaN test: NaN entries are ignored per column and
+    # results match the NaN-free data.
     old_means = np.array([535.0, 535.0, 535.0, 535.0])
     old_variances = np.array([4225.0, 4225.0, 4225.0, 4225.0])
     old_sample_count = np.array([2, 2, 2, 2], dtype=np.int32)
@@ -873,14 +985,23 @@ def test_incremental_mean_and_variance_ignore_nan():
 
 @skip_if_32bit
 def test_incremental_variance_numerical_stability():
+    # [FUNCTION DOC]
+    # Verifies on data mixing 1e8 and log(1e-5) values that the naive one-pass variance
+    # and naive online update exceed an error tolerance of 200, while repeated
+    # single-row _incremental_mean_and_var stays below it with correct mean and count.
+    # Skipped on 32-bit platforms.
     # Test Youngs and Cramer incremental variance formulas.
 
     def np_var(A):
+        # [FUNCTION DOC]
+        # HELPER: Reference per-column population variance of A.
         return A.var(axis=0)
 
     # Naive one pass variance computation - not numerically stable
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     def one_pass_var(X):
+        # [FUNCTION DOC]
+        # HELPER: Numerically unstable one-pass variance, E[x^2] minus squared mean per column.
         n = X.shape[0]
         exp_x2 = (X**2).sum(axis=0) / n
         expx_2 = (X.sum(axis=0) / n) ** 2
@@ -890,6 +1011,9 @@ def test_incremental_variance_numerical_stability():
     # We use it as a benchmark. It is not an online algorithm
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Two-pass_algorithm
     def two_pass_var(X):
+        # [FUNCTION DOC]
+        # HELPER: Stable two-pass per-column variance (mean of squared deviations); copies X
+        # unnecessarily but does not modify it.
         mean = X.mean(axis=0)
         Y = X.copy()
         return np.mean((Y - mean) ** 2, axis=0)
@@ -898,6 +1022,10 @@ def test_incremental_variance_numerical_stability():
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online_algorithm
     # This works only for chunks for size 1
     def naive_mean_variance_update(x, last_mean, last_variance, last_sample_count):
+        # [FUNCTION DOC]
+        # HELPER: Naive online update for one sample x: increments count, updates mean as a
+        # count-weighted blend and variance via (x - old mean)(x - new mean)/n.
+        # Outputs: (updated_mean, updated_variance, updated_sample_count).
         updated_sample_count = last_sample_count + 1
         samples_ratio = last_sample_count / float(updated_sample_count)
         updated_mean = x / updated_sample_count + last_mean * samples_ratio
@@ -945,6 +1073,9 @@ def test_incremental_variance_numerical_stability():
 
 
 def test_incremental_variance_ddof():
+    # [FUNCTION DOC]
+    # Verifies that incremental mean/variance over consecutive batches of sizes 11, 20 and
+    # 37 equals np.mean/np.var (ddof=0) of all rows seen so far, with matching counts.
     # Test that degrees of freedom parameter for calculations are correct.
     rng = np.random.RandomState(1999)
     X = rng.randn(50, 10)
@@ -977,6 +1108,9 @@ def test_incremental_variance_ddof():
 
 
 def test_vector_sign_flip():
+    # [FUNCTION DOC]
+    # Verifies _deterministic_vector_sign_flip makes each row's max-abs entry positive and
+    # only multiplies rows by their sign.
     # Testing that sign flip is working & largest value has positive sign
     data = np.random.RandomState(36).randn(5, 5)
     max_abs_rows = np.argmax(np.abs(data), axis=1)
@@ -988,6 +1122,8 @@ def test_vector_sign_flip():
 
 
 def test_softmax():
+    # [FUNCTION DOC]
+    # Verifies softmax on a 3x5 matrix equals row-wise exp normalised by its sum.
     rng = np.random.RandomState(0)
     X = rng.randn(3, 5)
     exp_X = np.exp(X)
@@ -996,6 +1132,8 @@ def test_softmax():
 
 
 def test_stable_cumsum_deprecation():
+    # [FUNCTION DOC]
+    # Verifies calling stable_cumsum emits a FutureWarning about its deprecation.
     with pytest.warns(FutureWarning, match="stable_cumsum.+is deprecated"):
         stable_cumsum([1, 2, 3])
 
@@ -1011,6 +1149,9 @@ def test_stable_cumsum_deprecation():
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_safe_sparse_dot_2d(A_container, B_container):
+    # [FUNCTION DOC]
+    # Verifies safe_sparse_dot with dense_output=True for every dense/CSR combination of
+    # 2-D operands equals np.dot.
     rng = np.random.RandomState(0)
 
     A = rng.random_sample((30, 10))
@@ -1026,6 +1167,9 @@ def test_safe_sparse_dot_2d(A_container, B_container):
 
 @pytest.mark.parametrize("csr_container", CSR_CONTAINERS)
 def test_safe_sparse_dot_nd(csr_container):
+    # [FUNCTION DOC]
+    # Verifies safe_sparse_dot for N-D dense times sparse 2-D and sparse 2-D times N-D
+    # dense equals np.dot.
     rng = np.random.RandomState(0)
 
     # dense ND / sparse
@@ -1051,6 +1195,8 @@ def test_safe_sparse_dot_nd(csr_container):
     ids=["dense"] + [container.__name__ for container in CSR_CONTAINERS],
 )
 def test_safe_sparse_dot_2d_1d(container):
+    # [FUNCTION DOC]
+    # Verifies safe_sparse_dot for 2-D (dense or CSR) times 1-D and 1-D times 2-D.
     rng = np.random.RandomState(0)
     B = rng.random_sample((10))
 
@@ -1069,6 +1215,9 @@ def test_safe_sparse_dot_2d_1d(container):
 
 @pytest.mark.parametrize("dense_output", [True, False])
 def test_safe_sparse_dot_dense_output(dense_output):
+    # [FUNCTION DOC]
+    # Verifies safe_sparse_dot on two sparse arrays returns sparse when dense_output is
+    # False and dense when True, with correct values.
     rng = np.random.RandomState(0)
 
     A = _sparse_random_array((30, 10), density=0.1, rng=rng)
@@ -1085,6 +1234,9 @@ def test_safe_sparse_dot_dense_output(dense_output):
 
 
 def test_approximate_mode():
+    # [FUNCTION DOC]
+    # Non-regression (issue 20774): _approximate_mode with int32 counts whose product with
+    # n_draws overflows int32 returns the proportional draw [24750, 250].
     """Make sure sklearn.utils.extmath._approximate_mode returns valid
     results for cases where "class_counts * n_draws" is enough
     to overflow 32-bit signed integer.
@@ -1106,6 +1258,9 @@ def test_approximate_mode():
     yield_namespace_device_dtype_combinations(),
 )
 def test_randomized_svd_array_api_compliance(array_namespace, device_name, dtype_name):
+    # [FUNCTION DOC]
+    # Verifies randomized_svd under array API dispatch returns arrays in the input
+    # namespace that match the NumPy results (atol 1e-5 for float32).
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     rng = np.random.RandomState(0)
@@ -1134,6 +1289,11 @@ def test_randomized_svd_array_api_compliance(array_namespace, device_name, dtype
 def test_randomized_range_finder_array_api_compliance(
     array_namespace, device_name, dtype_name
 ):
+    # [FUNCTION DOC]
+    # Verifies randomized_range_finder under array API dispatch returns the input
+    # namespace and matches NumPy; additionally, for max-precision float input in
+    # namespaces other than array_api_strict and torch, checks integer input yields the
+    # max float dtype and matches NumPy. Returns early otherwise.
     xp, device = _array_api_for_tests(array_namespace, device_name, dtype_name)
 
     rng = np.random.RandomState(0)

@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# Tests for random sampling utilities: sample_without_replacement (all methods),
+# _random_choice_csc and the pure-Python rand_r reimplementation _our_rand_r_py.
+# Includes reusable check_* helpers applied to each sampling method.
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -12,11 +16,17 @@ from sklearn.utils.random import _random_choice_csc, sample_without_replacement
 # test custom sampling without replacement algorithm
 ###############################################################################
 def test_invalid_sample_without_replacement_algorithm():
+    # [FUNCTION DOC]
+    # Verifies sample_without_replacement raises ValueError for an unknown method name.
     with pytest.raises(ValueError):
         sample_without_replacement(5, 4, "unknown")
 
 
 def test_sample_without_replacement_algorithms():
+    # [FUNCTION DOC]
+    # For each method (auto, tracking_selection, reservoir_sampling, pool), wraps
+    # sample_without_replacement with that method fixed and runs the edge-case, basic
+    # and distribution checks on the wrapper.
     methods = ("auto", "tracking_selection", "reservoir_sampling", "pool")
 
     for m in methods:
@@ -24,6 +34,13 @@ def test_sample_without_replacement_algorithms():
         def sample_without_replacement_method(
             n_population, n_samples, random_state=None
         ):
+            # [FUNCTION DOC]
+            # HELPER: Closure forwarding to sample_without_replacement with method fixed
+            # to the loop's current m (called within the same iteration, so late binding
+            # is harmless).
+            # Inputs: n_population, n_samples - ints; random_state - seed/None (default
+            # None).
+            # Outputs: 1D int array of n_samples distinct indices in [0, n_population).
             return sample_without_replacement(
                 n_population, n_samples, method=m, random_state=random_state
             )
@@ -34,6 +51,12 @@ def test_sample_without_replacement_algorithms():
 
 
 def check_edge_case_of_sample_int(sample_without_replacement):
+    # [FUNCTION DOC]
+    # HELPER: Checks a sampler raises ValueError when n_samples > n_population or either
+    # is negative, and returns arrays of the right length for equal sizes (0,0 and 1,1)
+    # and for n_population larger than n_samples (5,0 and 5,1).
+    # Inputs: sample_without_replacement - callable(n_population, n_samples).
+    # Exceptions: AssertionError (via pytest) when expectations fail.
     # n_population < n_sample
     with pytest.raises(ValueError):
         sample_without_replacement(0, 1)
@@ -57,6 +80,11 @@ def check_edge_case_of_sample_int(sample_without_replacement):
 
 
 def check_sample_int(sample_without_replacement):
+    # [FUNCTION DOC]
+    # HELPER: For every n_samples from 0 to 100 with population 100, checks the output
+    # has the requested length, all unique values, all below n_population; also checks
+    # the 0/0 case is empty.
+    # Inputs: sample_without_replacement - callable(n_population, n_samples).
     # This test is heavily inspired from test_random.py of python-core.
     #
     # For the entire allowable range of 0 <= k <= N, validate that
@@ -75,6 +103,12 @@ def check_sample_int(sample_without_replacement):
 
 
 def check_sample_int_distribution(sample_without_replacement):
+    # [FUNCTION DOC]
+    # HELPER: For each n_samples in 0..9 with population 10, repeatedly samples (up to
+    # 10000 trials) collecting distinct subsets as frozensets, stopping once all C(10,
+    # n_samples) combinations have been seen.
+    # Inputs: sample_without_replacement - callable(n_population, n_samples).
+    # Exceptions: AssertionError if not all combinations appear within n_trials.
     # This test is heavily inspired from test_random.py of python-core.
     #
     # For the entire allowable range of 0 <= k <= N, validate that
@@ -107,6 +141,12 @@ def check_sample_int_distribution(sample_without_replacement):
 
 
 def test_random_choice_csc(n_samples=10000, random_state=24):
+    # [FUNCTION DOC]
+    # Draws n_samples (default 10000) rows with _random_choice_csc using a fixed
+    # random_state (default 24) and checks the result is sparse and per-column empirical
+    # class frequencies match to 1 decimal for: explicit probabilities, implicit uniform
+    # probabilities over list classes, degenerate 0/1 probabilities, and single-class
+    # outputs.
     # Explicit class probabilities
     classes = [np.array([0, 1]), np.array([0, 1, 2])]
     class_probabilities = [np.array([0.5, 0.5]), np.array([0.6, 0.1, 0.3])]
@@ -162,6 +202,10 @@ def test_random_choice_csc(n_samples=10000, random_state=24):
 
 
 def test_random_choice_csc_errors():
+    # [FUNCTION DOC]
+    # Verifies _random_choice_csc raises ValueError for mismatched classes/probabilities
+    # lengths, string class labels, float class labels and probabilities not summing to
+    # 1.
     # the length of an array in classes and class_probabilities is mismatched
     classes = [np.array([0, 1]), np.array([0, 1, 2, 3])]
     class_probabilities = [np.array([0.5, 0.5]), np.array([0.6, 0.1, 0.3])]
@@ -188,5 +232,7 @@ def test_random_choice_csc_errors():
 
 
 def test_our_rand_r():
+    # [FUNCTION DOC]
+    # Checks _our_rand_r_py returns known reference values for seeds 1273642419 and 0.
     assert 131541053 == _our_rand_r_py(1273642419)
     assert 270369 == _our_rand_r_py(0)

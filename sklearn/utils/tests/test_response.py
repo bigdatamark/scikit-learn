@@ -1,3 +1,8 @@
+# [MODULE DOC]
+# Tests for sklearn.utils._response: _get_response_values and
+# _get_response_values_binary. Uses module-level iris data X, y (standardized in place
+# with scale) and a binary subset X_binary, y_binary (first 100 rows, classes 0 and 1).
+# Side effects at import: loads iris and scales it.
 import warnings
 
 import numpy as np
@@ -37,6 +42,12 @@ X_binary, y_binary = X[:100], y[:100]
     ],
 )
 def test_estimator_unsupported_response(estimator, response_method):
+    # [FUNCTION DOC]
+    # Verifies that _get_response_values raises AttributeError ('has none of the
+    # following attributes') when the fitted estimator (regressor, clusterer, outlier
+    # detector) lacks every requested response method, given as a string or a list.
+    # Inputs: estimator - unfitted estimator, cloned and fit on 10 random 2-feature
+    # samples; response_method - str or list of method names.
     """Check the error message with not supported response method."""
     X, y = np.random.RandomState(0).randn(10, 2), np.array([0, 1] * 5)
     estimator = clone(estimator).fit(X, y)  # clone to make test execution thread-safe
@@ -65,6 +76,13 @@ def test_estimator_unsupported_response(estimator, response_method):
 def test_estimator_get_response_values(
     estimator, response_method, return_response_method_used
 ):
+    # [FUNCTION DOC]
+    # Verifies that for non-classifiers (regressor, KMeans, IsolationForest)
+    # _get_response_values returns the output of the first listed response method,
+    # pos_label None, and, when return_response_method_used is True, the name of the
+    # method used as a third element.
+    # Inputs: estimator, response_method (str or list), return_response_method_used
+    # (bool) - parametrized.
     """Check the behaviour of `_get_response_values`."""
     X, y = np.random.RandomState(0).randn(10, 2), np.array([0, 1] * 5)
     estimator = clone(estimator).fit(X, y)  # clone to make test execution thread-safe
@@ -89,6 +107,11 @@ def test_estimator_get_response_values(
     ["predict_proba", "decision_function", "predict", "predict_log_proba"],
 )
 def test_get_response_values_classifier_unknown_pos_label(response_method):
+    # [FUNCTION DOC]
+    # Verifies that a binary LogisticRegression with pos_label='whatever' (not in
+    # classes_) makes _get_response_values raise ValueError listing the valid labels,
+    # for each response method.
+    # Inputs: response_method - parametrized method name.
     """Check that `_get_response_values` raises the proper error message with
     classifier."""
     X, y = make_classification(n_samples=10, n_classes=2, random_state=0)
@@ -109,6 +132,11 @@ def test_get_response_values_classifier_unknown_pos_label(response_method):
 def test_get_response_values_classifier_inconsistent_y_pred_for_binary_proba(
     response_method,
 ):
+    # [FUNCTION DOC]
+    # Verifies that a classifier fit on a single class (predict_proba of shape (n, 1))
+    # makes _get_response_values raise ValueError requiring two classes when using
+    # predict_proba or predict_log_proba.
+    # Inputs: response_method - parametrized.
     """Check that `_get_response_values` will raise an error when `y_pred` has a
     single class with `predict_proba`."""
     X, y_two_class = make_classification(n_samples=10, n_classes=2, random_state=0)
@@ -127,6 +155,12 @@ def test_get_response_values_classifier_inconsistent_y_pred_for_binary_proba(
 def test_get_response_values_binary_classifier_decision_function(
     return_response_method_used,
 ):
+    # [FUNCTION DOC]
+    # Verifies binary decision_function handling: with pos_label None the raw scores and
+    # pos_label 1 are returned; with pos_label set to classes_[0] the scores are negated
+    # and pos_label 0 is returned. Also checks the optional third element naming the
+    # method.
+    # Inputs: return_response_method_used - bool, parametrized.
     """Check the behaviour of `_get_response_values` with `decision_function`
     and binary classifier."""
     X, y = make_classification(
@@ -170,6 +204,12 @@ def test_get_response_values_binary_classifier_decision_function(
 def test_get_response_values_binary_classifier_predict_proba(
     return_response_method_used, response_method
 ):
+    # [FUNCTION DOC]
+    # Verifies binary predict_proba / predict_log_proba handling: default pos_label
+    # selects column 1 and reports pos_label 1; pos_label=classes_[0] selects column 0.
+    # Checks result tuple length is 3 or 2 depending on return_response_method_used.
+    # Inputs: return_response_method_used - bool; response_method - str; both
+    # parametrized.
     """Check that `_get_response_values` with `predict_proba` and binary
     classifier."""
     X, y = make_classification(
@@ -235,6 +275,11 @@ def test_get_response_values_binary_classifier_predict_proba(
     ],
 )
 def test_get_response_error(estimator, X, y, err_msg, params):
+    # [FUNCTION DOC]
+    # Verifies the ValueError messages of _get_response_values_binary for: a regressor
+    # (not a binary classifier), an unknown pos_label, and a 3-class classifier.
+    # Inputs: estimator - cloned and fit on X, y; X, y - data; err_msg - regex expected;
+    # params - kwargs forwarded to _get_response_values_binary.
     """Check that we raise the proper error messages in _get_response_values_binary."""
 
     estimator = clone(estimator).fit(X, y)  # clone to make test execution thread-safe
@@ -244,6 +289,11 @@ def test_get_response_error(estimator, X, y, err_msg, params):
 
 @pytest.mark.parametrize("return_response_method_used", [True, False])
 def test_get_response_predict_proba(return_response_method_used):
+    # [FUNCTION DOC]
+    # Verifies _get_response_values_binary with predict_proba on a decision tree:
+    # default returns column 1 with pos_label 1; pos_label=0 returns column 0 with
+    # pos_label 0; third element is the method name when requested.
+    # Inputs: return_response_method_used - bool, parametrized.
     """Check the behaviour of `_get_response_values_binary` using `predict_proba`."""
     classifier = DecisionTreeClassifier().fit(X_binary, y_binary)
     results = _get_response_values_binary(
@@ -272,6 +322,11 @@ def test_get_response_predict_proba(return_response_method_used):
 
 @pytest.mark.parametrize("return_response_method_used", [True, False])
 def test_get_response_decision_function(return_response_method_used):
+    # [FUNCTION DOC]
+    # Verifies _get_response_values_binary with decision_function on logistic
+    # regression: default returns raw scores and pos_label 1; pos_label=0 returns
+    # negated scores and pos_label 0; third element is the method name when requested.
+    # Inputs: return_response_method_used - bool, parametrized.
     """Check the behaviour of `_get_response_values_binary` using decision_function."""
     classifier = LogisticRegression().fit(X_binary, y_binary)
     results = _get_response_values_binary(
@@ -307,6 +362,11 @@ def test_get_response_decision_function(return_response_method_used):
     ],
 )
 def test_get_response_values_multiclass(estimator, response_method):
+    # [FUNCTION DOC]
+    # Verifies that for a 3-class estimator _get_response_values returns predictions
+    # untouched with shape (n_samples, n_classes) and pos_label None; probabilities are
+    # within [0, 1] and log-probabilities are non-positive.
+    # Inputs: estimator - cloned and fit on iris; response_method - str.
     """Check that we can call `_get_response_values` with a multiclass estimator.
     It should return the predictions untouched.
     """
@@ -324,6 +384,11 @@ def test_get_response_values_multiclass(estimator, response_method):
 
 
 def test_get_response_values_with_response_list():
+    # [FUNCTION DOC]
+    # Verifies that when a list of response methods is given, the first one available on
+    # the estimator is used: predict_proba first yields column-1 probabilities,
+    # decision_function first yields raw scores; pos_label is 1 and the method name is
+    # returned.
     """Check the behaviour of passing a list of responses to `_get_response_values`."""
     classifier = LogisticRegression().fit(X_binary, y_binary)
 
@@ -354,6 +419,11 @@ def test_get_response_values_with_response_list():
     "response_method", ["predict_proba", "decision_function", "predict"]
 )
 def test_get_response_values_multilabel_indicator(response_method):
+    # [FUNCTION DOC]
+    # Verifies multilabel handling with ClassifierChain: output shape equals the
+    # indicator target shape, pos_label is None; predict_proba values lie in [0, 1],
+    # decision_function has values below 0 and above 1, predict returns only 0/1.
+    # Inputs: response_method - parametrized.
     X, Y = make_multilabel_classification(random_state=0)
     estimator = ClassifierChain(LogisticRegression()).fit(X, Y)
 
@@ -374,6 +444,11 @@ def test_get_response_values_multilabel_indicator(response_method):
 
 
 def test_response_values_type_of_target_on_classes_no_warning():
+    # [FUNCTION DOC]
+    # Non-regression test (#31583): fits a 30-class LogisticRegression on 120 samples
+    # and calls _get_response_values with predict_proba while UserWarning is turned into
+    # an error, verifying that no spurious 'unique classes > 50% of samples' warning is
+    # raised from type_of_target on classes_.
     """
     Ensure `_get_response_values` doesn't raise spurious warning.
 
@@ -422,6 +497,14 @@ def test_response_values_type_of_target_on_classes_no_warning():
 def test_response_values_output_shape_(
     estimator, response_method, target_type, expected_shape
 ):
+    # [FUNCTION DOC]
+    # Verifies output shapes of _get_response_values: 1d (n_samples,) for binary, for
+    # multiclass predict, and for outlier detection / regression / clustering; 2d
+    # (n_samples, n_classes) for multiclass proba/decision; 2d (n_samples, n_outputs)
+    # for multilabel.
+    # Inputs: estimator; response_method; target_type - 'binary', 'multiclass' or
+    # anything else for multilabel; expected_shape - tuple. Builds 10 random samples and
+    # a target matching target_type.
     """
     Check that output shape corresponds to docstring description
 

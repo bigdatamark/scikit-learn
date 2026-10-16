@@ -1,3 +1,10 @@
+# [MODULE DOC]
+# Implements the set_output API: transformers' transform/fit_transform outputs are
+# wrapped into a dataframe container (pandas or polars) according to per-estimator
+# or global configuration. Defines the container adapter protocol, the pandas and
+# polars adapters, a registry (ADAPTERS_MANAGER, populated with both adapters at
+# import time; the libraries themselves are imported lazily), config lookup,
+# output wrapping helpers and the _SetOutputMixin used by TransformerMixin.
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,6 +21,10 @@ from sklearn.utils.fixes import parse_version
 
 
 def check_library_installed(library):
+    # [FUNCTION DOC]
+    # HELPER: Imports and returns the named module.
+    # Inputs: library - str module name. Outputs: module.
+    # Exceptions: ImportError with a set_output-specific message when not installed.
     """Check library is installed."""
     try:
         return importlib.import_module(library)
@@ -25,6 +36,12 @@ def check_library_installed(library):
 
 
 def get_columns(columns):
+    # [FUNCTION DOC]
+    # HELPER: Resolves column names. If columns is callable (typically
+    # get_feature_names_out) it is called; an AttributeError whose message mentions
+    # 'does not provide get_feature_names_out' yields None, other AttributeErrors are
+    # re-raised. Non-callables are returned unchanged.
+    # Outputs: array-like of names or None.
     if callable(columns):
         try:
             return columns()
@@ -38,9 +55,17 @@ def get_columns(columns):
 
 @runtime_checkable
 class ContainerAdapterProtocol(Protocol):
+    # [CLASS DOC]
+    # Runtime-checkable typing Protocol describing what an output container adapter
+    # must offer: a container_lib name and create_container, is_supported_container,
+    # rename_columns and hstack methods. Bodies are docstring-only stubs.
     container_lib: str
 
     def create_container(self, X_output, X_original, columns, inplace=False):
+        # [FUNCTION DOC]
+        # Protocol stub; see docstring. Returns None if called directly.
+        # KNOWN ISSUE: the protocol declares inplace default False while both concrete
+        # adapters default to True.
         """Create container from `X_output` with additional metadata.
 
         Parameters
@@ -69,6 +94,8 @@ class ContainerAdapterProtocol(Protocol):
         """
 
     def is_supported_container(self, X):
+        # [FUNCTION DOC]
+        # Protocol stub; see docstring.
         """Return True if X is a supported container.
 
         Parameters
@@ -83,6 +110,8 @@ class ContainerAdapterProtocol(Protocol):
         """
 
     def rename_columns(self, X, columns):
+        # [FUNCTION DOC]
+        # Protocol stub; see docstring.
         """Rename columns in `X`.
 
         Parameters
@@ -100,6 +129,8 @@ class ContainerAdapterProtocol(Protocol):
         """
 
     def hstack(self, Xs):
+        # [FUNCTION DOC]
+        # Protocol stub; see docstring.
         """Stack containers horizontally (column-wise).
 
         Parameters
@@ -115,9 +146,26 @@ class ContainerAdapterProtocol(Protocol):
 
 
 class PandasAdapter:
+    # [CLASS DOC]
+    # Adapter producing pandas DataFrames (container_lib 'pandas').
     container_lib = "pandas"
 
     def create_container(self, X_output, X_original, columns, inplace=True):
+        # [FUNCTION DOC]
+        # Resolves columns via get_columns. If not inplace or the output is not already
+        # a
+        # DataFrame, builds a new DataFrame (copying when not inplace) reusing the index
+        # of
+        # X_output if it is a DataFrame, else of X_original if it is a DataFrame/Series,
+        # else a default index. Then, if columns is not None, overwrites the column
+        # labels.
+        # Inputs: X_output - ndarray or DataFrame; X_original - original input; columns
+        # -
+        # callable, array or None; inplace - bool, default True.
+        # Outputs: DataFrame. Exceptions: ImportError without pandas; pandas length
+        # mismatch errors if columns has the wrong size.
+        # Side effects: when inplace and X_output is a DataFrame, its columns are
+        # mutated.
         pd = check_library_installed("pandas")
         columns = get_columns(columns)
 
@@ -142,24 +190,43 @@ class PandasAdapter:
         return X_output
 
     def is_supported_container(self, X):
+        # [FUNCTION DOC]
+        # Returns True iff X is a pandas DataFrame. Exceptions: ImportError without
+        # pandas.
         pd = check_library_installed("pandas")
         return isinstance(X, pd.DataFrame)
 
     def rename_columns(self, X, columns):
+        # [FUNCTION DOC]
+        # Assigns columns directly to X.columns (allows duplicates) and returns X.
+        # Side effects: mutates X.
         # we cannot use `rename` since it takes a dictionary and at this stage we have
         # potentially duplicate column names in `X`
         X.columns = columns
         return X
 
     def hstack(self, Xs):
+        # [FUNCTION DOC]
+        # Concatenates the DataFrames column-wise with pandas concat. Outputs:
+        # DataFrame.
         pd = check_library_installed("pandas")
         return pd.concat(Xs, axis=1)
 
 
 class PolarsAdapter:
+    # [CLASS DOC]
+    # Adapter producing polars DataFrames (container_lib 'polars').
     container_lib = "polars"
 
     def create_container(self, X_output, X_original, columns, inplace=True):
+        # [FUNCTION DOC]
+        # Resolves columns (ndarray converted to list). If not inplace or X_output is
+        # not
+        # a polars DataFrame, returns a new DataFrame built row-oriented with columns as
+        # schema (None lets polars name them). Otherwise renames columns when given.
+        # X_original is ignored (polars has no index).
+        # Outputs: polars DataFrame. Exceptions: ImportError without polars.
+        # Side effects: mutates X_output's column names in the inplace path.
         pl = check_library_installed("polars")
         columns = get_columns(columns)
         columns = columns.tolist() if isinstance(columns, np.ndarray) else columns
@@ -173,16 +240,24 @@ class PolarsAdapter:
         return X_output
 
     def is_supported_container(self, X):
+        # [FUNCTION DOC]
+        # Returns True iff X is a polars DataFrame.
         pl = check_library_installed("polars")
         return isinstance(X, pl.DataFrame)
 
     def rename_columns(self, X, columns):
+        # [FUNCTION DOC]
+        # Assigns columns to X.columns and returns X. Side effects: mutates X.
         # we cannot use `rename` since it takes a dictionary and at this stage we have
         # potentially duplicate column names in `X`
         X.columns = columns
         return X
 
     def hstack(self, Xs):
+        # [FUNCTION DOC]
+        # Concatenates horizontally with polars concat, using how='horizontal_extend'
+        # for
+        # polars >= 1.42.1 and 'horizontal' otherwise. Outputs: polars DataFrame.
         pl = check_library_installed("polars")
 
         # "horizontal" is deprecated in favor of "horizontal_extend" ahead of
@@ -195,14 +270,23 @@ class PolarsAdapter:
 
 
 class ContainerAdaptersManager:
+    # [CLASS DOC]
+    # HELPER: Registry mapping container library name to adapter instance.
     def __init__(self):
+        # [FUNCTION DOC]
+        # Initialises an empty adapters dict.
         self.adapters = {}
 
     @property
     def supported_outputs(self):
+        # [FUNCTION DOC]
+        # Property: set of valid output config values, 'default' plus registered names.
         return {"default"} | set(self.adapters)
 
     def register(self, adapter):
+        # [FUNCTION DOC]
+        # Registers adapter under its container_lib, replacing any previous one.
+        # Side effects: mutates adapters.
         self.adapters[adapter.container_lib] = adapter
 
 
@@ -212,6 +296,10 @@ ADAPTERS_MANAGER.register(PolarsAdapter())
 
 
 def _get_adapter_from_container(container):
+    # [FUNCTION DOC]
+    # HELPER: Returns the adapter registered for the top-level package of the
+    # container's class module (e.g. 'pandas').
+    # Exceptions: ValueError listing available adapters if none is registered.
     """Get the adapter that knows how to handle such container.
 
     See :class:`sklearn.utils._set_output.ContainerAdapterProtocol` for more
@@ -230,6 +318,10 @@ def _get_adapter_from_container(container):
 
 
 def _get_container_adapter(method, estimator=None):
+    # [FUNCTION DOC]
+    # HELPER: Returns the adapter matching the dense output config for method and
+    # estimator, or None when the config is 'default'.
+    # Exceptions: ValueError from _get_output_config for invalid configs.
     """Get container adapter."""
     dense_config = _get_output_config(method, estimator)["dense"]
     try:
@@ -239,6 +331,13 @@ def _get_container_adapter(method, estimator=None):
 
 
 def _get_output_config(method, estimator=None):
+    # [FUNCTION DOC]
+    # HELPER: Looks up the output container for method: the estimator's
+    # _sklearn_output_config entry if present, else the global '<method>_output'
+    # config.
+    # Outputs: dict with key 'dense'.
+    # Exceptions: ValueError if the value is not a supported output; KeyError if the
+    # global config lacks the key for an unknown method.
     """Get output config based on estimator and global configuration.
 
     Parameters
@@ -274,6 +373,13 @@ def _get_output_config(method, estimator=None):
 
 
 def _wrap_data_with_container(method, data_to_wrap, original_input, estimator):
+    # [FUNCTION DOC]
+    # HELPER: Returns data_to_wrap unchanged when the config is 'default' or the
+    # estimator is not auto-wrap configured. Otherwise wraps it with the configured
+    # adapter, passing original_input for index and estimator.get_feature_names_out as
+    # the (lazily evaluated) column names.
+    # Exceptions: ValueError if data_to_wrap is a scipy sparse matrix; ValueError for
+    # invalid config.
     """Wrap output with container based on an estimator's or global config.
 
     Parameters
@@ -320,10 +426,19 @@ def _wrap_data_with_container(method, data_to_wrap, original_input, estimator):
 
 
 def _wrap_method_output(f, method):
+    # [FUNCTION DOC]
+    # HELPER: Decorates transform-like method f so its output is wrapped per the
+    # config key method. Outputs: the wrapper function (metadata copied from f).
     """Wrapper used by `_SetOutputMixin` to automatically wrap methods."""
 
     @wraps(f)
     def wrapped(self, X, *args, **kwargs):
+        # [FUNCTION DOC]
+        # Calls f; if the result is a tuple only its first element is wrapped (rest
+        # kept,
+        # namedtuple types rebuilt via _make); otherwise the whole result is wrapped,
+        # using
+        # X as the original input.
         data_to_wrap = f(self, X, *args, **kwargs)
         if isinstance(data_to_wrap, tuple):
             # only wrap the first output for cross decomposition
@@ -343,6 +458,10 @@ def _wrap_method_output(f, method):
 
 
 def _auto_wrap_is_configured(estimator):
+    # [FUNCTION DOC]
+    # HELPER: True iff the estimator has get_feature_names_out and 'transform' is among
+    # its _sklearn_auto_wrap_output_keys (empty set if absent). Also used as the
+    # availability check for set_output.
     """Return True if estimator is configured for auto-wrapping the transform method.
 
     `_SetOutputMixin` sets `_sklearn_auto_wrap_output_keys` to `set()` if auto wrapping
@@ -356,6 +475,9 @@ def _auto_wrap_is_configured(estimator):
 
 
 class _SetOutputMixin:
+    # [CLASS DOC]
+    # Mixin that, at subclass creation, wraps transform/fit_transform so outputs
+    # follow set_output / global config, and offers set_output.
     """Mixin that dynamically wraps methods to return container based on config.
 
     Currently `_SetOutputMixin` wraps `transform` and `fit_transform` and configures
@@ -366,6 +488,19 @@ class _SetOutputMixin:
     """
 
     def __init_subclass__(cls, auto_wrap_output_keys=("transform",), **kwargs):
+        # [FUNCTION DOC]
+        # Inputs: auto_wrap_output_keys - tuple of config keys (default ('transform',))
+        # or None to disable wrapping; other kwargs forwarded to super.
+        # Behaviour: None sets _sklearn_auto_wrap_output_keys to an empty set.
+        # Otherwise,
+        # for transform and fit_transform (both mapped to key 'transform'), if the class
+        # has
+        # the method and the key is requested, records the key; if the method is defined
+        # in the class's own __dict__, replaces it with the wrapping decorator
+        # (inherited
+        # methods are already wrapped by their defining class).
+        # Exceptions: ValueError if auto_wrap_output_keys is neither None nor a tuple.
+        # Side effects: sets class attributes and replaces methods on cls.
         super().__init_subclass__(**kwargs)
 
         # Dynamically wraps `transform` and `fit_transform` and configure it's
@@ -399,6 +534,12 @@ class _SetOutputMixin:
 
     @available_if(_auto_wrap_is_configured)
     def set_output(self, *, transform=None):
+        # [FUNCTION DOC]
+        # Available only when _auto_wrap_is_configured. Stores transform in the
+        # instance's
+        # _sklearn_output_config (created if missing); None leaves config untouched.
+        # Outputs: self. Side effects: mutates self. The value is validated lazily at
+        # transform time, not here.
         """Set output container.
 
         Refer to the :ref:`user guide <df_output_transform>` for more details
@@ -434,6 +575,13 @@ class _SetOutputMixin:
 
 
 def _safe_set_output(estimator, *, transform=None):
+    # [FUNCTION DOC]
+    # Calls set_output on estimator if it can transform (has transform, or has
+    # fit_transform and transform is not None); otherwise does nothing.
+    # Outputs: result of set_output (the estimator) or None when skipped.
+    # Exceptions: ValueError if the estimator should be configured but lacks set_output.
+    # KNOWN ISSUE: the docstring says the estimator is returned, but None is returned
+    # when the estimator cannot transform.
     """Safely call estimator.set_output and error if it not available.
 
     This is used by meta-estimators to set the output for child estimators.
