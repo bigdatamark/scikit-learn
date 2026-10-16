@@ -1,3 +1,15 @@
+# [MODULE DOC]
+# HELPER: Testing utilities shared by scikit-learn's test-suite and estimator checks:
+# warning suppression, dtype-aware allclose assertions, memmap-backed test data,
+# docstring/signature consistency checks, subprocess script runner, container
+# conversion, a pytest-free raises context manager, minimal non-BaseEstimator
+# estimators, array API test setup and the project-wide warning filter list.
+# Side effects at import: probes array API dispatch to set
+# ARRAY_API_COMPAT_FUNCTIONAL; if pytest is importable, defines pytest skip/xfail
+# markers (skip_if_32bit, fails_if_unstable_openblas, skip_if_no_parallel,
+# skip_if_array_api_compat_not_configured, if_safe_multiprocessing_with_blas,
+# skip_if_no_numpydoc); without pytest those names and the module-level `pytest` are
+# undefined.
 """Testing utilities."""
 
 # Authors: The scikit-learn developers
@@ -71,6 +83,18 @@ SkipTest = unittest.case.SkipTest
 
 
 def ignore_warnings(obj=None, category=Warning):
+    # [FUNCTION DOC]
+    # Dual-use helper. If obj is callable, returns it wrapped so that warnings of
+    # category are ignored while it runs; if obj is None (or non-callable), returns an
+    # _IgnoreWarnings context manager.
+    # Inputs: obj - callable or None; category - Warning subclass (default Warning =
+    # all).
+    # Outputs: wrapped callable or _IgnoreWarnings instance.
+    # Exceptions: ValueError when obj is itself a Warning subclass (common misuse of
+    # passing the category positionally).
+    # KNOWN ISSUE: the docstring note about clearing warnings from all loaded modules
+    # does not reflect the code; only the warnings filter list is temporarily
+    # replaced.
     """Context manager and decorator to ignore warnings.
 
     Note: Using this (in both variants) will clear all warnings
@@ -115,6 +139,9 @@ def ignore_warnings(obj=None, category=Warning):
 
 
 class _IgnoreWarnings:
+    # [CLASS DOC]
+    # HELPER: Context manager / decorator that ignores warnings of a category by
+    # temporarily copying and extending warnings.filters.
     """Improved and simplified Python warnings context manager and decorator.
 
     This class allows the user to ignore the warnings raised by a function.
@@ -128,6 +155,11 @@ class _IgnoreWarnings:
     """
 
     def __init__(self, category):
+        # [FUNCTION DOC]
+        # HELPER: Stores category, the warnings module, an entered flag, a record flag
+        # and an empty log list.
+        # KNOWN ISSUE: _record and log are never used to record warnings; log is only
+        # cleared in __exit__.
         self._record = True
         self._module = sys.modules["warnings"]
         self._entered = False
@@ -135,10 +167,16 @@ class _IgnoreWarnings:
         self.category = category
 
     def __call__(self, fn):
+        # [FUNCTION DOC]
+        # HELPER: Decorator form: returns a functools.wraps wrapper of fn.
+        # Inputs: fn - callable. Outputs: wrapper callable.
         """Decorator to catch and hide warnings without visual nesting."""
 
         @wraps(fn)
         def wrapper(*args, **kwargs):
+            # [FUNCTION DOC]
+            # HELPER: Runs fn inside warnings.catch_warnings with an "ignore" filter
+            # for self.category and returns its result.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", self.category)
                 return fn(*args, **kwargs)
@@ -146,6 +184,8 @@ class _IgnoreWarnings:
         return wrapper
 
     def __repr__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns "_IgnoreWarnings(record=True[, module=...])" style string.
         args = []
         if self._record:
             args.append("record=True")
@@ -155,6 +195,13 @@ class _IgnoreWarnings:
         return "%s(%s)" % (name, ", ".join(args))
 
     def __enter__(self):
+        # [FUNCTION DOC]
+        # HELPER: Saves warnings.filters and showwarning, installs a copy of the
+        # filters and adds an "ignore" filter for the category.
+        # Exceptions: RuntimeError if entered twice.
+        # Side effects: mutates the global warnings filter list.
+        # KNOWN ISSUE: returns None instead of self, and _entered is never reset on
+        # exit, so an instance cannot be reused.
         if self._entered:
             raise RuntimeError("Cannot enter %r twice" % self)
         self._entered = True
@@ -164,6 +211,11 @@ class _IgnoreWarnings:
         warnings.simplefilter("ignore", self.category)
 
     def __exit__(self, *exc_info):
+        # [FUNCTION DOC]
+        # HELPER: Restores the saved filters and showwarning and clears log; does not
+        # suppress exceptions.
+        # Exceptions: RuntimeError if called without a prior __enter__.
+        # Side effects: restores global warnings state.
         if not self._entered:
             raise RuntimeError("Cannot exit %r without entering first" % self)
         self._module.filters = self._filters
@@ -174,6 +226,13 @@ class _IgnoreWarnings:
 def assert_allclose(
     actual, desired, rtol=None, atol=0.0, equal_nan=True, err_msg="", verbose=True
 ):
+    # [FUNCTION DOC]
+    # Converts inputs with np.asanyarray; if rtol is None, picks 1e-4 for each float32
+    # input and 1e-7 otherwise and uses the maximum; then delegates to numpy's
+    # assert_allclose.
+    # Inputs/Outputs: see docstring; returns None.
+    # Exceptions: AssertionError on mismatch.
+    # KNOWN ISSUE: the initial empty dtypes assignment is dead code.
     """dtype-aware variant of numpy.testing.assert_allclose
 
     This variant introspects the least precise floating point dtype
@@ -245,6 +304,12 @@ def assert_allclose(
 
 
 def assert_allclose_dense_sparse(x, y, rtol=1e-07, atol=1e-9, err_msg=""):
+    # [FUNCTION DOC]
+    # If both are sparse: convert to CSR, sum duplicates in place, require equal
+    # indices and indptr and allclose data. If both dense: plain assert_allclose.
+    # Exceptions: ValueError when one is sparse and the other dense; AssertionError on
+    # mismatch.
+    # Side effects: sum_duplicates may mutate the inputs when they already are CSR.
     """Assert allclose for sparse and dense data.
 
     Both x and y need to be either sparse or dense, they
@@ -287,6 +352,9 @@ def assert_allclose_dense_sparse(x, y, rtol=1e-07, atol=1e-9, err_msg=""):
 
 
 def set_random_state(estimator, random_state=0):
+    # [FUNCTION DOC]
+    # Sets estimator's random_state param via set_params if get_params lists it.
+    # Side effects: mutates the estimator.
     """Set random state of an estimator if it has the `random_state` param.
 
     Parameters
@@ -303,6 +371,9 @@ def set_random_state(estimator, random_state=0):
 
 
 def _is_numpydoc():
+    # [FUNCTION DOC]
+    # HELPER: Returns True if numpydoc can be imported, False on
+    # ImportError/AssertionError.
     try:
         import numpydoc  # noqa: F401
     except (ImportError, AssertionError):
@@ -364,11 +435,20 @@ except ImportError:
 
 
 def check_skip_network():
+    # [FUNCTION DOC]
+    # HELPER: Raises SkipTest when the SKLEARN_SKIP_NETWORK_TESTS env variable is a
+    # nonzero integer.
+    # Exceptions: ValueError if the variable is not an integer string.
     if int(os.environ.get("SKLEARN_SKIP_NETWORK_TESTS", 0)):
         raise SkipTest("Text tutorial requires large dataset download")
 
 
 def _delete_folder(folder_path, warn=False):
+    # [FUNCTION DOC]
+    # HELPER: Removes folder_path recursively if it exists.
+    # Inputs: folder_path - str; warn - bool, default False.
+    # Side effects: filesystem deletion; on OSError emits a UserWarning if warn, else
+    # silently ignores.
     """Utility function to cleanup a temporary folder if still existing.
 
     Copy from joblib.pool (for independence).
@@ -384,6 +464,9 @@ def _delete_folder(folder_path, warn=False):
 
 
 class TempMemmap:
+    # [CLASS DOC]
+    # HELPER: Context manager yielding a read-only (by default) memmap-backed copy of
+    # data, deleting the temporary folder on exit.
     """
     Parameters
     ----------
@@ -392,20 +475,35 @@ class TempMemmap:
     """
 
     def __init__(self, data, mmap_mode="r"):
+        # [FUNCTION DOC]
+        # HELPER: Stores data and mmap_mode (default "r").
         self.mmap_mode = mmap_mode
         self.data = data
 
     def __enter__(self):
+        # [FUNCTION DOC]
+        # HELPER: Creates the memmap-backed data via create_memmap_backed_data, stores
+        # the temp folder on self and returns the data.
         data_read_only, self.temp_folder = create_memmap_backed_data(
             self.data, mmap_mode=self.mmap_mode, return_folder=True
         )
         return data_read_only
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # [FUNCTION DOC]
+        # HELPER: Deletes the temp folder; exceptions are not suppressed.
         _delete_folder(self.temp_folder)
 
 
 def create_memmap_backed_data(data, mmap_mode="r", return_folder=False):
+    # [FUNCTION DOC]
+    # HELPER: Dumps data with joblib into a new "sklearn_testing_" temp folder and
+    # reloads it with the given mmap_mode, so arrays become memmaps.
+    # Inputs: data - any joblib-picklable object; mmap_mode - str, default "r";
+    # return_folder - bool, default False.
+    # Outputs: the reloaded data, or (data, temp_folder) when return_folder.
+    # Side effects: writes to disk; registers an atexit hook deleting the folder
+    # (warning on failure).
     """
     Parameters
     ----------
@@ -428,6 +526,15 @@ def create_memmap_backed_data(data, mmap_mode="r", return_folder=False):
 
 
 def _get_args(function, varargs=False):
+    # [FUNCTION DOC]
+    # HELPER: Lists parameter names of a callable from inspect.signature, excluding
+    # *args and **kwargs.
+    # Inputs: function - callable; varargs - bool, default False.
+    # Outputs: list of names; if varargs, a tuple (names, list of *args names or
+    # None).
+    # Exceptions: none; a ValueError from signature (builtins) yields an empty list.
+    # KNOWN ISSUE: in that ValueError case a bare list is returned even when varargs
+    # is True, so callers unpacking a tuple would fail.
     """Helper to get function arguments."""
 
     try:
@@ -454,6 +561,12 @@ def _get_args(function, varargs=False):
 
 
 def _get_func_name(func):
+    # [FUNCTION DOC]
+    # HELPER: Builds "module.Outer.name": module name (if found), the first component
+    # of the qualname when it differs from the name, then the name.
+    # Inputs: func - callable. Outputs: str.
+    # KNOWN ISSUE: only the first qualname component is kept, so deeper nesting is
+    # lost.
     """Get function full name.
 
     Parameters
@@ -480,6 +593,24 @@ def _get_func_name(func):
 
 
 def check_docstring_parameters(func, doc=None, ignore=None):
+    # [FUNCTION DOC]
+    # HELPER: Compares the parameter names in a numpydoc docstring with the signature.
+    # Steps: return empty for non-sklearn or sklearn.externals functions, data
+    # descriptors, setup_module/teardown_module and estimator_checks functions; get
+    # signature args minus ignore, dropping a leading self; parse the docstring with
+    # numpydoc (UserWarnings turned into errors: underline-length warnings and other
+    # parse errors are reported as messages); report params with "name:" spacing
+    # problems or empty type after colon; compare documented names (excluding starred
+    # ones, minus ignore) with the signature in order, reporting the first mismatch,
+    # missing or extra items plus an ndiff.
+    # Inputs: func - callable; doc - pre-parsed numpydoc doc or None; ignore - list or
+    # None.
+    # Outputs: list of strings describing problems (empty if consistent).
+    # Exceptions: RuntimeError for other UserWarnings during parsing; ImportError if
+    # numpydoc is missing.
+    # KNOWN ISSUE: the records list can only ever hold the warning that is then
+    # immediately raised; the split(".")[2] check raises IndexError for a two-part
+    # name like "sklearn.func".
     """Helper to check docstring.
 
     Parameters
@@ -627,6 +758,9 @@ def check_docstring_parameters(func, doc=None, ignore=None):
 
 
 def _check_item_included(item_name, args):
+    # [FUNCTION DOC]
+    # HELPER: True if item_name passes args.include (True or containing it) and is not
+    # in args.exclude.
     """Helper to check if item should be included in checking."""
     if args.include is not True and item_name not in args.include:
         return False
@@ -636,6 +770,9 @@ def _check_item_included(item_name, args):
 
 
 def _diff_key(line):
+    # [FUNCTION DOC]
+    # HELPER: groupby key returning the two-character diff prefix ("  ", "- ", "+ ",
+    # "! ") of a context_diff line, or None for other lines.
     """Key for grouping output from `context_diff`."""
     if line.startswith("  "):
         return "  "
@@ -649,6 +786,14 @@ def _diff_key(line):
 
 
 def _get_diff_msg(docstrings_grouped):
+    # [FUNCTION DOC]
+    # HELPER: Takes the first docstring group as reference and, for each group
+    # (including the reference itself), appends a word-level context_diff against the
+    # reference, with consecutive words of the same diff kind merged on one line,
+    # separated by blank lines.
+    # Inputs: docstrings_grouped - dict mapping docstring text to list of object
+    # names.
+    # Outputs: the diff message str.
     """Get message showing the difference between type/desc docstrings of all objects.
 
     `docstrings_grouped` keys should be the type/desc docstrings and values are a list
@@ -692,6 +837,15 @@ def _check_consistency_items(
     descr_regex_pattern="",
     ignore_types=tuple(),
 ):
+    # [FUNCTION DOC]
+    # HELPER: For each item: if it is not present in all n_objects, record as skipped;
+    # else for descriptions with a regex, raise if any description does not match;
+    # else skip items in ignore_types for type checks; else raise if more than one
+    # distinct docstring exists, with a diff message.
+    # Exceptions: AssertionError on inconsistency or regex mismatch.
+    # Side effects: UserWarning listing skipped items.
+    # KNOWN ISSUE: the docstring names the value "type description" but the code (and
+    # the caller) use "type specification".
     """Helper to check docstring consistency of all `items_docs`.
 
     If item is not present in all objects, checking is skipped and warning raised.
@@ -772,6 +926,17 @@ def assert_docstring_consistency(
     descr_regex_pattern=None,
     ignore_types=tuple(),
 ):
+    # [FUNCTION DOC]
+    # Parses each object's docstring with numpydoc, then for each enabled section
+    # (Parameters/Attributes/Returns) groups normalised type specs and descriptions of
+    # the included items by text and checks consistency with _check_consistency_items.
+    # Inputs: see docstring.
+    # Exceptions: TypeError for exclude_* set without include_*=True or for
+    # unsupported object kinds; AssertionError on inconsistency; ImportError without
+    # numpydoc.
+    # Side effects: may emit UserWarning about items absent from some objects.
+    # KNOWN ISSUE: objects are keyed by __name__, so two objects with the same name
+    # collapse into one while n_objects still counts both, causing spurious skips.
     r"""Check consistency between docstring parameters/attributes/returns of objects.
 
     Checks if parameters/attributes/returns have the same type specification and
@@ -843,6 +1008,10 @@ def assert_docstring_consistency(
     Args = namedtuple("args", ["include", "exclude", "arg_name"])
 
     def _create_args(include, exclude, arg_name, section_name):
+        # [FUNCTION DOC]
+        # HELPER: Validates the include/exclude pair for one section and returns
+        # {section_name: Args(...)} or an empty dict when include is False.
+        # Exceptions: TypeError if exclude is set while include is not True.
         if exclude and include is not True:
             raise TypeError(
                 f"The 'exclude_{arg_name}' argument can be set only when the "
@@ -903,6 +1072,14 @@ def assert_docstring_consistency(
 
 
 def assert_run_python_script_without_output(source_code, pattern=".+", timeout=60):
+    # [FUNCTION DOC]
+    # HELPER: Writes source_code to a temp file and runs it with the current
+    # interpreter from the repository root, with PYTHONPATH prefixed by that root and
+    # coverage config propagated; stderr is merged into stdout.
+    # Inputs: source_code - str; pattern - regex, default ".+"; timeout - seconds.
+    # Exceptions: RuntimeError on nonzero exit or timeout (with output);
+    # AssertionError if the output matches pattern.
+    # Side effects: creates and deletes a temp file; spawns a subprocess.
     """Utility to check assertions in an independent Python subprocess.
 
     The script provided in the source code should return 0 and the stdtout +
@@ -972,6 +1149,17 @@ def _convert_container(
     minversion=None,
     categorical_feature_names=None,
 ):
+    # [FUNCTION DOC]
+    # HELPER: Converts container to the requested type: list/tuple (optionally via a
+    # numpy array of dtype), numpy array, pandas DataFrame/Series/Index, pyarrow
+    # Table/Array, polars DataFrame/Series, slice (from first two elements) or scipy
+    # sparse CSR/CSC matrix/array (input made at least 2D). Categorical casting of
+    # named columns is applied for pandas, pyarrow (dictionary encoding) and polars.
+    # Outputs: the converted container.
+    # Exceptions: pytest.skip (Skipped) if an optional library is missing or too old.
+    # KNOWN ISSUE: an unknown constructor_name returns None silently; "pyarrow_array"
+    # is supported but not documented; dtype is ignored for pyarrow and polars;
+    # depends on the module-level pytest import.
     """Convert a given container to a specific array-like with a dtype.
 
     Parameters
@@ -1073,6 +1261,8 @@ def _convert_container(
 
 
 def raises(expected_exc_type, match=None, may_pass=False, err_msg=None):
+    # [FUNCTION DOC]
+    # Factory returning a _Raises context manager; see docstring for parameters.
     """Context manager to ensure exceptions are raised within a code block.
 
     This is similar to and inspired from pytest.raises, but supports a few
@@ -1113,8 +1303,14 @@ def raises(expected_exc_type, match=None, may_pass=False, err_msg=None):
 
 
 class _Raises(contextlib.AbstractContextManager):
+    # [CLASS DOC]
+    # HELPER: Context manager implementing `raises`; sets raised_and_matched.
     # see raises() for parameters
     def __init__(self, expected_exc_type, match, may_pass, err_msg):
+        # [FUNCTION DOC]
+        # HELPER: Normalises expected_exc_type to a list (unless iterable) and match
+        # to a list (when str); stores may_pass and err_msg; raised_and_matched starts
+        # False.
         self.expected_exc_types = (
             expected_exc_type
             if isinstance(expected_exc_type, Iterable)
@@ -1126,6 +1322,12 @@ class _Raises(contextlib.AbstractContextManager):
         self.raised_and_matched = False
 
     def __exit__(self, exc_type, exc_value, _):
+        # [FUNCTION DOC]
+        # HELPER: No exception: return True if may_pass, else raise AssertionError.
+        # Exception of an unexpected type: raise AssertionError(err_msg) if given,
+        # otherwise return False so it propagates. Expected type: if matches are set,
+        # require one regex to search the message, else AssertionError; set
+        # raised_and_matched and return True (suppress).
         # see
         # https://docs.python.org/2.5/whatsnew/pep-343.html#SECTION000910000000000000000
 
@@ -1158,6 +1360,9 @@ class _Raises(contextlib.AbstractContextManager):
 
 
 class MinimalClassifier:
+    # [CLASS DOC]
+    # HELPER: Classifier predicting the most frequent training class, built without
+    # BaseEstimator to test duck-typing support.
     """Minimal classifier implementation without inheriting from BaseEstimator.
 
     This estimator should be tested with:
@@ -1168,17 +1373,26 @@ class MinimalClassifier:
     """
 
     def __init__(self, param=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores param.
         self.param = param
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # HELPER: Returns {'param': param}; deep is ignored.
         return {"param": self.param}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: setattr for each keyword; returns self. No validation of names.
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, y and classification targets, sets classes_ and the
+        # index of the most frequent class. Returns self.
         X, y = check_X_y(X, y)
         check_classification_targets(y)
         self.classes_, counts = np.unique(y, return_counts=True)
@@ -1186,6 +1400,9 @@ class MinimalClassifier:
         return self
 
     def predict_proba(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X and returns an (n_samples, n_classes)
+        # float64 array with probability 1 on the most frequent class.
         check_is_fitted(self)
         X = check_array(X)
         proba_shape = (X.shape[0], self.classes_.size)
@@ -1194,16 +1411,22 @@ class MinimalClassifier:
         return y_proba
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Returns classes_ at the argmax of predict_proba.
         y_proba = self.predict_proba(X)
         y_pred = y_proba.argmax(axis=1)
         return self.classes_[y_pred]
 
     def score(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Accuracy of predict(X) against y.
         from sklearn.metrics import accuracy_score
 
         return accuracy_score(y, self.predict(X))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns classifier Tags with required targets.
         return Tags(
             estimator_type="classifier",
             classifier_tags=ClassifierTags(),
@@ -1214,6 +1437,9 @@ class MinimalClassifier:
 
 
 class MinimalRegressor:
+    # [CLASS DOC]
+    # HELPER: Regressor predicting the training target mean, built without
+    # BaseEstimator.
     """Minimal regressor implementation without inheriting from BaseEstimator.
 
     This estimator should be tested with:
@@ -1224,33 +1450,49 @@ class MinimalRegressor:
     """
 
     def __init__(self, param=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores param.
         self.param = param
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # HELPER: Returns {'param': param}; deep is ignored.
         return {"param": self.param}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: setattr for each keyword; returns self.
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
     def fit(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, y; sets is_fitted_ and the private mean of y. Returns
+        # self.
         X, y = check_X_y(X, y)
         self.is_fitted_ = True
         self._mean = np.mean(y)
         return self
 
     def predict(self, X):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted, validates X; returns an (n_samples,) array filled
+        # with the mean.
         check_is_fitted(self)
         X = check_array(X)
         return np.ones(shape=(X.shape[0],)) * self._mean
 
     def score(self, X, y):
+        # [FUNCTION DOC]
+        # HELPER: R^2 of predict(X) against y.
         from sklearn.metrics import r2_score
 
         return r2_score(y, self.predict(X))
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns regressor Tags with required targets.
         return Tags(
             estimator_type="regressor",
             classifier_tags=None,
@@ -1261,6 +1503,8 @@ class MinimalRegressor:
 
 
 class MinimalTransformer:
+    # [CLASS DOC]
+    # HELPER: Identity transformer built without BaseEstimator.
     """Minimal transformer implementation without inheriting from
     BaseEstimator.
 
@@ -1272,30 +1516,45 @@ class MinimalTransformer:
     """
 
     def __init__(self, param=None):
+        # [FUNCTION DOC]
+        # HELPER: Stores param.
         self.param = param
 
     def get_params(self, deep=True):
+        # [FUNCTION DOC]
+        # HELPER: Returns {'param': param}; deep is ignored.
         return {"param": self.param}
 
     def set_params(self, **params):
+        # [FUNCTION DOC]
+        # HELPER: setattr for each keyword; returns self.
         for key, value in params.items():
             setattr(self, key, value)
         return self
 
     def fit(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Validates X, sets is_fitted_, returns self.
         check_array(X)
         self.is_fitted_ = True
         return self
 
     def transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: Checks fitted and returns the validated X (check_array output); y is
+        # ignored.
         check_is_fitted(self)
         X = check_array(X)
         return X
 
     def fit_transform(self, X, y=None):
+        # [FUNCTION DOC]
+        # HELPER: fit then transform.
         return self.fit(X, y).transform(X, y)
 
     def __sklearn_tags__(self):
+        # [FUNCTION DOC]
+        # HELPER: Returns transformer Tags with targets not required.
         return Tags(
             estimator_type="transformer",
             classifier_tags=None,
@@ -1306,6 +1565,15 @@ class MinimalTransformer:
 
 
 def _array_api_for_tests(array_namespace, device_name=None, dtype_name=None):
+    # [FUNCTION DOC]
+    # HELPER: Imports the array library, requires SCIPY_ARRAY_API to be set, gets the
+    # compat-wrapped namespace from a sample array, then checks device availability
+    # per backend (torch cuda/mps/xpu, dpnp SYCL devices, cupy GPUs; array_api_strict
+    # builds a Device object). Device defaults to device_name. Finally skips if
+    # float64 is requested but unsupported on that device.
+    # Outputs: (xp, device).
+    # Exceptions: SkipTest in all unavailable cases.
+    # Side effects: none beyond imports.
     """Return (xp, device) for array API testing.
 
     Parameters
@@ -1413,13 +1681,27 @@ def _array_api_for_tests(array_namespace, device_name=None, dtype_name=None):
 
 
 def _get_warnings_filters_info_list():
+    # [FUNCTION DOC]
+    # HELPER: Returns the list of WarningInfo entries used project-wide: errors for
+    # DeprecationWarning, FutureWarning and VisibleDeprecationWarning, followed by
+    # "ignore" entries for known third-party deprecations (pkg_resources, pytest-cov,
+    # pyarrow, dateutil, joblib, sphinx-gallery, plotly, seaborn, PassiveAggressive,
+    # scipy sparse matrices).
+    # Outputs: list of WarningInfo.
     @dataclass
     class WarningInfo:
+        # [CLASS DOC]
+        # HELPER: Dataclass describing one warning filter (action, message regex,
+        # category).
         action: "warnings._ActionKind"
         message: str = ""
         category: type[Warning] = Warning
 
         def to_filterwarning_str(self):
+            # [FUNCTION DOC]
+            # HELPER: Formats "action:message:category" for pytest filterwarnings,
+            # using the bare class name for builtins and module.qualified name
+            # otherwise.
             if self.category.__module__ == "builtins":
                 category = self.category.__name__
             else:
@@ -1539,6 +1821,9 @@ def _get_warnings_filters_info_list():
 
 
 def get_pytest_filterwarning_lines():
+    # [FUNCTION DOC]
+    # HELPER: Returns the filter strings of all WarningInfo entries, for pytest
+    # config.
     warning_filters_info_list = _get_warnings_filters_info_list()
     return [
         warning_info.to_filterwarning_str()
@@ -1547,6 +1832,10 @@ def get_pytest_filterwarning_lines():
 
 
 def turn_warnings_into_errors():
+    # [FUNCTION DOC]
+    # HELPER: Registers every WarningInfo with warnings.filterwarnings.
+    # Side effects: mutates global warning filters; later entries take precedence, so
+    # the ignore rules override the error rules.
     warnings_filters_info_list = _get_warnings_filters_info_list()
     for warning_info in warnings_filters_info_list:
         warnings.filterwarnings(
