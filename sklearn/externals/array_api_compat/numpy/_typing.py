@@ -1,3 +1,7 @@
+# [MODULE DOC]
+# NumPy-specific typing aliases: Device is the literal "cpu"; DType and Array are
+# numpy.dtype and numpy.ndarray at runtime (parametrized versions under TYPE_CHECKING).
+# Imports numpy; no other side effects.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
@@ -26,4 +30,6 @@ __all__ = ["Array", "DType", "Device"]
 
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__

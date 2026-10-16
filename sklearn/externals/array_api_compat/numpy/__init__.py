@@ -1,3 +1,11 @@
+# [PACKAGE DOC]
+# Array-API-compatible NumPy namespace. Imports numpy.typing (so it is cloned), copies
+# numpy's public names into this package with clone_module, then overrides them with
+# the wrappers from ._aliases, adds __array_namespace_info__, the linalg and fft
+# submodules (imported eagerly via __import__ so they replace numpy's own linalg/fft
+# attributes), the linalg versions of matrix_transpose and vecdot, and
+# __array_api_version__ "2025.12". __all__ is the sorted union of these names.
+# Side effects at import: imports numpy, numpy.typing and the submodules.
 from typing import Final
 
 from .._internal import clone_module
@@ -34,4 +42,6 @@ __all__ = sorted(
 )
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Package __dir__ hook returning __all__.
     return __all__

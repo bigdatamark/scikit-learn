@@ -1,3 +1,14 @@
+# [MODULE DOC]
+# Tests for GradientBoostingClassifier and GradientBoostingRegressor
+# (sklearn.ensemble._gb) and the predict_stages / _safe_divide helpers: losses, accuracy
+# on toy, synthetic and real data, staged methods, OOB statistics, verbose output, warm
+# start, monitors, early stopping, init estimators, sparse input, and exact backward-
+# compatibility values from v1.2.0. Side effects at import: builds a 6-point binary toy
+# set (X, y, test points T with true_result), a scaled 100x4 regression set (X_reg,
+# y_reg), and loads iris permuted in place with a module-level RandomState(0) (rng),
+# which is also consumed later by test_degenerate_targets.
+# KNOWN ISSUE: make_regression is called with n_informative=8 > n_features=4; it is
+# silently capped at 4.
 """
 Testing for the gradient boosting module (sklearn.ensemble.gradient_boosting).
 """
@@ -57,6 +68,9 @@ iris.target = iris.target[perm]
 
 
 def test_exponential_n_classes_gt_2():
+    # [FUNCTION DOC]
+    # Verifies loss="exponential" on 3-class iris makes fit raise ValueError saying it
+    # only suits binary classification.
     """Test exponential loss raises for n_classes > 2."""
     clf = GradientBoostingClassifier(loss="exponential")
     msg = "loss='exponential' is only suitable for a binary classification"
@@ -65,6 +79,10 @@ def test_exponential_n_classes_gt_2():
 
 
 def test_raise_if_init_has_no_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies that passing a class (GradientBoostingRegressor, not an instance with
+    # predict_proba) as init makes fit raise the parameter validation ValueError for
+    # 'init'.
     """Test raise if init_ has no predict_proba method."""
     clf = GradientBoostingClassifier(init=GradientBoostingRegressor)
     msg = (
@@ -77,6 +95,12 @@ def test_raise_if_init_has_no_predict_proba():
 
 @pytest.mark.parametrize("loss", ("log_loss", "exponential"))
 def test_classification_toy(loss, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on the toy set for log_loss and exponential: predict before fit raises
+    # ValueError; after fit with 10 estimators predictions on T are correct, 10 stages
+    # exist, apply returns leaves of shape (6, 10, 1).
+    # KNOWN ISSUE: the train loss decrease check uses "any" difference being non-
+    # negative, which is almost vacuous; a monotone decrease would need "all".
     # Check classification on a toy dataset.
     clf = GradientBoostingClassifier(
         loss=loss, n_estimators=10, random_state=global_random_seed
@@ -98,6 +122,10 @@ def test_classification_toy(loss, global_random_seed):
 
 @pytest.mark.parametrize("loss", ("log_loss", "exponential"))
 def test_classification_synthetic(loss, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on Hastie 10.2 data (500 train / 1500 test): 50 stumps beat 10 stumps,
+    # and with 200 estimators stumps beat trees with 10 leaves (additive structure
+    # favours stumps).
     # Test GradientBoostingClassifier on synthetic dataset used by
     # Hastie et al. in ESLII - Figure 10.9
     # Note that Figure 10.9 reuses the dataset generated for figure 10.2
@@ -145,6 +173,12 @@ def test_classification_synthetic(loss, global_random_seed):
 @pytest.mark.parametrize("loss", ("squared_error", "absolute_error", "huber"))
 @pytest.mark.parametrize("subsample", (1.0, 0.5))
 def test_regression_dataset(loss, subsample, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies for squared_error, absolute_error and huber, with and without subsampling
+    # and with None/unit/double sample weights: apply shape is (100, 30) and training
+    # MSE < 0.05.
+    # KNOWN ISSUE: the intended comparison between weighted and unweighted predictions
+    # is disabled (FIXME); the branch only executes pass.
     # Check consistency on regression dataset with least squares
     # and least absolute deviation.
     ones = np.ones(len(y_reg))
@@ -186,6 +220,10 @@ def test_regression_dataset(loss, subsample, global_random_seed):
 @pytest.mark.parametrize("subsample", (1.0, 0.5))
 @pytest.mark.parametrize("sample_weight", (None, 1))
 def test_iris(subsample, sample_weight, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies on permuted iris with/without subsampling and with/without unit weights:
+    # training accuracy > 0.9 and apply returns shape (150, 100, 3) (one tree per class
+    # per stage).
     if sample_weight == 1:
         sample_weight = np.ones(len(iris.target))
     # Check consistency on dataset iris.
@@ -204,6 +242,9 @@ def test_iris(subsample, sample_weight, global_random_seed):
 
 
 def test_regression_synthetic(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies test MSE on Breiman's Friedman 1, 2, 3 datasets (200 train, 1000 test)
+    # stays below 6.5, 2500 and 0.025 respectively.
     # Test on synthetic regression datasets used in Leo Breiman,
     # `Bagging Predictors?. Machine Learning 24(2): 123-140 (1996).
     random_state = check_random_state(global_random_seed)
@@ -255,6 +296,9 @@ def test_regression_synthetic(global_random_seed):
     ],
 )
 def test_feature_importances(GradientBoosting, X, y):
+    # [FUNCTION DOC]
+    # Smoke test: feature_importances_ is absent before fit and present after, for
+    # regressor and classifier.
     # smoke test to check that the gradient boosting expose an attribute
     # feature_importances_
     gbdt = GradientBoosting()
@@ -264,6 +308,10 @@ def test_feature_importances(GradientBoosting, X, y):
 
 
 def test_probability_log(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies predict_proba raises ValueError before fit, then on the toy data
+    # probabilities lie in [0, 1] and their argmax mapped through classes_ equals
+    # predict / true_result.
     # Predict probabilities.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=global_random_seed)
 
@@ -284,6 +332,9 @@ def test_probability_log(global_random_seed):
 
 
 def test_single_class_with_sample_weight():
+    # [FUNCTION DOC]
+    # Verifies that zero weights removing all samples of one class make fit raise
+    # ValueError about only 1 class remaining after trimming zero-weight samples.
     sample_weight = [0, 0, 0, 1, 1, 1]
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
     msg = (
@@ -296,6 +347,9 @@ def test_single_class_with_sample_weight():
 
 @pytest.mark.parametrize("csc_container", CSC_CONTAINERS)
 def test_check_inputs_predict_stages(csc_container):
+    # [FUNCTION DOC]
+    # Verifies the low-level predict_stages rejects a CSC sparse matrix ("CSR format is
+    # expected") and a Fortran-ordered dense array ("C-ordered np.ndarray").
     # check that predict_stages through an error if the type of X is not
     # supported
     x, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
@@ -312,6 +366,10 @@ def test_check_inputs_predict_stages(csc_container):
 
 
 def test_max_feature_regression(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies with max_features=2 on Hastie data that the held-out log loss computed by
+    # the estimator's internal _loss on decision_function stays below 0.5 (random
+    # feature subsampling is seeded properly).
     # Test to make sure random state is set properly.
     X, y = datasets.make_hastie_10_2(n_samples=12000, random_state=global_random_seed)
 
@@ -334,6 +392,10 @@ def test_max_feature_regression(global_random_seed):
 def test_feature_importance_regression(
     fetch_california_housing_fxt, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies on California housing (fixture-provided loader) with huber loss that
+    # MedInc is the most important feature and the next three are Longitude, AveOccup
+    # and Latitude in any order.
     """Test that Gini importance is calculated correctly.
 
     This test follows the example from [1]_ (pg. 373).
@@ -368,6 +430,10 @@ def test_feature_importance_regression(
 
 
 def test_max_features():
+    # [FUNCTION DOC]
+    # Verifies max_features_ resolution: None -> n_features (classifier and regressor),
+    # 0.3 -> int(0.3 n_features), "sqrt" and "log2" -> int of those, and a tiny fraction
+    # -> at least 1.
     # Test if max features is set properly for floats and str.
     X, y = datasets.make_hastie_10_2(n_samples=12000, random_state=1)
     _, n_features = X.shape
@@ -401,6 +467,9 @@ def test_max_features():
 
 
 def test_staged_predict():
+    # [FUNCTION DOC]
+    # Verifies staged_predict raises ValueError before fit; after fit each stage has
+    # predict's shape and the last stage equals predict.
     # Test whether staged decision function eventually gives
     # the same prediction.
     X, y = datasets.make_friedman1(n_samples=1200, random_state=1, noise=1.0)
@@ -422,6 +491,11 @@ def test_staged_predict():
 
 
 def test_staged_predict_proba():
+    # [FUNCTION DOC]
+    # Verifies staged_predict_proba raises NotFittedError before fit; after fit,
+    # staged_predict stages have y's shape with the last equal to predict, and
+    # staged_predict_proba stages have shape (n, 2) with the last equal to
+    # predict_proba.
     # Test whether staged predict proba eventually gives
     # the same prediction.
     X, y = datasets.make_hastie_10_2(n_samples=1200, random_state=1)
@@ -450,6 +524,10 @@ def test_staged_predict_proba():
 
 @pytest.mark.parametrize("Estimator", GRADIENT_BOOSTING_ESTIMATORS)
 def test_staged_functions_defensive(Estimator, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies each available staged_* generator yields independent arrays: zeroing the
+    # second yielded array leaves the first unchanged (non-zero). Targets are shifted to
+    # avoid zero values; warnings are recorded and discarded.
     # test that staged_functions make defensive copies
     rng = np.random.RandomState(global_random_seed)
     X = rng.uniform(size=(10, 3))
@@ -468,6 +546,9 @@ def test_staged_functions_defensive(Estimator, global_random_seed):
 
 
 def test_serialization():
+    # [FUNCTION DOC]
+    # Verifies a fitted 100-stage classifier survives a pickle round trip with identical
+    # predictions on T and the same number of estimators (cPickle fallback to pickle).
     # Check model serialization.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
 
@@ -488,6 +569,10 @@ def test_serialization():
 
 
 def test_degenerate_targets():
+    # [FUNCTION DOC]
+    # Verifies a constant target makes the classifier raise ValueError, while the
+    # regressor fits and predicts exactly 1 for a random point (draws from the module-
+    # level rng).
     # Check if we can fit even though all targets are equal.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
 
@@ -502,6 +587,9 @@ def test_degenerate_targets():
 
 
 def test_quantile_loss(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies quantile loss with alpha=0.5 gives the same training predictions as
+    # absolute_error loss.
     # Check if quantile loss with alpha=0.5 equals absolute_error.
     clf_quantile = GradientBoostingRegressor(
         n_estimators=100,
@@ -527,6 +615,9 @@ def test_quantile_loss(global_random_seed):
 
 
 def test_symbol_labels():
+    # [FUNCTION DOC]
+    # Verifies string class labels are supported: predictions on T are the string
+    # version of true_result.
     # Test with non-integer class labels.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
 
@@ -538,6 +629,8 @@ def test_symbol_labels():
 
 
 def test_float_class_labels():
+    # [FUNCTION DOC]
+    # Verifies float32 class labels are supported and predicted back as float32 values.
     # Test with float class labels.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
 
@@ -549,6 +642,11 @@ def test_float_class_labels():
 
 
 def test_shape_y():
+    # [FUNCTION DOC]
+    # Verifies a column-vector y emits DataConversionWarning (column-vector y passed)
+    # and fit still predicts correctly with 100 estimators.
+    # KNOWN ISSUE: the leading comment says "Test with float class labels" (copy-paste);
+    # the test is about y shape.
     # Test with float class labels.
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
 
@@ -570,6 +668,9 @@ def test_shape_y():
 
 
 def test_mem_layout():
+    # [FUNCTION DOC]
+    # Verifies fitting works and predicts correctly for Fortran- and C-ordered X and for
+    # C- and Fortran-ordered int32 y.
     # Test with different memory layouts of X and y
     X_ = np.asfortranarray(X)
     clf = GradientBoostingClassifier(n_estimators=100, random_state=1)
@@ -600,6 +701,9 @@ def test_mem_layout():
 
 @pytest.mark.parametrize("GradientBoostingEstimator", GRADIENT_BOOSTING_ESTIMATORS)
 def test_oob_improvement(GradientBoostingEstimator):
+    # [FUNCTION DOC]
+    # Verifies with subsample=0.5 that oob_improvement_ has length 100 and its first
+    # five values match hardcoded regression values to 2 decimals.
     # Test if oob improvement has correct shape and regression test.
     estimator = GradientBoostingEstimator(
         n_estimators=100, random_state=1, subsample=0.5
@@ -616,6 +720,10 @@ def test_oob_improvement(GradientBoostingEstimator):
 
 @pytest.mark.parametrize("GradientBoostingEstimator", GRADIENT_BOOSTING_ESTIMATORS)
 def test_oob_scores(GradientBoostingEstimator):
+    # [FUNCTION DOC]
+    # Verifies oob_scores_ has one entry per stage and its last value equals oob_score_;
+    # with n_iter_no_change=5 early stopping yields fewer than 100 entries and the same
+    # relation.
     # Test if oob scores has correct shape and regression test.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     estimator = GradientBoostingEstimator(
@@ -648,6 +756,12 @@ def test_oob_scores(GradientBoostingEstimator):
     ],
 )
 def test_oob_attributes_error(GradientBoostingEstimator, oob_attribute):
+    # [FUNCTION DOC]
+    # Intended to check that oob_improvement_, oob_scores_ and oob_score_ are absent
+    # (AttributeError) when subsample=1.0.
+    # KNOWN ISSUE: it accesses the literal attribute name "oob_attribute" instead of
+    # getattr(estimator, oob_attribute), so it always raises AttributeError and the
+    # parametrized attribute is never actually tested.
     """
     Check that we raise an AttributeError when the OOB statistics were not computed.
     """
@@ -663,6 +777,11 @@ def test_oob_attributes_error(GradientBoostingEstimator, oob_attribute):
 
 
 def test_oob_multilcass_iris():
+    # [FUNCTION DOC]
+    # Verifies on iris with subsample=0.5: training accuracy > 0.9, oob_improvement_ and
+    # oob_scores_ have n_estimators entries and the last OOB score equals oob_score_;
+    # with early stopping both arrays are shorter. A hardcoded value check is commented
+    # out (32-bit differences).
     # Check OOB improvement on multi-class dataset.
     estimator = GradientBoostingClassifier(
         n_estimators=100, loss="log_loss", random_state=1, subsample=0.5
@@ -696,6 +815,10 @@ def test_oob_multilcass_iris():
 
 @pytest.mark.thread_unsafe  # manually captured stdout
 def test_verbose_output():
+    # [FUNCTION DOC]
+    # Verifies verbose=1 with subsampling prints a header with Iter, Train Loss, OOB
+    # Improve and Remaining Time columns followed by 19 progress lines (1-10, then every
+    # 10th up to 100). Redirects sys.stdout manually (thread-unsafe).
     # Check verbose=1 does not cause error.
     import sys
     from io import StringIO
@@ -728,6 +851,9 @@ def test_verbose_output():
 
 @pytest.mark.thread_unsafe  # manually captured stdout
 def test_more_verbose_output():
+    # [FUNCTION DOC]
+    # Verifies verbose=2 without subsampling prints a header without the OOB column and
+    # one line per each of the 100 iterations.
     # Check verbose=2 does not cause error.
     import sys
     from io import StringIO
@@ -757,6 +883,9 @@ def test_more_verbose_output():
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start(Cls, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies fitting 100 then warm-starting to 200 estimators equals fitting 200
+    # directly (predict; for the classifier also predict_proba).
     # Test if warm start equals fit.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=global_random_seed)
     est = Cls(n_estimators=200, max_depth=1, random_state=global_random_seed)
@@ -780,6 +909,8 @@ def test_warm_start(Cls, global_random_seed):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_n_estimators(Cls, global_random_seed):
+    # [FUNCTION DOC]
+    # Same as test_warm_start with 100 -> 300 estimators, comparing predict.
     # Test if warm start equals fit - set n_estimators.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=global_random_seed)
     est = Cls(n_estimators=300, max_depth=1, random_state=global_random_seed)
@@ -797,6 +928,9 @@ def test_warm_start_n_estimators(Cls, global_random_seed):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_max_depth(Cls):
+    # [FUNCTION DOC]
+    # Verifies warm start can add trees of a different depth: after growing from 100 to
+    # 110 with max_depth 2, the first tree has depth 1 and the last 10 have depth 2.
     # Test if possible to fit trees of different depth in ensemble.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=100, max_depth=1, warm_start=True)
@@ -812,6 +946,9 @@ def test_warm_start_max_depth(Cls):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_clear(Cls):
+    # [FUNCTION DOC]
+    # Verifies that refitting with warm_start=False discards previous stages and equals
+    # a fresh fit.
     # Test if fit clears state.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=100, max_depth=1)
@@ -827,6 +964,10 @@ def test_warm_start_clear(Cls):
 
 @pytest.mark.parametrize("GradientBoosting", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_state_oob_scores(GradientBoosting):
+    # [FUNCTION DOC]
+    # Verifies OOB score state with warm start: growing to 200 extends oob_scores_ while
+    # keeping the first 100 entries; refitting with warm_start=False creates new
+    # array/score objects equal in value to the original 100-stage run.
     """
     Check that the states of the OOB scores are cleared when used with `warm_start`.
     """
@@ -859,6 +1000,9 @@ def test_warm_start_state_oob_scores(GradientBoosting):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_smaller_n_estimators(Cls):
+    # [FUNCTION DOC]
+    # Verifies warm-start refit with fewer estimators than already fitted raises
+    # ValueError.
     # Test if warm start with smaller n_estimators raises error
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=100, max_depth=1, warm_start=True)
@@ -870,6 +1014,8 @@ def test_warm_start_smaller_n_estimators(Cls):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_equal_n_estimators(Cls):
+    # [FUNCTION DOC]
+    # Verifies warm-start refit with the same n_estimators leaves predictions unchanged.
     # Test if warm start with equal n_estimators does nothing
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=100, max_depth=1)
@@ -884,6 +1030,10 @@ def test_warm_start_equal_n_estimators(Cls):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_oob_switch(Cls):
+    # [FUNCTION DOC]
+    # Verifies subsampling can be enabled mid warm start: the first 100 OOB improvements
+    # and scores are zero, the 10 new ones non-zero, and the last OOB score equals
+    # oob_score_.
     # Test if oob can be turned on during warm start.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=100, max_depth=1, warm_start=True)
@@ -903,6 +1053,10 @@ def test_warm_start_oob_switch(Cls):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_oob(Cls):
+    # [FUNCTION DOC]
+    # Verifies OOB improvements and scores of the first 100 stages match between a warm-
+    # started 100->200 model and a direct 200-stage fit, and last OOB score equals
+    # oob_score_ in both.
     # Test if warm start OOB equals fit.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est = Cls(n_estimators=200, max_depth=1, subsample=0.5, random_state=1)
@@ -926,6 +1080,9 @@ def test_warm_start_oob(Cls):
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_warm_start_sparse(Cls, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies warm-started training on each sparse format (COO, CSC, CSR) matches dense
+    # training in OOB improvements, OOB scores and final predictions.
     # Test that all sparse matrix types are supported
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
     est_dense = Cls(
@@ -963,6 +1120,9 @@ def test_warm_start_sparse(Cls, sparse_container):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_warm_start_fortran(Cls, global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies warm-started training (1 -> 11 estimators) on Fortran-ordered X predicts
+    # the same as on C-ordered X.
     # Test that feeding an X in Fortran-ordered is giving the same results as
     # in C-ordered
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=global_random_seed)
@@ -982,6 +1142,11 @@ def test_warm_start_fortran(Cls, global_random_seed):
 
 
 def early_stopping_monitor(i, est, locals):
+    # [FUNCTION DOC]
+    # HELPER: monitor callback for fit that stops boosting after the 10th iteration.
+    # Inputs: i - int iteration index; est - the estimator; locals - dict of fit locals
+    # (unused).
+    # Outputs: True when i equals 9, else False.
     """Returns True on the 10th iteration."""
     if i == 9:
         return True
@@ -991,6 +1156,11 @@ def early_stopping_monitor(i, est, locals):
 
 @pytest.mark.parametrize("Cls", GRADIENT_BOOSTING_ESTIMATORS)
 def test_monitor_early_stopping(Cls):
+    # [FUNCTION DOC]
+    # Verifies the monitor callback stops training at 10 stages (estimators_,
+    # train_score_, oob_improvement_, oob_scores_ truncated to 10, n_estimators
+    # unchanged at 20), and that a later refit without monitor (with or without prior
+    # warm_start) trains the full 30.
     # Test if monitor return value works.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
 
@@ -1036,6 +1206,9 @@ def test_monitor_early_stopping(Cls):
 
 
 def test_complete_classification():
+    # [FUNCTION DOC]
+    # Verifies max_leaf_nodes=k+1 with max_depth=None grows best-first trees with
+    # exactly k+1 leaves and depth k on this data.
     # Test greedy trees with max_depth + 1 leaves.
     from sklearn.tree._tree import TREE_LEAF
 
@@ -1053,6 +1226,8 @@ def test_complete_classification():
 
 
 def test_complete_regression():
+    # [FUNCTION DOC]
+    # Verifies max_leaf_nodes=k+1 yields exactly k+1 leaves in the last regression tree.
     # Test greedy trees with max_depth + 1 leaves.
     from sklearn.tree._tree import TREE_LEAF
 
@@ -1068,6 +1243,9 @@ def test_complete_regression():
 
 
 def test_zero_estimator_reg(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies init="zero" regression beats a mean-predicting DummyRegressor baseline in
+    # training MSE.
     # Test if init='zero' works for regression by checking that it is better
     # than a simple baseline.
 
@@ -1087,6 +1265,9 @@ def test_zero_estimator_reg(global_random_seed):
 
 
 def test_zero_estimator_clf(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies init="zero" classification reaches training accuracy > 0.96 on iris for
+    # the multiclass and a binarized (class 0 vs rest) version.
     # Test if init='zero' works for classification.
     X = iris.data
     y = np.array(iris.target)
@@ -1111,6 +1292,10 @@ def test_zero_estimator_clf(global_random_seed):
 
 @pytest.mark.parametrize("GBEstimator", GRADIENT_BOOSTING_ESTIMATORS)
 def test_max_leaf_nodes_max_depth(GBEstimator):
+    # [FUNCTION DOC]
+    # Verifies tree depth is 1 when max_depth=1, both with max_leaf_nodes=4 and without.
+    # KNOWN ISSUE: the comment claims max_leaf_nodes takes precedence over max_depth,
+    # but the assertions show max_depth=1 is still honoured; the comment is outdated.
     # Test precedence of max_leaf_nodes over max_depth.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
 
@@ -1127,6 +1312,8 @@ def test_max_leaf_nodes_max_depth(GBEstimator):
 
 @pytest.mark.parametrize("GBEstimator", GRADIENT_BOOSTING_ESTIMATORS)
 def test_min_impurity_decrease(GBEstimator):
+    # [FUNCTION DOC]
+    # Verifies min_impurity_decrease is forwarded to every fitted tree.
     X, y = datasets.make_hastie_10_2(n_samples=100, random_state=1)
 
     est = GBEstimator(min_impurity_decrease=0.1)
@@ -1138,6 +1325,9 @@ def test_min_impurity_decrease(GBEstimator):
 
 
 def test_warm_start_wo_nestimators_change():
+    # [FUNCTION DOC]
+    # Non-regression for #3513: refitting with warm_start and unchanged n_estimators
+    # keeps exactly 10 stages.
     # Test if warm_start does nothing if n_estimators is not changed.
     # Regression test for #3513.
     clf = GradientBoostingClassifier(n_estimators=10, warm_start=True)
@@ -1157,6 +1347,10 @@ def test_warm_start_wo_nestimators_change():
     ],
 )
 def test_non_uniform_weights_toy_edge_case_reg(loss, value):
+    # [FUNCTION DOC]
+    # Verifies that zero-weighted samples are ignored: with the two y=0 duplicates of
+    # [1, 0] weighted 0, the prediction for [1, 0] is at least the given loss-dependent
+    # value.
     X = [[1, 0], [1, 0], [1, 0], [0, 1]]
     y = [0, 0, 1, 0]
     # ignore the first 2 training samples by setting their weight to 0
@@ -1167,6 +1361,9 @@ def test_non_uniform_weights_toy_edge_case_reg(loss, value):
 
 
 def test_non_uniform_weights_toy_edge_case_clf():
+    # [FUNCTION DOC]
+    # Same zero-weight edge case for the classifier (log_loss and exponential): [1, 0]
+    # is predicted as class 1.
     X = [[1, 0], [1, 0], [1, 0], [0, 1]]
     y = [0, 0, 1, 0]
     # ignore the first 2 training samples by setting their weight to 0
@@ -1185,6 +1382,15 @@ def test_non_uniform_weights_toy_edge_case_clf():
     "sparse_container", COO_CONTAINERS + CSC_CONTAINERS + CSR_CONTAINERS
 )
 def test_sparse_input(EstimatorClass, sparse_container):
+    # [FUNCTION DOC]
+    # Verifies sparse (COO, CSC, CSR) and dense training agree on apply, predict,
+    # feature_importances_, predictions across sparse/dense inputs, and for the
+    # classifier also predict_proba, predict_log_proba, decision_function and
+    # staged_decision_function. Skipped on 32-bit.
+    # KNOWN ISSUE: the outputs of make_multilabel_classification are unpacked as (y, X),
+    # so "X" is the 20-column label indicator matrix and "y" is the single feature
+    # column; the test still compares sparse vs dense consistently but the names are
+    # swapped.
     y, X = datasets.make_multilabel_classification(
         random_state=0, n_samples=50, n_features=1, n_classes=20
     )
@@ -1228,6 +1434,9 @@ def test_sparse_input(EstimatorClass, sparse_container):
     "GradientBoostingEstimator", [GradientBoostingClassifier, GradientBoostingRegressor]
 )
 def test_gradient_boosting_early_stopping(GradientBoostingEstimator):
+    # [FUNCTION DOC]
+    # Verifies with n_iter_no_change=10 that a larger tol stops earlier: n_estimators_
+    # for tol=0.1 < tol=0.001 < 1000, and both reach test score > 0.7.
     # Check if early stopping works as expected, that is empirically check that the
     # number of trained estimators is increasing when the tolerance decreases.
 
@@ -1263,6 +1472,8 @@ def test_gradient_boosting_early_stopping(GradientBoostingEstimator):
 
 
 def test_gradient_boosting_without_early_stopping():
+    # [FUNCTION DOC]
+    # Verifies n_estimators_ equals n_estimators (50 and 30) when early stopping is off.
     # When early stopping is not used, the number of trained estimators
     # must be the one specified.
     X, y = make_classification(n_samples=1000, random_state=0)
@@ -1282,6 +1493,9 @@ def test_gradient_boosting_without_early_stopping():
 
 
 def test_gradient_boosting_validation_fraction():
+    # [FUNCTION DOC]
+    # Verifies validation_fraction changes the number of fitted stages, and that a
+    # larger n_iter_no_change (20 vs 10) yields more stages, for both estimators.
     X, y = make_classification(n_samples=1000, random_state=0)
 
     gbc = GradientBoostingClassifier(
@@ -1325,6 +1539,9 @@ def test_gradient_boosting_validation_fraction():
 
 
 def test_early_stopping_stratified():
+    # [FUNCTION DOC]
+    # Verifies the early-stopping validation split is stratified: with one sample of
+    # class 1, fit raises ValueError about the least populated class having 1 member.
     # Make sure data splitting for early stopping is stratified
     X = [[1, 2], [2, 3], [3, 4], [4, 5]]
     y = [0, 0, 0, 1]
@@ -1341,6 +1558,9 @@ def test_early_stopping_stratified():
 
 
 def _make_multiclass():
+    # [FUNCTION DOC]
+    # HELPER: returns an (X, y) tuple from make_classification with 3 classes and one
+    # cluster per class (unseeded).
     return make_classification(n_classes=3, n_clusters_per_class=1)
 
 
@@ -1356,6 +1576,10 @@ def _make_multiclass():
 def test_gradient_boosting_with_init(
     gb, dataset_maker, init_estimator, global_random_seed
 ):
+    # [FUNCTION DOC]
+    # Verifies an estimator init (Dummy*) works with sample_weight; wrapped in
+    # NoSampleWeightWrapper it works without weights but fit with sample_weight raises
+    # ValueError "does not support sample weights". Datasets are unseeded.
     # Check that GradientBoostingRegressor works when init is a sklearn
     # estimator.
     # Check that an error is raised if trying to fit with sample weight but
@@ -1376,6 +1600,11 @@ def test_gradient_boosting_with_init(
 
 
 def test_gradient_boosting_with_init_pipeline():
+    # [FUNCTION DOC]
+    # Non-regression for #13466: a Pipeline init works without sample_weight and raises
+    # ValueError "initial estimator Pipeline does not support sample weights" with them;
+    # an invalid NuSVR init (nu=1.5) instead surfaces its own InvalidParameterError
+    # rather than being misreported as a sample-weight problem.
     # Check that the init estimator can be a pipeline (see issue #13466)
 
     X, y = make_regression(random_state=0)
@@ -1406,6 +1635,12 @@ def test_gradient_boosting_with_init_pipeline():
 
 
 def test_early_stopping_n_classes():
+    # [FUNCTION DOC]
+    # Verifies that if the early-stopping split leaves a class absent from the training
+    # part (validation_fraction=0.8 with 2 negatives out of 10), fit raises ValueError
+    # "The training data after the early stopping split".
+    # KNOWN ISSUE: the final "no error" case constructs an estimator with
+    # validation_fraction=0.4 but never fits it, so nothing is checked.
     # when doing early stopping (_, , y_train, _ = train_test_split(X, y))
     # there might be classes in y that are missing in y_train. As the init
     # estimator will be trained on y_train, we need to raise an error if this
@@ -1428,6 +1663,9 @@ def test_early_stopping_n_classes():
 
 
 def test_gbr_degenerate_feature_importances():
+    # [FUNCTION DOC]
+    # Non-regression for #13620: with constant X and y every tree is a single node and
+    # feature_importances_ is all zeros (no NaN).
     # growing an ensemble of single node trees. See #13620
     X = np.zeros((10, 10))
     y = np.ones((10,))
@@ -1436,6 +1674,10 @@ def test_gbr_degenerate_feature_importances():
 
 
 def test_huber_vs_mean_and_median():
+    # [FUNCTION DOC]
+    # Verifies on an asymmetric (exponential noise) target that huber predictions lie
+    # between absolute_error (median-like) and squared_error (mean-like) predictions for
+    # every sample.
     """Check that huber lies between absolute and squared error."""
     n_rep = 100
     n_samples = 10
@@ -1458,6 +1700,9 @@ def test_huber_vs_mean_and_median():
 
 
 def test_safe_divide():
+    # [FUNCTION DOC]
+    # Verifies _safe_divide returns 0 for division by zero (including 0/0) without any
+    # warning, and emits a RuntimeWarning "overflow" when the quotient overflows.
     """Test that _safe_divide handles division by zero."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -1469,6 +1714,10 @@ def test_safe_divide():
 
 
 def test_squared_error_exact_backward_compat():
+    # [FUNCTION DOC]
+    # Verifies squared_error predictions and the last 10 train scores on a 10-sample
+    # dataset match values recorded with v1.2.0, unweighted (rtol 1e-8) and with
+    # alternating weights 1/10 (looser tolerances).
     """Test squared error GBT backward compat on a simple dataset.
 
     The results to compare against are taken from scikit-learn v1.2.0.
@@ -1552,6 +1801,9 @@ def test_squared_error_exact_backward_compat():
 
 
 def test_huber_overfit():
+    # [FUNCTION DOC]
+    # Verifies huber GBT with alpha=0.8 overfits 10 samples: internal huber delta <
+    # 2e-4, predictions within 0.01 of y and last 10 train scores < 3e-7.
     """Test huber GBT can completely overfit"""
     n_samples = 10
     y = np.arange(n_samples)
@@ -1566,6 +1818,9 @@ def test_huber_overfit():
 
 
 def test_binomial_error_exact_backward_compat():
+    # [FUNCTION DOC]
+    # Verifies binary log_loss predict_proba and last 10 train scores match v1.2.0
+    # values.
     """Test binary log_loss GBT backward compat on a simple dataset.
 
     The results to compare against are taken from scikit-learn v1.2.0.
@@ -1611,6 +1866,9 @@ def test_binomial_error_exact_backward_compat():
 
 
 def test_multinomial_error_exact_backward_compat():
+    # [FUNCTION DOC]
+    # Verifies 4-class log_loss predict_proba and last 10 train scores match v1.2.0
+    # values.
     """Test multiclass log_loss GBT backward compat on a simple dataset.
 
     The results to compare against are taken from scikit-learn v1.2.0.
@@ -1656,6 +1914,10 @@ def test_multinomial_error_exact_backward_compat():
 
 
 def test_gb_denominator_zero(global_random_seed):
+    # [FUNCTION DOC]
+    # Verifies that the terminal-region line search does not hit a zero denominator /
+    # NaN: fitting an aggressive configuration (learning_rate 1, subsampling, 4 leaves)
+    # on Hastie data emits no warnings (all warnings are errors).
     """Test _update_terminal_regions denominator is not zero.
 
     For instance for log loss based binary classification, the line search step might
@@ -1685,6 +1947,9 @@ def test_gb_denominator_zero(global_random_seed):
 
 @pytest.mark.parametrize("GradientBoosting", GRADIENT_BOOSTING_ESTIMATORS)
 def test_criterion_param_deprecation(GradientBoosting):
+    # [FUNCTION DOC]
+    # Verifies passing criterion="friedman_mse" emits a FutureWarning mentioning
+    # criterion when fitting either estimator on the toy data.
     with pytest.warns(FutureWarning, match="criterion"):
         reg = GradientBoosting(criterion="friedman_mse")
         reg.fit(X, y)

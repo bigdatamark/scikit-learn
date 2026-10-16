@@ -1,3 +1,5 @@
+# [MODULE DOC]
+# HELPER: Private pytest utilities for the test suite. Importing it imports pytest.
 """Private testing utilities."""
 
 import pytest
@@ -8,6 +10,12 @@ __all__ = ["xfail"]
 def xfail(
     request: pytest.FixtureRequest, *, reason: str, strict: bool | None = None
 ) -> None:
+    # [FUNCTION DOC]
+    # HELPER: Marks the running test as expected-to-fail without stopping it, by adding
+    #   a pytest xfail marker (with reason, and strict only if given) to request.node,
+    #   so a pass becomes XPASS.
+    # Inputs: request - pytest FixtureRequest; reason - str; strict - optional bool.
+    # Outputs: None. Side effects: mutates the test node's markers.
     """
     XFAIL the currently running test.
 

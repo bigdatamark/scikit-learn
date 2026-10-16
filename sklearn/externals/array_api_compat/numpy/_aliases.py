@@ -1,3 +1,9 @@
+# [MODULE DOC]
+# NumPy-specific array API aliases: bool and renamed elementwise functions, generic
+# common._aliases implementations bound to numpy via get_xp, NumPy-specific wrappers
+# (asarray, astype, count_nonzero, take_along_axis, ceil/floor/trunc), and vecdot,
+# isdtype, unstack taken from NumPy when available (NumPy 2.x) else the generic ones.
+# __all__ is common._aliases.__all__ plus the names defined here.
 # pyright: reportPrivateUsage=false
 from __future__ import annotations
 
@@ -76,6 +82,15 @@ def asarray(
     copy: py_bool | None = None,
     **kwargs: Any,
 ) -> Array:
+    # [FUNCTION DOC]
+    # Spec-compliant asarray. Validates device ("cpu" or None), maps copy None to
+    # numpy._CopyMode.IF_NEEDED and False to numpy._CopyMode.NEVER (works on NumPy 1.x and
+    # 2.x), then calls numpy.array.
+    # Inputs: obj - array-like; dtype - optional; device - "cpu"/None; copy - None/bool;
+    # kwargs forwarded to numpy.array.
+    # Outputs: NumPy ndarray.
+    # Exceptions: ValueError for unsupported devices or when copy is False and a copy is
+    # required (raised by NumPy).
     """
     Array API compatibility wrapper for asarray().
 
@@ -102,6 +117,10 @@ def astype(
     copy: py_bool = True,
     device: Device | None = None,
 ) -> Array:
+    # [FUNCTION DOC]
+    # astype with a device keyword: validates device then delegates to x.astype(dtype,
+    # copy=copy). Outputs: ndarray (x itself possible when copy is False).
+    # Exceptions: ValueError for unsupported devices.
     _helpers._check_device(np, device)
     return x.astype(dtype=dtype, copy=copy)
 
@@ -113,6 +132,11 @@ def count_nonzero(
     axis: int | tuple[int, ...] | None = None,
     keepdims: py_bool = False,
 ) -> Array:
+    # [FUNCTION DOC]
+    # count_nonzero that always returns an array: NumPy returns a Python int when axis is
+    # None and keepdims is False, so that case is wrapped with numpy.asarray.
+    # Inputs: x; axis - None, int or tuple; keepdims - default False.
+    # Outputs: integer ndarray (0-D for a full reduction).
     # NOTE: this is currently incorrectly typed in numpy, but will be fixed in
     # numpy 2.2.5 and 2.3.0: https://github.com/numpy/numpy/pull/28750
     result = cast("Any", np.count_nonzero(x, axis=axis, keepdims=keepdims))  # pyright: ignore[reportArgumentType, reportCallIssue]
@@ -123,24 +147,36 @@ def count_nonzero(
 
 # take_along_axis: axis defaults to -1 but in numpy axis is a required arg
 def take_along_axis(x: Array, indices: Array, /, *, axis: int = -1) -> Array:
+    # [FUNCTION DOC]
+    # take_along_axis with axis defaulting to -1 (required in NumPy).
+    # Outputs: gathered ndarray.
     return np.take_along_axis(x, indices, axis=axis)
 
 
 # ceil, floor, and trunc return integers for integer inputs in NumPy < 2
 
 def ceil(x: Array, /) -> Array:
+    # [FUNCTION DOC]
+    # ceil returning a copy of integer inputs on NumPy < 2 (which would yield floats);
+    # otherwise numpy.ceil.
+    # KNOWN ISSUE: the version check is a lexicographic string comparison, which would
+    # misclassify a hypothetical NumPy 10+ as older than 2.
     if np.__version__ < '2' and np.issubdtype(x.dtype, np.integer):
         return x.copy()
     return np.ceil(x)
 
 
 def floor(x: Array, /) -> Array:
+    # [FUNCTION DOC]
+    # floor; same NumPy < 2 integer handling and string version check as ceil.
     if np.__version__ < '2' and np.issubdtype(x.dtype, np.integer):
         return x.copy()
     return np.floor(x)
 
 
 def trunc(x: Array, /) -> Array:
+    # [FUNCTION DOC]
+    # trunc; same NumPy < 2 integer handling and string version check as ceil.
     if np.__version__ < '2' and np.issubdtype(x.dtype, np.integer):
         return x.copy()
     return np.trunc(x)
@@ -188,4 +224,6 @@ __all__ = _aliases.__all__ + [
 
 
 def __dir__() -> list[str]:
+    # [FUNCTION DOC]
+    # HELPER: Module __dir__ hook returning __all__.
     return __all__
